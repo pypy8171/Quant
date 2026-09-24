@@ -4,7 +4,7 @@
 
 이 문서는 C++ 퀀트 트레이딩 엔진(`Quant/`)의 **TRADE 모드 실행 경로**를 파일·함수 단위로 추적한다. 모든 주장에는 `파일::심볼` 근거가 달려 있으며, 데이터가 큐/콜백을 넘을 때 "무엇이 무엇으로 변환되는가"를 명시한다.
 
-> 이 문서를 쓴 뒤 코드가 옮겨간 곳이 있다. 전략 로딩은 `Quant/src/main.cpp`에서 `Quant/src/strategy/StrategyFactory.cpp`로, 관찰 모드(FEED·KR_TEST·US_TEST) 화면은 `Quant/src/modes/Monitors.cpp`로 분리됐고, `Logger`는 writer 스레드를 둔 비동기 구조가 됐다. 심볼 참조는 옮겨간 곳으로 맞췄으나(KisClient 멤버는 `Quant/src/api/Kis{Auth,Market,Order,Account,Transport,Index,Universe}.cpp`) 11절과 13절의 서술 일부는 아직 분리 이전 구조를 설명한다.
+> 이 문서를 쓴 뒤 코드가 옮겨간 곳이 있다. 전략 로딩은 `Quant/src/main.cpp`에서 `Quant/src/strategy/StrategyFactory.cpp`로, 관찰 모드(FEED·KR_TEST·US_TEST)는 지웠고(D-130), `Logger`는 writer 스레드를 둔 비동기 구조가 됐다. 심볼 참조는 옮겨간 곳으로 맞췄으나(KisClient 멤버는 `Quant/src/api/Kis{Auth,Market,Order,Account,Transport,Index,Universe}.cpp`) 11절과 13절의 서술 일부는 아직 분리 이전 구조를 설명한다.
 
 > 시크릿(app_key/app_secret/access_token/account_no)은 `Quant/config/*.json`에 평문으로 존재하나(예: `config.json:3-5`), 본 문서에는 값을 옮기지 않는다. 존재 사실만 언급한다.
 
@@ -49,15 +49,14 @@ TRADE 모드의 데이터 흐름:
 
 ### 1.1 진입점과 인자 파싱
 - `main()` 진입: `main.cpp::main`. Windows 콘솔 UTF-8/ANSI 설정 후 (`main.cpp::main`) `Logger::instance().init("logs/quant_trader.log", INFO)` (`main.cpp::main`, logs/ 하위 고정·부모폴더 자동생성).
-- 인자 파싱: `quant_trader [config] [MODE] [--role both|order|strategy|feed]`. `KR_TEST/US_TEST/FEED/TRADE`는 `mode_override`로, `--role`은 이 프로세스가 맡는 자리로, 그 외 토큰은 `config_path`로 해석 (`Quant/src/core/CommandLine.cpp::parse_command_line`). 모르는 역할·`-`로 시작하는 모르는 깃발은 기본값으로 낙하하지 않고 종료코드 2로 멈춘다. `order`·`strategy`·`feed`를 주면 그 역할만 띄우고(`engine.set_role`), 로그는 `logs/quant_trader.order.log`·`logs/quant_trader.strategy.log`·`logs/quant_trader.feed.log`로 갈린다(D-114 단계 5). 역할 낱말은 `MODE` 자리의 `FEED`(주문 없이 시세만 보는 실행 모드)와 다른 것이다 — `--role feed`는 갈라 띄운 엔진에서 실시간 소켓을 쥐는 자리다.
+- 인자 파싱: `quant_trader [config] [--role both|order|strategy|feed]`. 옛 명령줄의 `TRADE`는 받아 넘기고 지운 모드 낱말(`FEED` 등)은 멈추며, `--role`은 이 프로세스가 맡는 자리로, 그 외 토큰은 `config_path`로 해석 (`Quant/src/core/CommandLine.cpp::parse_command_line`). 모르는 역할·`-`로 시작하는 모르는 깃발은 기본값으로 낙하하지 않고 종료코드 2로 멈춘다. `order`·`strategy`·`feed`를 주면 그 역할만 띄우고(`engine.set_role`), 로그는 `logs/quant_trader.order.log`·`logs/quant_trader.strategy.log`·`logs/quant_trader.feed.log`로 갈린다(D-114 단계 5). `--role feed`는 갈라 띄운 엔진에서 실시간 소켓을 쥐는 자리다.
 - 설정 로드: `main.cpp::main`이 파일을 읽어 `json::parse`한 뒤 `Quant/src/core/AppConfig.cpp::parse_config`가 typed `AppConfig`로 바꾸고, `Quant/src/core/EngineConfigure.cpp::Engine::configure`가 그 값을 엔진 세터에 옮긴다(d7ef5ac·27a6a70). 옛 `main.cpp` 안의 설정 로더와 빈 설정 파일은 지웠다.
 
 ### 1.2 config.json 스키마
 `config.json` 최상위 키:
 - `kis` 객체: `app_key`, `app_secret`, `account_no`, `account_type`("01"), `hts_id`, `is_paper`(bool) — 파싱 위치 `AppConfig.cpp::parse_config`. `hts_id`는 체결통보 채널 구독 키로 쓰이며 미설정 시 빈 문자열 (`main.cpp::main`).
-- `mode`: "FEED"/"TRADE"/"KR_TEST"/"US_TEST" (`main.cpp::main`).
+- `mode`: 없어도 된다. 있으면 "TRADE"만 받고 나머지는 기동을 멈춘다 (`AppConfig.cpp::parse_config`, D-130).
 - `fetch_interval_sec`: DataThread 폴링 주기, 기본 60 (`main.cpp::main`).
-- `tickers`: FEED 모드 전용 배열, TRADE 모드에서는 전략이 동적으로 종목을 구성하므로 불필요 (`main.cpp::main`).
 - `strategies`: 전략 배열. 각 원소는 `type` + 전략별 파라미터.
 - `is_paper=true`이면 모의투자 엔드포인트를 쓴다 (`config_mm_paper.json:8`). `is_paper=false`는 실거래 (`config.json:8`).
 
@@ -136,7 +135,7 @@ TRADE 모드의 데이터 흐름:
 - **올바른 값**: 같은 파일의 `get_index_daily_ohlcv`가 쓰는 방식처럼 `DATE_2 = 오늘(KST)`, `DATE_1 = 오늘 - N일`로 유한 구간을 넣어야 한다 (참조 패턴: `KisIndex.cpp::get_index_daily_ohlcv`의 `format_date(end_t)` / `end_t - kWindowDays*86400`). count봉을 채우려면 페이지네이션도 함께 필요.
 
 ### 4.2 부차 문제: count=1 폴링과 일봉 반복
-DataThread는 `get_daily_ohlcv(ticker, 1)`로 **최신 1봉만** 가져온다 (`Engine.cpp::data_thread_fn`). 이 봉은 "오늘의(미완성) 일봉"이라, 60초마다 폴링할 때마다 사실상 같은 날짜의 종가가 반복 push된다. MACross의 `prices_` deque(`MACrossStrategy.h::prices_`)는 서로 거의 같은 값으로 채워져 골든/데드크로스가 잘 발생하지 않는다. 설령 4.1 버그가 고쳐져도, 장중 일봉 크로스 전략이 의미 있게 동작하려면 과거 N봉을 시드하는 로직이 필요하다. (KR_TEST 경로는 `get_daily_ohlcv(code, 65)`로 여러 봉을 받아 MA를 계산하므로 대조적 — `Monitors.cpp::run_kr_test`.)
+DataThread는 `get_daily_ohlcv(ticker, 1)`로 **최신 1봉만** 가져온다 (`Engine.cpp::data_thread_fn`). 이 봉은 "오늘의(미완성) 일봉"이라, 60초마다 폴링할 때마다 사실상 같은 날짜의 종가가 반복 push된다. MACross의 `prices_` deque(`MACrossStrategy.h::prices_`)는 서로 거의 같은 값으로 채워져 골든/데드크로스가 잘 발생하지 않는다. 설령 4.1 버그가 고쳐져도, 장중 일봉 크로스 전략이 의미 있게 동작하려면 과거 N봉을 시드하는 로직이 필요하다.
 
 ---
 
@@ -285,7 +284,6 @@ MACross의 `make_signal` (`MACrossStrategy.h::make_signal`)은 `type=MARKET`, `q
 
 `Logger`는 싱글톤이다. 헤더(`Quant/include/utils/Logger.h`)에는 선언과 매크로 `LOG_INFO/WARN/ERROR/DEBUG`만 있고, 큐·writer 스레드·파일 핸들은 `Quant/src/utils/Logger.cpp`의 `Logger::Implementation`에 있다. 호출 스레드는 레코드를 락 없는 `MpscQueue`에 넣기만 하고, writer 스레드가 로컬 시각(`localtime`) `YYYY-MM-DD HH:MM:SS.mmm` 타임스탬프를 붙여 콘솔(`console_enabled_`일 때)과 `logs/quant_trader.log`에 쓴다. 파일은 큐가 한산해진 순간과 레코드가 몰리는 동안 주기마다 flush하므로 `tail`로 바로 보인다.
 
-FEED/KR_TEST/US_TEST 모드는 `set_console_enabled(false)`로 콘솔 로그를 끄고 화면을 직접 그린다 (`Monitors.cpp::run_feed`·`Monitors.cpp::run_kr_test`·`Monitors.cpp::run_us_test`).
 
 ---
 

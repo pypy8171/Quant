@@ -70,19 +70,16 @@ private:
 struct CommandLine
 {
     std::string config_path = "config/config.json";
-    std::string mode_override; // 비어 있으면 config의 "mode"
     ProcessRole role = ProcessRole::Both;
     std::string error;
 };
 
-// quant_trader [config] [MODE] [--role both|order|strategy|feed]
-//   quant_trader.exe                          → config/config.json, mode from json, 역할 both
-//   quant_trader.exe KR_TEST                  → config/config.json, mode=KR_TEST
-//   quant_trader.exe config.json TRADE        → 지정 config, mode=TRADE
+// quant_trader [config] [--role both|order|strategy|feed]
+//   quant_trader.exe                          → config/config.json, 역할 both
+//   quant_trader.exe config.json TRADE        → 지정 config. 옛 명령줄의 `TRADE`는 받아 넘긴다
 //   quant_trader.exe config.json --role order → 지정 config, 주문·원장만 맡는다
 //   quant_trader.exe config.json --role feed  → 지정 config, 시세 소켓만 맡는다
-// 모드 낱말 `FEED`와 역할 `--role feed`는 다른 것이다. 앞은 config의 "mode"를 덮어써 주문 없이 시세만
-//  보게 하는 실행 모드고, 뒤는 TRADE 중에도 이 프로세스가 맡는 자리다. [why D-114]
+// `FEED`·`KR_TEST`·`US_TEST` 낱말은 지운 실행 모드라 오류로 멈춘다. 역할 `--role feed`와는 다른 것이다. [why D-130]
 [[nodiscard]] CommandLine parse_command_line(int argc, char* argv[]);
 
 // 인자를 못 알아들었을 때 로그에 같이 싣는 한 줄. 쓰는 사람이 로그만 보고 고칠 수 있게.

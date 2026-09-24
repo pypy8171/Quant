@@ -64,26 +64,20 @@ ls -lh Quant/build/quant_trader
 
 config.json은 Windows에 이미 있으므로 그대로 사용합니다.
 
-### 4-1. REST 인증 확인 (US_TEST — WebSocket 없음)
+### 4-1. 모의계좌로 기동 (REST + WebSocket)
+
+시세만 보던 US_TEST·KR_TEST는 지웠다(D-130). `"is_paper": true` 설정으로 엔진을 띄워 로그를 본다.
 
 ```bash
-./Quant/build/quant_trader Quant/config/config.json US_TEST
+./Quant/build/quant_trader Quant/config/config_paper.json
 ```
 
-정상이면 M7 미국주식 시세 출력.
-
-### 4-2. KR_TEST (REST + WebSocket)
-
-```bash
-./Quant/build/quant_trader Quant/config/config.json KR_TEST
-```
-
-- `[WS:연결]` → 완전 정상
-- `[WS:끊김]` → REST는 정상, WebSocket만 연결 실패
+- `logs/quant_trader.log`에 인증·잔고 조회 줄 → REST 정상
+- `[WS]` 연결 줄 → WebSocket 정상
 
 > WSL2에서 KIS WebSocket(`ops.koreainvestment.com:21000`)은 plain TCP로 연결을 시도합니다.  
 > Windows(WinHTTP)는 TLS로 연결하므로 동작 방식이 다릅니다.  
-> `[WS:끊김]`이 떠도 REST 시세(현재가·PBR·PER)는 정상 출력됩니다.
+> WebSocket이 끊겨도 REST 조회는 따로 동작합니다.
 
 ---
 
@@ -157,8 +151,7 @@ python3 main.py monitor
 | 순서 | 항목 | 명령 | 성공 기준 |
 |------|------|------|-----------|
 | 1 | C++ 빌드 | `cmake --build Quant/build` | `[100%] Linking` |
-| 2 | C++ REST | `US_TEST` 실행 | M7 시세 출력 |
-| 3 | C++ WS | `KR_TEST` 실행 | KOSPI 20종목 표시 |
+| 2 | C++ 기동 | 모의 config로 실행 | 로그에 인증·잔고 조회·`[WS]` 연결 줄 |
 | 4 | Python 인증 | `python3 -c "..."` | `인증 성공` |
 | 5 | Python 시세 | `get_daily_ohlcv` | Bar 5개 출력 |
 | 6 | Python 백테스트 | `main.py backtest` | 수익률 리포트 출력 |

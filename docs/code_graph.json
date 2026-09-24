@@ -5,7 +5,6 @@
     "exchange",
     "ipc",
     "main",
-    "modes",
     "risk",
     "strategy",
     "universe",
@@ -84,11 +83,6 @@
     },
     {
       "from": "main",
-      "to": "modes",
-      "weight": 1
-    },
-    {
-      "from": "main",
       "to": "strategy",
       "weight": 1
     },
@@ -96,26 +90,6 @@
       "from": "main",
       "to": "utils",
       "weight": 1
-    },
-    {
-      "from": "modes",
-      "to": "api",
-      "weight": 3
-    },
-    {
-      "from": "modes",
-      "to": "core",
-      "weight": 3
-    },
-    {
-      "from": "modes",
-      "to": "ipc",
-      "weight": 1
-    },
-    {
-      "from": "modes",
-      "to": "utils",
-      "weight": 2
     },
     {
       "from": "risk",
@@ -247,7 +221,6 @@
     "ipc/SharedSymbolDictionary.h": "ipc",
     "ipc/SharedWriteLock.h": "ipc",
     "ipc/ZmqBridge.h": "ipc",
-    "modes/Monitors.h": "modes",
     "risk/DisplacementDesk.h": "risk",
     "risk/EntryPriority.h": "risk",
     "risk/GateReasons.h": "risk",
@@ -352,7 +325,6 @@
     "ipc/SharedSymbolDictionary.cpp": "ipc",
     "ipc/SharedWriteLock.cpp": "ipc",
     "ipc/ZmqBridge.cpp": "ipc",
-    "modes/Monitors.cpp": "modes",
     "risk/DisplacementDesk.cpp": "risk",
     "risk/EntryPriority.cpp": "risk",
     "risk/GateReasons.cpp": "risk",
@@ -874,23 +846,8 @@
       "core/CommandLine.h",
       "core/Engine.h",
       "core/Types.h",
-      "modes/Monitors.h",
       "strategy/StrategyFactory.h",
       "utils/Logger.h"
-    ],
-    "modes/Monitors.cpp": [
-      "api/KisClient.h",
-      "api/KisWebSocket.h",
-      "core/KstTime.h",
-      "core/MarketSession.h",
-      "core/Types.h",
-      "ipc/ZmqBridge.h",
-      "modes/Monitors.h",
-      "utils/Logger.h",
-      "utils/Utf8.h"
-    ],
-    "modes/Monitors.h": [
-      "api/KisClient.h"
     ],
     "risk/DisplacementDesk.cpp": [
       "risk/DisplacementDesk.h",
@@ -1167,8 +1124,6 @@
       "api/KisWebSocket.h",
       "core/AppConfig.h",
       "core/Engine.h",
-      "modes/Monitors.cpp",
-      "modes/Monitors.h",
       "strategy/DeviationScaleStrategy.h",
       "strategy/StrategyFactory.h",
       "strategy/SupplyDemandPullbackStrategy.h",
@@ -1210,8 +1165,7 @@
       "api/KisWebSocket.cpp",
       "api/KisWebSocketParse.cpp",
       "api/WebSocketClient.cpp",
-      "core/Engine.h",
-      "modes/Monitors.cpp"
+      "core/Engine.h"
     ],
     "api/KisWsDecode.h": [
       "api/KisWebSocket.h",
@@ -1275,7 +1229,6 @@
       "core/RegimeFileJudge.h",
       "exchange/ZmqOrderFeed.cpp",
       "ipc/OrderRouter.cpp",
-      "modes/Monitors.cpp",
       "risk/OrderGate.cpp",
       "strategy/DeviationScaleStrategy.h",
       "strategy/SeedPeakStore.h",
@@ -1300,7 +1253,6 @@
       "core/MarketSession.cpp",
       "core/PaperExecutor.h",
       "core/TickCapture.h",
-      "modes/Monitors.cpp",
       "strategy/FixedIntervalStrategy.h",
       "strategy/PriceTargetStrategy.h",
       "strategy/ThemeStrategy.h",
@@ -1442,7 +1394,6 @@
       "ipc/OrderRouter.h",
       "ipc/ZmqBridge.h",
       "main.cpp",
-      "modes/Monitors.cpp",
       "risk/DisplacementDesk.h",
       "risk/LedgerKeys.h",
       "risk/OrderGate.h",
@@ -1555,12 +1506,7 @@
     "ipc/ZmqBridge.h": [
       "core/Engine.h",
       "ipc/OrderRouter.h",
-      "ipc/ZmqBridge.cpp",
-      "modes/Monitors.cpp"
-    ],
-    "modes/Monitors.h": [
-      "main.cpp",
-      "modes/Monitors.cpp"
+      "ipc/ZmqBridge.cpp"
     ],
     "risk/DisplacementDesk.h": [
       "core/Engine.cpp",
@@ -1732,7 +1678,6 @@
       "ipc/OrderRouter.cpp",
       "ipc/ZmqBridge.cpp",
       "main.cpp",
-      "modes/Monitors.cpp",
       "risk/DisplacementDesk.cpp",
       "risk/ProtectiveOrders.h",
       "strategy/DeviationScaleStrategy.h",
@@ -1760,18 +1705,17 @@
     "utils/Utf8.h": [
       "core/Engine.cpp",
       "exchange/ZmqOrderFeed.cpp",
-      "modes/Monitors.cpp",
       "utils/Utf8.cpp"
     ]
   },
   "hubs": [
     {
       "header": "core/Types.h",
-      "in_degree": 42
+      "in_degree": 41
     },
     {
       "header": "utils/Logger.h",
-      "in_degree": 35
+      "in_degree": 34
     },
     {
       "header": "core/SymbolTable.h",
@@ -1779,7 +1723,7 @@
     },
     {
       "header": "core/KstTime.h",
-      "in_degree": 19
+      "in_degree": 18
     },
     {
       "header": "strategy/StrategyBase.h",
@@ -1787,7 +1731,7 @@
     },
     {
       "header": "api/KisClient.h",
-      "in_degree": 13
+      "in_degree": 11
     },
     {
       "header": "core/WakeGate.h",
@@ -1795,7 +1739,7 @@
     },
     {
       "header": "core/MarketSession.h",
-      "in_degree": 9
+      "in_degree": 8
     },
     {
       "header": "risk/OrderGate.h",
@@ -1816,10 +1760,6 @@
     {
       "header": "ipc/LedgerSnapshot.h",
       "in_degree": 6
-    },
-    {
-      "header": "api/KisWebSocket.h",
-      "in_degree": 5
     },
     {
       "header": "core/IFeedSource.h",
@@ -1844,6 +1784,10 @@
     {
       "header": "utils/JsonNode.h",
       "in_degree": 5
+    },
+    {
+      "header": "api/KisErrorCodes.h",
+      "in_degree": 4
     }
   ],
   "python": {
@@ -1954,7 +1898,6 @@
       "PYQuant/tools/universe_feed.py",
       "PYQuant/tools/walkforward.py",
       "scripts/_logdir.py",
-      "scripts/aftermarket_feed_check.py",
       "scripts/analyze_slot_cost.py",
       "scripts/backfill_fills_db.py",
       "scripts/backfill_studies.py",

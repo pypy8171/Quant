@@ -1,6 +1,6 @@
 #pragma once
 // 프로세스 설정 한 벌 — config.json을 typed 값으로 옮긴 것. json을 읽는 곳은 parse_config() 하나뿐이고,
-//  main()·Engine 세터·모니터 모드는 여기 값만 받는다. "config.json의 키 X가 어디에 쓰이나"는 이 파일과
+//  main()·Engine 세터는 여기 값만 받는다. "config.json의 키 X가 어디에 쓰이나"는 이 파일과
 //  AppConfig.cpp 두 곳에서 끝난다. 전략별 파라미터(`strategies` 배열)만 예외 — 타입마다 키가 달라
 //  strategy/StrategyFactory.cpp가 자기 몫을 읽는다.
 #include "api/KisClient.h"
@@ -18,13 +18,8 @@
 struct AppConfig
 {
     // ── 공통 ──
-    std::string mode = "FEED"; // FEED / KR_TEST / US_TEST / TRADE (Mode::from_string)
     bool        debug_log = false; // log_level == "DEBUG"
     KisConfig   kis;               // 주문·잔고·기본 피드 키
-
-    // ── 관찰 모드(FEED) ──
-    std::vector<std::string> tickers; // 구독 종목. TRADE는 전략이 동적으로 구성하므로 안 쓴다
-    std::vector<std::string> futures; // 국내 선물 실시간(H0IFCNT0/H0IFASP0). 실계좌 WS 도메인 전용
 
     // ── TRADE: 엔진 채널 ──
     int                    fetch_interval_sec = 60;
@@ -92,9 +87,9 @@ struct AppConfig
     nlohmann::json strategies = nlohmann::json::array();
 };
 
-// config.json 문서 → AppConfig. mode_override가 비어 있지 않으면 문서의 "mode"를 덮는다.
+// config.json 문서 → AppConfig.
 //  값이 틀리면(예: kis.exchange가 KRX/NXT/SOR 밖) std::runtime_error — 네트워크를 건드리기 전에 기동이 멈춘다.
-AppConfig parse_config(const nlohmann::json& document, const std::string& mode_override);
+AppConfig parse_config(const nlohmann::json& document);
 
 // 파일 경로 → json 문서. 없으면 std::runtime_error.
 nlohmann::json load_config_file(const std::string& path);

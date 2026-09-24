@@ -2,7 +2,6 @@
 #include "core/CommandLine.h"
 #include "core/Engine.h"
 #include "core/Types.h"
-#include "modes/Monitors.h"
 #include "strategy/StrategyFactory.h"
 #include "utils/Logger.h"
 #include <atomic>
@@ -61,7 +60,6 @@ struct TimerResolution
 #endif
 
 // ─── 전역 종료 플래그 ─────────────────────────────────────────────────────
-static std::atomic<bool> g_running{true};
 static Engine* g_engine = nullptr;
 
 // 시그널 스레드는 정지 요청만 한다. 예전엔 여기서 stop()(join 전부)을 돌렸는데, running_이 내려가자마자 main이
@@ -69,8 +67,6 @@ static Engine* g_engine = nullptr;
 //  std::terminate, 사유 없음). join은 main 스레드의 stop() 한 곳만.
 void signal_handler(int)
 {
-    g_running.store(false);
-
     if (g_engine)
     {
         g_engine->request_shutdown("시그널(Ctrl+C·콘솔 종료)");
@@ -303,7 +299,7 @@ static int run_trade(const AppConfig& app, ProcessRole role)
 // ═══════════════════════════════════════════════════════════════════════════
 //  main — 아래 호출 순서가 초기화 순서 문서다. 각 단계는 위 함수 하나에 대응한다.
 //   1 타이머 격자 · 2 콘솔 · 3 인자 · 4 로거 · 5 설정(json→AppConfig, 검증 포함) · 6 로그 임계값 ·
-//   7 크래시 핸들러 · 8 모드 분기(관찰 모드는 modes/Monitors.cpp, TRADE는 run_trade)
+//   7 크래시 핸들러 · 8 run_trade
 // ═══════════════════════════════════════════════════════════════════════════
 int main(int argc, char* argv[])
 {
@@ -339,7 +335,7 @@ int main(int argc, char* argv[])
 
     try // 5. 설정 — 키 누락·값 오류는 여기서 멈춘다. 네트워크는 아직 안 건드렸다
     {
-        app = parse_config(load_config_file(command_line.config_path), command_line.mode_override);
+        app = parse_config(load_config_file(command_line.config_path));
         LOG_INFO("[Main] 설정 로드: " + command_line.config_path);
     }
     catch (const std::exception& exception)
@@ -348,30 +344,8 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    if (!command_line.mode_override.empty())
-    {
-        LOG_INFO("[Main] 모드 오버라이드: " + command_line.mode_override);
-    }
-
     apply_log_level(app);        // 6.
     log_exchange_choice(app.kis);
     install_crash_handlers();    // 7.
-    const Mode mode = Mode::from_string(app.mode); // 8.
-
-    if (mode == Mode::FEED)
-    {
-        return run_feed(app.kis, app.tickers, app.futures, g_running);
-    }
-
-    if (mode == Mode::KR_TEST)
-    {
-        return run_kr_test(app.kis, app.zmq_pub_port, app.zmq_rep_port, g_running);
-    }
-
-    if (mode == Mode::US_TEST)
-    {
-        return run_us_test(app.kis, g_running);
-    }
-
-    return run_trade(app, command_line.role);
+    return run_trade(app, command_line.role); // 8.
 }

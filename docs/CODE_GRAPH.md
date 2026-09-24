@@ -10,7 +10,6 @@
 ```mermaid
 graph LR
   main[main]
-  modes[modes]
   core[core]
   strategy[strategy]
   api[api]
@@ -33,13 +32,8 @@ graph LR
   ipc --> risk
   ipc -->|5| utils
   main -->|4| core
-  main --> modes
   main --> strategy
   main --> utils
-  modes -->|3| api
-  modes -->|3| core
-  modes --> ipc
-  modes -->|2| utils
   risk -->|12| core
   risk -->|2| ipc
   risk -->|2| utils
@@ -61,14 +55,14 @@ graph LR
 
 | 헤더 | 유입 수 |
 |---|---|
-| `core/Types.h` | 42 |
-| `utils/Logger.h` | 35 |
+| `core/Types.h` | 41 |
+| `utils/Logger.h` | 34 |
 | `core/SymbolTable.h` | 20 |
-| `core/KstTime.h` | 19 |
+| `core/KstTime.h` | 18 |
 | `strategy/StrategyBase.h` | 15 |
-| `api/KisClient.h` | 13 |
+| `api/KisClient.h` | 11 |
 | `core/WakeGate.h` | 10 |
-| `core/MarketSession.h` | 9 |
+| `core/MarketSession.h` | 8 |
 
 ## 파일 단위 상세
 
@@ -195,10 +189,6 @@ graph LR
   end
   subgraph main
     n_main_cpp["main.cpp"]
-  end
-  subgraph modes
-    n_modes_Monitors_cpp["modes/Monitors.cpp"]
-    n_modes_Monitors_h["modes/Monitors.h"]
   end
   subgraph risk
     n_risk_DisplacementDesk_cpp["risk/DisplacementDesk.cpp"]
@@ -532,19 +522,8 @@ graph LR
   n_main_cpp --> n_core_CommandLine_h
   n_main_cpp --> n_core_Engine_h
   n_main_cpp --> n_core_Types_h
-  n_main_cpp --> n_modes_Monitors_h
   n_main_cpp --> n_strategy_StrategyFactory_h
   n_main_cpp --> n_utils_Logger_h
-  n_modes_Monitors_cpp --> n_api_KisClient_h
-  n_modes_Monitors_cpp --> n_api_KisWebSocket_h
-  n_modes_Monitors_cpp --> n_core_KstTime_h
-  n_modes_Monitors_cpp --> n_core_MarketSession_h
-  n_modes_Monitors_cpp --> n_core_Types_h
-  n_modes_Monitors_cpp --> n_ipc_ZmqBridge_h
-  n_modes_Monitors_cpp --> n_modes_Monitors_h
-  n_modes_Monitors_cpp --> n_utils_Logger_h
-  n_modes_Monitors_cpp --> n_utils_Utf8_h
-  n_modes_Monitors_h --> n_api_KisClient_h
   n_risk_DisplacementDesk_cpp --> n_risk_DisplacementDesk_h
   n_risk_DisplacementDesk_cpp --> n_utils_Logger_h
   n_risk_DisplacementDesk_h --> n_core_Types_h

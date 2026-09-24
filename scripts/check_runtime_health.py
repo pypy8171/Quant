@@ -1395,7 +1395,7 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
             if START_RE.search(line):
                 starts.append(second)
 
-                # 플랫폼은 엔진이 실제로 뜬 기동만 센다. FEED 모드와 설정 로드 실패는 플랫폼 줄까지만
+                # 플랫폼은 엔진이 실제로 뜬 기동만 센다. 설정 로드 실패(지운 모드 포함, D-130)는 플랫폼 줄까지만
                 #  찍고 엔진 시작 줄이 없다 — 주문을 한 건도 못 내므로 "엔진 둘" 판정의 대상이 아니다.
                 #  09-23 에 Windows FEED 점검 6회가 이 판정을 FAIL 로 만들었다.
                 if pending_platform:

@@ -73,23 +73,3 @@ StrategyType StrategyType::from_string(std::string_view text)
 
     return StrategyType(UNKNOWN);
 }
-
-Mode Mode::from_string(const std::string& text)
-{
-    if (text == "FEED")
-    {
-        return Mode(FEED);
-    }
-
-    if (text == "KR_TEST")
-    {
-        return Mode(KR_TEST);
-    }
-
-    if (text == "US_TEST")
-    {
-        return Mode(US_TEST);
-    }
-
-    return Mode(TRADE);
-}

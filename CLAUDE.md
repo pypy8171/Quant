@@ -18,8 +18,8 @@ ctest 앞에 `py ../quant-devtools/check_build_ready.py` — 빌드 폴더가 �
 
 ## 실행 모드
 
-`Quant/config/config.json`의 `"mode"`: **`FEED`**는 KIS WebSocket 실시간 시세만 표시(주문 없음, 연결·인증 검증용,
-`"futures"` 배열을 주면 선물도 구독), **`TRADE`**는 5-스레드 엔진이 장 중(평일 09:00–15:30 + 애프터마켓 16:00–20:00 KST, D-097) 실제 주문을 낸다.
+실행 모드는 **`TRADE`** 하나다 — 5-스레드 엔진이 장 중(평일 09:00–15:30 + 애프터마켓 16:00–20:00 KST, D-097) 실제 주문을 낸다.
+FEED·KR_TEST·US_TEST는 지웠고(D-130), config에 `"mode"`가 TRADE 밖이면 기동이 멈춘다.
 config에는 **실계좌 인증 정보**가 있다. 모의투자는 `"is_paper": true`.
 
 ## 설계 목표와 원칙 (D-071)

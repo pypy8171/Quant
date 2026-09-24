@@ -59,24 +59,27 @@ void test_defaults()
     const CommandLine command_line = parse({});
     check(command_line.error.empty(), "기본값: 오류 없음");
     check(command_line.config_path == "config/config.json", "기본값: 설정 경로");
-    check(command_line.mode_override.empty(), "기본값: 모드 오버라이드 없음");
     check(command_line.role == ProcessRole::Both, "기본값: 역할 both");
 }
 
-// ② 모드 낱말과 설정 경로
+// ② 모드 낱말과 설정 경로 — 옛 명령줄의 TRADE는 받아 넘기고, 지운 모드 낱말은 멈춘다(D-130)
 void test_mode_and_config()
 {
-    for (const std::string mode_word : {"FEED", "KR_TEST", "US_TEST", "TRADE"})
-    {
-        const CommandLine command_line = parse({mode_word});
-        check(command_line.mode_override == mode_word, "모드 낱말 " + mode_word);
-        check(command_line.config_path == "config/config.json", "모드만 주면 설정 경로는 기본값 " + mode_word);
-    }
+    const CommandLine trade_only = parse({"TRADE"});
+    check(trade_only.error.empty(), "TRADE: 오류 없음");
+    check(trade_only.config_path == "config/config.json", "TRADE만 주면 설정 경로는 기본값");
 
     const CommandLine both = parse({"Quant/config/config.json", "TRADE"});
-    check(both.config_path == "Quant/config/config.json", "설정 경로 + 모드: 경로");
-    check(both.mode_override == "TRADE", "설정 경로 + 모드: 모드");
-    check(both.role == ProcessRole::Both, "설정 경로 + 모드: 역할은 건드리지 않는다");
+    check(both.error.empty(), "설정 경로 + TRADE: 오류 없음");
+    check(both.config_path == "Quant/config/config.json", "설정 경로 + TRADE: 경로");
+    check(both.role == ProcessRole::Both, "설정 경로 + TRADE: 역할은 건드리지 않는다");
+
+    for (const std::string removed_word : {"FEED", "KR_TEST", "US_TEST"})
+    {
+        const CommandLine command_line = parse({removed_word});
+        check(!command_line.error.empty(), "지운 모드 낱말이면 멈춘다: " + removed_word);
+        check(command_line.config_path == "config/config.json", "지운 모드 낱말이 설정 경로가 되지 않는다: " + removed_word);
+    }
 }
 
 // ③ --role 두 철자와 대소문자
@@ -108,17 +111,8 @@ void test_role_spellings()
     check(feed_joined.error.empty(), "--role=FEED: 오류 없음");
     check(feed_joined.role == ProcessRole::Feed, "--role=FEED (대문자)");
 
-    // 모드 낱말 FEED와 역할 feed는 다른 것이다 — 같이 줘도 서로 덮지 않는다
-    const CommandLine mode_word_only = parse({"FEED"});
-    check(mode_word_only.mode_override == "FEED", "모드 낱말 FEED: 모드로 간다");
-    check(mode_word_only.role == ProcessRole::Both, "모드 낱말 FEED: 역할은 건드리지 않는다");
-
-    const CommandLine mode_and_role = parse({"FEED", "--role", "feed"});
-    check(mode_and_role.mode_override == "FEED", "FEED + --role feed: 모드");
-    check(mode_and_role.role == ProcessRole::Feed, "FEED + --role feed: 역할");
-
     const CommandLine trade_and_feed_role = parse({"TRADE", "--role", "feed"});
-    check(trade_and_feed_role.mode_override == "TRADE", "TRADE + --role feed: 모드는 TRADE 그대로");
+    check(trade_and_feed_role.error.empty(), "TRADE + --role feed: 오류 없음");
     check(trade_and_feed_role.role == ProcessRole::Feed, "TRADE + --role feed: 역할은 feed");
 }
 

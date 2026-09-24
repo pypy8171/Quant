@@ -65,7 +65,7 @@ review = [
   [[stage.step]]
   sym = "main"
   file = "Quant/src/main.cpp"
-  what = "진입. 번호 주석이 초기화 순서다 — 콘솔·로거 → 인자 → `parse_config` → 로그 임계값 → 크래시 핸들러 → 모드 분기(FEED·KR_TEST·US_TEST는 modes/, TRADE는 `run_trade`)"
+  what = "진입. 번호 주석이 초기화 순서다 — 콘솔·로거 → 인자 → `parse_config` → 로그 임계값 → 크래시 핸들러 → `run_trade`"
 
   [[stage.step]]
   sym = "parse_config"

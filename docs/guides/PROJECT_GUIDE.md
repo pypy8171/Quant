@@ -102,9 +102,8 @@ OpsServer(내부 스레드)           운영단말 TCP — 조회·수동주문�
 | `Quant/include/strategy` · `Quant/src/strategy` | `StrategyBase`와 전략 구현, 타입별 로더 `StrategyFactory.cpp`. 가상 함수는 `on_data`·`on_order_book`·`on_order_book_batch`·`on_trade`·`on_trade_batch`·`on_start`·`on_stop`·`get_watch_specifications`·`wants_daily_bars`·`id`·`describe` |
 | `Quant/include/ipc` · `Quant/src/ipc` | `OrderRouter`(FEP 층 — 라우팅·이력·통계), 운영단말 TCP `OpsServer`·`OpsProtocol`, `ZmqBridge`(HAS_ZMQ일 때만) |
 | `Quant/include/universe` · `Quant/src/universe` | 유니버스 스캔·점수(`UniverseScanner`·`ScoreWeight`·`MaAlign`) |
-| `Quant/include/modes` · `Quant/src/modes` | FEED·KR_TEST·US_TEST 모니터 모드(`Monitors`) |
 | `Quant/include/utils` · `Quant/src/utils` | 비동기 `Logger`, ETF 이름 판별 `EtfFilter`, json 접근 `JsonNode`, `Utf8` |
-| `Quant/src/main.cpp` | 진입점 — 초기화 단계 호출과 FEED / KR_TEST / US_TEST / TRADE 분기 |
+| `Quant/src/main.cpp` | 진입점 — 초기화 단계 호출 뒤 `run_trade` |
 | `Quant/tests` | ctest 단위 테스트 `test_*.cpp`(아래 "단위 테스트")와 벤치 `bench_*.cpp` |
 | `Quant/tools` | 수동 주문·운영단말 클라이언트 `ops_client`·MFC 운영단말 `ops_terminal`·시세 점검 실행파일과 파이썬 조회 스크립트 |
 | `Quant/config` | `config.json`(gitignore — 실KIS 인증정보·계좌번호), 모의용 `config_*_paper.json`, ETF·리츠 이름 목록, 매크로 보조 프로세스가 쓰는 `regime.json`, 유니버스 스캔 결과 |
@@ -116,14 +115,10 @@ OpsServer(내부 스레드)           운영단말 TCP — 조회·수동주문�
 
 부속 가이드: [코드 의존 그래프 가이드](CODE_GRAPH_GUIDE.md) — 모듈·파일 의존 그래프 생성, `--impact` 영향범위 질의, 증분빌드 팬아웃 최적화. 그래프 산출물은 [../CODE_GRAPH.md](../CODE_GRAPH.md).
 
-### 실행 모드 (`config.json` → `"mode"` 또는 CLI 인자)
+### 실행 모드
 
-| 모드 | 동작 |
-|------|------|
-| `KR_TEST` | KOSPI 상위 20 + 관심종목 실시간 시세. WS 체결 수신 + ZMQ publish. 주문 없음. |
-| `FEED` | WebSocket 호가+체결 5단계 콘솔 표시. 연결·인증 검증용. |
-| `US_TEST` | M7(AAPL·MSFT·NVDA 등) REST 시세 반복 조회. 장 외 시간에도 동작. |
-| `TRADE` | Engine 실행(1절 스레드 모델). 전략 신호 → OrderGate → KIS 실주문. |
+`TRADE` 하나다 — Engine 실행(1절 스레드 모델), 전략 신호 → OrderGate → KIS 실주문. 시세만 보던 FEED·KR_TEST·US_TEST는
+D-130에서 지웠다. config의 `"mode"`는 없어도 되고, TRADE 밖의 값이면 기동이 멈춘다.
 
 ### 단위 테스트
 
@@ -384,7 +379,7 @@ cmake --build Quant/build_win
 # vcpkg install zeromq:x64-windows
 
 # 실행
-.\Quant\build_win\quant_trader.exe Quant\config\config.json KR_TEST
+.\Quant\build_win\quant_trader.exe Quant\config\config.json
 ```
 
 ### Linux (서버 / VPS 배포)
@@ -417,7 +412,7 @@ docker compose up -d
 sudo apt install -y cmake ninja-build g++-14 libcurl4-openssl-dev libzmq3-dev
 cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-14 -B Quant/build -S Quant
 cmake --build Quant/build
-./Quant/build/quant_trader Quant/config/config.json KR_TEST
+./Quant/build/quant_trader Quant/config/config.json
 ```
 
 ### Windows vs Linux 코드 분기

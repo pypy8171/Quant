@@ -35,8 +35,7 @@ int main()
 {
     // 1. 최소 문서 — 기본값이 Engine·OrderGate 기본과 같고, 매매 창은 risk 노드 없이도 켜진다.
     {
-        const AppConfig app = parse_config(minimal_document(), "");
-        CHECK(app.mode == "FEED");
+        const AppConfig app = parse_config(minimal_document());
         CHECK(!app.debug_log);
         CHECK(app.kis.account_no == "12345678");
         CHECK(app.kis.is_paper);
@@ -59,19 +58,34 @@ int main()
     {
         json document           = minimal_document();
         document["kis"]["is_paper"] = false;
-        const AppConfig app     = parse_config(document, "");
+        const AppConfig app     = parse_config(document);
         CHECK(app.risk.after_open_min == 16 * 60);
         CHECK(app.risk.after_close_min == 20 * 60);
     }
 
-    // 2. 모드 오버라이드가 문서의 mode를 이기고, log_level=DEBUG가 읽힌다.
+    // 2. "mode": "TRADE"는 받고, 지운 모드(FEED 등)는 멈춘다(D-130). log_level=DEBUG가 읽힌다.
     {
         json document     = minimal_document();
         document["mode"]  = "TRADE";
         document["log_level"] = "DEBUG";
-        CHECK(parse_config(document, "").mode == "TRADE");
-        CHECK(parse_config(document, "FEED").mode == "FEED");
-        CHECK(parse_config(document, "").debug_log);
+        CHECK(parse_config(document).debug_log);
+
+        for (const char* removed_mode : {"FEED", "KR_TEST", "US_TEST"})
+        {
+            document["mode"] = removed_mode;
+            bool threw       = false;
+
+            try
+            {
+                parse_config(document);
+            }
+            catch (const std::runtime_error&)
+            {
+                threw = true;
+            }
+
+            CHECK(threw);
+        }
     }
 
     // 3. kis.exchange 검증 — 허용 밖이면 던진다(네트워크 전에 멈추는 자리).
@@ -82,7 +96,7 @@ int main()
 
         try
         {
-            parse_config(document, "");
+            parse_config(document);
         }
         catch (const std::runtime_error&)
         {
@@ -91,7 +105,7 @@ int main()
 
         CHECK(thrown);
         document["kis"]["exchange"] = "SOR";
-        CHECK(parse_config(document, "").kis.exchange == "SOR");
+        CHECK(parse_config(document).kis.exchange == "SOR");
     }
 
     // 4. feed_keys는 기본 키의 계좌·모의 여부를 물려받고 hts_id는 비운다(체결통보는 기본 키가 맡는다).
@@ -102,7 +116,7 @@ int main()
         document["kis"]["exchange"] = "NXT";
         document["feed_keys"]       = json::array({{{"app_key", "k2"}, {"app_secret", "s2"}}});
         document["quote_kis"]       = {{"app_key", "qk"}, {"app_secret", "qs"}};
-        const AppConfig app = parse_config(document, "");
+        const AppConfig app = parse_config(document);
         CHECK(app.feed_keys.size() == 1);
         CHECK(app.feed_keys[0].app_key == "k2");
         CHECK(app.feed_keys[0].account_no == "12345678");
@@ -122,7 +136,7 @@ int main()
         document["kis"]["hts_id"] = "hts";
         document["feed_keys"]     = json::array({{{"app_key", "k2"}, {"app_secret", "s2"}, {"fill_notice", true}},
                                                  {{"app_key", "k3"}, {"app_secret", "s3"}, {"fill_notice", true}}});
-        const AppConfig app = parse_config(document, "");
+        const AppConfig app = parse_config(document);
         CHECK(app.feed_keys.size() == 2);
         CHECK(app.feed_keys[0].hts_id == "hts");
         CHECK(app.feed_keys[1].hts_id.empty());
@@ -136,7 +150,7 @@ int main()
         document["risk"] = {{"max_qty_per_ticker", 7},        {"daily_loss_limit", -50000.0},
                             {"session_open_hhmm", 930},        {"after_market", false},
                             {"order_min_interval_ms", 500},    {"displace_enabled", true}};
-        const AppConfig app = parse_config(document, "");
+        const AppConfig app = parse_config(document);
         CHECK(app.has_risk);
         CHECK(app.risk.max_quantity_per_ticker == 7);
         CHECK(app.risk.daily_loss_limit == -50000.0);
@@ -148,7 +162,7 @@ int main()
         CHECK(app.order_max_retries == 3);
 
         document["replay_file"] = "capture.bin";
-        const AppConfig replay = parse_config(document, "");
+        const AppConfig replay = parse_config(document);
         CHECK(replay.risk.session_open_min == 0 && replay.risk.session_close_min == 0);
         CHECK(replay.replay_speed == 1.0);
     }
@@ -158,7 +172,7 @@ int main()
         json document = minimal_document();
         document["regime_strategies"] = {{"RISK_ON", {"DevScale_*"}}, {"BEAR", {"ITB"}}, {"SIDEWAYS", {"x"}}};
         document["strategies"]        = json::array({{{"type", "DEVSCALE"}}});
-        const AppConfig app = parse_config(document, "");
+        const AppConfig app = parse_config(document);
         CHECK(app.has_regime_strategies);
         CHECK(app.regime_strategies.size() == 2);
         CHECK(app.regime_strategies.at(Regime::BULL).at(0) == "DevScale_*");

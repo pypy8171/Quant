@@ -320,7 +320,6 @@
 
 ### Quant/include/modes/
 
-- [Monitors.h](../Quant/include/modes/Monitors.h) — 관찰용 모니터 모드(FEED 등) 함수 선언
 
 ### Quant/include/risk/
 
@@ -455,7 +454,6 @@
 
 ### Quant/src/modes/
 
-- [Monitors.cpp](../Quant/src/modes/Monitors.cpp) — FEED 등 시세 표시 모니터 모드 구현
 
 ### Quant/src/risk/
 
@@ -1107,7 +1105,6 @@
 ### scripts/
 
 - [_logdir.py](../scripts/_logdir.py) — 로그·원장 경로 탐색 헬퍼
-- [aftermarket_feed_check.py](../scripts/aftermarket_feed_check.py) — 애프터마켓 체결이 이미 구독 중인 WS 채널로 오는지 FEED 모드로 재 보고 판정까지 낸다(D-097)
 - [analyze_slot_cost.py](../scripts/analyze_slot_cost.py) — 보유 슬롯 한도 비용 분석 스크립트
 - [auto_trade_day.ps1](../scripts/auto_trade_day.ps1) — 일일 자동매매 기동 스크립트
 - [auto_trade_day.sh](../scripts/auto_trade_day.sh) — 리눅스(WSL2) 쪽 하루 루프 — 트레이더만 띄우고 마감까지 재기동(부속 창·마감 정리는 `auto_trade_day.ps1 -NoTrader`). 상태 `_private/_auto_trade_linux.json`, 절차 `docs/RUNBOOK.md` 1.1절

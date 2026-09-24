@@ -8,7 +8,6 @@
     "exchange":     "SOR"
   },
 
-  "mode": "KR_TEST",
   "ops_bind_addr": "127.0.0.1",
   "ops_port": 0,
   "ops_token": "",

@@ -193,22 +193,19 @@ json load_config_file(const std::string& path)
     return json::parse(file);
 }
 
-AppConfig parse_config(const json& document, const std::string& mode_override)
+AppConfig parse_config(const json& document)
 {
+    // 실행 모드는 TRADE 하나만 남았다. 옛 설정에 "mode": "FEED" 가 남아 있으면 주문 없이 시세만 보려던 설정이
+    //  실계좌 매매로 뜬다 — 그래서 조용히 무시하지 않고 멈춘다. [why D-130]
+    if (const auto mode_node = document.find("mode"); mode_node != document.end() && *mode_node != "TRADE")
+    {
+        throw std::runtime_error("mode \"" + mode_node->get<std::string>() +
+                                 "\" 는 지웠다 — TRADE만 남았다(D-130). 설정에서 mode 줄을 빼거나 TRADE로 둔다");
+    }
+
     AppConfig app;
-    app.mode      = mode_override.empty() ? document.value("mode", std::string("FEED")) : mode_override;
     app.debug_log = document.value("log_level", std::string("INFO")) == "DEBUG";
     app.kis       = parse_kis(document.at("kis"));
-
-    if (document.contains("tickers"))
-    {
-        app.tickers = document["tickers"].get<std::vector<std::string>>();
-    }
-
-    if (document.contains("futures"))
-    {
-        app.futures = document["futures"].get<std::vector<std::string>>();
-    }
 
     app.fetch_interval_sec            = document.value("fetch_interval_sec", app.fetch_interval_sec);
     app.bootstrap_ledger_from_balance = document.value("bootstrap_ledger_from_balance", false);

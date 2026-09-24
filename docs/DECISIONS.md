@@ -6393,3 +6393,33 @@ start → publish → stop 이 깨끗한지 보고, 깨우기가 부르는 쪽�
 D-125(버린 건수를 원인별로) · D-071 원칙 7(hot path 는 전후 측정).
 
 ---
+
+### D-130 실행 모드는 TRADE 하나만 남긴다 — FEED·KR_TEST·US_TEST 삭제 (2026-09-25)
+
+**상태**: 채택·구현 완료.
+
+**문제**: `main` 은 config 의 `"mode"` 로 네 갈래를 탔다. TRADE 밖의 셋은 주문 없이 화면에 시세를 그리는
+관찰 모드였다 — FEED(WebSocket 호가·체결), KR_TEST(KOSPI 상위 20 + 관심종목), US_TEST(M7 REST 시세).
+연결·인증 확인용으로 만들었지만 지금은 엔진 자체가 기동 로그에 인증·잔고·WebSocket 연결을 남기고,
+`scripts/check_runtime_health.py` 가 그 줄로 판정한다. 셋은 `Quant/src/modes/Monitors.cpp` 약 900줄을
+따로 들고 있었고 엔진 경로와는 공유하는 게 없었다. 마지막 쓰임은 애프터마켓 체결 확인
+`scripts/aftermarket_feed_check.py`(D-097)였는데, 그 확인은 끝났다.
+
+**결정**: 셋과 거기에만 쓰이던 것을 지운다 — `Monitors`, `Mode` 타입, config `mode`·`tickers`·`futures`,
+명령줄의 모드 낱말, `scripts/aftermarket_feed_check.py`. 옛 명령줄(`docker-compose.yml`·감시견)이 넘기는
+`TRADE` 는 받아 넘긴다.
+
+지운 모드는 조용히 무시하지 않고 **멈춘다**. config 에 `"mode": "FEED"` 가 남은 채 띄우면 시세만 보려던
+설정이 실계좌 매매로 뜨기 때문이다 — 실제로 로컬 `Quant/config/config_live_feed.json` 이 실계좌 키에
+`"mode": "FEED"` 였다. 그래서 `parse_config` 는 `mode` 가 TRADE 밖이면 던지고, 명령줄의 `FEED`·`KR_TEST`·
+`US_TEST` 도 인자 오류(종료코드 2)다.
+
+**남긴 것**: WebSocket 의 국내 선물 구독·파싱(`WatchSpec.is_future`, H0IFCNT0·H0IFASP0). 지금 켜는 곳은
+FEED 뿐이었지만 모드와 따로 있는 소켓 기능이고, 엔진·제어 채널에도 같은 표시가 흐른다.
+
+**버린 대안**: 관찰 모드를 TRADE 엔진 위의 "주문 끔" 옵션으로 옮기는 것 — 쓰는 곳이 없어 만들 이유가 없다.
+필요해지면 모의계좌 TRADE 로 띄우면 된다.
+
+**연결**: D-097(애프터마켓 창, 지운 점검 스크립트의 출처) · D-114(`--role feed` 는 역할이지 모드가 아니다).
+
+---

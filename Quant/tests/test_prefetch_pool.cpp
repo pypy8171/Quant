@@ -60,7 +60,7 @@ int test_thread_count_is_fixed()
     return 0;
 }
 
-// 등록 전에는 스레드가 없다(FEED 모드·테스트처럼 전략이 없는 구성).
+// 등록 전에는 스레드가 없다(테스트처럼 전략이 없는 구성).
 int test_no_threads_before_add()
 {
     prefetch::Pool pool(4, std::chrono::milliseconds(10));

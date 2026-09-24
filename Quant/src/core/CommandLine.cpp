@@ -21,12 +21,11 @@ std::string to_lower(std::string_view text)
     return lowered;
 }
 
-// config의 "mode"를 덮어쓰는 낱말들. 이 넷만 모드로 보고 나머지 맨 인자는 설정 경로다.
-// 여기 `FEED`는 **실행 모드**다(주문 없이 시세만 본다). 역할 `--role feed`와 철자만 닮았지 다른 것이고,
-//  역할 값은 parse_command_line의 `--role` 가지가 먼저 집어 가므로 이 함수까지 오지 않는다. [why D-114]
-bool is_mode_word(std::string_view argument)
+// 지운 실행 모드 낱말. 설정 경로로 삼으면 "설정 파일 없음: FEED" 한 줄만 남아 이유를 모르니 따로 멈춘다.
+//  역할 `--role feed`의 값은 `--role` 가지가 먼저 집어 가므로 이 함수까지 오지 않는다. [why D-130]
+bool is_removed_mode_word(std::string_view argument)
 {
-    return argument == "KR_TEST" || argument == "US_TEST" || argument == "FEED" || argument == "TRADE";
+    return argument == "KR_TEST" || argument == "US_TEST" || argument == "FEED";
 }
 
 } // namespace
@@ -83,7 +82,7 @@ const char* ProcessRole::to_string() const
 
 const char* command_line_usage()
 {
-    return "사용법: quant_trader [설정파일] [FEED|KR_TEST|US_TEST|TRADE] [--role both|order|strategy|feed]";
+    return "사용법: quant_trader [설정파일] [--role both|order|strategy|feed]";
 }
 
 CommandLine parse_command_line(int argc, char* argv[])
@@ -94,10 +93,16 @@ CommandLine parse_command_line(int argc, char* argv[])
     {
         const std::string_view argument = argv[index];
 
-        if (is_mode_word(argument))
+        // 옛 명령줄(감시견·바로가기)이 넘기던 모드 낱말. 남은 모드가 TRADE 하나라 받아 넘긴다.
+        if (argument == "TRADE")
         {
-            command_line.mode_override = argument;
             continue;
+        }
+
+        if (is_removed_mode_word(argument))
+        {
+            command_line.error = std::string("지운 실행 모드: ") + std::string(argument) + " (D-130, TRADE만 남았다)";
+            return command_line;
         }
 
         // --role=order 와 --role order 둘 다 받는다. 값이 빠진 채 끝나면 기본값으로 조용히 돌아가지 않고 멈춘다.

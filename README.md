@@ -72,7 +72,7 @@ ctest --preset x64-release
 cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-14 -B Quant/build -S Quant && cmake --build Quant/build
 ```
 
-저장소 루트에서 `quant_trader <config.json>`으로 실행합니다. `"mode"`가 `FEED`면 시세만 받고, `TRADE`면 주문을 냅니다. 모의계좌는 `"is_paper": true`. 설정 뼈대는 `Quant/config/config.json.example`, 실행 절차는 [docs/RUNBOOK.md](docs/RUNBOOK.md).
+저장소 루트에서 `quant_trader <config.json>`으로 실행합니다. 실행하면 주문을 냅니다(실행 모드는 TRADE 하나, D-130). 모의계좌는 `"is_paper": true`. 설정 뼈대는 `Quant/config/config.json.example`, 실행 절차는 [docs/RUNBOOK.md](docs/RUNBOOK.md).
 
 ## 기술 스택
 
