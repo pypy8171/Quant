@@ -11,6 +11,7 @@
 //  22. 원장 저널 — 코드페이지에 없는 글자가 든 폴더에서도 연다
 //  23. 원장 저널 — 두 스레드가 같이 적어도 호출이 끝나면 전부 파일에 있고, 순번이 빠짐없이 이어진다 (CODE_REVIEW W-2)
 //  24. 전략별 손익 — 전략이 가진 것보다 많이 팔면 가진 만큼만 그 전략 몫으로 잡고, 수수료·세금도 같은 비율로 나눈다 (CODE_REVIEW W-4)
+//  25. 놓친 매수 체결 — 미체결 매수 이내의 부족분이 두 번 연속 보이면 잔고로 맞추고 예약을 푼다 (CODE_REVIEW W-1)
 
 #include "risk/PositionLedger.h"
 #include <cassert>
@@ -330,6 +331,27 @@ void test_strategy_sell_beyond_holding_attributes_only_held_part()
     PASS("strategy_sell_beyond_holding_attributes_only_held_part");
 }
 
+void test_absorb_missed_buy_after_two_observations()
+{
+    PositionLedger ledger;
+
+    // 매수 10주를 접수했는데 체결통보가 큐에서 버려졌다 — 원장 0, 예약 10, 잔고는 10주.
+    ledger.on_accept("005930", OrderSide::BUY, 10, 1000.0);
+    assert(ledger.absorb_missed_buy(std::string(), "005930", 10, 1005.0) == 0); // 첫 관측은 기다린다
+    assert(ledger.position("005930") == 0);
+    assert(ledger.absorb_missed_buy(std::string(), "005930", 10, 1005.0) == 10);
+    assert(ledger.position("005930") == 10);
+    assert(ledger.reserved("005930") == 0);
+    assert(ledger.average_price("005930") == 1005.0);
+
+    // 예약보다 큰 부족분(밖에서 산 것)은 놓친 체결로 보지 않는다.
+    ledger.on_accept("000660", OrderSide::BUY, 3, 2000.0);
+    assert(ledger.absorb_missed_buy(std::string(), "000660", 5, 2000.0) == 0);
+    assert(ledger.absorb_missed_buy(std::string(), "000660", 5, 2000.0) == 0);
+    assert(ledger.position("000660") == 0);
+    PASS("absorb_missed_buy_after_two_observations");
+}
+
 int main()
 {
 #ifdef _WIN32
@@ -344,6 +366,7 @@ int main()
     test_journal_opens_on_non_codepage_path();
     test_journal_concurrent_writers_flush_in_order();
     test_strategy_sell_beyond_holding_attributes_only_held_part();
+    test_absorb_missed_buy_after_two_observations();
     std::cout << "=== All tests passed ===\n";
     return 0;
 }

@@ -139,6 +139,15 @@ void LedgerReconciler::resync_holdings(const AccountBalance& balance, bool resyn
                 LOG_WARN("[Engine] 잔고 대조: " + code + " 원장이 잔고보다 " + std::to_string(absorbed) +
                          "주 많아 놓친 매도 체결로 보고 " + std::to_string(quantity) + "주로 맞춘다");
             }
+
+            // 매수 쪽도 같다 — 체결통보 큐가 가득 차 버린 매수(D-056)를 여기서 메운다. [why CODE_REVIEW W-1]
+            const int absorbed_buy = position_ledger.absorb_missed_buy(std::string(), code, quantity, average_value);
+
+            if (absorbed_buy > 0)
+            {
+                LOG_WARN("[Engine] 잔고 대조: " + code + " 원장이 잔고보다 " + std::to_string(absorbed_buy) +
+                         "주 적어 놓친 매수 체결로 보고 " + std::to_string(quantity) + "주로 맞춘다");
+            }
         }
     }
 

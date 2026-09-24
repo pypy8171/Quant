@@ -430,6 +430,7 @@ void PositionLedger::apply_adjust_locked(const PosKey& key, const ledger_journal
     }
 
     missed_sell_seen_.erase(key);
+    missed_buy_seen_.erase(key);
 }
 
 void PositionLedger::set_daily_pnl(double pnl)
@@ -665,6 +666,74 @@ int PositionLedger::absorb_missed_sell(const std::string& account, const std::st
     }
 
     journal_adjust(key, "absorb_missed_sell");
+    return difference;
+}
+
+int PositionLedger::absorb_missed_buy(const std::string& account, const std::string& ticker, int balance_quantity,
+                                      double balance_average)
+{
+    if (balance_quantity <= 0)
+    {
+        return 0;
+    }
+
+    const JournalFlushAfter journal_flush_after{*this};
+    std::lock_guard<std::mutex> lock(positions_mutex_);
+    const PosKey key = keys_.make(account, ticker);
+    auto position_iterator = positions_.find(key);
+    const int ledger_quantity = position_iterator != positions_.end() ? position_iterator->second : 0;
+
+    if (ledger_quantity >= balance_quantity)
+    {
+        missed_buy_seen_.erase(key);
+        return 0;
+    }
+
+    const int difference = balance_quantity - ledger_quantity;
+    auto reserved_iterator = reserved_.find(key);
+    const int buy_pending = (reserved_iterator != reserved_.end() && reserved_iterator->second > 0) ? reserved_iterator->second : 0;
+
+    // 미체결 매수보다 큰 차이는 놓친 체결로 설명되지 않는다(밖에서 산 것 등) — 손대지 않는다.
+    if (difference > buy_pending)
+    {
+        missed_buy_seen_.erase(key);
+        return 0;
+    }
+
+    auto seen = missed_buy_seen_.find(key);
+
+    if (seen == missed_buy_seen_.end() || seen->second != balance_quantity)
+    {
+        missed_buy_seen_[key] = balance_quantity; // 첫 관측 — 다음 대조에서 같으면 맞춘다
+        return 0;
+    }
+
+    missed_buy_seen_.erase(key);
+    positions_[key] = balance_quantity;
+
+    if (balance_average > 0.0)
+    {
+        average_prices_[key] = balance_average;
+    }
+
+    if (ledger_quantity <= 0)
+    {
+        opened_at_[key] = Clock::now();
+    }
+
+    reserved_iterator->second -= difference;
+
+    if (reserved_iterator->second == 0)
+    {
+        reserved_.erase(reserved_iterator);
+        reserved_price_.erase(key);
+    }
+
+    // 당일 매수분은 당일 매도 가능하다(on_fill_confirmed BUY와 같다).
+    auto sellable_iterator = sellable_.find(key);
+    sellable_[key] = (sellable_iterator != sellable_.end() ? sellable_iterator->second : ledger_quantity) + difference;
+
+    journal_adjust(key, "absorb_missed_buy");
     return difference;
 }
 

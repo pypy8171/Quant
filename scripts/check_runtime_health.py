@@ -152,6 +152,9 @@ LEDGER_GEN_RE = re.compile(r"ledger_gen=(\d+)")
 LEDGER_FOREIGN_RE = re.compile(r"ledger_foreign=(\d+)")
 # 제어 요청(D-114 단계 2.5 갈래 B) — 전략이 큐가 가득 차 못 보낸 줄 수, 주문 쪽이 반쪽 표로 보고 버린 줄 수.
 CONTROL_DROP_RE = re.compile(r"control_dropped=(\d+)")
+# 체결통보 큐(D-056) — [큐 고수위] 줄의 최고 수위·버린 건수와, 잔고 대조가 메운 줄(CODE_REVIEW W-1).
+FILL_QUEUE_RE = re.compile(r" fill=(\d+)/(\d+) fill_dropped=(\d+)")
+FILL_ABSORB_RE = re.compile(r"놓친 (매수|매도) 체결로 보고")
 CONTROL_RELAY_DROP_RE = re.compile(r"control_relay_dropped=(\d+)")
 CONTROL_DISCARD_RE = re.compile(r"control_discarded=(\d+)")
 # 티커→번호(D-114 단계 4) — 등록을 주문 쪽에서 못 받은 수, 표에 없는 티커로 잦은 자리가 불린 수.
@@ -1398,6 +1401,10 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
     ledger_stall_at = []                         # 판이 안 늘어난 지점의 초
     ledger_foreign = -1                          # 사본에 못 실은 남의 계좌 줄 수. -1이면 그 줄이 없는 구 exe
     control_dropped = 0                          # 앞 토막이 가득 차 전략이 못 보낸 제어 요청 줄 수
+    fill_queue_high = -1                         # 체결통보 큐 최고 수위. -1이면 [큐 고수위] 줄이 없다
+    fill_queue_capacity = 0
+    fill_dropped = 0                             # 체결통보 큐가 가득 차 버린 건수(누계라 최댓값)
+    fill_absorbed = 0                            # 잔고 대조가 놓친 체결로 보고 메운 줄 수
     control_relay_dropped = -1                   # 경계 너머 제어 면이 가득 차 못 옮긴 줄 수. -1이면 그 줄이 없는 옛 바이너리
     control_discarded = -1                       # 주문 쪽이 반쪽 표로 보고 버린 줄 수. -1이면 그 줄이 없는 구 exe
     symbol_register_timeout = -1                 # 등록을 주문 쪽에서 못 받은 수. -1이면 그 줄이 없는 구 exe
@@ -1483,6 +1490,12 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
                 ledger_gen = max(ledger_gen, generation)
             if found := LEDGER_FOREIGN_RE.search(line):
                 ledger_foreign = max(ledger_foreign, int(found.group(1)))
+            if found := FILL_QUEUE_RE.search(line):
+                fill_queue_high = max(fill_queue_high, int(found.group(1)))
+                fill_queue_capacity = int(found.group(2))
+                fill_dropped = max(fill_dropped, int(found.group(3)))
+            if FILL_ABSORB_RE.search(line):
+                fill_absorbed += 1
             if found := CONTROL_DROP_RE.search(line):
                 control_dropped = max(control_dropped, int(found.group(1)))
             if found := CONTROL_RELAY_DROP_RE.search(line):
@@ -1835,6 +1848,14 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
         # 슬롯 면제 집합·진입 우선순위 표는 전략이 여러 줄로 보내고 주문 쪽이 모아서 건다. 한 줄이라도 새면
         #  그 표는 통째로 안 걸린다 — 면제가 빠진 바스켓 보유분이 남의 슬롯을 먹고, 랭크를 잃은 종목이
         #  우선순위 바를 건너뛴다. 둘 다 0이어야 전략이 고친 표가 그날 실제로 걸린 것이다.
+        # 체결통보 큐는 가득 차면 버린다(D-056). 버린 건은 잔고 대조가 두 주기 뒤 메우지만 그 사이 원장 수량이
+        #  틀리므로 0이어야 한다. 수위가 절반을 넘으면 소비 스레드가 밀린 것이다. [why CODE_REVIEW W-1]
+        ("체결통보 큐",
+         fill_queue_high < 0 or (fill_dropped == 0 and fill_queue_high * 2 < fill_queue_capacity),
+         "WARN",
+         ("[큐 고수위] 줄 없음 — 판정 안 함" if fill_queue_high < 0 else
+          f"최고 수위 {fill_queue_high}/{fill_queue_capacity} · 버림 {fill_dropped}건 · 잔고 대조가 메운 줄 {fill_absorbed}건 "
+          "(버림 기대 0, 수위 절반 미만)")),
         control_row("제어 요청 표",
                     control_dropped == 0 and control_discarded == 0 and control_relay_dropped <= 0,
                     "FAIL",

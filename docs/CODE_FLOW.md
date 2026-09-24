@@ -214,8 +214,8 @@ config를 `AppConfig`로 읽고 `Engine::configure`가 세터에 옮기고 전�
    `Quant/src/core/Engine.cpp:4665` · `void Engine::fill_thread_fn(std::stop_token stop_token)`
 51. [`OrderRouter::on_fill`](../Quant/src/ipc/OrderRouter.cpp#L2377) — ODNO로 주문 찾기 → 상태 갱신 → `gate_.ledger().on_fill_confirmed` → 원장 CSV. 못 찾으면 미연결 체결 경로  
    `Quant/src/ipc/OrderRouter.cpp:2377` · `void OrderRouter::on_fill(const FillNotification& fill_notification)` · 시험 [test_order_router](../Quant/tests/test_order_router.cpp)
-52. [`PositionLedger::on_fill_confirmed`](../Quant/src/risk/PositionLedger.cpp#L709) — 포지션·평단·실현손익 갱신, `reserved_` 해제. `FillResult`가 실현 PnL을 돌려준다  
-   `Quant/src/risk/PositionLedger.cpp:709` · `PositionLedger::FillResult PositionLedger::on_fill_confirmed( …` · 시험 [test_position_ledger](../Quant/tests/test_position_ledger.cpp)
+52. [`PositionLedger::on_fill_confirmed`](../Quant/src/risk/PositionLedger.cpp#L778) — 포지션·평단·실현손익 갱신, `reserved_` 해제. `FillResult`가 실현 PnL을 돌려준다  
+   `Quant/src/risk/PositionLedger.cpp:778` · `PositionLedger::FillResult PositionLedger::on_fill_confirmed( …` · 시험 [test_position_ledger](../Quant/tests/test_position_ledger.cpp)
 
 리뷰할 때 볼 것:
 
@@ -237,8 +237,8 @@ config를 `AppConfig`로 읽고 `Engine::configure`가 세터에 옮기고 전�
    `Quant/src/core/Engine.cpp:2585` · `apply_regime_selection(strategy_.last_selected_regime, /*force_log=*/true);`
 57. [`Engine::maybe_rescan_universe`](../Quant/src/core/Engine.cpp#L531) — 유니버스 재스캔 — 빠진 보유 종목은 40초에 신규매수 차단, 600초에 전략 해제(`UniverseExit.h`, D-077). 청산 관리 보유(`exit_managed_tickers`)는 스캔 신규매수에서 뺀다  
    `Quant/src/core/Engine.cpp:531` · `void Engine::maybe_rescan_universe()` · 시험 [test_signal_dispatcher](../Quant/tests/test_signal_dispatcher.cpp)
-58. [`LedgerReconciler::reconcile`](../Quant/src/core/LedgerReconciler.cpp#L299) — 브로커 잔고 ↔ 원장. 어긋난 종목만 `RECONCILE` 행(`ReconcilePlan.h` 순수 함수). 잔고조회 서킷브레이커  
-   `Quant/src/core/LedgerReconciler.cpp:299` · `void LedgerReconciler::reconcile(bool resync_positions, std::time_t now_utc)` · 시험 [test_ledger_reconciler](../Quant/tests/test_ledger_reconciler.cpp)
+58. [`LedgerReconciler::reconcile`](../Quant/src/core/LedgerReconciler.cpp#L308) — 브로커 잔고 ↔ 원장. 어긋난 종목만 `RECONCILE` 행(`ReconcilePlan.h` 순수 함수). 잔고조회 서킷브레이커  
+   `Quant/src/core/LedgerReconciler.cpp:308` · `void LedgerReconciler::reconcile(bool resync_positions, std::time_t now_utc)` · 시험 [test_ledger_reconciler](../Quant/tests/test_ledger_reconciler.cpp)
 59. [`Engine::activate_rest_fallback`](../Quant/src/core/Engine.cpp#L4809) — WS가 stale이면 REST 현재가 폴링으로 대체 틱(`received_ns`=0). 복귀는 `deactivate_rest_fallback`  
    `Quant/src/core/Engine.cpp:4809` · `bool Engine::activate_rest_fallback(const std::string& reason)`
 

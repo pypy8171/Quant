@@ -336,6 +336,11 @@ public:
     //  (잔고 왕복이 통보보다 빠른 순간의 경합 회피). 맞춘 수량을 돌려주고 아니면 0.
     //  09-11 11:00 재연결 사이에 248170 매도 52주 통보가 빠져 18분간 유령 52주가 슬롯을 물었다.
     int absorb_missed_sell(const std::string& account, const std::string& ticker, int balance_quantity);
+    // absorb_missed_sell의 매수 쪽. 원장 수량 < 잔고 수량이고 차이가 미체결 매수(reserved_>0) 이내이며 같은 잔고
+    //  수량이 두 번 연속 보일 때만 맞춘다. 평단은 잔고 평단으로 둔다(놓친 체결가를 모른다). 맞춘 수량, 아니면 0.
+    //  체결통보 큐가 가득 차 버린 매수(D-056)는 이게 없으면 재기동 때까지 원장에 안 잡혔다. [why CODE_REVIEW W-1]
+    int absorb_missed_buy(const std::string& account, const std::string& ticker, int balance_quantity,
+                          double balance_average);
 
     // ── 조회 ─────────────────────────────────────────────────────────────────
     // 계좌 지정 버전(주 경로) + account="" 하위호환(단일 계좌).
@@ -461,6 +466,7 @@ private:
     //  기동 시드에서 잔고의 ord_psbl_qty로 채우고, 이후 체결로 증감시킨다.
     PosMap<int>       sellable_;         // (account,ticker) → 매도가능수량(주)
     PosMap<int>       missed_sell_seen_; // (account,ticker) → 직전 대조에서 본 잔고 수량(2회 연속 확인용)
+    PosMap<int>       missed_buy_seen_;  // 매수 쪽 같은 용도(absorb_missed_buy)
     PosMap<TimePoint> opened_at_;        // (account,ticker) → 포지션이 0에서 열린 시각(교체 최소 보유 판정)
     std::unordered_set<symbol::SymbolId> slot_exempt_; // 슬롯 계산 밖 종목(바스켓 소유). positions_mutex_ 보호 [why D-109]
     // 발행끼리 줄 세우는 잠금 — 사본의 판 번호는 한 번에 한 스레드만 뒤집어야 한다.
