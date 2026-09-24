@@ -12,7 +12,7 @@ digraph code_graph {
   "universe";
   "utils";
   "api" -> "core" [label="12"];
-  "api" -> "utils" [label="7"];
+  "api" -> "utils" [label="8"];
   "core" -> "api" [label="11"];
   "core" -> "ipc" [label="10"];
   "core" -> "risk" [label="7"];

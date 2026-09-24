@@ -20,7 +20,7 @@
     {
       "from": "api",
       "to": "utils",
-      "weight": 7
+      "weight": 8
     },
     {
       "from": "core",
@@ -293,6 +293,7 @@
     "api/KisTransport.cpp": "api",
     "api/KisUniverse.cpp": "api",
     "api/KisWebSocket.cpp": "api",
+    "api/KisWebSocketParse.cpp": "api",
     "api/KisWsDecode.cpp": "api",
     "api/WebSocketClient.cpp": "api",
     "api/WsSocket.h": "api",
@@ -446,6 +447,11 @@
       "core/IFeedSource.h",
       "core/Types.h"
     ],
+    "api/KisWebSocketParse.cpp": [
+      "api/KisWebSocket.h",
+      "api/KisWsDecode.h",
+      "utils/Logger.h"
+    ],
     "api/KisWsDecode.cpp": [
       "api/KisWsDecode.h"
     ],
@@ -456,7 +462,6 @@
     "api/WebSocketClient.cpp": [
       "api/KisEndpoints.h",
       "api/KisWebSocket.h",
-      "api/KisWsDecode.h",
       "core/WakeGate.h",
       "utils/Logger.h",
       "utils/ThreadName.h"
@@ -1203,14 +1208,15 @@
     ],
     "api/KisWebSocket.h": [
       "api/KisWebSocket.cpp",
+      "api/KisWebSocketParse.cpp",
       "api/WebSocketClient.cpp",
       "core/Engine.h",
       "modes/Monitors.cpp"
     ],
     "api/KisWsDecode.h": [
       "api/KisWebSocket.h",
-      "api/KisWsDecode.cpp",
-      "api/WebSocketClient.cpp"
+      "api/KisWebSocketParse.cpp",
+      "api/KisWsDecode.cpp"
     ],
     "core/AppConfig.h": [
       "core/AppConfig.cpp",
@@ -1707,6 +1713,7 @@
     ],
     "utils/Logger.h": [
       "api/KisClientInternal.h",
+      "api/KisWebSocketParse.cpp",
       "api/WebSocketClient.cpp",
       "api/WsSocketPosix.cpp",
       "api/WsSocketWin.cpp",
@@ -1764,7 +1771,7 @@
     },
     {
       "header": "utils/Logger.h",
-      "in_degree": 34
+      "in_degree": 35
     },
     {
       "header": "core/SymbolTable.h",
@@ -1811,6 +1818,10 @@
       "in_degree": 6
     },
     {
+      "header": "api/KisWebSocket.h",
+      "in_degree": 5
+    },
+    {
       "header": "core/IFeedSource.h",
       "in_degree": 5
     },
@@ -1833,10 +1844,6 @@
     {
       "header": "utils/JsonNode.h",
       "in_degree": 5
-    },
-    {
-      "header": "api/KisErrorCodes.h",
-      "in_degree": 4
     }
   ],
   "python": {

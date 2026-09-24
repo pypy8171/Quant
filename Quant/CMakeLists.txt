@@ -104,7 +104,7 @@ set(KIS_CLIENT_SOURCES
 )
 
 # 실시간 WS 클라이언트. 소켓 계층은 플랫폼당 한 파일만 링크한다(D-049).
-set(KIS_WS_SOURCES src/api/WebSocketClient.cpp src/api/KisWebSocket.cpp)
+set(KIS_WS_SOURCES src/api/WebSocketClient.cpp src/api/KisWebSocketParse.cpp src/api/KisWebSocket.cpp)
 if(WIN32)
   list(APPEND KIS_WS_SOURCES src/api/WsSocketWin.cpp)
 else()

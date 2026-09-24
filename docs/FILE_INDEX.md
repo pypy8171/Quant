@@ -384,6 +384,7 @@
 - [KisTransport.cpp](../Quant/src/api/KisTransport.cpp) — 플랫폼별 HTTP 전송·재시도·한도·인증헤더 구현(D-048)
 - [KisUniverse.cpp](../Quant/src/api/KisUniverse.cpp) — 유니버스 후보(시총·거래대금·수급) 조회 구현
 - [KisWebSocket.cpp](../Quant/src/api/KisWebSocket.cpp) — KisWebSocket.h 구현 — 수신 끊김 판정과 마지막 수신 시각 갱신(D-049)
+- [KisWebSocketParse.cpp](../Quant/src/api/KisWebSocketParse.cpp) — KisWebSocket 수신 프레임 파싱 — 제어·데이터 프레임을 채널별 디코더로 넘기고 콜백 호출, 체결통보 base64·AES 복호화(D-049)
 - [KisWsDecode.cpp](../Quant/src/api/KisWsDecode.cpp) — KisWsDecode.h 구현 — KIS 실시간 채널 레코드 디코더 순수 함수(D-037·D-042)
 - [WebSocketClient.cpp](../Quant/src/api/WebSocketClient.cpp) — KIS WS 클라이언트 플랫폼독립부(연결·재연결·백오프)(D-049)
 - [WsSocket.h](../Quant/src/api/WsSocket.h) — 플랫폼 소켓 인터페이스 경계(D-049)

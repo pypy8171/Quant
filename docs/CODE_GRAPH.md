@@ -20,7 +20,7 @@ graph LR
   utils[utils]
   exchange[exchange]
   api -->|12| core
-  api -->|7| utils
+  api -->|8| utils
   core -->|11| api
   core -->|10| ipc
   core -->|7| risk
@@ -62,7 +62,7 @@ graph LR
 | 헤더 | 유입 수 |
 |---|---|
 | `core/Types.h` | 42 |
-| `utils/Logger.h` | 34 |
+| `utils/Logger.h` | 35 |
 | `core/SymbolTable.h` | 20 |
 | `core/KstTime.h` | 19 |
 | `strategy/StrategyBase.h` | 15 |
@@ -91,6 +91,7 @@ graph LR
     n_api_KisTransport_cpp["api/KisTransport.cpp"]
     n_api_KisWebSocket_cpp["api/KisWebSocket.cpp"]
     n_api_KisWebSocket_h["api/KisWebSocket.h"]
+    n_api_KisWebSocketParse_cpp["api/KisWebSocketParse.cpp"]
     n_api_KisWsDecode_cpp["api/KisWsDecode.cpp"]
     n_api_KisWsDecode_h["api/KisWsDecode.h"]
     n_api_WebSocketClient_cpp["api/WebSocketClient.cpp"]
@@ -295,12 +296,14 @@ graph LR
   n_api_KisWebSocket_h --> n_api_KisWsDecode_h
   n_api_KisWebSocket_h --> n_core_IFeedSource_h
   n_api_KisWebSocket_h --> n_core_Types_h
+  n_api_KisWebSocketParse_cpp --> n_api_KisWebSocket_h
+  n_api_KisWebSocketParse_cpp --> n_api_KisWsDecode_h
+  n_api_KisWebSocketParse_cpp --> n_utils_Logger_h
   n_api_KisWsDecode_cpp --> n_api_KisWsDecode_h
   n_api_KisWsDecode_h --> n_core_MarketSession_h
   n_api_KisWsDecode_h --> n_core_Types_h
   n_api_WebSocketClient_cpp --> n_api_KisEndpoints_h
   n_api_WebSocketClient_cpp --> n_api_KisWebSocket_h
-  n_api_WebSocketClient_cpp --> n_api_KisWsDecode_h
   n_api_WebSocketClient_cpp --> n_core_WakeGate_h
   n_api_WebSocketClient_cpp --> n_utils_Logger_h
   n_api_WebSocketClient_cpp --> n_utils_ThreadName_h

@@ -135,17 +135,17 @@ review = [
 
   [[stage.step]]
   sym = "KisWebSocket::parse_message"
-  file = "Quant/src/api/WebSocketClient.cpp"
+  file = "Quant/src/api/KisWebSocketParse.cpp"
   what = "`|`로 헤더 분리 → 암호화 여부(체결통보는 AES) → `dispatch_record`. PINGPONG·구독 응답 처리도 여기"
 
   [[stage.step]]
   sym = "KisWebSocket::dispatch_record"
-  file = "Quant/src/api/WebSocketClient.cpp"
+  file = "Quant/src/api/KisWebSocketParse.cpp"
   what = "tr_id로 채널 분기 — H0STCNT0 체결·H0STASP0 호가(KRX), H0UNCNT0/H0UNASP0(KRX+NXT 통합, D-096), H0IFCNT0/H0IFASP0 선물, H0STCNI0/H0STCNI9 체결통보(실/모의)"
 
   [[stage.step]]
   sym = "KisWebSocket::parse_kr_trade"
-  file = "Quant/src/api/WebSocketClient.cpp"
+  file = "Quant/src/api/KisWebSocketParse.cpp"
   what = "`decode_kr_trade` → `trade.symbol_id`(SymbolTable) → `received_ns` 스탬프 → `on_trade_` 콜백. 호가는 `parse_orderbook`이 같은 모양"
 
   [[stage.step]]
@@ -388,7 +388,7 @@ review = [
 
   [[stage.step]]
   sym = "KisWebSocket::parse_fill_notification"
-  file = "Quant/src/api/WebSocketClient.cpp"
+  file = "Quant/src/api/KisWebSocketParse.cpp"
   what = "AES 복호화 → `decode_fill` → `on_fill_` 콜백(Engine이 `pipeline_.fill_queue.push`)"
 
   [[stage.step]]

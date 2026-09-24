@@ -86,14 +86,14 @@ config를 `AppConfig`로 읽고 `Engine::configure`가 세터에 옮기고 전�
 
 소켓 읽기 스레드는 얇다(원칙 3): 프레임 → 필드 분리 → 구조체 → `received_ns` 스탬프 → 행렬 push. 문자열은 여기서 끝나고 종목은 정수 id가 된다(원칙 6).
 
-11. [`KisWebSocket::recv_loop`](../Quant/src/api/WebSocketClient.cpp#L143) — 소켓 하나 = 스레드 하나(원칙 1). 프레임 읽기 → `parse_message`. 끊김 감지와 재연결 신호  
-   `Quant/src/api/WebSocketClient.cpp:143` · `void KisWebSocket::recv_loop(std::stop_token stop_token)` · 시험 [test_ws_frame](../Quant/tests/test_ws_frame.cpp)
-12. [`KisWebSocket::parse_message`](../Quant/src/api/WebSocketClient.cpp#L534) — `|`로 헤더 분리 → 암호화 여부(체결통보는 AES) → `dispatch_record`. PINGPONG·구독 응답 처리도 여기  
-   `Quant/src/api/WebSocketClient.cpp:534` · `void KisWebSocket::parse_message(const std::string& message)`
-13. [`KisWebSocket::dispatch_record`](../Quant/src/api/WebSocketClient.cpp#L722) — tr_id로 채널 분기 — H0STCNT0 체결·H0STASP0 호가(KRX), H0UNCNT0/H0UNASP0(KRX+NXT 통합, D-096), H0IFCNT0/H0IFASP0 선물, H0STCNI0/H0STCNI9 체결통보(실/모의)  
-   `Quant/src/api/WebSocketClient.cpp:722` · `void KisWebSocket::dispatch_record(std::string_view transaction_id, kis_websocket::Fields fields)`
-14. [`KisWebSocket::parse_kr_trade`](../Quant/src/api/WebSocketClient.cpp#L804) — `decode_kr_trade` → `trade.symbol_id`(SymbolTable) → `received_ns` 스탬프 → `on_trade_` 콜백. 호가는 `parse_orderbook`이 같은 모양  
-   `Quant/src/api/WebSocketClient.cpp:804` · `void KisWebSocket::parse_kr_trade(kis_websocket::Fields fields)`
+11. [`KisWebSocket::recv_loop`](../Quant/src/api/WebSocketClient.cpp#L79) — 소켓 하나 = 스레드 하나(원칙 1). 프레임 읽기 → `parse_message`. 끊김 감지와 재연결 신호  
+   `Quant/src/api/WebSocketClient.cpp:79` · `void KisWebSocket::recv_loop(std::stop_token stop_token)` · 시험 [test_ws_frame](../Quant/tests/test_ws_frame.cpp)
+12. [`KisWebSocket::parse_message`](../Quant/src/api/KisWebSocketParse.cpp#L84) — `|`로 헤더 분리 → 암호화 여부(체결통보는 AES) → `dispatch_record`. PINGPONG·구독 응답 처리도 여기  
+   `Quant/src/api/KisWebSocketParse.cpp:84` · `void KisWebSocket::parse_message(const std::string& message)`
+13. [`KisWebSocket::dispatch_record`](../Quant/src/api/KisWebSocketParse.cpp#L272) — tr_id로 채널 분기 — H0STCNT0 체결·H0STASP0 호가(KRX), H0UNCNT0/H0UNASP0(KRX+NXT 통합, D-096), H0IFCNT0/H0IFASP0 선물, H0STCNI0/H0STCNI9 체결통보(실/모의)  
+   `Quant/src/api/KisWebSocketParse.cpp:272` · `void KisWebSocket::dispatch_record(std::string_view transaction_id, kis_websocket::Fields fields)`
+14. [`KisWebSocket::parse_kr_trade`](../Quant/src/api/KisWebSocketParse.cpp#L354) — `decode_kr_trade` → `trade.symbol_id`(SymbolTable) → `received_ns` 스탬프 → `on_trade_` 콜백. 호가는 `parse_orderbook`이 같은 모양  
+   `Quant/src/api/KisWebSocketParse.cpp:354` · `void KisWebSocket::parse_kr_trade(kis_websocket::Fields fields)`
 15. [`kis_websocket::decode_kr_trade`](../Quant/include/api/KisWsDecode.h#L137) — 순수 함수. 필드 인덱스 → `TradeData`(가격·수량·`hhmmss` 정수·방향). 필드 번호가 [wire] 정본  
    `Quant/include/api/KisWsDecode.h:137` · `Decode decode_kr_trade(Fields fields, TradeData& trade);` · 시험 [test_ws_decode](../Quant/tests/test_ws_decode.cpp)
 16. [`kis_websocket::decode_orderbook`](../Quant/include/api/KisWsDecode.h#L132) — 5단계 호가 → `OrderBook`. 매도·매수 가격/잔량 필드 위치  
@@ -206,8 +206,8 @@ config를 `AppConfig`로 읽고 `Engine::configure`가 세터에 옮기고 전�
 
 체결통보(H0STCNI0/H0STCNI9)는 수신 스레드가 복호화·디코드만 하고 `pipeline_.fill_queue`에 push한다. 체결 스레드가 라우터의 `on_fill`로 원장(`PositionLedger`)을 갱신하고 운영단말에 방송한다.
 
-48. [`KisWebSocket::parse_fill_notification`](../Quant/src/api/WebSocketClient.cpp#L890) — AES 복호화 → `decode_fill` → `on_fill_` 콜백(Engine이 `pipeline_.fill_queue.push`)  
-   `Quant/src/api/WebSocketClient.cpp:890` · `void KisWebSocket::parse_fill_notification(kis_websocket::Fields fields)`
+48. [`KisWebSocket::parse_fill_notification`](../Quant/src/api/KisWebSocketParse.cpp#L440) — AES 복호화 → `decode_fill` → `on_fill_` 콜백(Engine이 `pipeline_.fill_queue.push`)  
+   `Quant/src/api/KisWebSocketParse.cpp:440` · `void KisWebSocket::parse_fill_notification(kis_websocket::Fields fields)`
 49. [`kis_websocket::decode_fill`](../Quant/include/api/KisWsDecode.h#L165) — 체결통보 필드 → `FillNotification`(ODNO·체결/거부·수량·가격). 거부 통보도 같은 채널  
    `Quant/include/api/KisWsDecode.h:165` · `Decode decode_fill(Fields fields, FillNotification& fill_notification);` · 시험 [test_ws_decode](../Quant/tests/test_ws_decode.cpp)
 50. [`Engine::fill_thread_fn`](../Quant/src/core/Engine.cpp#L4226) — `pipeline_.fill_queue` pop → `on_fill` → `ledger_->note_fill`(대조 5초 유예, D-074) → 운영단말 `broadcast`(FILL). 비면 `WakeGate`  
@@ -287,7 +287,8 @@ SIGINT·운영단말 종료 → `request_shutdown` → `stop`. 체결 큐는 비
 | [Quant/include/strategy/DeviationScaleStrategy.h](../Quant/include/strategy/DeviationScaleStrategy.h) | 27 `on_start`, 28 `on_trade_batch`, 31 `emit_liquidation` |
 | [Quant/include/strategy/StrategyBase.h](../Quant/include/strategy/StrategyBase.h) | 26 `on_trade_batch` |
 | [Quant/src/api/KisOrder.cpp](../Quant/src/api/KisOrder.cpp) | 46 `submit_order_acknowledgement` |
-| [Quant/src/api/WebSocketClient.cpp](../Quant/src/api/WebSocketClient.cpp) | 11 `recv_loop`, 12 `parse_message`, 13 `dispatch_record`, 14 `parse_kr_trade`, 48 `parse_fill_notification` |
+| [Quant/src/api/KisWebSocketParse.cpp](../Quant/src/api/KisWebSocketParse.cpp) | 12 `parse_message`, 13 `dispatch_record`, 14 `parse_kr_trade`, 48 `parse_fill_notification` |
+| [Quant/src/api/WebSocketClient.cpp](../Quant/src/api/WebSocketClient.cpp) | 11 `recv_loop` |
 | [Quant/src/core/AppConfig.cpp](../Quant/src/core/AppConfig.cpp) | 2 `parse_config` |
 | [Quant/src/core/BarAggregator.cpp](../Quant/src/core/BarAggregator.cpp) | 29 `on_tick` |
 | [Quant/src/core/DataPoller.cpp](../Quant/src/core/DataPoller.cpp) | 20 `poll_universe` |
