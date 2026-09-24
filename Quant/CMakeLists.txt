@@ -202,7 +202,6 @@ set(ENGINE_SOURCES
   src/core/BarAggregator.cpp
   src/core/SignalDispatcher.cpp
   src/core/OrderRateLimiter.cpp
-  src/core/RingBuffer.cpp
   ${KIS_CLIENT_SOURCES}
   ${KIS_WS_SOURCES}
   src/strategy/MACrossStrategy.cpp

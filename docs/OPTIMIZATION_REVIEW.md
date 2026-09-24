@@ -117,7 +117,7 @@ config는 `cfg["kis"]["app_key"]`처럼 직접 인덱싱해 검증 계층이 없
 
 - 수정: 핸들러는 `volatile std::sig_atomic_t g_stop = 1`만 세우고, 메인 루프가 그걸 보고 `stop()`을 호출한다.
 
-### A7. 죽은 빌드 항목
+### A7. 죽은 빌드 항목 — 완료 (09-25)
 `Quant/src/core/RingBuffer.cpp`는 0바이트, `Quant/src/strategy/StrategyBase.cpp`는 `// placeholder` 한 줄인데
 둘 다 SOURCES에 있다.
 

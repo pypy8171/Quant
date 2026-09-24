@@ -412,7 +412,6 @@
 - [ReconcilePlan.cpp](../Quant/src/core/ReconcilePlan.cpp) — ReconcilePlan.h 구현 — 잔고 대조 차이 계산 순수 함수(D-038)
 - [RegimeFileJudge.cpp](../Quant/src/core/RegimeFileJudge.cpp) — RegimeFileJudge.h 구현 — 매크로 국면 파일 → 진입정지·강제청산 상태기계(D-060)
 - [ReplaySource.cpp](../Quant/src/core/ReplaySource.cpp) — ReplaySource.h 구현 — 캡처 파일 리플레이 피드 소스(D-071)
-- [RingBuffer.cpp](../Quant/src/core/RingBuffer.cpp) — 빈 구현 파일 — 템플릿 헤더 전용
 - [SessionEndJudge.cpp](../Quant/src/core/SessionEndJudge.cpp) — SessionEndJudge.h 구현 — 마감 자기 종료 판정(창 닫힘→유예→큐 비면 종료, D-098)
 - [ShardRoutes.cpp](../Quant/src/core/ShardRoutes.cpp) — ShardRoutes.h 구현 — 종목 id → 그 종목을 보는 샤드 비트마스크 표(D-110)
 - [SignalDispatcher.cpp](../Quant/src/core/SignalDispatcher.cpp) — 신호 디스패처 구현 — 강제청산·한도 정리 신호 생성(D-063)

@@ -295,7 +295,6 @@
     "core/ReconcilePlan.cpp": "core",
     "core/RegimeFileJudge.cpp": "core",
     "core/ReplaySource.cpp": "core",
-    "core/RingBuffer.cpp": "core",
     "core/SessionEndJudge.cpp": "core",
     "core/ShardRoutes.cpp": "core",
     "core/SignalDispatcher.cpp": "core",
