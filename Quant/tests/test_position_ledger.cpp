@@ -10,9 +10,11 @@
 //  21. 원장 저널 — 한 레코드가 깨지면(CRC 불일치) 그 앞까지만 적용하고 뒤는 버린다
 //  22. 원장 저널 — 코드페이지에 없는 글자가 든 폴더에서도 연다
 //  23. 원장 저널 — 두 스레드가 같이 적어도 호출이 끝나면 전부 파일에 있고, 순번이 빠짐없이 이어진다 (CODE_REVIEW W-2)
+//  24. 전략별 손익 — 전략이 가진 것보다 많이 팔면 가진 만큼만 그 전략 몫으로 잡고, 수수료·세금도 같은 비율로 나눈다 (CODE_REVIEW W-4)
 
 #include "risk/PositionLedger.h"
 #include <cassert>
+#include <cmath>
 #include <cstdio>
 #include <filesystem>
 #include <iostream>
@@ -311,6 +313,23 @@ void test_journal_concurrent_writers_flush_in_order()
     PASS("journal_concurrent_writers_flush_in_order");
 }
 
+void test_strategy_sell_beyond_holding_attributes_only_held_part()
+{
+    PositionLedger                   ledger;
+    constexpr strategy_table::StrategyId kStrategy = 7;
+
+    // 기동 시드 10주(전략 없음) 위에 전략 7이 3주를 산다. 그 뒤 13주를 한 번에 판다.
+    ledger.seed_position("ACC1", "005930", 10, 900.0);
+    ledger.on_fill_confirmed("ACC1", "005930", OrderSide::BUY, 3, 1000.0, kStrategy);
+    const auto sell = ledger.on_fill_confirmed("ACC1", "005930", OrderSide::SELL, 13, 1100.0, kStrategy);
+
+    // 전략 7 몫은 3주뿐이다 — 3 × (1100 − 1000)에서 비용의 3/13만 뺀다.
+    const double expected = 3 * 100.0 - (sell.commission + sell.tax) * 3.0 / 13.0;
+    assert(!sell.strategy_basis_unknown);
+    assert(std::abs(sell.strategy_realized_pnl - expected) < 1e-6);
+    PASS("strategy_sell_beyond_holding_attributes_only_held_part");
+}
+
 int main()
 {
 #ifdef _WIN32
@@ -324,6 +343,7 @@ int main()
     test_journal_stops_at_corrupt_record();
     test_journal_opens_on_non_codepage_path();
     test_journal_concurrent_writers_flush_in_order();
+    test_strategy_sell_beyond_holding_attributes_only_held_part();
     std::cout << "=== All tests passed ===\n";
     return 0;
 }

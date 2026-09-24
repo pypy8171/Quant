@@ -748,8 +748,12 @@ PositionLedger::FillResult PositionLedger::on_fill_confirmed(
                 }
                 else
                 {
-                    result.strategy_realized_pnl = (price - strategy_current_average) * quantity
-                                                    - result.commission - result.tax;
+                    // 이 전략이 가진 만큼만 이 전략 몫이다. 넘는 수량(다른 전략·기동 시드 보유분)까지
+                    //  이 전략 평단으로 셈하면 전략별 손익이 틀어진다. 수수료·세금도 같은 비율로 나눈다. [why CODE_REVIEW W-4]
+                    const int    attributed_quantity = std::min(quantity, strategy_pre_quantity);
+                    const double attributed_share    = static_cast<double>(attributed_quantity) / quantity;
+                    result.strategy_realized_pnl = (price - strategy_current_average) * attributed_quantity
+                                                    - (result.commission + result.tax) * attributed_share;
                 }
 
                 int strategy_new_quantity = strategy_pre_quantity - quantity;
