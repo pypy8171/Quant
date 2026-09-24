@@ -10,7 +10,7 @@
 - [.vscode](#vscode) — 4개
 - [PYQuant](#pyquant) — 118개
 - [Quant](#quant) — 307개
-- [docs](#docs) — 100개
+- [docs](#docs) — 101개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 245개
 - [scripts](#scripts) — 49개
@@ -641,6 +641,7 @@
 - [CODE_CONVENTIONS.md](guides/CODE_CONVENTIONS.md) — C++ 코드 규약 정본(구조·이름·스레드·공유 메모리·복사·초기화·오류·주석·빌드), 검사기 번호표와 라벨
 - [CODE_GRAPH_GUIDE.md](guides/CODE_GRAPH_GUIDE.md) — 코드 그래프 생성기 사용법
 - [CPP20_23_GUIDE.md](guides/CPP20_23_GUIDE.md) — C++20/23 기능 사용 가이드
+- [LEDGER_JOURNAL_GUIDE.md](guides/LEDGER_JOURNAL_GUIDE.md) — 원장 저널(ledger_YYYYMMDD.bin) 위치·ledger_dump.py 조회법·레코드 종류표
 - [LINUX_SETUP.md](guides/LINUX_SETUP.md) — 리눅스 빌드·실행 설정 가이드
 - [LOAD_TEST_GUIDE.md](guides/LOAD_TEST_GUIDE.md) — 부하·지연 테스트 가이드
 - [MAINTENANCE_AUTOMATION.md](guides/MAINTENANCE_AUTOMATION.md) — 유지보수 자동화 원칙 문서
