@@ -44,7 +44,7 @@
     {
       "from": "core",
       "to": "utils",
-      "weight": 27
+      "weight": 28
     },
     {
       "from": "exchange",
@@ -284,6 +284,7 @@
     "core/EngineControlThread.cpp": "core",
     "core/EngineDataThread.cpp": "core",
     "core/EngineFillThread.cpp": "core",
+    "core/EngineLayout.cpp": "core",
     "core/EngineOpsServer.cpp": "core",
     "core/EngineOrderThread.cpp": "core",
     "core/EngineRegime.cpp": "core",
@@ -559,6 +560,10 @@
       "core/Engine.h",
       "utils/Logger.h",
       "utils/ThreadName.h"
+    ],
+    "core/EngineLayout.cpp": [
+      "core/Engine.h",
+      "utils/Logger.h"
     ],
     "core/EngineOpsServer.cpp": [
       "core/Engine.h",
@@ -1265,6 +1270,7 @@
       "core/EngineControlThread.cpp",
       "core/EngineDataThread.cpp",
       "core/EngineFillThread.cpp",
+      "core/EngineLayout.cpp",
       "core/EngineOpsServer.cpp",
       "core/EngineOrderThread.cpp",
       "core/EngineRegime.cpp",
@@ -1764,6 +1770,7 @@
       "core/EngineControlThread.cpp",
       "core/EngineDataThread.cpp",
       "core/EngineFillThread.cpp",
+      "core/EngineLayout.cpp",
       "core/EngineOpsServer.cpp",
       "core/EngineOrderThread.cpp",
       "core/EngineRegime.cpp",
@@ -1819,7 +1826,7 @@
   "hubs": [
     {
       "header": "utils/Logger.h",
-      "in_degree": 44
+      "in_degree": 45
     },
     {
       "header": "core/Types.h",
@@ -1834,12 +1841,12 @@
       "in_degree": 20
     },
     {
-      "header": "strategy/StrategyBase.h",
+      "header": "core/Engine.h",
       "in_degree": 15
     },
     {
-      "header": "core/Engine.h",
-      "in_degree": 14
+      "header": "strategy/StrategyBase.h",
+      "in_degree": 15
     },
     {
       "header": "utils/ThreadName.h",

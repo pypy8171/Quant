@@ -198,6 +198,7 @@ set(ENGINE_SOURCES
   src/core/EngineControlThread.cpp
   src/core/EngineDataThread.cpp
   src/core/EngineFillThread.cpp
+  src/core/EngineLayout.cpp
   src/core/EngineOrderThread.cpp
   src/core/EngineRegime.cpp
   src/core/EngineOpsServer.cpp

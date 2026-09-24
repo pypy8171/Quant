@@ -67,12 +67,12 @@ config를 `AppConfig`로 읽고 `Engine::configure`가 세터에 옮기고 전�
    `Quant/src/strategy/StrategyFactory.cpp:1222` · `void load_strategies(StrategyLoadCtx& context, const json& strategies)`
 6. [`Engine::add_strategy`](../Quant/src/core/EngineStrategyThread.cpp#L23) — 전략 등록. 심볼 해석기(`set_symbol_resolver` → `SymbolTable::intern`)가 여기서 주입된다  
    `Quant/src/core/EngineStrategyThread.cpp:23` · `void Engine::add_strategy(std::unique_ptr<StrategyBase> strategy)`
-7. [`Engine::start`](../Quant/src/core/Engine.cpp#L1216) — 도우미 호출 목록이 기동 순서다 — `setup_shards`(행렬 `reshape`, 행=수신 스레드+폴러, 열=샤드) → ZMQ → 모의 체결기 → 라우터·대조기·폴러 → `try_bootstrap_ledger`(원장 시드) → `start_strategies` → 구독 목록 → `connect_feed` → `spawn_threads`  
-   `Quant/src/core/Engine.cpp:1216` · `void Engine::start()`
-8. [`Engine::connect_feed (WS 콜백 설치)`](../Quant/src/core/Engine.cpp#L989) — 소켓 수신 스레드 i의 호가·체결 콜백. 종목 id로 열을 고르고(`consumer_of`) `pipeline_.trade_matrix`·`order_book_matrix`의 자기 행에 `push_to` — 가득 차면 버리고 센다(블로킹 금지)  
-   `Quant/src/core/Engine.cpp:989` · `feed_.websocket->set_lane_callbacks([this] (uint32_t lane, const OrderBook& in) …`
-9. [`Engine::spawn_threads`](../Quant/src/core/Engine.cpp#L1182) — data·strategy·order·fill·control 다섯 jthread + 샤드 M. stop_token이 첫 인자라 람다로 감싼다  
-   `Quant/src/core/Engine.cpp:1182` · `data_thread_ = std::jthread([this] (std::stop_token stop_token) { data_thread_fn(stop_token); });`
+7. [`Engine::start`](../Quant/src/core/Engine.cpp#L1019) — 도우미 호출 목록이 기동 순서다 — `setup_shards`(행렬 `reshape`, 행=수신 스레드+폴러, 열=샤드) → ZMQ → 모의 체결기 → 라우터·대조기·폴러 → `try_bootstrap_ledger`(원장 시드) → `start_strategies` → 구독 목록 → `connect_feed` → `spawn_threads`  
+   `Quant/src/core/Engine.cpp:1019` · `void Engine::start()`
+8. [`Engine::connect_feed (WS 콜백 설치)`](../Quant/src/core/Engine.cpp#L792) — 소켓 수신 스레드 i의 호가·체결 콜백. 종목 id로 열을 고르고(`consumer_of`) `pipeline_.trade_matrix`·`order_book_matrix`의 자기 행에 `push_to` — 가득 차면 버리고 센다(블로킹 금지)  
+   `Quant/src/core/Engine.cpp:792` · `feed_.websocket->set_lane_callbacks([this] (uint32_t lane, const OrderBook& in) …`
+9. [`Engine::spawn_threads`](../Quant/src/core/Engine.cpp#L985) — data·strategy·order·fill·control 다섯 jthread + 샤드 M. stop_token이 첫 인자라 람다로 감싼다  
+   `Quant/src/core/Engine.cpp:985` · `data_thread_ = std::jthread([this] (std::stop_token stop_token) { data_thread_fn(stop_token); });`
 10. [`LedgerReconciler::bootstrap`](../Quant/src/core/LedgerReconciler.cpp#L20) — 기동 잔고 시드 — 브로커 잔고를 원장(`PositionLedger`) 포지션으로. 실패 재시도 횟수와 실패 시 기동 중단 여부  
    `Quant/src/core/LedgerReconciler.cpp:20` · `bool LedgerReconciler::bootstrap(int attempts, std::chrono::milliseconds retry_delay)` · 시험 [test_ledger_reconciler](../Quant/tests/test_ledger_reconciler.cpp)
 
@@ -252,10 +252,10 @@ config를 `AppConfig`로 읽고 `Engine::configure`가 세터에 옮기고 전�
 
 SIGINT·운영단말 종료 → `request_shutdown` → `stop`. 체결 큐는 비울 때까지 돌고 로거는 `flush`한다.
 
-60. [`Engine::request_shutdown`](../Quant/src/core/Engine.cpp#L1364) — 시그널 핸들러에서 불려도 되는 최소 동작(플래그·깨우기)만  
-   `Quant/src/core/Engine.cpp:1364` · `void Engine::request_shutdown(std::string_view reason, ipc::SharedShutdownReason recorded_reason)`
-61. [`Engine::stop`](../Quant/src/core/Engine.cpp#L1390) — stop_token 요청 → join 순서(control → order → 샤드 → strategy → data → WS 끊기 → fill 마지막, 큐를 비우고 끝난다) → ZMQ·운영단말 서버 정지 → 전략 `on_stop` → 통계 출력. 미체결 예약주문 기억은 여기서 사라진다(재기동 규칙, CLAUDE.md '장중 운영')  
-   `Quant/src/core/Engine.cpp:1390` · `void Engine::stop()`
+60. [`Engine::request_shutdown`](../Quant/src/core/Engine.cpp#L1167) — 시그널 핸들러에서 불려도 되는 최소 동작(플래그·깨우기)만  
+   `Quant/src/core/Engine.cpp:1167` · `void Engine::request_shutdown(std::string_view reason, ipc::SharedShutdownReason recorded_reason)`
+61. [`Engine::stop`](../Quant/src/core/Engine.cpp#L1193) — stop_token 요청 → join 순서(control → order → 샤드 → strategy → data → WS 끊기 → fill 마지막, 큐를 비우고 끝난다) → ZMQ·운영단말 서버 정지 → 전략 `on_stop` → 통계 출력. 미체결 예약주문 기억은 여기서 사라진다(재기동 규칙, CLAUDE.md '장중 운영')  
+   `Quant/src/core/Engine.cpp:1193` · `void Engine::stop()`
 
 ## 부록. 실계좌 없이 같은 경로를 돌리는 것
 

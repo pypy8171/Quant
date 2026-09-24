@@ -345,9 +345,9 @@ const STAGES = [
       ["Engine::configure", "Quant/src/core/EngineConfigure.cpp:132", "AppConfig 값을 엔진 세터로 — 채널·국면별 전략 집합·시세 전용 KIS·리스크 네 묶음"],
       ["load_strategies", "Quant/src/strategy/StrategyFactory.cpp:1222", "config strategies[]를 전략 객체로. <b>새 전략을 붙이는 자리</b>"],
       ["Engine::add_strategy", "Quant/src/core/EngineStrategyThread.cpp:23", "전략 등록. 심볼 해석기(SymbolTable::intern)가 여기서 주입된다"],
-      ["Engine::start", "Quant/src/core/Engine.cpp:1216", "도우미 호출 목록이 곧 기동 순서 — setup_shards → ZMQ → 모의 체결기 → 라우터·폴러 → 원장 시드 → 전략 시작 → 구독 → connect_feed → spawn_threads"],
+      ["Engine::start", "Quant/src/core/Engine.cpp:1019", "도우미 호출 목록이 곧 기동 순서 — setup_shards → ZMQ → 모의 체결기 → 라우터·폴러 → 원장 시드 → 전략 시작 → 구독 → connect_feed → spawn_threads"],
       ["Engine::connect_feed (WS 콜백)", "Quant/src/core/Engine.cpp:1159", "소켓 수신 스레드 i의 체결·호가 콜백. 종목 id로 열을 고르고 자기 행에 push — 가득 차면 버리고 센다"],
-      ["Engine::spawn_threads", "Quant/src/core/Engine.cpp:1182", "data·strategy·order·fill·control 다섯 jthread + 샤드 M"],
+      ["Engine::spawn_threads", "Quant/src/core/Engine.cpp:985", "data·strategy·order·fill·control 다섯 jthread + 샤드 M"],
       ["LedgerReconciler::bootstrap", "Quant/src/core/LedgerReconciler.cpp:20", "기동 잔고 시드 — 브로커 잔고를 원장·게이트 포지션으로"]
     ]
   },
@@ -459,8 +459,8 @@ const STAGES = [
     note: "내려갈 때 큐를 비우는 순서가 정해져 있고, 실계좌 없이 같은 경로를 돌리는 길이 셋 있다.",
     tip: "join 순서가 <b>제어 → 주문 → 샤드 → 전략 → 데이터 → 소켓 → 체결</b>인 이유는 체결이 마지막까지 큐를 비워야 하기 때문이다.",
     steps: [
-      ["Engine::request_shutdown", "Quant/src/core/Engine.cpp:1364", "시그널 핸들러에서 불려도 되는 최소 동작(플래그·깨우기)만"],
-      ["Engine::stop", "Quant/src/core/Engine.cpp:1390", "stop_token → join 순서 → 채널 정지 → 전략 on_stop → 통계. 미체결 예약주문 기억은 여기서 사라진다"],
+      ["Engine::request_shutdown", "Quant/src/core/Engine.cpp:1167", "시그널 핸들러에서 불려도 되는 최소 동작(플래그·깨우기)만"],
+      ["Engine::stop", "Quant/src/core/Engine.cpp:1193", "stop_token → join 순서 → 채널 정지 → 전략 on_stop → 통계. 미체결 예약주문 기억은 여기서 사라진다"],
       ["feed::ReplaySource", "Quant/include/core/ReplaySource.h:23", "캡처 파일 → IFeedSource. 내보낼 때 received_ns를 다시 찍는다"],
       ["feed::PaperExecutor", "Quant/include/core/PaperExecutor.h:33", "모의 체결기 — 주문 즉시 체결통보를 만들어 같은 fill_queue 경로로 넣는다"],
       ["sync::WakeGate", "Quant/include/core/WakeGate.h:16", "소비자 잠·깨우기 한 조각. 전략·주문·체결·샤드 유휴가 전부 이걸 쓴다"]
