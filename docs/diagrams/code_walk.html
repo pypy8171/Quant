@@ -423,7 +423,7 @@ const STAGES = [
     steps: [
       ["KisWebSocket::parse_fill_notification", "Quant/src/api/KisWebSocketParse.cpp:440", "AES 복호화 → decode_fill → on_fill_ 콜백"],
       ["kis_websocket::decode_fill", "Quant/include/api/KisWsDecode.h:165", "체결통보 필드 → FillNotification(주문번호·체결/거부·수량·가격). 거부 통보도 같은 채널"],
-      ["Engine::fill_thread_fn", "Quant/src/core/Engine.cpp:2582", "fill_queue pop → on_fill → 원장 note_fill(대조 5초 유예) → 운영단말 방송"],
+      ["Engine::fill_thread_fn", "Quant/src/core/EngineFillThread.cpp:23", "fill_queue pop → on_fill → 원장 note_fill(대조 5초 유예) → 운영단말 방송"],
       ["OrderRouter::on_fill", "Quant/src/ipc/OrderRouter.cpp:2377", "주문번호로 주문 찾기 → 상태 갱신 → on_fill_confirmed → 원장 CSV"],
       ["PositionLedger::on_fill_confirmed", "Quant/src/risk/PositionLedger.cpp:778", "포지션·평단·실현손익 갱신, 선점 해제"]
     ]
@@ -445,13 +445,13 @@ const STAGES = [
     note: "매매 흐름에 실려 있지 않지만 매매를 멈추고 살리는 것들 — 토큰 갱신, 시세 끊김 판정, 국면 파일, 유니버스 재스캔, 잔고 대조.",
     tip: "국면 파일(regime.json)은 <b>데이터 스레드</b>가 읽는다. 제어 스레드가 아니다 — 고칠 때 헷갈리는 자리다.",
     steps: [
-      ["Engine::control_thread_fn", "Quant/src/core/Engine.cpp:2764", "큐 고수위 1분 로그 → 토큰 선갱신 → 손익 갱신 감시 → 시세 stale·재연결·REST 폴백"],
+      ["Engine::control_thread_fn", "Quant/src/core/Engine.cpp:2680", "큐 고수위 1분 로그 → 토큰 선갱신 → 손익 갱신 감시 → 시세 stale·재연결·REST 폴백"],
       ["Engine::poll_regime_file", "Quant/src/core/EngineRegime.cpp:183", "regime.json 축 — 신규매수 차단·매수비율·강제청산, 라벨이 바뀌면 전략 집합 선택"],
       ["OrderGate::set_manual_halt", "Quant/include/risk/OrderGate.h:200", "운영단말 수동 정지. 국면의 자동 차단과는 다른 플래그고 판정할 때만 합쳐 본다"],
       ["Engine::apply_regime_selection", "Quant/src/core/EngineRegime.cpp:28", "국면 → 전략 활성/비활성. 청산은 하지 않는다"],
       ["Engine::maybe_rescan_universe", "Quant/src/core/EngineUniverse.cpp:132", "유니버스 재스캔 — 빠진 보유 종목은 40초에 신규매수 차단, 600초에 전략 해제"],
       ["LedgerReconciler::reconcile", "Quant/src/core/LedgerReconciler.cpp:308", "브로커 잔고 ↔ 원장. 어긋난 종목만 RECONCILE 행"],
-      ["Engine::activate_rest_fallback", "Quant/src/core/Engine.cpp:2726", "시세가 끊기면 REST 현재가 폴링으로 대체 틱"]
+      ["Engine::activate_rest_fallback", "Quant/src/core/Engine.cpp:2642", "시세가 끊기면 REST 현재가 폴링으로 대체 틱"]
     ]
   },
   {
