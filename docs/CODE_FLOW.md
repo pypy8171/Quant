@@ -252,10 +252,10 @@ config를 `AppConfig`로 읽고 `Engine::configure`가 세터에 옮기고 전�
 
 SIGINT·운영단말 종료 → `request_shutdown` → `stop`. 체결 큐는 비울 때까지 돌고 로거는 `flush`한다.
 
-60. [`Engine::request_shutdown`](../Quant/src/core/Engine.cpp#L1732) — 시그널 핸들러에서 불려도 되는 최소 동작(플래그·깨우기)만  
-   `Quant/src/core/Engine.cpp:1732` · `void Engine::request_shutdown(std::string_view reason, ipc::SharedShutdownReason recorded_reason)`
-61. [`Engine::stop`](../Quant/src/core/Engine.cpp#L1758) — stop_token 요청 → join 순서(control → order → 샤드 → strategy → data → WS 끊기 → fill 마지막, 큐를 비우고 끝난다) → ZMQ·운영단말 서버 정지 → 전략 `on_stop` → 통계 출력. 미체결 예약주문 기억은 여기서 사라진다(재기동 규칙, CLAUDE.md '장중 운영')  
-   `Quant/src/core/Engine.cpp:1758` · `void Engine::stop()`
+60. [`Engine::request_shutdown`](../Quant/src/core/Engine.cpp#L1598) — 시그널 핸들러에서 불려도 되는 최소 동작(플래그·깨우기)만  
+   `Quant/src/core/Engine.cpp:1598` · `void Engine::request_shutdown(std::string_view reason, ipc::SharedShutdownReason recorded_reason)`
+61. [`Engine::stop`](../Quant/src/core/Engine.cpp#L1624) — stop_token 요청 → join 순서(control → order → 샤드 → strategy → data → WS 끊기 → fill 마지막, 큐를 비우고 끝난다) → ZMQ·운영단말 서버 정지 → 전략 `on_stop` → 통계 출력. 미체결 예약주문 기억은 여기서 사라진다(재기동 규칙, CLAUDE.md '장중 운영')  
+   `Quant/src/core/Engine.cpp:1624` · `void Engine::stop()`
 
 ## 부록. 실계좌 없이 같은 경로를 돌리는 것
 

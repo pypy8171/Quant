@@ -44,7 +44,7 @@
     {
       "from": "core",
       "to": "utils",
-      "weight": 25
+      "weight": 26
     },
     {
       "from": "exchange",
@@ -280,6 +280,7 @@
     "core/DataPoller.cpp": "core",
     "core/Engine.cpp": "core",
     "core/EngineConfigure.cpp": "core",
+    "core/EngineControlPlane.cpp": "core",
     "core/EngineControlThread.cpp": "core",
     "core/EngineDataThread.cpp": "core",
     "core/EngineFillThread.cpp": "core",
@@ -532,6 +533,11 @@
     "core/EngineConfigure.cpp": [
       "core/AppConfig.h",
       "core/Engine.h",
+      "utils/Logger.h"
+    ],
+    "core/EngineControlPlane.cpp": [
+      "core/Engine.h",
+      "core/LatencyTrace.h",
       "utils/Logger.h"
     ],
     "core/EngineControlThread.cpp": [
@@ -1248,6 +1254,7 @@
     "core/Engine.h": [
       "core/Engine.cpp",
       "core/EngineConfigure.cpp",
+      "core/EngineControlPlane.cpp",
       "core/EngineControlThread.cpp",
       "core/EngineDataThread.cpp",
       "core/EngineFillThread.cpp",
@@ -1302,6 +1309,7 @@
     "core/LatencyTrace.h": [
       "core/Engine.cpp",
       "core/Engine.h",
+      "core/EngineControlPlane.cpp",
       "core/EngineControlThread.cpp",
       "core/EngineDataThread.cpp",
       "core/EngineOrderThread.cpp",
@@ -1742,6 +1750,7 @@
       "core/DataPoller.cpp",
       "core/Engine.cpp",
       "core/EngineConfigure.cpp",
+      "core/EngineControlPlane.cpp",
       "core/EngineControlThread.cpp",
       "core/EngineDataThread.cpp",
       "core/EngineFillThread.cpp",
@@ -1798,11 +1807,11 @@
   },
   "hubs": [
     {
-      "header": "core/Types.h",
-      "in_degree": 42
+      "header": "utils/Logger.h",
+      "in_degree": 43
     },
     {
-      "header": "utils/Logger.h",
+      "header": "core/Types.h",
       "in_degree": 42
     },
     {
@@ -1819,7 +1828,7 @@
     },
     {
       "header": "core/Engine.h",
-      "in_degree": 12
+      "in_degree": 13
     },
     {
       "header": "utils/ThreadName.h",
@@ -1830,12 +1839,12 @@
       "in_degree": 11
     },
     {
-      "header": "core/WakeGate.h",
+      "header": "core/LatencyTrace.h",
       "in_degree": 10
     },
     {
-      "header": "core/LatencyTrace.h",
-      "in_degree": 9
+      "header": "core/WakeGate.h",
+      "in_degree": 10
     },
     {
       "header": "core/MarketSession.h",

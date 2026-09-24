@@ -459,8 +459,8 @@ const STAGES = [
     note: "내려갈 때 큐를 비우는 순서가 정해져 있고, 실계좌 없이 같은 경로를 돌리는 길이 셋 있다.",
     tip: "join 순서가 <b>제어 → 주문 → 샤드 → 전략 → 데이터 → 소켓 → 체결</b>인 이유는 체결이 마지막까지 큐를 비워야 하기 때문이다.",
     steps: [
-      ["Engine::request_shutdown", "Quant/src/core/Engine.cpp:1732", "시그널 핸들러에서 불려도 되는 최소 동작(플래그·깨우기)만"],
-      ["Engine::stop", "Quant/src/core/Engine.cpp:1758", "stop_token → join 순서 → 채널 정지 → 전략 on_stop → 통계. 미체결 예약주문 기억은 여기서 사라진다"],
+      ["Engine::request_shutdown", "Quant/src/core/Engine.cpp:1598", "시그널 핸들러에서 불려도 되는 최소 동작(플래그·깨우기)만"],
+      ["Engine::stop", "Quant/src/core/Engine.cpp:1624", "stop_token → join 순서 → 채널 정지 → 전략 on_stop → 통계. 미체결 예약주문 기억은 여기서 사라진다"],
       ["feed::ReplaySource", "Quant/include/core/ReplaySource.h:23", "캡처 파일 → IFeedSource. 내보낼 때 received_ns를 다시 찍는다"],
       ["feed::PaperExecutor", "Quant/include/core/PaperExecutor.h:33", "모의 체결기 — 주문 즉시 체결통보를 만들어 같은 fill_queue 경로로 넣는다"],
       ["sync::WakeGate", "Quant/include/core/WakeGate.h:16", "소비자 잠·깨우기 한 조각. 전략·주문·체결·샤드 유휴가 전부 이걸 쓴다"]
