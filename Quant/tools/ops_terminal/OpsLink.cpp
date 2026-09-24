@@ -3,6 +3,7 @@
 
 #include "OpsLink.h"
 
+#include <algorithm>
 #include <chrono>
 
 namespace
@@ -31,11 +32,24 @@ OpsLink::OpsLink()
 {
     WSADATA wsa_data;
     WSAStartup(MAKEWORD(2, 2), &wsa_data);
+    network_event_ = ::WSACreateEvent();
+    wake_event_    = ::WSACreateEvent();
 }
 
 OpsLink::~OpsLink()
 {
     stop();
+
+    if (network_event_ != WSA_INVALID_EVENT)
+    {
+        ::WSACloseEvent(network_event_);
+    }
+
+    if (wake_event_ != WSA_INVALID_EVENT)
+    {
+        ::WSACloseEvent(wake_event_);
+    }
+
     WSACleanup();
 }
 
@@ -60,8 +74,8 @@ void OpsLink::stop()
         return;
     }
 
-    wake_.store(true);
-    queue_condition_variable_.notify_all();
+    ::WSASetEvent(wake_event_);             // 세션 대기를 깨운다
+    queue_condition_variable_.notify_all(); // 재접속 대기를 깨운다
 
     if (thread_.joinable())
     {
@@ -91,8 +105,7 @@ bool OpsLink::send(ops::OpsMsg type, const std::string& body)
         queue_.push_back(std::move(bytes));
     }
 
-    wake_.store(true);
-    queue_condition_variable_.notify_one();
+    ::WSASetEvent(wake_event_); // 작업자가 세션 대기 중이면 바로 깨어 보낸다
     return true;
 }
 
@@ -210,21 +223,35 @@ bool OpsLink::connect_once()
     return true;
 }
 
+// 연결 하나의 수명. 소켓 이벤트(network_event_)와 송신 깨움(wake_event_)을 함께 기다린다 — send()가 넣은 프레임은
+//  대기 시한을 기다리지 않고 바로 나간다. 대기 시한은 다음 PING이나 무응답 판정까지 남은 시간이다.
 void OpsLink::session_loop()
 {
     ops::FrameReader     reader;
     std::vector<uint8_t> out;           // 아직 못 보낸 바이트
     auto                 last_rx   = Clock::now();
     auto                 last_ping = Clock::now();
-    uint8_t              buffer[16384];
+    uint8_t              buffer[kReceiveBufferBytes];
+
+    // FD_WRITE는 송신 버퍼가 찼다가(WSAEWOULDBLOCK) 비었을 때만 다시 온다. 그래서 보낼 것이 있으면 먼저 send를
+    //  해 보고, 막혔을 때만 FD_WRITE를 기다린다.
+    if (::WSAEventSelect(descriptor_, network_event_, FD_READ | FD_WRITE | FD_CLOSE) == SOCKET_ERROR)
+    {
+        post_state(LinkState::Disconnected, "WSAEventSelect 실패 err=" + std::to_string(WSAGetLastError()));
+        return;
+    }
+
+    const WSAEVENT events[2] = {network_event_, wake_event_};
 
     while (running_.load())
     {
-        // 송신 큐를 out으로 옮긴다
+        // [inv] 큐를 비우기 전에 깨움을 내린다. 그 뒤에 들어온 send()는 이벤트를 다시 세우므로 놓치지 않는다.
+        ::WSAResetEvent(wake_event_);
+
         {
             std::lock_guard<std::mutex> lock(queue_mutex_);
 
-            for (auto& queued : queue_)
+            for (const auto& queued : queue_)
             {
                 out.insert(out.end(), queued.begin(), queued.end());
             }
@@ -232,89 +259,58 @@ void OpsLink::session_loop()
             queue_.clear();
         }
 
-        wake_.store(false);
-
-        fd_set read_set;
-        FD_ZERO(&read_set);
-        FD_SET(descriptor_, &read_set);
-        fd_set write_set;
-        FD_ZERO(&write_set);
-
-        if (!out.empty())
+        if (!send_pending(out))
         {
-            FD_SET(descriptor_, &write_set);
-        }
-
-        // 200ms — stop()·send()가 깨우는 지연 상한. 하트비트 정밀도로도 충분하다.
-        timeval time_value{0, 200'000};
-        const int count = ::select(0, &read_set, out.empty() ? nullptr : &write_set, nullptr, &time_value);
-
-        if (count < 0)
-        {
-            post_state(LinkState::Disconnected, "select 실패 err=" + std::to_string(WSAGetLastError()));
             return;
         }
 
-        if (count > 0 && FD_ISSET(descriptor_, &read_set))
+        // stop()은 running_을 내린 뒤 이벤트를 세운다. 위에서 그 이벤트를 내렸어도 여기서 running_이 false로 보인다.
+        if (!running_.load())
         {
-            const int received = ::recv(descriptor_, reinterpret_cast<char*>(buffer), sizeof(buffer), 0);
+            return;
+        }
 
-            if (received == 0)
-            {
-                post_state(LinkState::Disconnected, "서버가 연결을 닫음");
-                return;
-            }
+        const int64_t until_ping = kPingEveryMs - ms_since(last_ping);
+        const int64_t until_dead = kDeadAfterMs - ms_since(last_rx);
+        const int64_t wait_ms    = std::clamp<int64_t>((std::min)(until_ping, until_dead), 0, kPingEveryMs);
+        const DWORD   waited     = ::WSAWaitForMultipleEvents(2, events, FALSE, static_cast<DWORD>(wait_ms), FALSE);
+
+        if (waited == WSA_WAIT_FAILED)
+        {
+            post_state(LinkState::Disconnected, "이벤트 대기 실패 err=" + std::to_string(WSAGetLastError()));
+            return;
+        }
+
+        if (!running_.load())
+        {
+            return;
+        }
+
+        WSANETWORKEVENTS network_events{};
+
+        if (::WSAEnumNetworkEvents(descriptor_, network_event_, &network_events) == SOCKET_ERROR)
+        {
+            post_state(LinkState::Disconnected, "WSAEnumNetworkEvents 실패 err=" + std::to_string(WSAGetLastError()));
+            return;
+        }
+
+        // FD_CLOSE 때도 남은 바이트를 먼저 읽는다. 다 읽으면 recv가 0을 돌려 끊김으로 처리된다.
+        if ((network_events.lNetworkEvents & (FD_READ | FD_CLOSE)) != 0)
+        {
+            const int received = receive_available(reader, buffer, kReceiveBufferBytes);
 
             if (received < 0)
             {
-                const int error = WSAGetLastError();
-
-                if (error != WSAEWOULDBLOCK)
-                {
-                    post_state(LinkState::Disconnected, "recv 실패 err=" + std::to_string(error));
-                    return;
-                }
-            }
-            else
-            {
-                last_rx = Clock::now();
-                reader.feed(buffer, static_cast<size_t>(received));
-                ops::Frame frame;
-
-                while (reader.next(frame))
-                {
-                    if (frame.type == static_cast<uint8_t>(ops::OpsMsg::HELLO_ACK))
-                    {
-                        post_state(LinkState::Ready, "HELLO_ACK");
-                    }
-
-                    post_frame(frame);
-                }
-
-                if (reader.bad())
-                {
-                    post_state(LinkState::Disconnected, "프레임 규약 위반 — 끊음");
-                    return;
-                }
-            }
-        }
-
-        if (!out.empty() && (count > 0 && FD_ISSET(descriptor_, &write_set)))
-        {
-            const int sent = ::send(descriptor_, reinterpret_cast<const char*>(out.data()), static_cast<int>(out.size()), 0);
-
-            if (sent > 0)
-            {
-                out.erase(out.begin(), out.begin() + sent);
-            }
-            else if (sent < 0 && WSAGetLastError() != WSAEWOULDBLOCK)
-            {
-                post_state(LinkState::Disconnected, "send 실패 err=" + std::to_string(WSAGetLastError()));
                 return;
             }
+
+            if (received > 0)
+            {
+                last_rx = Clock::now();
+            }
         }
 
-        // 하트비트. PING은 큐를 거치지 않고 out에 직접 붙인다(connected_ 여부와 무관).
+        // 하트비트. PING은 큐를 거치지 않고 out에 직접 붙인다(connected_ 여부와 무관). 다음 바퀴 첫머리에 나간다.
         if (ms_since(last_ping) >= kPingEveryMs)
         {
             auto ping_frame = ops::encode(ops::OpsMsg::PING_REQ, "{}");
@@ -328,4 +324,82 @@ void OpsLink::session_loop()
             return;
         }
     }
+}
+
+// 소켓에 쌓인 바이트를 WSAEWOULDBLOCK까지 읽어 프레임으로 올린다. 읽은 바이트 수, 끊겼으면 -1.
+int OpsLink::receive_available(ops::FrameReader& reader, uint8_t* buffer, int capacity)
+{
+    int total = 0;
+
+    while (true)
+    {
+        const int received = ::recv(descriptor_, reinterpret_cast<char*>(buffer), capacity, 0);
+
+        if (received == 0)
+        {
+            post_state(LinkState::Disconnected, "서버가 연결을 닫음");
+            return -1;
+        }
+
+        if (received < 0)
+        {
+            const int error = WSAGetLastError();
+
+            if (error == WSAEWOULDBLOCK)
+            {
+                return total;
+            }
+
+            post_state(LinkState::Disconnected, "recv 실패 err=" + std::to_string(error));
+            return -1;
+        }
+
+        total += received;
+        reader.feed(buffer, static_cast<size_t>(received));
+        ops::Frame frame;
+
+        while (reader.next(frame))
+        {
+            if (frame.type == static_cast<uint8_t>(ops::OpsMsg::HELLO_ACK))
+            {
+                post_state(LinkState::Ready, "HELLO_ACK");
+            }
+
+            post_frame(frame);
+        }
+
+        if (reader.bad())
+        {
+            post_state(LinkState::Disconnected, "프레임 규약 위반 — 끊음");
+            return -1;
+        }
+    }
+}
+
+// out을 보낼 수 있는 만큼 보낸다. 송신 버퍼가 차면(WSAEWOULDBLOCK) 남기고 돌아간다 — FD_WRITE가 다시 깨운다.
+//  false면 끊긴 것.
+bool OpsLink::send_pending(std::vector<uint8_t>& out)
+{
+    while (!out.empty())
+    {
+        const int sent = ::send(descriptor_, reinterpret_cast<const char*>(out.data()), static_cast<int>(out.size()), 0);
+
+        if (sent > 0)
+        {
+            out.erase(out.begin(), out.begin() + sent);
+            continue;
+        }
+
+        const int error = WSAGetLastError();
+
+        if (error == WSAEWOULDBLOCK)
+        {
+            return true;
+        }
+
+        post_state(LinkState::Disconnected, "send 실패 err=" + std::to_string(error));
+        return false;
+    }
+
+    return true;
 }

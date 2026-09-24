@@ -46,6 +46,12 @@ if(UNIX)
     find_package(OpenSSL REQUIRED)
 endif()
  
+# FetchContent가 URL 압축을 풀 때 파일 시각을 추출 시각으로 둔다(CMP0135 경고 제거, URL이 바뀌면 다시 빌드된다).
+# DOWNLOAD_EXTRACT_TIMESTAMP 키워드는 CMake 3.24부터 있어, 최소 판(3.20)에서도 통하는 정책 설정으로 정한다.
+if(POLICY CMP0135)
+  cmake_policy(SET CMP0135 NEW)
+endif()
+
 # ─── 의존성: nlohmann/json (JSON 파싱) ────────────────────────────────────
 find_package(nlohmann_json QUIET)
 if(NOT nlohmann_json_FOUND)

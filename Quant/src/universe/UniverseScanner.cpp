@@ -70,12 +70,18 @@ public:
     // 프로세스당 거래일 1회. 읽기 실패는 캐시 미스와 결과가 같으므로 경고만 남긴다.
     void load_today(const std::string& date_yyyymmdd, symbol::SymbolTable& symbols)
     {
-        if (loaded_ == date_yyyymmdd)
         {
-            return;
+            // 비교와 기록을 한 락 안에서 한다 — 같은 날짜로 둘이 동시에 들어와도 파일은 한 번만 읽는다.
+            std::lock_guard<std::mutex> lock(mutex_);
+
+            if (loaded_ == date_yyyymmdd)
+            {
+                return;
+            }
+
+            loaded_ = date_yyyymmdd;
         }
 
-        loaded_ = date_yyyymmdd;
         std::ifstream file(cache_path(date_yyyymmdd));
 
         if (!file)
@@ -298,18 +304,6 @@ private:
     std::string              loaded_;
 };
 DailyLookupCache g_lookup_cache;
-
-// 전 종목 장중 시세. 시세 파일(네이버 벌크)이 준 시장 전체에 랭킹 축 스냅샷가가 덮인다.
-//  후보만이 아니라 시장 전체를 담는다 — 전 종목 확장 축이 이 표를 후보 원천으로 쓴다.
-struct MarketQuote
-{
-    double      price   = 0.0;   // 원, 장중 갱신
-    double      value  = 0.0;   // 당일 누적 거래대금(원). 0=미제공
-    double      volume  = 0.0;   // 당일 누적 거래량(주). 0=미제공
-    std::string name;         // 시세 파일이 준 종목명. 비면 미제공
-};
-// 종목 id 인덱스(종목 테이블 capacity 크기). price>0이 "있음"이다.
-using QuoteTable = std::vector<MarketQuote>;
 
 // 시장 구분 — 파일의 "KOSPI"/"KOSDAQ" 문자열은 읽는 자리에서 한 번 이 값이 된다.
 enum class Market : uint8_t
@@ -621,23 +615,19 @@ std::string local_ymd()
     return kst::date_yyyymmdd(std::time(nullptr));
 }
 
-// 전 종목 장중 시세 파일. 네이버 벌크를 묶어오므로 KIS 초당 한도를 쓰지 않고 후보 전체의
-//  현재가를 얻는다. 이게 있어야 정배열·이격을 매 재스캔마다 다시 판정한다.
-//  실패는 경고만 내고 표를 비운 채 돌아간다 — 그러면 랭킹 축 스냅샷가만 쓰게 된다.
-void load_quote_table(const DevScanCfg& config, QuoteTable& quotes, symbol::SymbolTable& symbols)
+// 시세 파일을 비워 둔 표에 붓는다. 파일에 있는 종목 칸만 채운다 — 비우기는 load_quote_table이 한다.
+void load_quote_file(const std::string& prices_file, QuoteTable& quotes, symbol::SymbolTable& symbols)
 {
-    quotes.assign(symbols.capacity(), MarketQuote{});
-
-    if (config.prices_file.empty())
+    if (prices_file.empty())
     {
         return;
     }
 
-    std::ifstream pf(config.prices_file);
+    std::ifstream pf(prices_file);
 
     if (!pf)
     {
-        LOG_WARN("[Main] 전 종목 시세 파일 없음(" + config.prices_file + ") — 랭킹 축 가격만 쓴다");
+        LOG_WARN("[Main] 전 종목 시세 파일 없음(" + prices_file + ") — 랭킹 축 가격만 쓴다");
         return;
     }
 
@@ -688,7 +678,16 @@ void load_quote_table(const DevScanCfg& config, QuoteTable& quotes, symbol::Symb
 
             if (name_node != iterator.value().end() && name_node->is_string())
             {
-                market_quote.name = name_node->get_ref<const std::string&>();
+                const std::string& name = name_node->get_ref<const std::string&>();
+
+                if (market_quote.name != name)
+                {
+                    market_quote.name = name; // 이름이 바뀐 때만 복사한다
+                }
+            }
+            else
+            {
+                market_quote.name.clear();
             }
         }
 
@@ -722,6 +721,42 @@ void load_quote_table(const DevScanCfg& config, QuoteTable& quotes, symbol::Symb
         LOG_WARN(std::string("[Main] 전 종목 시세 파일 파싱 실패: ") + exception.what());
     }
 }
+
+} // namespace
+
+// 전 종목 장중 시세 파일. 네이버 벌크를 묶어오므로 KIS 초당 한도를 쓰지 않고 후보 전체의
+//  현재가를 얻는다. 이게 있어야 정배열·이격을 매 재스캔마다 다시 판정한다. 표에는 시장 전체가 들어가고
+//  (전 종목 확장 축이 이 표를 후보 원천으로 쓴다), 뒤이어 랭킹 축 스냅샷가가 덮인다.
+//  실패는 경고만 내고 표를 비운 채 돌아간다 — 그러면 랭킹 축 스냅샷가만 쓰게 된다.
+void load_quote_table(const std::string& prices_file, QuoteTable& quotes, symbol::SymbolTable& symbols)
+{
+    // 표는 재스캔 사이에 이어 쓴다. 먼저 전 칸의 숫자를 비워 이번 파일에 없는 종목이 옛 값을 들고 있지 않게 하고,
+    //  이름은 끝에서 가격이 없는 칸만 비운다(문자열 버퍼는 남겨 다음 복사 때 다시 잡지 않는다).
+    if (quotes.size() < symbols.capacity())
+    {
+        quotes.resize(symbols.capacity());
+    }
+
+    for (MarketQuote& market_quote : quotes)
+    {
+        market_quote.price  = 0.0;
+        market_quote.value  = 0.0;
+        market_quote.volume = 0.0;
+    }
+
+    load_quote_file(prices_file, quotes, symbols);
+
+    for (MarketQuote& market_quote : quotes)
+    {
+        if (market_quote.price <= 0.0 && !market_quote.name.empty())
+        {
+            market_quote.name.clear();
+        }
+    }
+}
+
+namespace
+{
 
 // 랭킹 응답을 후보 집합에 붓는다. 스냅샷가는 중복분에도 반영한다 — 표의 현재가를 최신으로 둔다.
 void take_ranking(const std::vector<KisClient::RankingStock>& rank, const DevScanCfg& config, QuoteTable& quotes,
@@ -1116,7 +1151,7 @@ DailyLookup fetch_daily_lookup(KisClient& kis, const DevScanCfg& config, const s
 struct Features
 {
     symbol::SymbolId symbol;
-    double           trend, pull, volume, turnover, score;
+    double           trend, pull, atr_percent, turnover, score; // atr_percent는 ATR(14)/종가(변동성 축)
 };
 
 struct LookupStats
@@ -1128,6 +1163,7 @@ struct LookupStats
     int budget_skipped = 0;   // 일봉 조회 예산이 끝났고 캐시도 없어 판정 못 한 수
     long long rest_ms = 0;    // 계측: fetch_daily_lookup(REST 일봉) 안에서 보낸 시간 합. 실계좌 150ms, 모의 600ms 간격 sleep은 뺀 값
     long long wait_ms = 0;    // 계측: 그중 KIS 토큰버킷 대기 합 — 크면 다른 소비자와 경합
+    long long sleep_ms = 0;   // 계측: 일봉 조회 사이에 실제로 쉰 간격 합(계좌 종류에 따라 150ms 또는 600ms씩)
 };
 
 // 2단: 정배열 프리필터 — 후보를 일봉으로 검사해 정배열=Y(≥60봉)만 통과시킨다.
@@ -1218,8 +1254,9 @@ std::vector<Features> lookup_and_filter(KisClient& kis, const DevScanCfg& config
 
                 if (statistics.fetched > 0)
                 {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(
-                        kis.is_paper() ? kDailyLookupSleepPaperMs : kDailyLookupSleepMs));
+                    const int sleep_ms = kis.is_paper() ? kDailyLookupSleepPaperMs : kDailyLookupSleepMs;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
+                    statistics.sleep_ms += sleep_ms;
                 }
 
                 const auto fetch_start = std::chrono::steady_clock::now();
@@ -1306,8 +1343,8 @@ std::vector<Features> lookup_and_filter(KisClient& kis, const DevScanCfg& config
 
 // 2.5단: 횡단면 정규화로 종합 점수 하나를 만든다. 이 점수가 등록 순서(=진입 우선순위)와
 //  종목별 비중 배수 두 가지를 모두 정한다.
-//  [formula] S = weight_trend·z(추세) + weight_pull·z(-눌림) - weight_volume·z(변동성) + weight_liquidity·z(log 거래대금).
-//   변동성은 뺀다 — 추세·눌림이 같다면 덜 흔들리는 쪽이 낫다.
+//  [formula] S = weight_trend·z(추세) + weight_pull·z(-눌림) - weight_volume·z(ATR%) + weight_liquidity·z(log 거래대금).
+//   ATR%는 ATR(14)/종가, 곧 변동성이다(설정 키 이름 score_w_vol의 vol은 거래량이 아니라 이것이다). 변동성은 뺀다 — 추세·눌림이 같다면 덜 흔들리는 쪽이 낫다.
 //   거래대금은 더한다 — 같은 조건이면 두꺼운 쪽이 청산 슬리피지가 작다. 기본값 0(비활성)이다.
 void score_cross_section(const DevScanCfg& config, std::vector<Features>& passed)
 {
@@ -1358,10 +1395,10 @@ void score_cross_section(const DevScanCfg& config, std::vector<Features>& passed
             values[index] = invert ? -value : value;
         }
     };
-    std::vector<double> z_trend, z_pull, z_volume, z_liquidity;
+    std::vector<double> z_trend, z_pull, z_atr_percent, z_liquidity;
     zscore(&Features::trend, false, z_trend);
     zscore(&Features::pull,  true,  z_pull);   // 눌림은 음수(SMA20 아래)일수록 좋아 부호를 뒤집는다. 추세확장 슬리브(min_deviation_percent>0)에선 전부 양수라 "덜 벌어진 쪽 우대"(과확장 감점)로 작동한다
-    zscore(&Features::volume,   false, z_volume);
+    zscore(&Features::atr_percent, false, z_atr_percent);
 
     if (config.score_weight_liquidity != 0.0)
     {
@@ -1402,16 +1439,23 @@ void score_cross_section(const DevScanCfg& config, std::vector<Features>& passed
     for (size_t passed_index = 0; passed_index < passed.size(); ++passed_index)
     {
         passed[passed_index].score = config.score_weight_trend * z_trend[passed_index] + config.score_weight_pullback * z_pull[passed_index]
-                        - config.score_weight_volume * z_volume[passed_index] + config.score_weight_liquidity * z_liquidity[passed_index];
+                        - config.score_weight_volume * z_atr_percent[passed_index] + config.score_weight_liquidity * z_liquidity[passed_index];
     }
 }
 
 // 3단: 점수 내림차순으로 등록한다. score_top_n>0이면 상위 N만 남긴다.
 //  절단이 없어도 정렬은 한다 — 등록 순서가 그대로 진입 우선순위라, 안 정렬하면
 //  유니버스 파일 순서(시총·거래대금)가 우선순위를 먹는다.
-ScanResult rank_and_truncate(const DevScanCfg& config, std::vector<Features>& passed, const CandidateSet& candidates)
+//  동점은 티커 사전순으로 가른다(`ranks_before`, 순위 계산과 같은 규칙) — 같은 입력이면 늘 같은 종목이 잘린다.
+ScanResult rank_and_truncate(const DevScanCfg& config, std::vector<Features>& passed, const CandidateSet& candidates,
+                             const symbol::SymbolTable& symbols)
 {
-    std::ranges::sort(passed, std::ranges::greater{}, &Features::score);
+    std::ranges::sort(passed,
+                      [&symbols](const Features& feature_a, const Features& feature_b)
+                      {
+                          return ranks_before(feature_a.score, feature_a.symbol, feature_b.score, feature_b.symbol,
+                                              symbols);
+                      });
     std::size_t take_n = passed.size();
 
     if (config.score_top_n > 0 && static_cast<std::size_t>(config.score_top_n) < take_n)
@@ -1579,7 +1623,8 @@ std::vector<ItbCandidate> scan_itb(KisClient& scan_kis, const ItbScanCfg& config
 // DeviationScale 유니버스 선정. 단계는 넷이고 비용이 다르다 — 후보 합집합 수집만 KIS REST를
 //  쓰고(D-028로 주기 분리), 정배열·이격·점수 재판정은 일봉 캐시와 시세 표만 본다.
 //  스캔 스레드에서만 부른다. 실패는 예외 대신 빈 목록으로 돌려준다.
-ScanResult scan_devscale(KisClient& kis, const DevScanCfg& config, symbol::SymbolTable& symbols)
+ScanResult scan_devscale(KisClient& kis, const DevScanCfg& config, symbol::SymbolTable& symbols,
+                         QuoteTable& quotes)
 {
     // 계측(문항 2): 단계별 경과를 요약 로그에 붙인다 — "일봉조회=0인데 40초"가 어느 단계인지 가르기 위해.
     using scan_clock = std::chrono::steady_clock;
@@ -1590,8 +1635,7 @@ ScanResult scan_devscale(KisClient& kis, const DevScanCfg& config, symbol::Symbo
     const std::string date_yyyymmdd = local_ymd();   // 일봉 캐시·후보 집합 캐시의 거래일 키
     g_lookup_cache.load_today(date_yyyymmdd, symbols); // 장중 재기동 시 일봉 재조회를 막는다
 
-    QuoteTable quotes;
-    load_quote_table(config, quotes, symbols);
+    load_quote_table(config.prices_file, quotes, symbols);
 
     const MarketGate gate = build_market_gate(kis, config);
     const long long gate_ms = ms_since(scan_start);   // 시세 파일 적재 + 지수 조회(REST)
@@ -1621,7 +1665,7 @@ ScanResult scan_devscale(KisClient& kis, const DevScanCfg& config, symbol::Symbo
     const long long lookup_ms = ms_since(lookup_start);
     const auto score_start = scan_clock::now();
     score_cross_section(config, passed);
-    ScanResult out = rank_and_truncate(config, passed, candidates);
+    ScanResult out = rank_and_truncate(config, passed, candidates, symbols);
     const long long score_ms = ms_since(score_start);
 
     // 새로 받은 일봉이 있을 때만 파일을 갱신한다. 히트만 났으면 내용이 같다.
@@ -1653,7 +1697,7 @@ ScanResult scan_devscale(KisClient& kis, const DevScanCfg& config, symbol::Symbo
              "ms 게이트=" + std::to_string(gate_ms) + "ms 수집=" + std::to_string(collect_ms) +
              "ms 검사=" + std::to_string(lookup_ms) + "ms(REST=" + std::to_string(statistics.rest_ms) +
              "ms 버킷대기=" + std::to_string(statistics.wait_ms) + "ms 간격sleep=" +
-             std::to_string(statistics.fetched > 0 ? (statistics.fetched - 1) * 150 : 0) +
+             std::to_string(statistics.sleep_ms) +
              "ms) 점수·순위=" + std::to_string(score_ms) + "ms 캐시저장=" + std::to_string(save_ms) + "ms");
     return out;
 }

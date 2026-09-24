@@ -245,7 +245,7 @@ public:
         ledger_journal_fsync_     = fsync;
     }
 
-    // 전략 샤드 수(config `strategy_shards`, 기본 1). 스레드 시작 전에만. 전략 하나가 여러 샤드에 걸치면 start()가 1로 내린다.
+    // 전략 샤드 수(config `strategy_shards`, 기본 1). 스레드 시작 전에만. 상한은 샤드 마스크 폭이고, 전략은 등록 순으로 샤드 하나씩 갖는다(걸침 검사 없음). [why D-110]
     void set_strategy_shards(uint32_t strategy_shards) { pipeline_.strategy_shards = strategy_shards == 0 ? 1u : strategy_shards; }
 
     // WS 소켓을 하나 더 연다(KIS는 app_key당 실시간 1세션이라 키가 하나 더 있어야 한다). 하나라도 있으면 기본 키와
@@ -287,12 +287,12 @@ public:
     }
 
     // ── 운영 카운터·상태 조회 ───────────────────────────────────────────────
-    // 운영 카운터 — data는 REST 폴링 건수(WS 틱은 세지 않는다), signal은 주문 큐에 넣은 신호, order는 접수된 주문.
+    // 운영 카운터 — data는 받은 시세 건수(WS 체결과 REST 폴링을 다 센다. 갈라 띄우면 전략 쪽은 통로에서 꺼낸 체결을 센다), signal은 주문 큐에 넣은 신호, order는 접수된 주문.
     uint64_t data_count() const { return data_count_.load(std::memory_order_relaxed); }
     uint64_t signal_count() const { return signal_count_.load(std::memory_order_relaxed); }
     uint64_t order_count() const { return order_count_.load(std::memory_order_relaxed); }
 
-    // start()가 실제로 잡은 수신 스레드(행)·전략 샤드(열) 수 — config와 다를 수 있다(걸치는 전략이 있으면 샤드 1). 기동 뒤에만 뜻이 있다.
+    // start()가 실제로 잡은 수신 스레드(행)·전략 샤드(열) 수 — config와 다를 수 있다(샤드 수가 마스크 폭을 넘으면 거기서 자른다). 기동 뒤에만 뜻이 있다.
     uint32_t websocket_lanes() const { return pipeline_.websocket_lanes; }
     uint32_t shard_count() const { return static_cast<uint32_t>(pipeline_.shards.size()); }
     // 종목 id의 틱을 받는 샤드 마스크(시험·진단용). 0이면 아무 전략도 안 보는 종목이다.

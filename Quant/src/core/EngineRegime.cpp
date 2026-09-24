@@ -172,6 +172,14 @@ static regime_file::Observation observe_regime_file(const std::string& path, int
     return observation;
 }
 
+// ─── 매크로 레짐 파일 폴링 → OrderGate entry_halt 토글 (data_thread 전용) ─────
+//  Python macro_regime_feed.py가 원자적으로 쓰는 regime.json을 매 사이클 읽어,
+//  entry_halt(신규 진입만 차단, 청산은 통과)를 국면에 맞춰 켜고 끈다.
+//  신규진입 정지를 내는 곳은 이 함수뿐이라 소유권 단순. 파일 없음/손상/
+//  판정보류(valid=false)/stale이면 게이트를 새로 켜지 않는다(유지가 실패안전).
+//  매크로 risk-off 오버레이 축(G2): entry_halt·force_liquidate(강제청산)를 건다.
+//  전략선택 축(apply_regime_selection)과는 별개 관심사다.
+//  판정(stale·시간 상자·1회 로그)은 core/RegimeFileJudge.h의 상태기계가 맡는다. [why D-060]
 void Engine::poll_regime_file()
 {
     if (regime_file_.empty())

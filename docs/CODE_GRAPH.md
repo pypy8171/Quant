@@ -36,7 +36,7 @@ graph LR
   main --> utils
   risk -->|12| core
   risk -->|2| ipc
-  risk -->|2| utils
+  risk -->|4| utils
   strategy -->|5| api
   strategy -->|23| core
   strategy --> risk
@@ -56,7 +56,7 @@ graph LR
 | 헤더 | 유입 수 |
 |---|---|
 | `core/Types.h` | 41 |
-| `utils/Logger.h` | 34 |
+| `utils/Logger.h` | 36 |
 | `core/SymbolTable.h` | 20 |
 | `core/KstTime.h` | 18 |
 | `strategy/StrategyBase.h` | 15 |
@@ -544,6 +544,7 @@ graph LR
   n_risk_OrderGate_cpp --> n_ipc_LedgerSnapshot_h
   n_risk_OrderGate_cpp --> n_risk_GateReasons_h
   n_risk_OrderGate_cpp --> n_risk_OrderGate_h
+  n_risk_OrderGate_cpp --> n_utils_Logger_h
   n_risk_OrderGate_h --> n_core_StrategyTable_h
   n_risk_OrderGate_h --> n_core_SymbolTable_h
   n_risk_OrderGate_h --> n_core_Types_h
@@ -552,6 +553,7 @@ graph LR
   n_risk_OrderGate_h --> n_risk_PositionLedger_h
   n_risk_PositionLedger_cpp --> n_ipc_LedgerSnapshot_h
   n_risk_PositionLedger_cpp --> n_risk_PositionLedger_h
+  n_risk_PositionLedger_cpp --> n_utils_Logger_h
   n_risk_PositionLedger_h --> n_core_StrategyTable_h
   n_risk_PositionLedger_h --> n_core_SymbolTable_h
   n_risk_PositionLedger_h --> n_core_Types_h

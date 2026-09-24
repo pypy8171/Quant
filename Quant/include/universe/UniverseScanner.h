@@ -101,9 +101,27 @@ struct ScanResult
     ScoreList                     scores;
 };
 
+// 전 종목 장중 시세 파일(`prices_file`) 한 줄. 종목 id가 칸 번호다.
+struct MarketQuote
+{
+    double      price  = 0.0; // 원, 0이면 이번 파일에 없는 종목
+    double      value  = 0.0; // 원, 누적 거래대금
+    double      volume = 0.0; // 주, 누적 거래량
+    std::string name;
+};
+
+using QuoteTable = std::vector<MarketQuote>;
+
+// 시세 파일을 읽어 quotes의 칸을 다시 채운다. 이번 파일에 없는 종목의 가격·거래대금·거래량은 0으로 비운다.
+//  표는 호출자가 재스캔 사이에 들고 있다 — 매번 새로 잡지 않고, 이름은 바뀐 때만 다시 복사한다.
+//  파일이 없거나 깨졌으면 전 칸이 비워진 채로 돌아온다.
+void load_quote_table(const std::string& prices_file, QuoteTable& quotes, symbol::SymbolTable& symbols);
+
 // 초기 등록·주기적 재스캔이 공용으로 호출한다(config는 값 복사 캡처라 std::function 저장이 안전).
 //  레짐 위험회피면 빈 결과를 돌려준다. 실패도 예외가 아니라 빈 결과다.
 //  등록 순서가 곧 진입 우선순위다. 점수 → 비중 배수 변환은 `ScoreWeight.h`가 한다. [why D-018]
-ScanResult scan_devscale(KisClient& kis, const DevScanCfg& config, symbol::SymbolTable& symbols);
+//  quotes는 시세 파일을 담아 두는 표로, 같은 슬리브의 스캔끼리 이어 쓴다(스캔은 한 번에 하나씩 돈다).
+ScanResult scan_devscale(KisClient& kis, const DevScanCfg& config, symbol::SymbolTable& symbols,
+                         QuoteTable& quotes);
 
 } // namespace universe

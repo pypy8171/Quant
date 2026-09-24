@@ -1,10 +1,10 @@
 #include "risk/PositionLedger.h"
 
 #include "ipc/LedgerSnapshot.h"
+#include "utils/Logger.h"
 #include <algorithm>
 #include <cstring>
 #include <format>
-#include <iostream>
 
 namespace
 {
@@ -177,7 +177,7 @@ bool PositionLedger::set_journal(const std::filesystem::path& directory, std::st
 
     if (!journal_->ok())
     {
-        std::cerr << std::format("[OrderGate] 원장 저널을 못 열었다: {}\n", journal_->path().string());
+        LOG_ERROR(std::format("[PositionLedger] 원장 저널을 못 열었다 - path({})", journal_->path().string()));
         return false;
     }
 
@@ -199,16 +199,19 @@ bool PositionLedger::journal_append(ledger_journal::Record& record, std::string_
 
     ledger_journal::put_string(record.account, sizeof(record.account), account);
     ledger_journal::put_string(record.ticker, sizeof(record.ticker), ticker);
-    std::lock_guard<std::mutex> lock(journal_mutex_);
-
-    if (journal_->append(record))
     {
-        return true;
+        std::lock_guard<std::mutex> lock(journal_mutex_);
+
+        if (journal_->append(record))
+        {
+            return true;
+        }
     }
 
+    // 로그는 journal_mutex_를 놓은 뒤 비동기 로거 큐로 넘긴다(락 안에서 I/O 없음).
     journal_failures_.fetch_add(1, std::memory_order_relaxed);
-    std::cerr << std::format("[OrderGate] 원장 저널 기록 실패 kind={} {} {} — 파일이 원장보다 뒤처졌다\n", record.kind,
-                             account, ticker);
+    LOG_ERROR(std::format("[PositionLedger] 원장 저널 기록 실패, 파일이 원장보다 뒤처졌다 - kind({}) account({}) ticker({})",
+                          record.kind, account, ticker));
     return false;
 }
 

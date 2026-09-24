@@ -21,8 +21,9 @@ struct SymbolScore
 
 using ScoreList = std::vector<SymbolScore>;
 
-// 아래 세 함수의 결과는 입력 ScoreList와 같은 순서의 배열이다(결과[i]가 scores[i]의 값). 종목 id로 찾고 싶으면
-//  호출자가 자기 id 배열에 옮겨 담는다(StrategyFactory의 DevScaleScoreState처럼).
+// 아래 세 함수는 입력 ScoreList와 같은 순서의 배열을 호출자 버퍼에 채운다(결과[i]가 scores[i]의 값). 버퍼는 재스캔마다
+//  새로 잡지 않도록 호출자가 들고 있다가 넘긴다. 종목 id로 찾고 싶으면 호출자가 자기 id 배열에 옮겨 담는다
+//  (StrategyFactory의 DevScaleScoreState처럼).
 
 // 평균·표준편차 — 셋이 같은 식을 쓴다.
 struct ScoreMoments
@@ -52,15 +53,25 @@ ScoreMoments score_moments(const ScoreList& scores);
 //
 //  σ가 사실상 0이면 모두 같은 값(target_total_percent/(base_percent×min(slots,n)))이다.
 //  입력이 비었거나 파라미터가 무효일 때만 1.0이다.
+//  전제: spread ∈ [0, 1]. 1을 넘으면 z=−2 쪽 raw가 음수가 되어 호출자가 기본 배수로 되돌리므로
+//  여기서 1로 자른다(설정 적재에서 경고와 함께 먼저 자른다).
+//  sorted_raw는 상위 slots개 합을 구하는 작업 버퍼다 — 내용은 쓰지 않고 크기만 재사용한다.
 // ─────────────────────────────────────────────────────────────────────────────
-std::vector<double> score_to_mult(const ScoreList& scores, double spread, double target_total_percent,
-                                         double base_percent, int slots);
+void score_to_mult(const ScoreList& scores, double spread, double target_total_percent, double base_percent,
+                   int slots, std::vector<double>& multiplier, std::vector<double>& sorted_raw);
 
 // 종합 점수 → 표준화 점수(z, ±2 클립). 랭크는 "몇 번째"만 알려주므로 교체 판정처럼
-//  "얼마나 더 좋은지"를 봐야 하는 곳에서 쓴다. 분산이 없으면 전부 0을 돌려준다.
-std::vector<double> score_to_z(const ScoreList& scores);
+//  "얼마나 더 좋은지"를 봐야 하는 곳에서 쓴다. 분산이 없으면 전부 0이다.
+void score_to_z(const ScoreList& scores, std::vector<double>& z_score);
 
-// 종합 점수 → 진입 우선순위 랭크(1=최고). 동점은 티커 사전순으로 갈라 결정론을 유지한다 — 이름은 여기서만 본다.
-std::vector<int> score_to_rank(const ScoreList& scores, const symbol::SymbolTable& symbols);
+// 점수 내림차순, 같은 점수는 티커 사전순. 순위 계산과 스캐너의 등록 상한 자르기가 같은 규칙을 써서
+//  같은 입력이면 늘 같은 순서가 나온다.
+bool ranks_before(double score_a, symbol::SymbolId symbol_a, double score_b, symbol::SymbolId symbol_b,
+                  const symbol::SymbolTable& symbols);
+
+// 종합 점수 → 진입 우선순위 랭크(1=최고). 순서는 ranks_before다 — 이름은 동점일 때만 본다.
+//  order는 정렬용 작업 버퍼다.
+void score_to_rank(const ScoreList& scores, const symbol::SymbolTable& symbols, std::vector<int>& rank,
+                   std::vector<size_t>& order);
 
 } // namespace universe

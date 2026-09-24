@@ -1,5 +1,7 @@
 #include "universe/ScoreWeight.h"
 
+#include <functional>
+
 namespace universe
 {
 ScoreMoments score_moments(const ScoreList& scores)
@@ -30,96 +32,98 @@ ScoreMoments score_moments(const ScoreList& scores)
     return moments;
 }
 
-std::vector<double> score_to_mult(const ScoreList& scores, double spread, double target_total_percent,
-                                  double base_percent, int slots)
+void score_to_mult(const ScoreList& scores, double spread, double target_total_percent, double base_percent,
+                   int slots, std::vector<double>& multiplier, std::vector<double>& sorted_raw)
 {
-    std::vector<double> multiplier(scores.size(), 1.0);
+    multiplier.assign(scores.size(), 1.0);
 
     if (scores.empty() || !(spread > 0.0) || !(target_total_percent > 0.0) || !(base_percent > 0.0) || slots <= 0)
     {
-        return multiplier;
+        return;
     }
 
+    spread = std::min(spread, 1.0);
     const ScoreMoments moments = score_moments(scores);
 
     // 분산이 없으면(전 종목 동점) 차등이 의미 없다. 총합 정규화만 걸고 배수는 균등하게 둔다.
-    std::vector<double> raw(scores.size(), 1.0);
-
+    //  raw는 multiplier 칸에 먼저 담고, 끝에서 scale을 곱해 배수로 바꾼다.
     if (moments.standard_deviation > 1e-12)
     {
         for (size_t index = 0; index < scores.size(); ++index)
         {
             double z_score = (scores[index].score - moments.mean) / moments.standard_deviation;
             z_score = std::max(-2.0, std::min(2.0, z_score));
-            raw[index] = 1.0 + spread * z_score / 2.0;
+            multiplier[index] = 1.0 + spread * z_score / 2.0;
         }
     }
 
-    // 상위 slots개의 raw 합으로 정규화 — 정렬은 사본으로 하고 raw의 순서(입력 순서)는 지킨다.
-    std::vector<double> sorted_raw = raw;
-    std::ranges::sort(sorted_raw, std::ranges::greater{});
+    // 상위 slots개의 raw 합으로 정규화 — 정렬은 작업 버퍼에서 하고 raw의 순서(입력 순서)는 지킨다.
+    sorted_raw.assign(multiplier.begin(), multiplier.end());
     const size_t take = std::min(static_cast<size_t>(slots), sorted_raw.size());
-    const double sum_top =
-        std::accumulate(sorted_raw.begin(), sorted_raw.begin() + static_cast<std::ptrdiff_t>(take), 0.0);
+    const auto take_end = sorted_raw.begin() + static_cast<std::ptrdiff_t>(take);
+    std::partial_sort(sorted_raw.begin(), take_end, sorted_raw.end(), std::greater<>{});
+    const double sum_top = std::accumulate(sorted_raw.begin(), take_end, 0.0);
 
     if (!(sum_top > 1e-12))
     {
-        return multiplier;
+        multiplier.assign(scores.size(), 1.0);
+        return;
     }
 
     const double scale = target_total_percent / (base_percent * sum_top);
 
-    for (size_t index = 0; index < raw.size(); ++index)
+    for (double& value : multiplier)
     {
-        multiplier[index] = raw[index] * scale;
+        value *= scale;
     }
-
-    return multiplier;
 }
 
-std::vector<double> score_to_z(const ScoreList& scores)
+void score_to_z(const ScoreList& scores, std::vector<double>& z_score)
 {
-    std::vector<double> out(scores.size(), 0.0);
+    z_score.assign(scores.size(), 0.0);
     const ScoreMoments moments = score_moments(scores);
 
     if (moments.standard_deviation <= 1e-12)
     {
-        return out;
+        return;
     }
 
     for (size_t index = 0; index < scores.size(); ++index)
     {
-        out[index] = std::max(-2.0, std::min(2.0, (scores[index].score - moments.mean) / moments.standard_deviation));
+        z_score[index] =
+            std::max(-2.0, std::min(2.0, (scores[index].score - moments.mean) / moments.standard_deviation));
     }
-
-    return out;
 }
 
-std::vector<int> score_to_rank(const ScoreList& scores, const symbol::SymbolTable& symbols)
+bool ranks_before(double score_a, symbol::SymbolId symbol_a, double score_b, symbol::SymbolId symbol_b,
+                  const symbol::SymbolTable& symbols)
 {
-    std::vector<size_t> order(scores.size());
+    if (score_a != score_b)
+    {
+        return score_a > score_b;
+    }
+
+    return symbols.name(symbol_a).view() < symbols.name(symbol_b).view();
+}
+
+void score_to_rank(const ScoreList& scores, const symbol::SymbolTable& symbols, std::vector<int>& rank,
+                   std::vector<size_t>& order)
+{
+    order.resize(scores.size());
     std::iota(order.begin(), order.end(), size_t{0});
     std::sort(order.begin(), order.end(),
               [&](size_t index_a, size_t index_b)
               {
                   const SymbolScore& entry_a = scores[index_a];
                   const SymbolScore& entry_b = scores[index_b];
-
-                  if (entry_a.score != entry_b.score)
-                  {
-                      return entry_a.score > entry_b.score;
-                  }
-
-                  return symbols.name(entry_a.symbol).view() < symbols.name(entry_b.symbol).view();
+                  return ranks_before(entry_a.score, entry_a.symbol, entry_b.score, entry_b.symbol, symbols);
               });
-    std::vector<int> rank(scores.size(), 0);
+    rank.assign(scores.size(), 0);
 
     for (size_t position = 0; position < order.size(); ++position)
     {
         rank[order[position]] = static_cast<int>(position) + 1;
     }
-
-    return rank;
 }
 
 } // namespace universe

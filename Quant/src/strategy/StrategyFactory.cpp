@@ -442,11 +442,12 @@ static void load_market_making(LoadPass& context, const json& node)
         std::move(ticker), market_making_quantity, half_spread_ticks, requote_move_ticks, min_requote_ms));
 }
 
-// 오늘 이 슬리브(id_prefix)가 산 종목 — 체결 원장 logs/trades_YYYYMMDD.csv(OrderRouter가 쓴다)의 FILL·BUY 행.
+// 이 슬리브(id_prefix)가 오늘부터 lookback_days일 전(달력일)까지 산 종목 — 체결 원장 logs/trades_YYYYMMDD.csv
+//  (OrderRouter가 쓴다)의 FILL·BUY 행. lookback_days 0이면 오늘 원장 하나만 본다.
 //  재기동 때 보유분을 전부 청산 관리(ITB)로 넘기면 당일 매수분도 익절선 없이 트레일에만 걸린다(09-04~18 승계 매도
 //  725체결 −190만). 분할 매수가 없으면(buy_split_steps 0) 명목 상한 초과 위험이 없어 DevScale이 그대로 맡는다.
 //  파일이 없거나(첫 기동) 못 읽으면 빈 집합 — 그때는 기존대로 청산 관리가 맡는다.
-//  넘김 모드(market_close_exit_hhmm 2400)는 전날 산 것도 DevScale 보유라 lookback_days만큼 지난 원장까지 본다.
+//  넘김 모드(market_close_exit_hhmm 2400)는 전날 산 것도 DevScale 보유라 호출자가 lookback_days 20을 준다.
 static std::set<std::string> tickers_bought_recently(const std::string& id_prefix, int lookback_days)
 {
     std::set<std::string> bought;
@@ -566,21 +567,32 @@ struct DevScaleScoreState
     explicit DevScaleScoreState(size_t capacity) : multiplier(capacity, 0.0), krw(capacity, 0.0) {}
 };
 
+// 한 슬리브의 스캔이 재스캔마다 다시 쓰는 버퍼. 매번 새로 잡지 않으려고 스캔 콜백이 들고 있다.
+//  락이 없다 — 한 슬리브의 스캔은 한 번에 하나씩만 돈다(초기 스캔은 엔진 시작 전 메인 스레드, 재스캔은
+//  그 뒤 데이터 스레드). [inv] 스캔 콜백 밖에서는 건드리지 않는다.
+struct DevScaleScanBuffers
+{
+    universe::QuoteTable quotes;     // 전 종목 시세 표(종목 id 인덱스). 칸 비우기·다시 채우기는 load_quote_table
+    std::vector<double>  multiplier; // scores 순서의 비중 배수
+    std::vector<double>  sorted_raw; // score_to_mult 작업 버퍼
+    std::vector<double>  krw;        // scores 순서의 종목당 명목(원)
+    std::vector<bool>    held;       // 재스캔 때 보유·바스켓 종목 표시(종목 id 인덱스)
+};
+
 // 점수 z → 종목당 명목(원). z≤0은 바닥, z≥cap_z는 천장, 사이는 직선. 결과는 scores와 같은 순서.
 //  [formula] krw = floor + (capture − floor) × clamp(z / cap_z, 0, 1)
 //  천장은 "풀 안에서 확실히 강하다"(z)만 본다. 절대 산포 조건(모두 비슷한 장에서는 천장을 닫는
 //  것)은 점수 이력이 쌓인 뒤 붙인다 — 지금은 이력이 없어 임계를 정할 근거가 없다.
-static std::vector<double> score_to_krw(const universe::ScoreList& scores, double floor_krw, double cap_krw, double cap_z)
+static void score_to_krw(const universe::ScoreList& scores, double floor_krw, double cap_krw, double cap_z,
+                         std::vector<double>& krw)
 {
-    std::vector<double> out = universe::score_to_z(scores);
+    universe::score_to_z(scores, krw);
 
-    for (double& value : out)
+    for (double& value : krw)
     {
         const double factor = cap_z > 0.0 ? (std::max)(0.0, (std::min)(1.0, value / cap_z)) : 0.0;
         value               = floor_krw + (cap_krw - floor_krw) * factor;
     }
-
-    return out;
 }
 
 // 진입 우선순위 랭크는 슬리브 하나가 아니라 전 슬리브를 합쳐서 매겨야 한다. 슬리브마다
@@ -590,69 +602,76 @@ static std::vector<double> score_to_krw(const universe::ScoreList& scores, doubl
 //  슬리브별 z는 각자의 풀 안에서 정규화된 값이라 슬리브를 넘는 비교는 근사다. 그래도
 //  랭크가 통째로 사라지는 것보다는 낫다.
 //  슬리브 키는 설정의 id_prefix 문자열 그대로(둘뿐, 스캔당 한 번 찾는다). 종목은 id로 든다.
+//  합치기부터 엔진에 넣기까지 한 락 안에서 한다. 두 슬리브가 겹쳐 부르면 먼저 합친 쪽이 늦게 넣어
+//  최신 표를 옛 표로 덮을 수 있어서다. 아래 버퍼는 그 락 아래에서만 쓰고 매번 새로 잡지 않는다.
 struct EntryPriorityMerger
 {
     std::mutex                                 mutex;
     std::map<std::string, universe::ScoreList> by_sleeve;
-    std::vector<int32_t>                       slot_by_symbol; // 합칠 때 종목 id → merged 위치(-1=아직 없음), 재사용
+    std::vector<int32_t>                       slot_by_symbol; // 합칠 때 종목 id → merged 위치(-1=아직 없음)
+    universe::ScoreList                        merged;
+    std::vector<int>                           rank;
+    std::vector<size_t>                        rank_order;     // score_to_rank 작업 버퍼
+    std::vector<double>                        z_score;
+    std::vector<OrderGate::PriorityEntry>      entries;
 };
 
 // 한 슬리브의 점수를 갱신하고, 전 슬리브를 합친 랭크를 엔진에 넣는다.
 //  scores는 sink — 슬리브 표에 옮겨 넣는다.
+//  [lock-order] merger.mutex를 쥔 채 engine.set_entry_priority를 부른다. 그 안의 잠금은 파일 쓰기용 하나뿐이고
+//  그쪽에서 merger를 다시 부르지 않으므로 잠금 순서가 뒤집히지 않는다.
 static void publish_entry_priority(Engine& engine, EntryPriorityMerger& merger, const std::string& sleeve,
                                    universe::ScoreList scores)
 {
-    universe::ScoreList merged;
+    std::lock_guard<std::mutex> lock(merger.mutex);
+    universe::ScoreList&        merged = merger.merged;
+    merged.clear();
+    merger.by_sleeve[sleeve] = std::move(scores);
+
+    if (merger.slot_by_symbol.size() < engine.symbols().capacity())
     {
-        std::lock_guard<std::mutex> lock(merger.mutex);
-        merger.by_sleeve[sleeve] = std::move(scores);
+        merger.slot_by_symbol.assign(engine.symbols().capacity(), -1);
+    }
 
-        if (merger.slot_by_symbol.size() < engine.symbols().capacity())
+    for (const auto& sleeve_entry : merger.by_sleeve)
+    {
+        for (const universe::SymbolScore& entry : sleeve_entry.second)
         {
-            merger.slot_by_symbol.assign(engine.symbols().capacity(), -1);
-        }
-
-        for (const auto& sleeve_entry : merger.by_sleeve)
-        {
-            for (const universe::SymbolScore& entry : sleeve_entry.second)
+            if (entry.symbol == symbol::kNone || entry.symbol >= merger.slot_by_symbol.size())
             {
-                if (entry.symbol == symbol::kNone || entry.symbol >= merger.slot_by_symbol.size())
-                {
-                    continue;
-                }
-
-                int32_t& slot = merger.slot_by_symbol[entry.symbol];
-
-                // 같은 종목이 두 슬리브에 올라오면 높은 점수를 남긴다.
-                if (slot < 0)
-                {
-                    slot = static_cast<int32_t>(merged.size());
-                    merged.push_back(entry);
-                }
-                else if (entry.score > merged[static_cast<size_t>(slot)].score)
-                {
-                    merged[static_cast<size_t>(slot)].score = entry.score;
-                }
+                continue;
             }
-        }
 
-        for (const universe::SymbolScore& entry : merged) // 다음 호출을 위해 건드린 칸만 되돌린다
-        {
-            merger.slot_by_symbol[entry.symbol] = -1;
+            int32_t& slot = merger.slot_by_symbol[entry.symbol];
+
+            // 같은 종목이 두 슬리브에 올라오면 높은 점수를 남긴다.
+            if (slot < 0)
+            {
+                slot = static_cast<int32_t>(merged.size());
+                merged.push_back(entry);
+            }
+            else if (entry.score > merged[static_cast<size_t>(slot)].score)
+            {
+                merged[static_cast<size_t>(slot)].score = entry.score;
+            }
         }
     }
 
-    const std::vector<int>    rank = universe::score_to_rank(merged, engine.symbols());
-    const std::vector<double> z_score = universe::score_to_z(merged);
-    std::vector<OrderGate::PriorityEntry> entries;
-    entries.reserve(merged.size());
+    for (const universe::SymbolScore& entry : merged) // 다음 호출을 위해 건드린 칸만 되돌린다
+    {
+        merger.slot_by_symbol[entry.symbol] = -1;
+    }
+
+    universe::score_to_rank(merged, engine.symbols(), merger.rank, merger.rank_order);
+    universe::score_to_z(merged, merger.z_score);
+    merger.entries.clear();
 
     for (size_t index = 0; index < merged.size(); ++index)
     {
-        entries.push_back({merged[index].symbol, rank[index], z_score[index]});
+        merger.entries.push_back({merged[index].symbol, merger.rank[index], merger.z_score[index]});
     }
 
-    engine.set_entry_priority(entries, static_cast<int>(merged.size()));
+    engine.set_entry_priority(merger.entries, static_cast<int>(merged.size()));
 }
 
 static void load_deviation_scale(LoadPass& context, const json& node)
@@ -880,7 +899,26 @@ static void load_deviation_scale(LoadPass& context, const json& node)
         // 비중 배분 파라미터 — spread는 최상위/최하위 배수 폭, target_pct는 베이스 명목 총합 목표.
         //  베이스 총합(base_percent x 슬롯)이 총노출 상한을 넘으면 매수가 무더기로 거부되므로
         //  스캔이 매회 슬롯 수 기준으로 배수를 재정규화한다.
-        const double weight_spread = node.value("weight_spread", 0.6);
+        //  spread는 [0, 1]로 자른다. 1을 넘으면 점수 하위 쪽 배수가 음수가 되고, 팩토리는 0 이하 배수를 버리고
+        //  기본 배수 1.0으로 되돌아가 하위 종목을 도리어 크게 산다.
+        const double weight_spread_config = node.value("weight_spread", 0.6);
+        double       weight_spread        = weight_spread_config;
+
+        if (weight_spread > 1.0)
+        {
+            weight_spread = 1.0;
+        }
+        else if (!(weight_spread >= 0.0)) // 음수와 NaN
+        {
+            weight_spread = 0.0;
+        }
+
+        if (weight_spread != weight_spread_config)
+        {
+            LOG_WARN("[Main] " + base.id_prefix + " weight_spread " + std::to_string(weight_spread_config) +
+                     "는 0~1 밖이라 " + std::to_string(weight_spread) + "로 자른다");
+        }
+
         const double weight_target = node.value("weight_target_pct", 0.80);
         const double weight_base   = base.base_percent;
         // 원 단위 사이징 — 둘 다 0보다 크면 자본%·정규화 배수 대신 이 구간을 쓴다(D-036).
@@ -897,11 +935,13 @@ static void load_deviation_scale(LoadPass& context, const json& node)
                      std::to_string(krw_cap_z));
         }
 
-        auto scan_fn = [scan_config, &engine, score_state, merger = context.priority_merger, weight_spread, weight_target, weight_base, sleeve_id = base.id_prefix,
+        auto scan_buffers = std::make_shared<DevScaleScanBuffers>();
+        auto scan_fn = [scan_config, &engine, score_state, scan_buffers, merger = context.priority_merger, weight_spread, weight_target, weight_base, sleeve_id = base.id_prefix,
                         krw_on, krw_floor, krw_cap, krw_cap_z](KisClient& kis)
         {
             // 스캐너가 응답의 문자열 티커를 종목 테이블에 한 번 넣고 id·이름·점수를 준다.
-            universe::ScanResult scan = universe::scan_devscale(kis, scan_config, engine.symbols());
+            universe::ScanResult scan =
+                universe::scan_devscale(kis, scan_config, engine.symbols(), scan_buffers->quotes);
 
             for (size_t index = 0; index < scan.symbols.size(); ++index)
             {
@@ -909,8 +949,9 @@ static void load_deviation_scale(LoadPass& context, const json& node)
             }
 
             // 점수의 두 가지 용도 — (a) 누가 먼저 슬롯을 차지하는가(랭크), (b) 얼마를 사는가(배수).
-            const std::vector<double> multiplier = universe::score_to_mult(scan.scores, weight_spread, weight_target,
-                                                                           weight_base, engine.risk_max_positions());
+            universe::score_to_mult(scan.scores, weight_spread, weight_target, weight_base, engine.risk_max_positions(),
+                                    scan_buffers->multiplier, scan_buffers->sorted_raw);
+            const std::vector<double>& multiplier = scan_buffers->multiplier;
             {
                 std::lock_guard<std::mutex> lock(score_state->mutex);
 
@@ -928,7 +969,8 @@ static void load_deviation_scale(LoadPass& context, const json& node)
 
                 if (krw_on)
                 {
-                    const std::vector<double> krw = score_to_krw(scan.scores, krw_floor, krw_cap, krw_cap_z);
+                    std::vector<double>& krw = scan_buffers->krw;
+                    score_to_krw(scan.scores, krw_floor, krw_cap, krw_cap_z, krw);
 
                     for (size_t index = 0; index < scan.scores.size(); ++index)
                     {
@@ -971,10 +1013,11 @@ static void load_deviation_scale(LoadPass& context, const json& node)
         // 주기적 재스캔용 — 매회 OrderGate 원장에서 현재 보유를 다시 읽는다. 청산 관리가 청산한
         //  종목은 그 시점부터 다시 후보가 된다(기동 스냅샷 고정이 유니버스를 굳히던 문제).
         //  이미 등록된 종목은 재스캔이 추가만 하므로 자기 보유분으로 등록이 풀리진 않는다.
-        auto universe_rescan = [scan_fn, drop_held, &engine](KisClient& kis)
+        auto universe_rescan = [scan_fn, drop_held, scan_buffers, &engine](KisClient& kis)
         {
-            auto              scanned = scan_fn(kis);
-            std::vector<bool> current(engine.symbols().capacity(), false);
+            auto               scanned = scan_fn(kis);
+            std::vector<bool>& current = scan_buffers->held;
+            current.assign(engine.symbols().capacity(), false);
 
             for (const auto& held_position : engine.held_positions())
             {
@@ -1178,9 +1221,10 @@ static void load_target_basket(LoadPass& context, const json& node)
 // ─── 디스패치 ───────────────────────────────────────────────────────────────
 void load_strategies(StrategyLoadCtx& context, const json& strategies)
 {
-    // 실사용 현황(config_dev_paper.json 기준, 2026-09-22): DEVIATION_SCALE(눌림 DEVSCALE, TRENDX는 D-101로 꺼짐) + TARGET_BASKET(가치·모멘텀 바스켓, D-109).
-    // INTRADAY_BREAKOUT은 이 표로 등록되는 게 아니라 attach_holding_exit_managers()가 승계 보유분에만 붙이는 청산 전용 청산 관리.
-    // 나머지(MA_CROSS·MOMENTUM·VALUE_CONTRARY·FIXED_INTERVAL·PRICE_TARGET·SUPPLY_DEMAND_PULLBACK·MARKET_MAKING·THEME)는 현재 config 어디에도 안 걸림 — 죽은 코드는 아니고 미사용.
+    // 운영 설정 현황(2026-09-25 확인): Quant/config/config_dev_paper.json과 config_live.json은 DEVIATION_SCALE 하나만
+    //  등록한다(눌림 DEVSCALE, TRENDX는 D-101로 꺼짐). TARGET_BASKET(D-109)은 로더만 있고 지금 어느 설정에도 없다.
+    // INTRADAY_BREAKOUT은 운영에서는 이 표가 아니라 attach_holding_exit_managers()가 승계 보유분에만 붙이는 청산 전용이다.
+    // 나머지 유형은 시험용 모의 설정(config_mm_paper.json의 MARKET_MAKING 등)에서만 쓴다.
     static const std::map<StrategyType, void (*)(LoadPass&, const json&)> LOADERS = {
         {StrategyType::MA_CROSS, load_moving_average_cross},
         {StrategyType::INTRADAY_BREAKOUT, load_intraday_breakout},

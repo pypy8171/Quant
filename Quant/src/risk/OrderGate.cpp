@@ -3,10 +3,10 @@
 #include "ipc/LedgerSnapshot.h"
 #include "risk/GateReasons.h"
 #include "core/KstTime.h"
+#include "utils/Logger.h"
 #include <cmath>
 #include <ctime>
 #include <format>
-#include <iostream>
 #include <limits>
 
 using Clock = std::chrono::steady_clock;
@@ -333,10 +333,10 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
                                                signal.price > 0.0 ? ")" : ", 시장가 참조평가)");
 
             // SELL은 청산 계열이라 거부하지 않는다 — 정당한 청산을 막는 쪽이 대량 매도보다 위험하다.
-            //  (수량 한도는 위에서 이미 걸렸다.) 이 파일은 Logger를 안 쓰므로 stderr 한 줄.
+            //  (수량 한도는 위에서 이미 걸렸다.) 경고는 비동기 로거 큐로 넘긴다 — 게이트 스레드에서 콘솔 I/O를 하지 않는다.
             if (signal.side == OrderSide::SELL)
             {
-                std::cerr << "[OrderGate] WARN " << signal.ticker << " SELL " << reason_text << " — 청산이라 통과\n";
+                LOG_WARN("[OrderGate] " + signal.ticker + " SELL " + reason_text + " — 청산이라 통과");
             }
             else
             {

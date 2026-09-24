@@ -79,6 +79,8 @@ int main()
     assert(kis_hhmmss_minus_minutes("1530", 1) == "");         // 형식 오류
     assert(kis_hhmmss_minus_minutes("15:0:0", 1) == "");
     assert(kis_hhmmss_minus_minutes("256000", 1) == "");       // 범위 밖 시·분
+    assert(kis_hhmmss_minus_minutes("235959", -1) == "");      // 음수 분은 받지 않는다(24시를 넘긴다)
+    assert(kis_hhmmss_minus_minutes("235959", 0) == "235959");
 
     std::cout << "test_ws_frame: all passed" << std::endl;
     return 0;

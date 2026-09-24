@@ -18,6 +18,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 // UI 스레드로 가는 메시지. WPARAM은 쓰지 않는다.
 constexpr UINT WM_OPS_FRAME = WM_USER + 101; // LPARAM = ops::Frame* (수신 프레임)
@@ -59,6 +60,8 @@ private:
     void thread_fn();
     bool connect_once();
     void session_loop();   // 연결 하나의 수명. 돌아오면 끊긴 것
+    int  receive_available(ops::FrameReader& reader, uint8_t* buffer, int capacity); // 읽은 바이트 수, 끊겼으면 -1
+    bool send_pending(std::vector<uint8_t>& out);                                   // false면 끊긴 것
     void post_state(LinkState state, const std::string& detail);
     void post_frame(const ops::Frame& frame);
     void close_socket();
@@ -73,14 +76,20 @@ private:
     std::thread       thread_;
     SOCKET            descriptor_ = INVALID_SOCKET;
 
-    // 송신 큐. UI가 넣고 작업자가 뺀다. cv로 select 대기를 깨운다.
+    // 송신 큐. UI가 넣고 작업자가 뺀다. send()·stop()이 wake_event_를 세워 세션 대기(WSAWaitForMultipleEvents)를
+    //  바로 깨운다. 조건변수는 재접속 대기(backoff)만 깨운다.
     std::mutex                          queue_mutex_;
     std::deque<std::vector<uint8_t>>    queue_;
     std::condition_variable             queue_condition_variable_;
-    std::atomic<bool>                   wake_{false};
+
+    // 세션 대기에 쓰는 이벤트 둘. 생성자에서 만들고 소멸자에서 닫는다.
+    //  network_event_는 연결마다 WSAEventSelect로 새 소켓에 묶는다(FD_READ·FD_WRITE·FD_CLOSE).
+    WSAEVENT network_event_ = WSA_INVALID_EVENT;
+    WSAEVENT wake_event_    = WSA_INVALID_EVENT; // 수동 리셋. 작업자가 큐를 비우기 전에 내린다
 
     // 하트비트: 10초마다 PING, 30초 무수신이면 죽은 연결로 본다. 단위 milliseconds.
     static constexpr int kPingEveryMs   = 10'000;
     static constexpr int kDeadAfterMs   = 30'000;
     static constexpr int kBackoffMaxMs  = 30'000;
+    static constexpr int kReceiveBufferBytes = 16384;
 };

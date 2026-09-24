@@ -6,12 +6,15 @@
 // 케이스 하나 더 — 티커가 종목 번호가 되는 자리 둘(D-114 단계 4): 넣는 쪽은 주문 프로세스 하나고, 잦은 자리는 없는 티커를 만들지 않는다.
 // 케이스 하나 더 — 주문 쪽 스위치 다섯(D-114 단계 4): 전략 역할이면 제어 요청을 거쳐 주문 스레드가 고친다.
 // 케이스 하나 더 — 역할대로 제 스레드만 띄우는지(D-114 단계 4): 전략 역할은 주문 스레드가 없고, 주문 역할은 전략을 올리지 않는다.
+// 케이스 셋 더 — 유니버스 점수 쪽 순수 함수: 비중 배수의 spread 상한, 동점 순서, 시세 표를 다시 채울 때 옛 값 비우기.
 // 빌드: cmake --build <directory> --target test_engine
 #include "core/Engine.h"
 #include "core/IFeedSource.h"
 #include "core/ShardMatrix.h"
 #include "core/TickCapture.h"
 #include "strategy/StrategyBase.h"
+#include "universe/ScoreWeight.h"
+#include "universe/UniverseScanner.h"
 #include "utils/Logger.h"
 
 #include <algorithm>
@@ -20,6 +23,7 @@
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <mutex>
@@ -961,6 +965,111 @@ int run_split_start_case()
     return 0;
 }
 
+// spread가 1을 넘어도 배수가 음수가 되지 않는다. 음수가 나오면 팩토리가 0 이하를 버리고 기본 배수 1.0으로 되돌아가
+//  점수 최하위 종목을 도리어 크게 산다. 1로 자른 결과와 같아야 한다.
+int run_score_spread_case()
+{
+    symbol::SymbolTable symbols(64);
+    universe::ScoreList scores;
+
+    for (int index = 0; index < 6; ++index)
+    {
+        scores.push_back({symbols.intern("00000" + std::to_string(index)), static_cast<double>(index)});
+    }
+
+    scores.push_back({symbols.intern("000009"), -40.0}); // 하위로 크게 떨어진 종목 — z가 −2에 걸린다
+
+    std::vector<double> multiplier;
+    std::vector<double> sorted_raw;
+    universe::score_to_mult(scores, 3.0, 0.8, 0.05, 5, multiplier, sorted_raw);
+    CHECK(multiplier.size() == scores.size());
+
+    for (const double value : multiplier)
+    {
+        CHECK(value >= 0.0);
+    }
+
+    std::vector<double> clamped;
+    universe::score_to_mult(scores, 1.0, 0.8, 0.05, 5, clamped, sorted_raw);
+
+    for (size_t index = 0; index < multiplier.size(); ++index)
+    {
+        CHECK(std::abs(multiplier[index] - clamped[index]) < 1e-12);
+    }
+
+    // 같은 버퍼를 두 번째 호출에 넘겨도 앞 결과가 섞이지 않는다.
+    universe::score_to_mult(universe::ScoreList{}, 0.6, 0.8, 0.05, 5, multiplier, sorted_raw);
+    CHECK(multiplier.empty());
+    return 0;
+}
+
+// 동점은 티커 사전순이다. 순위 계산과 등록 상한 자르기가 같은 비교(ranks_before)를 쓰므로 여기서 한 번 고정한다.
+int run_score_tie_order_case()
+{
+    symbol::SymbolTable symbols(64);
+    const symbol::SymbolId later   = symbols.intern("035720"); // 먼저 들어가 번호는 작지만 사전순은 뒤다
+    const symbol::SymbolId earlier = symbols.intern("005930");
+    const symbol::SymbolId top     = symbols.intern("000660");
+
+    CHECK(universe::ranks_before(1.0, earlier, 1.0, later, symbols));
+    CHECK(!universe::ranks_before(1.0, later, 1.0, earlier, symbols));
+    CHECK(!universe::ranks_before(1.0, earlier, 1.0, earlier, symbols));
+    CHECK(universe::ranks_before(2.0, later, 1.0, earlier, symbols));
+
+    const universe::ScoreList scores = {{later, 1.0}, {earlier, 1.0}, {top, 2.0}};
+    std::vector<int>    rank;
+    std::vector<size_t> order;
+    universe::score_to_rank(scores, symbols, rank, order);
+    CHECK(rank.size() == 3);
+    CHECK(rank[2] == 1);
+    CHECK(rank[1] == 2);
+    CHECK(rank[0] == 3);
+    return 0;
+}
+
+// 시세 표를 재스캔 사이에 이어 쓸 때, 이번 파일에 없는 종목 칸은 비워진다(옛 가격·이름이 남지 않는다).
+int run_quote_table_reload_case()
+{
+    const std::filesystem::path directory = Logger::executable_directory() / "logs_test";
+    std::filesystem::create_directories(directory);
+    const std::string path = (directory / "quote_table_case.json").string();
+    auto write_file = [&path](const std::string& text)
+    {
+        std::ofstream file(path, std::ios::binary | std::ios::trunc);
+        file << text;
+    };
+
+    symbol::SymbolTable  symbols(64);
+    universe::QuoteTable quotes;
+    write_file(R"({"ts": 0, "prices": {"005930": {"px": 70000, "val": 1000, "vol": 10, "nm": "삼성전자"},)"  // [wire] prices.json 키
+               R"( "000660": {"px": 200000, "val": 2000, "vol": 20, "nm": "SK하이닉스"}}})");  // [wire] prices.json 키
+    universe::load_quote_table(path, quotes, symbols);
+    const symbol::SymbolId samsung = symbols.lookup("005930");
+    const symbol::SymbolId hynix   = symbols.lookup("000660");
+    CHECK(samsung != symbol::kNone);
+    CHECK(hynix != symbol::kNone);
+    CHECK(quotes.size() == symbols.capacity());
+    CHECK(quotes[hynix].price == 200000.0);
+    CHECK(quotes[hynix].name == "SK하이닉스");
+
+    write_file(R"({"ts": 0, "prices": {"005930": {"px": 71000, "val": 1500, "vol": 15, "nm": "삼성전자"}}})");  // [wire] prices.json 키
+    universe::load_quote_table(path, quotes, symbols);
+    CHECK(quotes[samsung].price == 71000.0);
+    CHECK(quotes[samsung].value == 1500.0);
+    CHECK(quotes[samsung].name == "삼성전자");
+    CHECK(quotes[hynix].price == 0.0);
+    CHECK(quotes[hynix].value == 0.0);
+    CHECK(quotes[hynix].volume == 0.0);
+    CHECK(quotes[hynix].name.empty());
+
+    // 파일이 없으면 전 칸이 비워진 채로 돌아온다.
+    std::filesystem::remove(path);
+    universe::load_quote_table(path, quotes, symbols);
+    CHECK(quotes[samsung].price == 0.0);
+    CHECK(quotes[samsung].name.empty());
+    return 0;
+}
+
 } // namespace
 
 int main()
@@ -1015,6 +1124,21 @@ int main()
     }
 
     if (const int result_code = run_manual_order_case(); result_code != 0)
+    {
+        return result_code;
+    }
+
+    if (const int result_code = run_score_spread_case(); result_code != 0)
+    {
+        return result_code;
+    }
+
+    if (const int result_code = run_score_tie_order_case(); result_code != 0)
+    {
+        return result_code;
+    }
+
+    if (const int result_code = run_quote_table_reload_case(); result_code != 0)
     {
         return result_code;
     }

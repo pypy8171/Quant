@@ -1,7 +1,9 @@
-// 원장 저널 — 주문·체결·잔고 대조가 원장(PositionLedger)을 바꾸기 전에 먼저 적는 append-only 파일과 그 리플레이.
-//  증권사 원장과 같은 순서를 지킨다: 주문은 INTENT가 적힌 뒤에만 KIS로 나가고, KIS 응답은 ACCEPT/REJECT로,
-//  체결통보는 FILL로 뒤따라 적힌다. 재기동은 오늘 파일을 처음부터 다시 적용해 보유·평단·선점·매도가능·현금을
-//  되살리고, KIS 잔고는 그 뒤 대조에만 쓴다. [why D-113]
+// 원장 저널 — 주문·체결·잔고 대조가 원장(PositionLedger)에 준 변경을 순서대로 남기는 append-only 파일과 그 리플레이.
+//  주문만 KIS보다 먼저 적는다: INTENT가 적힌 뒤에만 KIS로 나가고, 못 적으면 선점을 되돌려 주문을 내지 않는다.
+//  FILL·REJECT·CANCEL·SEED는 원장을 바꾼 뒤 같은 positions_mutex_ 안에서 적어, 파일 순서가 원장 갱신 순서와 같다.
+//  재기동은 오늘 파일을 처음부터 다시 적용해 보유·평단·선점·매도가능·현금을 되살린다. config
+//  `bootstrap_ledger_from_balance`가 참이면 그 뒤 KIS 잔고로 보유를 덮어쓰고 SEED를 적는다
+//  (`Quant/src/core/LedgerReconciler.cpp`의 bootstrap). [why D-113]
 //  [inv] PositionLedger가 journal_mutex_를 쥔 채 동기 append한다. positions_mutex_는 기록 종류에 따라 쥐기도 하고
 //  안 쥐기도 한다 — 주문 이벤트는 초당 수십 건이라 별도 스레드·큐를
 //  두지 않는다. 매 append 뒤 fflush(프로세스 재기동 방어)까지가 기본이고, config `ledger_journal_fsync`가 참이면

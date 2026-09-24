@@ -86,6 +86,8 @@ ManagedOrder OrderRouter::submit(const OrderSignal& signal)
 // ─── 신규 주문 (기존 경로) ─────────────────────────────────────────────────
 ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
 {
+    auto& ledger = gate_.ledger();
+
     auto now = std::chrono::system_clock::now();
     // 구간 계측 시작. 여기부터 게이트 판정 끝까지가 gate_us — 주문 스레드가 HEALTH 분포에 넣는다. [why D-071]
     const int64_t route_entered_ns = trace::now_ns();
@@ -115,7 +117,7 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
         sell_no_quantity = true;
     }
     else if (allowed > 0 && allowed < signal.quantity && signal.side == OrderSide::SELL &&
-             gate_.ledger().sellable_view(signal.account_id, signal.ticker).pending > 0)
+             ledger.sellable_view(signal.account_id, signal.ticker).pending > 0)
     {
         // 매도가능이 모자란 이유가 이 세션의 예약매도(익절 지정가)라면 잘라 내지 않고, 그 예약을 취소해
         //  수량을 풀고 전량을 낸다 — 아래 sell_no_quantity 와 같은 길. 잘라 내면 나머지는 전략이 취소를 낸 뒤
@@ -246,7 +248,7 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
         //  수량을 풀어 본다. 거부만 하고 끝내면 예약매도가 브로커에 남은 채 청산이 하루 종일 막힌다
         //  (09-11 014530: 09:17 익절 지정가 118주가 취소 한도거부로 잔존, 이후 재기동 8회 내내 거부).
         //  풀리면 그 자리에서 재발주한 접수로 이어간다. [why D-055]
-        const auto sellable_view = gate_.ledger().sellable_view(signal.account_id, signal.ticker);
+        const auto sellable_view = ledger.sellable_view(signal.account_id, signal.ticker);
         LOG_WARN(std::format("[OrderRouter] 매도가능 {}/{}주 {} — 원장 보유 {}주, 잔고 주문가능 {}주, 이 세션 미체결 매도 {}주 → 예약매도 취소 시도",
                              allowed, signal.quantity, signal.ticker, sellable_view.held, sellable_view.possible_quantity_cap, sellable_view.pending));
         OrderAck reconcile_acknowledgement = reconcile_blocked_sell(signal, order_reference, intent_taken);
@@ -363,7 +365,7 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
         ++rejected_count_;
         // 전송 예외는 접수 여부를 모른다. 선점을 풀고 REJECT를 적는다 — 실제로 접수됐다면 체결통보·잔고 대조가
         //  원장을 되맞춘다(선점을 붙잡아 두면 그 종목이 하루 종일 막힌다). [why D-113]
-        gate_.ledger().on_reject(signal.account_id, signal.ticker, signal.side, signal.quantity, order_reference,
+        ledger.on_reject(signal.account_id, signal.ticker, signal.side, signal.quantity, order_reference,
                         managed_order.reject_reason);
         LOG_ERROR("[OrderRouter] KIS 예외 [" + managed_order.order_id + "] " + signal.ticker + " — " + exception.what());
 #ifdef HAS_ZMQ
@@ -389,7 +391,7 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
     //  재시도한다. 성공하면 아래 접수 블록이 그대로 처리(kis_order_no/ack가 재시도 결과로 갱신됨).
     if (!acknowledgement.ok() && signal.side == OrderSide::SELL && acknowledgement.error_code == kis_error::kNoSellableQty)
     {
-        const auto sellable_view = gate_.ledger().sellable_view(signal.account_id, signal.ticker);
+        const auto sellable_view = ledger.sellable_view(signal.account_id, signal.ticker);
 
         if (sellable_view.held <= 0)
         {
@@ -415,7 +417,7 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
         // 선점은 전송 직전 INTENT에서 이미 잡혔다. 여기서는 원장에 ACCEPT(주문번호 확보)만 적는다 — 재기동
         //  리플레이가 "보냈고 접수됐다"를 "보냈는데 응답을 못 봤다"와 구분한다. [why D-113]
         order_reference.kis_order_number = managed_order.kis_order_number;
-        gate_.ledger().on_accepted(signal.account_id, signal.ticker, signal.side, signal.quantity, order_reference);
+        ledger.on_accepted(signal.account_id, signal.ticker, signal.side, signal.quantity, order_reference);
 
         LOG_INFO(std::format("[OrderRouter] 접수 [{}] ODNO={} {} {} {}주 RTT={}ms 버킷대기={}ms", managed_order.order_id, managed_order.kis_order_no,
                              signal.ticker, signal.side == OrderSide::BUY ? "BUY" : "SELL", signal.quantity, rtt_ms, bucket_wait_ms));
@@ -438,7 +440,7 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
 
         if (intent_taken)
         {
-            gate_.ledger().on_reject(signal.account_id, signal.ticker, signal.side, signal.quantity, order_reference,
+            ledger.on_reject(signal.account_id, signal.ticker, signal.side, signal.quantity, order_reference,
                             managed_order.reject_reason);
         }
 
@@ -499,6 +501,8 @@ bool OrderRouter::take_intent(const OrderSignal& signal, const OrderGate::OrderR
 //  없으므로 gate_를 건드리지 않는다(포지션 정합은 체결통보로).
 OrderAck OrderRouter::reconcile_blocked_sell(const OrderSignal& signal, const OrderGate::OrderRef& reference, bool& intent_taken)
 {
+    auto& ledger = gate_.ledger();
+
     std::vector<OpenOrder> opens;
 
     // 모의투자는 정정취소가능조회(inquire-psbl-rvsecncl) TR을 미지원한다("없는 서비스 코드").
@@ -628,7 +632,7 @@ OrderAck OrderRouter::reconcile_blocked_sell(const OrderSignal& signal, const Or
 
             if (release > 0)
             {
-                gate_.ledger().on_cancel(closed.signal.account_id, closed.signal.ticker, OrderSide::SELL, release,
+                ledger.on_cancel(closed.signal.account_id, closed.signal.ticker, OrderSide::SELL, release,
                                 OrderGate::OrderRef{digits_to_number(closed.order_id), digits_to_number(open.kis_order_no),
                                                     closed.signal.type});
             }
@@ -639,7 +643,7 @@ OrderAck OrderRouter::reconcile_blocked_sell(const OrderSignal& signal, const Or
             // 선점(reserved_)만 풀면 잔고 시드값 sellable_(취소 전 스냅샷, 주문가능 0)이 그대로라 다음 매도도 0으로
             //  깎인다 — 09-14 15:00 096770 은 익절 취소 뒤 재매도가 유량한도에 막히자 재시도 3회가 전부 "매도가능 0".
             //  취소로 브로커에서 풀린 수량만큼 되돌린다(이전 세션 줄과 같은 처리).
-            gate_.ledger().restore_sellable(closed.signal.account_id, closed.signal.ticker, release);
+            ledger.restore_sellable(closed.signal.account_id, closed.signal.ticker, release);
             write_trade_row("", closed, 0, 0.0);
         }
         else
@@ -660,7 +664,7 @@ OrderAck OrderRouter::reconcile_blocked_sell(const OrderSignal& signal, const Or
                 rewrite_open_orders();
             }
 
-            gate_.ledger().restore_sellable(signal.account_id, signal.ticker, open.psbl_qty);
+            ledger.restore_sellable(signal.account_id, signal.ticker, open.psbl_qty);
         }
     }
 
@@ -740,6 +744,8 @@ const OpenOrder* match_unnumbered_intent(const OrderGate::OpenIntent& intent, co
 //  (09-09: 보유 20인데 "25 >= 25" 거부). 라우터 이력에 살아있는 주문이 없으면 푼다.
 OrderRouter::AdoptResult OrderRouter::adopt_open_intents(const std::vector<OrderGate::OpenIntent>& intents)
 {
+    auto& ledger = gate_.ledger();
+
     AdoptResult result;
 
     if (intents.empty())
@@ -800,8 +806,8 @@ OrderRouter::AdoptResult OrderRouter::adopt_open_intents(const std::vector<Order
                 kis_order_number = digits_to_number(open->kis_order_no);
                 claimed_numbers.insert(kis_order_number);
                 // 다음 재기동이 같은 짝짓기를 되풀이하지 않게 ACCEPT를 적어 번호를 남긴다.
-                gate_.ledger().on_accepted(intent.account, intent.ticker, intent.side, intent.remaining,
-                                           OrderGate::OrderRef{intent.order_id, kis_order_number, intent.type});
+                ledger.on_accepted(intent.account, intent.ticker, intent.side, intent.remaining,
+                                   OrderGate::OrderRef{intent.order_id, kis_order_number, intent.type});
                 LOG_WARN(std::format("[OrderRouter] 재기동 미결 주문 짝 [{}] 접수 응답 전에 끊긴 주문 — KIS 미체결 ODNO={} {} {} {}주로 되살림",
                                      intent.order_id, kis_order_number, intent.ticker,
                                      intent.side == OrderSide::BUY ? "BUY" : "SELL", open->psbl_qty));
@@ -825,7 +831,8 @@ OrderRouter::AdoptResult OrderRouter::adopt_open_intents(const std::vector<Order
             LOG_WARN(std::format("[OrderRouter] 재기동 미결 주문 선점 해제 [{}] ODNO={} {} {} {}주 — {}",
                                  intent.order_id, intent.kis_order_number, intent.ticker,
                                  intent.side == OrderSide::BUY ? "BUY" : "SELL", intent.remaining,
-                                 asked_broker ? "KIS 미체결에 없다" : "미체결 조회를 못 했고 접수 기록도 없다"));            gate_.ledger().on_cancel(intent.account, intent.ticker, intent.side, intent.remaining,
+                                 asked_broker ? "KIS 미체결에 없다" : "미체결 조회를 못 했고 접수 기록도 없다"));
+            ledger.on_cancel(intent.account, intent.ticker, intent.side, intent.remaining,
                             OrderGate::OrderRef{intent.order_id, intent.kis_order_number, intent.type});
             ++result.released;
             continue;
@@ -837,14 +844,14 @@ OrderRouter::AdoptResult OrderRouter::adopt_open_intents(const std::vector<Order
         managed_order.kis_order_number       = kis_order_number;
         managed_order.status                 = OrderStatus::ACCEPTED;
         managed_order.signal.ticker          = intent.ticker;
-        managed_order.signal.symbol_id       = gate_.ledger().intern_symbol(intent.ticker);
+        managed_order.signal.symbol_id       = ledger.intern_symbol(intent.ticker);
         managed_order.signal.account_id      = intent.account;
         managed_order.signal.side            = intent.side;
         managed_order.signal.type            = intent.type;
         managed_order.signal.quantity        = intent.remaining;
         managed_order.signal.price           = intent.price;
         managed_order.signal.strategy_id     = intent.strategy_name.empty() ? std::string("UNLINKED") : intent.strategy_name;
-        managed_order.signal.strategy_index  = gate_.ledger().strategy_index_of(managed_order.signal.strategy_id);
+        managed_order.signal.strategy_index  = ledger.strategy_index_of(managed_order.signal.strategy_id);
         managed_order.signal.reason          = "재기동 복원(원장 저널 미결 주문)";
         managed_order.submitted_at           = std::chrono::system_clock::now();
         managed_order.updated_at             = managed_order.submitted_at;
@@ -878,7 +885,9 @@ OrderRouter::AdoptResult OrderRouter::adopt_open_intents(const std::vector<Order
 
 int OrderRouter::sweep_stale_reservations()
 {
-    std::vector<bool> live(gate_.ledger().symbols().capacity(), false);
+    auto& ledger = gate_.ledger();
+
+    std::vector<bool> live(ledger.symbols().capacity(), false);
     {
         std::lock_guard<std::mutex> lock(history_mutex_);
 
@@ -900,7 +909,7 @@ int OrderRouter::sweep_stale_reservations()
         }
     }
 
-    const auto gone = gate_.ledger().prune_reservations(live);
+    const auto gone = ledger.prune_reservations(live);
 
     if (!gone.empty())
     {
@@ -2034,6 +2043,8 @@ symbol::SymbolId OrderRouter::symbol_of(const OrderSignal& signal)
 //     (2)와 (3) 사이 WS 스레드의 on_fill이 confirmed_quantity를 올릴 수 있으므로 재계산이 이중해제를 막는다.
 ManagedOrder OrderRouter::cancel_route(const OrderSignal& signal)
 {
+    auto& ledger = gate_.ledger();
+
     auto now = std::chrono::system_clock::now();
     ManagedOrder managed_order;
     managed_order.order_id     = next_id();
@@ -2119,7 +2130,7 @@ ManagedOrder OrderRouter::cancel_route(const OrderSignal& signal)
 
             if (symbol >= cancel_miss_.size())
             {
-                cancel_miss_.resize(std::max(gate_.ledger().symbols().capacity(), static_cast<size_t>(symbol) + 1));
+                cancel_miss_.resize(std::max(ledger.symbols().capacity(), static_cast<size_t>(symbol) + 1));
             }
 
             if (cancel_miss_[symbol] == std::chrono::steady_clock::time_point{})
@@ -2194,7 +2205,7 @@ ManagedOrder OrderRouter::cancel_route(const OrderSignal& signal)
         // gate 뮤텍스는 hist_mtx_와 독립. 잠금 순서 history_→positions_는 on_fill과 동일(데드락 없음).
         if (release > 0)
         {
-            gate_.ledger().on_cancel(account, ticker, side, release,
+            ledger.on_cancel(account, ticker, side, release,
                             OrderGate::OrderRef{original ? digits_to_number(original->order_id) : 0,
                                                 digits_to_number(kis_order_no), signal.type});
         }
@@ -2219,6 +2230,8 @@ ManagedOrder OrderRouter::cancel_route(const OrderSignal& signal)
 //     본 경로는 미체결 전량 대상 정정만 안전. 부분체결분 정정은 Phase 2에서 정밀화.
 ManagedOrder OrderRouter::replace_route(const OrderSignal& signal)
 {
+    auto& ledger = gate_.ledger();
+
     auto now = std::chrono::system_clock::now();
     ManagedOrder managed_order;
     managed_order.order_id     = next_id();
@@ -2296,7 +2309,7 @@ ManagedOrder OrderRouter::replace_route(const OrderSignal& signal)
         managed_order.status        = OrderStatus::REJECTED;
         managed_order.reject_reason = std::string("KIS 정정 예외: ") + exception.what();
         ++rejected_count_;
-        gate_.ledger().on_reject(account, ticker, side, new_quantity, order_reference, managed_order.reject_reason);
+        ledger.on_reject(account, ticker, side, new_quantity, order_reference, managed_order.reject_reason);
         LOG_ERROR("[OrderRouter] 정정 예외 [" + managed_order.order_id + "] " + ticker + " — " + exception.what());
         record(managed_order);
         return managed_order;
@@ -2307,7 +2320,7 @@ ManagedOrder OrderRouter::replace_route(const OrderSignal& signal)
         managed_order.status        = OrderStatus::REJECTED;
         managed_order.reject_reason = "KIS 정정 거부(원주문 이미 체결/소멸 가능)" + kis_error_suffix(revise_acknowledgement);
         ++rejected_count_;
-        gate_.ledger().on_reject(account, ticker, side, new_quantity, order_reference, managed_order.reject_reason);
+        ledger.on_reject(account, ticker, side, new_quantity, order_reference, managed_order.reject_reason);
         LOG_WARN("[OrderRouter] 정정 거부 [" + managed_order.order_id + "] " + ticker +
                  " 원oid=" + signal.original_client_order_id);
         record(managed_order);
@@ -2335,13 +2348,13 @@ ManagedOrder OrderRouter::replace_route(const OrderSignal& signal)
 
         if (release > 0)
         {
-            gate_.ledger().on_cancel(account, ticker, side, release,
+            ledger.on_cancel(account, ticker, side, release,
                             OrderGate::OrderRef{original ? digits_to_number(original->order_id) : 0,
                                                 digits_to_number(kis_order_no), signal.type});
         }
 
         // 정정본 선점은 위 INTENT에서 이미 잡혔다 — 여기서는 새 주문번호로 ACCEPT만 적는다.
-        gate_.ledger().on_accepted(account, ticker, side, new_quantity,
+        ledger.on_accepted(account, ticker, side, new_quantity,
                           OrderGate::OrderRef{digits_to_number(managed_order.order_id),
                                               digits_to_number(revise_acknowledgement.kis_order_no), signal.type});
     }
@@ -2363,6 +2376,8 @@ ManagedOrder OrderRouter::replace_route(const OrderSignal& signal)
 // ─── 체결통보 처리 — ODNO 매핑 → 부분/전량 체결 처리 ─────────────────────
 void OrderRouter::on_fill(const FillNotification& fill_notification)
 {
+    auto& ledger = gate_.ledger();
+
     // unique_lock: 원장 갱신까지만 잡고, 파일 쓰기·publish 전에 푼다(W-8).
     std::unique_lock<std::mutex> lock(history_mutex_);
     // 중복 제거 — KIS 체결통보는 at-least-once(재전송/WS 재구독 시 중복 가능).
@@ -2414,14 +2429,14 @@ void OrderRouter::on_fill(const FillNotification& fill_notification)
             record.status             = OrderStatus::ACCEPTED;
             record.confirmed_quantity      = 0;
             record.signal.ticker      = std::move(jitter->second.ticker); // 사유 기록은 아래에서 지우므로 옮겨 온다
-            record.signal.symbol_id   = gate_.ledger().intern_symbol(record.signal.ticker); // 파일의 문자열 — 복원 때 한 번
+            record.signal.symbol_id   = ledger.intern_symbol(record.signal.ticker); // 파일의 문자열 — 복원 때 한 번
             record.signal.side        = jitter->second.side;
             record.signal.type        = OrderType::LIMIT;
             record.signal.quantity    = jitter->second.quantity;
             record.signal.price       = jitter->second.price;
             record.signal.reference_price   = jitter->second.reference_price;
             record.signal.strategy_id = std::move(jitter->second.strategy_id);
-            record.signal.strategy_index = gate_.ledger().strategy_index_of(record.signal.strategy_id); // 서브원장 귀속은 번호로
+            record.signal.strategy_index = ledger.strategy_index_of(record.signal.strategy_id); // 서브원장 귀속은 번호로
             record.signal.reason      = std::move(jitter->second.reason);
             record.submitted_at       = fill_notification.timestamp;
             record.updated_at         = fill_notification.timestamp;
@@ -2429,7 +2444,7 @@ void OrderRouter::on_fill(const FillNotification& fill_notification)
             //  on_fill_confirmed로 선점을 깎으므로, 주문수량만큼 먼저 되살려 순변화를 맞춘다.
             //  일부만 체결되고 나머지가 취소되면 그만큼 선점이 남는데, 주기 잔고 대조의
             //  reset_reserved()가 실제 잔고로 되맞춘다.
-            (void)gate_.ledger().on_intent(record.signal.account_id, record.signal.ticker, record.signal.side,
+            (void)ledger.on_intent(record.signal.account_id, record.signal.ticker, record.signal.side,
                                   record.signal.quantity,
                                   record.signal.price > 0.0 ? record.signal.price : record.signal.reference_price,
                                   OrderGate::OrderRef{digits_to_number(record.order_id), order_number, record.signal.type},
@@ -2516,7 +2531,7 @@ void OrderRouter::on_fill(const FillNotification& fill_notification)
         // 현재는 단일 CANO 전제라 ODNO가 유일 → managed_order.signal.account_id 매핑이 정확하다.
         // TODO(다계좌): 진짜 다중 CANO 라우팅 시 ODNO가 계좌별로 재사용되므로 체결 매칭 키를
         //   (kis_order_no + account) 또는 CANO별 H0STCNI 피드 분리로 확장해야 오적립을 막는다.
-        auto result = gate_.ledger().on_fill_confirmed(managed_order.signal.account_id, fill_notification.ticker, fill_notification.side,
+        auto result = ledger.on_fill_confirmed(managed_order.signal.account_id, fill_notification.ticker, fill_notification.side,
                                               apply_quantity, fill_notification.filled_price, managed_order.signal.strategy_index,
                                               OrderGate::OrderRef{digits_to_number(managed_order.order_id), order_number,
                                                                   managed_order.signal.type});
@@ -2637,10 +2652,10 @@ void OrderRouter::on_fill(const FillNotification& fill_notification)
 
     const OrderGate::OrderRef unlinked_reference{digits_to_number(unlinked_fill.order_id), order_number,
                                                  unlinked_fill.signal.type};
-    (void)gate_.ledger().on_intent(unlinked_fill.signal.account_id, fill_notification.ticker, fill_notification.side,
+    (void)ledger.on_intent(unlinked_fill.signal.account_id, fill_notification.ticker, fill_notification.side,
                           unlinked_quantity, fill_notification.filled_price, unlinked_reference,
                           unlinked_fill.signal.strategy_index);
-    auto result = gate_.ledger().on_fill_confirmed(unlinked_fill.signal.account_id, fill_notification.ticker, fill_notification.side,
+    auto result = ledger.on_fill_confirmed(unlinked_fill.signal.account_id, fill_notification.ticker, fill_notification.side,
                                           unlinked_quantity, fill_notification.filled_price,
                                           unlinked_fill.signal.strategy_index, unlinked_reference);
     lock.unlock(); // 원장 갱신 끝 — 파일 쓰기는 락 밖에서

@@ -22,8 +22,8 @@ note = "트레이더 프로세스 전체에 걸리는 값. fetch_interval_sec �
 
 [[config_group]]
 name = "국면(regime) — 매크로 보조 프로세스"
-keys = ["regime_file", "regime_stale_sec", "regime_reeval_sec", "regime_strategies.*"]
-note = "PYQuant/tools/macro_regime_feed.py 가 regime.json 을 쓰고 엔진이 regime_reeval_sec 마다 읽어 전략 on/off 를 정한다."
+keys = ["regime_file", "regime_stale_sec", "regime_strategies.*"]
+note = "PYQuant/tools/macro_regime_feed.py 가 regime.json 을 쓰고 엔진 데이터 스레드가 매 주기 읽어(poll_regime_file) 전략 on/off 를 정한다."
 
 [[config_group]]
 name = "유니버스 스캔 — KIS 랭킹 · data.go.kr · 업종"

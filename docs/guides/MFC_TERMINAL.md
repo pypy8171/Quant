@@ -1,6 +1,6 @@
 # MFC 운영단말 `ops_terminal` 작업 문서
 
-<!-- sync: Quant/tools/ops_terminal/OpsTerminalDlg.cpp@377ec12 Quant/tools/ops_terminal/OpsTerminalDlg.h@6df8dba Quant/tools/ops_terminal/OpsLink.cpp@2c04c5b Quant/tools/ops_terminal/OpsLink.h@7291ac8 Quant/include/ipc/OpsProtocol.h@4e81e96 -->
+<!-- sync: Quant/tools/ops_terminal/OpsTerminalDlg.cpp@377ec12 Quant/tools/ops_terminal/OpsTerminalDlg.h@6df8dba Quant/tools/ops_terminal/OpsLink.cpp@3ee969c Quant/tools/ops_terminal/OpsLink.h@21beb7e Quant/include/ipc/OpsProtocol.h@4e81e96 -->
 `Quant/tools/ops_terminal/`에 있는 MFC 대화상자 단말의 정본이다. 무엇을 하는 프로그램인지, 어떻게 빌드·실행하는지,
 MFC라서 걸린 함정과 지금까지 손댄 이력을 여기에 모은다. **MFC 쪽을 고치면 이 문서를 같이 고친다**(8절 체크리스트).
 채널 자체(프로토콜·서버·콘솔 단말)는 [docs/guides/OPS_TERMINAL.md](OPS_TERMINAL.md), 결정 배경은
@@ -108,10 +108,12 @@ POST_BUILD로 부르므로 **메인 트리에서 빌드하면 바로가기가 �
 
 스레드는 둘이다.
 
-- **UI 스레드** — MFC 컨트롤은 여기서만 만진다. `OpsLink::send()`는 송신 큐에 넣고 조건변수로 작업자를 깨울 뿐이라
+- **UI 스레드** — MFC 컨트롤은 여기서만 만진다. `OpsLink::send()`는 송신 큐에 넣고 깨움 이벤트(`WSASetEvent`)를 세울 뿐이라
   버튼 핸들러가 소켓을 기다리지 않는다.
 - **작업자 스레드(`OpsLink`)** — 소켓과 `FrameReader`를 혼자 잡는다. 논블로킹 `connect`(select 3초 상한) → `HELLO_REQ` →
-  200ms `select()` 루프에서 수신·송신·하트비트를 돌린다. 받은 프레임은 `WM_OPS_FRAME`, 상태 변화는 `WM_OPS_STATE`로
+  `WSAWaitForMultipleEvents` 루프에서 소켓 이벤트(`WSAEventSelect`의 읽기·쓰기·닫힘)와 깨움 이벤트를 함께 기다려
+  수신·송신·하트비트를 돌린다. 보낼 프레임은 깨움 즉시 나가고, 대기 시한은 다음 PING이나 무응답 판정까지 남은 시간이다.
+  받은 프레임은 `WM_OPS_FRAME`, 상태 변화는 `WM_OPS_STATE`로
   `PostMessage` 한다. LPARAM은 `new`한 포인터고 받는 쪽(대화상자)이 `delete` 한다. `PostMessage`가 실패하면 보내는 쪽이
   지운다.
 

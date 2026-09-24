@@ -13,6 +13,7 @@
 #include <sstream>
 #include <stop_token>
 #include <thread>
+#include <vector>
 
 #ifdef _WIN32
 // windows.h를 넣으면 ERROR 매크로가 LogLevel::ERROR와 부딪힌다. SDK 선언과 같은 형으로 직접 선언.
@@ -38,6 +39,10 @@ struct Logger::Implementation
 
     Implementation()
     {
+        // set_base_directory 전에도 쓸 수 있게 기본값(QUANT_LOG_DIR 또는 실행파일 옆 logs)을 첫 판으로 둔다.
+        //  폴더는 path_for가 처음 불릴 때 만든다 — 산출물을 쓰지 않는 실행에 빈 폴더를 남기지 않는다.
+        base_directories_.push_back(std::make_unique<BaseDirectory>(Logger::default_base_directory()));
+        current_base_directory_.store(base_directories_.back().get(), std::memory_order_release);
         running_.store(true, std::memory_order_release);
         writer_ = std::jthread([this](std::stop_token stop_token) { writer_loop(stop_token); });
     }
@@ -269,11 +274,34 @@ struct Logger::Implementation
         return "?????";
     }
 
-    // 설정(파일 핸들·디렉터리)용 뮤텍스. 큐는 락 없는 MPSC 큐다. wake_mutex_는 writer가 잠들고 깨는 데만 쓴다.
+    // 기준 디렉터리 한 판. 만든 뒤로 path는 바뀌지 않고, 폴더 생성은 판마다 한 번(created)이다.
+    struct BaseDirectory
+    {
+        explicit BaseDirectory(std::filesystem::path directory) : path(std::move(directory)) {}
+
+        const std::filesystem::path path;
+        std::once_flag created;
+    };
+
+    // 폴더를 한 번만 만든다. 이미 만든 판이면 call_once는 원자 load 하나로 돌아온다.
+    static void ensure_created(BaseDirectory& base_directory)
+    {
+        std::call_once(base_directory.created, [&base_directory]
+        {
+            std::error_code error_code;
+            std::filesystem::create_directories(base_directory.path, error_code);
+        });
+    }
+
+    // 설정(파일 핸들·기준 디렉터리 판 목록)용 뮤텍스. 큐는 락 없는 MPSC 큐다. wake_mutex_는 writer가 잠들고 깨는 데만 쓴다.
     std::mutex config_mutex_;
     std::ofstream file_;
-    std::filesystem::path base_directory_{Logger::default_base_directory()}; // set_base_directory 전에도 실행파일 기준
-    bool base_directory_ready_ = false; // path_for가 base_directory_를 이미 만들었으면 true, set_base_directory가 되돌림
+
+    // [inv] 판은 Implementation이 끝날 때까지 지우지 않는다 — base_directory()가 참조를 내주고, 읽는 쪽은 락 없이
+    //  current_base_directory_만 본다. 목록에 넣는 것은 set_base_directory 하나다(config_mutex_ 아래).
+    std::vector<std::unique_ptr<BaseDirectory>> base_directories_;
+    // [lock-order] set_base_directory가 판을 다 만든 뒤 release로 공개하고, 읽는 쪽은 acquire로 받아 path를 본다.
+    std::atomic<BaseDirectory*> current_base_directory_{nullptr};
 
     std::atomic<bool> console_enabled_{true};
 
@@ -352,34 +380,31 @@ void Logger::initialize(const std::filesystem::path& filepath, LogLevel min_leve
     min_level_.store(min_level, std::memory_order_relaxed);
 }
 
+// 새 판을 만들고 폴더까지 만든 뒤 공개한다. 이전 판은 지우지 않는다(참조를 쥔 호출자가 있을 수 있다).
+//  운영에서는 main이 스레드를 띄우기 전 한 번 부르고, 테스트는 바이너리마다 한 번 부른다.
 void Logger::set_base_directory(const std::filesystem::path& directory)
 {
+    auto base_directory = std::make_unique<Implementation::BaseDirectory>(directory);
+    Implementation::ensure_created(*base_directory);
+
     std::lock_guard<std::mutex> lock(implementation_->config_mutex_);
-    implementation_->base_directory_       = directory;
-    implementation_->base_directory_ready_ = false;
+    implementation_->base_directories_.push_back(std::move(base_directory));
+    implementation_->current_base_directory_.store(implementation_->base_directories_.back().get(),
+                                                    std::memory_order_release);
 }
 
-// 값으로 돌려주는 것은 의도한 복사다 — 락 안에서 뜬 스냅샷이라, 참조를 내주면 set_base_directory와 경쟁한다.
-std::filesystem::path Logger::base_directory()
+// 락 없이 현재 판을 읽는다. [inv] 참조는 Logger가 사는 동안 유효하다(판을 지우지 않는다).
+const std::filesystem::path& Logger::base_directory() const
 {
-    std::lock_guard<std::mutex> lock(implementation_->config_mutex_);
-    return implementation_->base_directory_;
+    return implementation_->current_base_directory_.load(std::memory_order_acquire)->path;
 }
 
-// create_directories는 base_directory_가 바뀐 뒤 처음 한 번만 부른다 — 주문마다(D-094) 불리는
-// 호출자가 많아, 이미 있는 디렉터리를 매번 시스템콜로 확인하는 비용을 없앤다. [why D-094]
-std::filesystem::path Logger::path_for(const std::string& name)
+// 주문마다(D-094) 불리는 호출자가 많아 락을 잡지 않는다. 폴더 생성은 판마다 처음 한 번뿐이다. [why D-094]
+std::filesystem::path Logger::path_for(const std::string& name) const
 {
-    std::lock_guard<std::mutex> lock(implementation_->config_mutex_);
-
-    if (!implementation_->base_directory_ready_)
-    {
-        std::error_code error_code;
-        std::filesystem::create_directories(implementation_->base_directory_, error_code);
-        implementation_->base_directory_ready_ = true;
-    }
-
-    return implementation_->base_directory_ / name;
+    Implementation::BaseDirectory& base_directory = *implementation_->current_base_directory_.load(std::memory_order_acquire);
+    Implementation::ensure_created(base_directory);
+    return base_directory.path / name;
 }
 
 void Logger::set_console_enabled(bool enabled)

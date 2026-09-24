@@ -52,11 +52,13 @@ public:
 
     // 실행 위치(cwd)와 무관하게 로그·산출물을 한 곳에 모으기 위한 기준 디렉터리.
     // main에서 실행파일 기준 절대경로로 한 번 고정한다(미설정 시 QUANT_LOG_DIR, 그것도 없으면 실행 파일 폴더 아래 "logs").
+    //  폴더는 이 호출에서 만든다. 읽는 쪽(base_directory·path_for)은 락을 잡지 않는다.
     void set_base_directory(const std::filesystem::path& directory);
-    std::filesystem::path base_directory();
+    // [inv] 돌려준 참조는 Logger가 사는 동안 유효하다. 뒤에 set_base_directory가 불려도 이전 값을 가리킬 뿐 끊기지 않는다.
+    [[nodiscard]] const std::filesystem::path& base_directory() const;
 
-    // 기준 디렉터리 하위 파일의 전체 경로(부모 폴더가 없으면 생성).
-    std::filesystem::path path_for(const std::string& name);
+    // 기준 디렉터리 하위 파일의 전체 경로(기준 폴더가 없으면 처음 한 번 만든다).
+    [[nodiscard]] std::filesystem::path path_for(const std::string& name) const;
 
     // 화면 표시 모드일 때 콘솔 출력을 끄고 파일에만 기록
     void set_console_enabled(bool enabled);

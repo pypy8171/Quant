@@ -67,6 +67,8 @@ void Engine::start_ops_server()
 
 std::string Engine::ops_status_json() const
 {
+    const auto& ledger = order_gate_.ledger();
+
     // 계좌 요약. equity·cash·daily_pnl은 잔고 대조 주기(브로커 값)로만 바뀌고, position_value·unrealized_pnl은
     //  보유분 × 최근 체결가라 틱마다 움직인다 — 단말이 1초마다 물어도 셋은 그대로일 수 있다.
     double position_value = 0.0;
@@ -105,10 +107,10 @@ std::string Engine::ops_status_json() const
                           // 전략을 올리지 않는 주문 전용 프로세스에서는 제 목록이 항상 비어 있다 — 그때는 공유 이름표의
                           //  등록 수를 대신 싣는다. 전략 쪽이 올린 수에 고정 이름(MANUAL·FORCE_LIQ·LIMIT_TRIM·UNLINKED·
                           //  DISPLACE) 몇이 더해진 값이라 딱 맞아떨어지지는 않고, "전략이 올라왔나"를 보는 데 쓴다. [why D-114]
-                          {"strategies", runs_strategy_side() ? strategy_.list.size() : order_gate_.ledger().strategy_table().size()},
-                          {"equity", order_gate_.ledger().equity()},
-                          {"cash", order_gate_.ledger().available_cash()},
-                          {"daily_pnl", order_gate_.ledger().daily_pnl()},
+                          {"strategies", runs_strategy_side() ? strategy_.list.size() : ledger.strategy_table().size()},
+                          {"equity", ledger.equity()},
+                          {"cash", ledger.available_cash()},
+                          {"daily_pnl", ledger.daily_pnl()},
                           {"position_value", position_value},
                           {"unrealized_pnl", unrealized_pnl}}
         .dump();
