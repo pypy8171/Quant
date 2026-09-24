@@ -7,7 +7,9 @@
 //   (라이브 하루 수백 건보다 훨씬 많게), 잔고 대조는 M ms마다 스냅샷+정리+재시드(실물 60초). 지연 샘플은
 //   읽기 스레드 하나에서만 모은다. release 빌드로만 잰다.
 //
-// 사용법: bench_gate_contention [duration_sec=3] [fill_rate=1000] [reconcile_ms=100] [ops_ms=200]
+// 사용법: bench_gate_contention [duration_sec=3] [fill_rate=1000] [reconcile_ms=100] [ops_ms=200] [journal=0]
+//   journal: 0 원장 저널 없음, 1 저널(매 기록 fflush, 운영 기본), 2 저널+fsync. 쓰기 쪽이 저널을 적는 동안
+//   읽기가 얼마나 막히는지(CODE_REVIEW W-2)를 같은 부하로 견준다. 저널은 임시 폴더에 쓰고 끝나면 지운다.
 //   fill_rate=0 이고 reconcile_ms=0 이고 ops_ms=0 이면 기준선(쓰기 없음)만 찍는다.
 //   같은 인자로 기준선을 먼저 찍고 부하를 건 결과를 이어 찍는다.
 // 관련 결정: D-058.
@@ -18,6 +20,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <string>
 #include <thread>
 #include <vector>
@@ -179,10 +182,24 @@ void report(const char* label, Result& result, double duration_sec)
                 result.latencies_ns.empty() ? 0.0 : static_cast<double>(result.latencies_ns.back()));
 }
 
-void run_case(const char* label, double duration_sec, int fill_rate, int reconcile_ms, int ops_ms)
+void run_case(const char* label, double duration_sec, int fill_rate, int reconcile_ms, int ops_ms, int journal_mode)
 {
     OrderGate gate(bench_config());
     const std::string account = "bench-account";
+    const std::filesystem::path journal_directory =
+        std::filesystem::temp_directory_path() / "bench_gate_contention_journal";
+
+    if (journal_mode > 0)
+    {
+        std::error_code error_code;
+        std::filesystem::remove_all(journal_directory, error_code);
+
+        if (!gate.ledger().set_journal(journal_directory, "20260925", journal_mode == 2))
+        {
+            std::printf("저널을 못 열었다 - %s\n", journal_directory.string().c_str());
+            return;
+        }
+    }
 
     for (int slot_index = 0; slot_index < kSlots; ++slot_index)
     {
@@ -198,6 +215,12 @@ void run_case(const char* label, double duration_sec, int fill_rate, int reconci
     reconciler.join();
     ops.join();
     report(label, result, duration_sec);
+
+    if (journal_mode > 0)
+    {
+        std::printf("%-22s journal_failures=%llu\n", "",
+                    static_cast<unsigned long long>(gate.ledger().journal_failures()));
+    }
 }
 
 } // namespace
@@ -208,16 +231,17 @@ int main(int argc, char** argv)
     const int    fill_rate    = argc > 2 ? std::atoi(argv[2]) : 1000;
     const int    reconcile_ms = argc > 3 ? std::atoi(argv[3]) : 100;
     const int    ops_ms       = argc > 4 ? std::atoi(argv[4]) : 200;
+    const int    journal_mode = argc > 5 ? std::atoi(argv[5]) : 0;
 
-    std::printf("bench_gate_contention  slots=%d  duration=%.1fs  hw_threads=%u\n", kSlots, duration_sec,
-                std::thread::hardware_concurrency());
-    run_case("baseline(no writers)", duration_sec, 0, 0, 0);
+    std::printf("bench_gate_contention  slots=%d  duration=%.1fs  hw_threads=%u  journal=%d\n", kSlots, duration_sec,
+                std::thread::hardware_concurrency(), journal_mode);
+    run_case("baseline(no writers)", duration_sec, 0, 0, 0, journal_mode);
 
     if (fill_rate > 0 || reconcile_ms > 0 || ops_ms > 0)
     {
         char label[64];
         std::snprintf(label, sizeof(label), "fill=%d/s rec=%dms ops=%dms", fill_rate, reconcile_ms, ops_ms);
-        run_case(label, duration_sec, fill_rate, reconcile_ms, ops_ms);
+        run_case(label, duration_sec, fill_rate, reconcile_ms, ops_ms, journal_mode);
     }
 
     return 0;

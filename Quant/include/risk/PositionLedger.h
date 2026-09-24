@@ -27,7 +27,7 @@
 //
 // 쓰는 스레드는 셋이다 — 주문 스레드(선점·접수·거부·취소), 체결 스레드(체결), 데이터 스레드(시드·잔고 대조).
 //   positions_mutex_가 보유·선점 맵과 전략 서브원장, 계좌 이름표(keys_)를 함께 지킨다.
-// [lock-order] positions_mutex_ → journal_mutex_(잎). ledger_publish_mutex_ → positions_mutex_.
+// [lock-order] positions_mutex_ → LedgerJournal::stage_mutex_(잎, 메모리만). 디스크 쓰기(journal_flush)는 positions_mutex_ 밖. ledger_publish_mutex_ → positions_mutex_.
 //   OrderGate::check()는 Reader를 쥔 채 EntryPriority의 displace_mutex_·priority_mutex_를 잡는다
 //   (positions → {displace, priority}). pnl_mutex_는 독립 스코프에서만 잡는다.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -411,10 +411,22 @@ private:
     void apply_reservation_delta(std::string_view account, std::string_view ticker, int delta, double price);
 
     // ── 저널 ────────────────────────────────────────────────────────────────
-    // 레코드 하나를 붙인다(계좌·종목을 채워서). 리플레이 중이거나 저널이 없으면 참(적을 것이 없다). 실패는 세고
-    //  stderr 한 줄 — 되돌릴지는 호출자가 정한다(INTENT만 되돌린다). [lock-order] positions_mutex_ → journal_mutex_.
-    //  ACCEPT·CASH·DAILY_PNL은 positions_mutex_ 없이 journal_mutex_만 잡는다.
-    bool journal_append(ledger_journal::Record& record, std::string_view account, std::string_view ticker);
+    // 레코드 하나를 저널 버퍼에 쌓고(계좌·종목을 채워서) seq를 돌려준다. 디스크는 건드리지 않는다 — 원장 잠금 안에서
+    //  불러 순서를 잡고, 쓰기는 잠금을 푼 뒤 journal_flush()가 한다. 리플레이 중이거나 저널이 없으면 0. [why CODE_REVIEW W-2]
+    uint64_t journal_append(ledger_journal::Record& record, std::string_view account, std::string_view ticker);
+    // 쌓인 레코드를 디스크에 쓴다. 실패는 세고 로그 한 줄. [inv] positions_mutex_를 쥔 채 부르지 않는다.
+    void journal_flush();
+    // seq가 디스크에 남았는지 — 먼저 쓰고 묻는다. 리플레이 중이거나 저널이 없으면 참(적을 것이 없다).
+    //  INTENT만 이걸로 확인하고, 못 남겼으면 선점을 되돌린다.
+    bool journal_written(uint64_t sequence);
+    // 함수 끝에서 journal_flush()를 부른다. positions_mutex_ 잠금보다 먼저 선언하면 잠금이 풀린 뒤에 쓴다
+    //  (지역 변수는 선언의 역순으로 사라진다).
+    struct JournalFlushAfter
+    {
+        PositionLedger& ledger;
+
+        ~JournalFlushAfter();
+    };
     // 잔고 대조가 맞춘 종목의 지금 상태(보유·평단·매도가능·선점) 한 줄 — 리플레이는 이 값을 그대로 놓는다.
     //  [inv] positions_mutex_를 잡고 부른다.
     void journal_adjust(const PosKey& key, std::string_view reason);
@@ -436,7 +448,6 @@ private:
     // 원장 저널 — set_journal() 이전엔 nullptr(저널 없이 동작, 테스트·벤치 기본). replaying_은 set_journal 안에서만
     //  참(스레드 시작 전)이라 락 없이 읽는다. [why D-113]
     std::unique_ptr<ledger_journal::LedgerJournal> journal_;
-    std::mutex                   journal_mutex_;
     ledger_journal::ReplayResult replay_result_;
     bool                         replaying_ = false;
     std::atomic<uint64_t>        journal_failures_{0};

@@ -129,7 +129,8 @@ MAX_RATE_RETRIES = 10     # 초당 한도로 되보낸 HTTP 요청 — 09-22 37�
 LEDGER_REPLAY_RE = re.compile(r"\[Engine\] 원장 저널 리플레이: (\d+)건 \(마지막 seq (\d+)(, 꼬리 잘림)?\)")
 LEDGER_UNNUMBERED_RE = re.compile(r"\[OrderRouter\] 재기동 미결 주문 짝 ")
 LEDGER_RESOLVE_RE = re.compile(r"\[Engine\] 원장 미결 주문 대조: 되살림 (\d+)건 · 선점해제 (\d+)건 · 저널기록실패 (\d+)건")
-LEDGER_WRITE_FAIL_RE = re.compile(r"\[OrderRouter\] 원장 저널 기록 실패")
+# 주문 앞 선기록(OrderRouter)과 잠금 밖 묶음 기록(PositionLedger, W-2) 실패를 같이 센다.
+LEDGER_WRITE_FAIL_RE = re.compile(r"\[(?:OrderRouter|PositionLedger)\] 원장 저널 기록 실패")
 # 엔진이 모르는 채 브로커에 살아 있던 주문 — 전송이 타임아웃 나면 KIS에는 접수됐는데 ODNO를 못 받아
 #  부속 파일에 못 적는다. 그 주문이 보유분을 묶으면 손절이 닿아도 못 판다(2026-09-23 09:26 021240,
 #  ODNO=0000007886 매도 18주). 기동 때 브로커 조회로 보충하면 이 줄이 남는다 — 남았다는 건 그날 샜다는 뜻이다.
@@ -1384,7 +1385,7 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
     ledger_released = 0                          # 재기동 때 선점만 푼 주문(KIS가 모르는 주문)
     ledger_unnumbered = 0                        # 되살림 가운데 접수 응답 전에 끊겨 미체결과 짝지은 주문
     ledger_start_failures = 0                    # 기동 시점 저널 기록 실패 누계(기동마다 한 줄)
-    ledger_write_fails = 0                       # 장중 저널 기록 실패로 안 나간 주문
+    ledger_write_fails = 0                       # 장중 저널 기록 실패(안 나간 주문 + 파일이 원장보다 뒤처진 묶음)
     beat_dead = 0                                # 주문 스레드가 전략을 죽었다고 본 횟수
     beat_back = 0                                # 박동이 돌아와 진입 정지를 푼 횟수
     beat_gap_max = -1                            # 전략 박동의 가장 긴 공백(ms). -1이면 그 줄이 없는 구 exe

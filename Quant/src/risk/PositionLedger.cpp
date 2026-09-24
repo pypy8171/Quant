@@ -33,24 +33,35 @@ ledger_journal::Record make_order_record(ledger_journal::Kind kind, OrderSide si
 bool PositionLedger::on_intent(const std::string& account, const std::string& ticker, OrderSide side, int quantity,
                           double price, const OrderRef& reference, strategy_table::StrategyId strategy)
 {
-    std::lock_guard<std::mutex> lock(positions_mutex_);
-    const PosKey key   = keys_.make(account, ticker);
-    const int    delta = (side == OrderSide::BUY) ? quantity : -quantity; // BUY 선점 +, SELL 선점 -
-    const auto   previous_price_iterator = reserved_price_.find(key);
-    const bool   had_price               = previous_price_iterator != reserved_price_.end();
-    const double previous_price          = had_price ? previous_price_iterator->second : 0.0;
-    apply_reservation_delta(account, ticker, delta, price);
+    const int delta          = (side == OrderSide::BUY) ? quantity : -quantity; // BUY 선점 +, SELL 선점 -
+    PosKey    key            = {};
+    bool      had_price      = false;
+    double    previous_price = 0.0;
+    uint64_t  sequence       = 0;
+    {
+        std::lock_guard<std::mutex> lock(positions_mutex_);
+        key                                = keys_.make(account, ticker);
+        const auto previous_price_iterator = reserved_price_.find(key);
+        had_price                          = previous_price_iterator != reserved_price_.end();
+        previous_price                     = had_price ? previous_price_iterator->second : 0.0;
+        apply_reservation_delta(account, ticker, delta, price);
 
-    ledger_journal::Record record = make_order_record(ledger_journal::Kind::INTENT, side, quantity, reference);
-    record.price                  = price;
-    ledger_journal::put_string(record.strategy, sizeof(record.strategy), strategies_.name(strategy).view());
+        ledger_journal::Record record = make_order_record(ledger_journal::Kind::INTENT, side, quantity, reference);
+        record.price                  = price;
+        ledger_journal::put_string(record.strategy, sizeof(record.strategy), strategies_.name(strategy).view());
+        sequence = journal_append(record, account, ticker);
+    }
 
-    if (journal_append(record, account, ticker))
+    // 디스크 쓰기는 잠금을 푼 뒤에 한다 — 체결 반영·원장 읽기가 이 쓰기를 기다리지 않는다(W-2). 주문은 여전히
+    //  INTENT가 디스크에 남은 뒤에만 나간다(이 함수가 참을 돌려준 뒤).
+    if (journal_written(sequence))
     {
         return true;
     }
 
-    // 적히지 않은 선점은 되돌린다 — 파일에 없는 주문은 나가지 않는다. 선점가도 직전 값으로.
+    // 적히지 않은 선점은 되돌린다 — 파일에 없는 주문은 나가지 않는다. 선점가도 직전 값으로. 쓰는 동안 잠금을
+    //  놓았으므로 그사이 다른 스레드가 이 선점을 봤을 수 있다 — 한 번 더 막혀 보였을 뿐 넘치게 내지는 않는다.
+    std::lock_guard<std::mutex> lock(positions_mutex_);
     apply_reservation_delta(account, ticker, -delta, 0.0);
 
     if (had_price && reserved_.count(key))
@@ -72,11 +83,13 @@ void PositionLedger::on_accepted(const std::string& account, const std::string& 
 {
     ledger_journal::Record record = make_order_record(ledger_journal::Kind::ACCEPT, side, quantity, reference);
     journal_append(record, account, ticker);
+    journal_flush();
 }
 
 void PositionLedger::on_reject(const std::string& account, const std::string& ticker, OrderSide side, int quantity,
                           const OrderRef& reference, std::string_view reason)
 {
+    const JournalFlushAfter journal_flush_after{*this};
     std::lock_guard<std::mutex> lock(positions_mutex_);
     release_reservation(keys_.make(account, ticker), (side == OrderSide::BUY) ? -quantity : quantity);
     ledger_journal::Record record = make_order_record(ledger_journal::Kind::REJECT, side, quantity, reference);
@@ -152,6 +165,7 @@ void PositionLedger::on_cancel(const std::string& account, const std::string& ti
         return;
     }
 
+    const JournalFlushAfter journal_flush_after{*this};
     std::lock_guard<std::mutex> lock(positions_mutex_);
     // BUY 선점은 +였으므로 -quantity, SELL 선점은 -였으므로 +quantity (해제 = 반대부호 가산)
     release_reservation(keys_.make(account, ticker), (side == OrderSide::BUY) ? -quantity : quantity);
@@ -162,6 +176,7 @@ void PositionLedger::on_cancel(const std::string& account, const std::string& ti
 // ─── 선점 전면 초기화 (REST 잔고 대조 전용) ──────────────────────────────────
 void PositionLedger::reset_reserved()
 {
+    const JournalFlushAfter journal_flush_after{*this};
     std::lock_guard<std::mutex> lock(positions_mutex_);
     reserved_.clear();
     reserved_price_.clear();
@@ -190,29 +205,51 @@ bool PositionLedger::set_journal(const std::filesystem::path& directory, std::st
     return true;
 }
 
-bool PositionLedger::journal_append(ledger_journal::Record& record, std::string_view account, std::string_view ticker)
+uint64_t PositionLedger::journal_append(ledger_journal::Record& record, std::string_view account, std::string_view ticker)
+{
+    if (replaying_ || !journal_)
+    {
+        return 0;
+    }
+
+    ledger_journal::put_string(record.account, sizeof(record.account), account);
+    ledger_journal::put_string(record.ticker, sizeof(record.ticker), ticker);
+    return journal_->stage(record);
+}
+
+void PositionLedger::journal_flush()
+{
+    if (replaying_ || !journal_)
+    {
+        return;
+    }
+
+    const ledger_journal::LedgerJournal::FlushResult result = journal_->flush();
+
+    if (result.failed == 0)
+    {
+        return;
+    }
+
+    journal_failures_.fetch_add(result.failed, std::memory_order_relaxed);
+    LOG_ERROR(std::format("[PositionLedger] 원장 저널 기록 실패, 파일이 원장보다 뒤처졌다 - {}건 첫 kind({})",
+                          result.failed, result.first_failed_kind));
+}
+
+bool PositionLedger::journal_written(uint64_t sequence)
 {
     if (replaying_ || !journal_)
     {
         return true;
     }
 
-    ledger_journal::put_string(record.account, sizeof(record.account), account);
-    ledger_journal::put_string(record.ticker, sizeof(record.ticker), ticker);
-    {
-        std::lock_guard<std::mutex> lock(journal_mutex_);
+    journal_flush();
+    return journal_->written(sequence);
+}
 
-        if (journal_->append(record))
-        {
-            return true;
-        }
-    }
-
-    // 로그는 journal_mutex_를 놓은 뒤 비동기 로거 큐로 넘긴다(락 안에서 I/O 없음).
-    journal_failures_.fetch_add(1, std::memory_order_relaxed);
-    LOG_ERROR(std::format("[PositionLedger] 원장 저널 기록 실패, 파일이 원장보다 뒤처졌다 - kind({}) account({}) ticker({})",
-                          record.kind, account, ticker));
-    return false;
+PositionLedger::JournalFlushAfter::~JournalFlushAfter()
+{
+    ledger.journal_flush();
 }
 
 void PositionLedger::journal_adjust(const PosKey& key, std::string_view reason)
@@ -406,6 +443,7 @@ void PositionLedger::set_daily_pnl(double pnl)
     record.kind = static_cast<uint16_t>(ledger_journal::Kind::DAILY_PNL);
     record.pnl  = pnl;
     journal_append(record, std::string_view(), std::string_view());
+    journal_flush();
 }
 
 void PositionLedger::set_equity(double equity)
@@ -416,6 +454,7 @@ void PositionLedger::set_equity(double equity)
     record.cash   = available_cash_.load(std::memory_order_relaxed);
     record.equity = equity;
     journal_append(record, std::string_view(), std::string_view());
+    journal_flush();
 }
 
 void PositionLedger::set_available_cash(double available_cash)
@@ -426,6 +465,7 @@ void PositionLedger::set_available_cash(double available_cash)
     record.cash   = available_cash;
     record.equity = equity_.load(std::memory_order_relaxed);
     journal_append(record, std::string_view(), std::string_view());
+    journal_flush();
 }
 
 // ─── 유령 슬롯 정리 ─────────────────────────────────────────────────────────
@@ -433,6 +473,7 @@ std::vector<symbol::SymbolId> PositionLedger::prune_positions(const std::vector<
 {
     std::vector<symbol::SymbolId> gone;
     const std::vector<bool>  live = keys_.live_symbols(live_tickers);
+    const JournalFlushAfter journal_flush_after{*this};
     std::lock_guard<std::mutex> lock(positions_mutex_);
     const auto now = Clock::now();
 
@@ -475,6 +516,7 @@ std::vector<std::string> PositionLedger::prune_reservations(const std::vector<st
 std::vector<std::string> PositionLedger::prune_reservations(const std::vector<bool>& live)
 {
     std::vector<std::string>    gone;
+    const JournalFlushAfter journal_flush_after{*this};
     std::lock_guard<std::mutex> lock(positions_mutex_);
 
     for (auto iterator = reserved_.begin(); iterator != reserved_.end();)
@@ -502,6 +544,7 @@ void PositionLedger::restore_sellable(const std::string& account, const std::str
         return;
     }
 
+    const JournalFlushAfter journal_flush_after{*this};
     std::lock_guard<std::mutex> lock(positions_mutex_);
     const PosKey key = keys_.make(account, ticker);
     auto position_iterator = positions_.find(key);
@@ -551,6 +594,7 @@ void PositionLedger::refresh_sellable(const std::string& account, const std::str
         return;
     }
 
+    const JournalFlushAfter journal_flush_after{*this};
     std::lock_guard<std::mutex> lock(positions_mutex_);
     const PosKey key = keys_.make(account, ticker);
     auto position_iterator = positions_.find(key);
@@ -574,6 +618,7 @@ int PositionLedger::absorb_missed_sell(const std::string& account, const std::st
         return 0;
     }
 
+    const JournalFlushAfter journal_flush_after{*this};
     std::lock_guard<std::mutex> lock(positions_mutex_);
     const PosKey key = keys_.make(account, ticker);
     auto position_iterator = positions_.find(key);
@@ -641,6 +686,7 @@ void PositionLedger::seed_position(const std::string& account, const std::string
         return;
     }
 
+    const JournalFlushAfter journal_flush_after{*this};
     std::lock_guard<std::mutex> lock(positions_mutex_);
     const PosKey key = keys_.make(account, ticker);
     positions_[key]  = quantity;
@@ -790,13 +836,15 @@ PositionLedger::FillResult PositionLedger::on_fill_confirmed(
             release_reservation(key, quantity);
         }
 
-        // FILL 기록 — 같은 락 안이라 파일 순서가 원장 갱신 순서와 같다. 실현손익은 참고용(리플레이는 다시 계산한다).
+        // FILL 기록 — 같은 락 안에서 순번을 받아 파일 순서가 원장 갱신 순서와 같다. 실현손익은 참고용(리플레이는 다시 계산한다).
         ledger_journal::Record record = make_order_record(ledger_journal::Kind::FILL, side, quantity, reference);
         record.price                  = price;
         record.pnl                    = result.realized_pnl;
         ledger_journal::put_string(record.strategy, sizeof(record.strategy), strategies_.name(strategy).view());
         journal_append(record, account, ticker);
     }
+
+    journal_flush(); // 잠금을 푼 뒤에 쓴다(W-2)
 
     if (side == OrderSide::BUY)
     {

@@ -1,13 +1,15 @@
 // 원장 저널 — 주문·체결·잔고 대조가 원장(PositionLedger)에 준 변경을 순서대로 남기는 append-only 파일과 그 리플레이.
 //  주문만 KIS보다 먼저 적는다: INTENT가 적힌 뒤에만 KIS로 나가고, 못 적으면 선점을 되돌려 주문을 내지 않는다.
-//  FILL·REJECT·CANCEL·SEED는 원장을 바꾼 뒤 같은 positions_mutex_ 안에서 적어, 파일 순서가 원장 갱신 순서와 같다.
+//  FILL·REJECT·CANCEL·SEED는 원장을 바꾼 뒤 같은 positions_mutex_ 안에서 순번을 받아, 파일 순서가 원장 갱신 순서와 같다.
 //  재기동은 오늘 파일을 처음부터 다시 적용해 보유·평단·선점·매도가능·현금을 되살린다. config
 //  `bootstrap_ledger_from_balance`가 참이면 그 뒤 KIS 잔고로 보유를 덮어쓰고 SEED를 적는다
 //  (`Quant/src/core/LedgerReconciler.cpp`의 bootstrap). [why D-113]
-//  [inv] PositionLedger가 journal_mutex_를 쥔 채 동기 append한다. positions_mutex_는 기록 종류에 따라 쥐기도 하고
-//  안 쥐기도 한다 — 주문 이벤트는 초당 수십 건이라 별도 스레드·큐를
-//  두지 않는다. 매 append 뒤 fflush(프로세스 재기동 방어)까지가 기본이고, config `ledger_journal_fsync`가 참이면
-//  fsync까지 한다(전원 장애 방어, 주문 스레드에 디스크 동기화 지연이 얹힌다).
+//  쓰기는 두 단계다. 원장 잠금 안에서는 stage()로 순번을 받아 메모리 버퍼에 쌓기만 하고, 잠금을 푼 뒤 flush()가
+//  모아 쓴다 — 디스크가 느린 순간에도 주문 판정·원장 읽기가 디스크를 기다리지 않는다. 먼저 flush()에 온 스레드가
+//  뒤에 쌓인 것까지 같이 써서 fsync 한 번이 여러 건을 덮는다. 별도 스레드는 두지 않는다(주문 이벤트는 초당 수십 건).
+//  flush마다 fflush(프로세스 재기동 방어)까지가 기본이고, config `ledger_journal_fsync`가 참이면 fsync까지 한다
+//  (전원 장애 방어). 잠금 안에서 쓰던 때 fsync를 켜면 원장 읽기가 최대 77ms 막혔다(bench_gate_contention
+//  journal=2, 09-25). [why CODE_REVIEW W-2]
 //  파일은 거래일마다 하나(ledger_YYYYMMDD.bin) — KIS 주문은 하루를 넘기지 않으므로 어제 선점은 오늘 의미가 없고,
 //  당일 손익도 새 파일에서 0부터 센다. 종목 id·계좌 인덱스는 기동마다 달라져(TickCapture.h와 같은 이유) 문자열로
 //  남기고, 리플레이가 LedgerKeys::make로 다시 등록한다.
@@ -23,9 +25,12 @@
 #include <cstring>
 #include <filesystem>
 #include <functional>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <utility>
+#include <vector>
 
 #ifdef _WIN32
 #include <io.h>
@@ -168,11 +173,6 @@ public:
         return path_;
     }
 
-    [[nodiscard]] uint64_t next_sequence() const noexcept
-    {
-        return next_sequence_;
-    }
-
     // 열 때 훑어 본 결과 — 이어 쓸 자리를 찾느라 이미 한 번 읽었다. 꼬리를 잘랐는지는 여기에만 남는다(자른 뒤
     //  다시 읽으면 멀쩡해 보인다). 호출자의 리플레이는 이 결과에 적용 건수만 채워 넣는다.
     [[nodiscard]] const ReplayResult& opened() const noexcept
@@ -180,10 +180,23 @@ public:
         return opened_;
     }
 
-    // seq·시각·CRC를 채워 한 레코드를 붙인다. 거짓이면 디스크에 남지 않은 것이다 — 호출자는 그 변경을 되돌리고
-    //  주문을 거부한다(적히지 않은 주문은 나가지 않는다). [inv] PositionLedger가 journal_mutex_를 쥔 채 동기 append한다.
-    //  positions_mutex_는 기록 종류에 따라 쥐기도 하고 안 쥐기도 한다.
-    [[nodiscard]] bool append(Record& record) noexcept;
+    // 한 번 모아 쓴 결과 — failed는 디스크에 못 남긴 레코드 수, first_failed_kind는 그 첫 레코드의 종류.
+    struct FlushResult
+    {
+        uint64_t failed            = 0;
+        uint16_t first_failed_kind = 0;
+    };
+
+    // seq·시각·CRC를 채워 버퍼에 쌓고 seq를 돌려준다(파일이 없으면 0). 디스크는 건드리지 않는다 — 원장 잠금 안에서
+    //  불러 파일 순서를 원장 갱신 순서와 맞춘다.
+    uint64_t stage(Record& record);
+
+    // 쌓인 레코드를 한 번에 쓴다. 여러 스레드가 불러도 쓰기는 한 줄로 선다. 원장 잠금을 쥔 채 부르지 않는다.
+    FlushResult flush();
+
+    // seq가 디스크에 남았는지. flush() 뒤에 묻는다 — 거짓이면 그 레코드는 파일에 없다. 호출자는 그 변경을 되돌리고
+    //  주문을 거부한다(적히지 않은 주문은 나가지 않는다).
+    [[nodiscard]] bool written(uint64_t sequence) const;
 
     // 파일을 처음부터 읽어 레코드마다 apply를 부른다(nullptr이면 세기만). 헤더가 다르면 header_ok=false로 바로 돌아온다.
     //  꼬리의 불완전·CRC 불일치 레코드에서 멈춘다 — 그 앞까지가 정본이다.
@@ -194,9 +207,16 @@ private:
 
     std::filesystem::path path_;
     bool                  fsync_    = false;
-    uint64_t              next_sequence_ = 1;
     ReplayResult          opened_;
     std::FILE*            file_     = nullptr;
+    // [lock-order] write_mutex_ → stage_mutex_(잎). stage_mutex_ 안에서는 메모리만 만진다.
+    mutable std::mutex    stage_mutex_;
+    std::vector<Record>   pending_;           // stage_mutex_ — 아직 안 쓴 레코드, seq 순
+    uint64_t              next_sequence_ = 1; // stage_mutex_
+    mutable std::mutex    write_mutex_;
+    std::vector<Record>   writing_;           // write_mutex_ — pending_와 맞바꿔 들고 나와 쓴다(버퍼를 번갈아 재사용)
+    uint64_t              flushed_through_ = 0; // write_mutex_ — 이 seq까지 쓰기를 마쳤다(성공·실패 모두)
+    std::vector<std::pair<uint64_t, uint64_t>> failed_ranges_; // write_mutex_ — 못 쓴 seq 구간(양 끝 포함)
 };
 
 } // namespace ledger_journal

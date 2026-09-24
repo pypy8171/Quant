@@ -9,6 +9,7 @@
 //  20. 원장 저널 — 쓰다 만 꼬리(전원 장애)는 리플레이가 거기서 멈추고 다음 기동이 잘라 낸다
 //  21. 원장 저널 — 한 레코드가 깨지면(CRC 불일치) 그 앞까지만 적용하고 뒤는 버린다
 //  22. 원장 저널 — 코드페이지에 없는 글자가 든 폴더에서도 연다
+//  23. 원장 저널 — 두 스레드가 같이 적어도 호출이 끝나면 전부 파일에 있고, 순번이 빠짐없이 이어진다 (CODE_REVIEW W-2)
 
 #include "risk/PositionLedger.h"
 #include <cassert>
@@ -16,6 +17,8 @@
 #include <filesystem>
 #include <iostream>
 #include <string>
+#include <thread>
+#include <vector>
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -249,6 +252,65 @@ void test_journal_opens_on_non_codepage_path()
     PASS("journal_opens_on_non_codepage_path");
 }
 
+// ─── 테스트 23: 두 스레드가 같이 적어도 빠짐없이 순서대로 남는다 ──────────────
+//  원장 잠금 안에서는 버퍼에 쌓기만 하고 잠금 밖에서 모아 쓴다(W-2). 체결 스레드와 잔고 대조 스레드가 겹쳐 적어도
+//  각 호출이 끝나면 제 레코드가 이미 파일에 있어야 하고(버퍼에 남은 채 끝나면 재기동이 그 변경을 잃는다),
+//  파일의 순번은 1부터 하나씩 늘어야 한다(파일 순서 = 원장 갱신 순서).
+void test_journal_concurrent_writers_flush_in_order()
+{
+    const std::filesystem::path directory = make_journal_directory("concurrent");
+    const std::string           date      = "20260925";
+    constexpr int               kPerThread = 500;
+    std::filesystem::path       file;
+    {
+        PositionLedger ledger;
+        assert(ledger.set_journal(directory, date, false));
+        file = ledger.journal_path();
+
+        std::thread filler([&]
+                           {
+                               for (int index = 0; index < kPerThread; ++index)
+                               {
+                                   ledger.on_fill_confirmed("ACC1", "005930", OrderSide::BUY, 1, 70000.0,
+                                                            strategy_table::kNone,
+                                                            PositionLedger::OrderRef{static_cast<uint64_t>(index + 1), 0,
+                                                                                     OrderType::LIMIT});
+                               }
+                           });
+        std::thread reconciler([&]
+                               {
+                                   for (int index = 0; index < kPerThread; ++index)
+                                   {
+                                       ledger.set_available_cash(1000000.0 + index);
+                                   }
+                               });
+        filler.join();
+        reconciler.join();
+
+        // 원장이 살아 있는 채로 읽는다 — 소멸자의 마지막 쓰기에 기대지 않고 호출마다 썼는지 본다.
+        std::vector<uint64_t> sequences;
+        const auto result = ledger_journal::LedgerJournal::replay(
+            file, [&](const ledger_journal::Record& record) { sequences.push_back(record.sequence); });
+        assert(result.header_ok && !result.truncated_tail);
+        assert(sequences.size() == 2 * kPerThread);
+
+        for (size_t index = 0; index < sequences.size(); ++index)
+        {
+            assert(sequences[index] == index + 1);
+        }
+
+        assert(ledger.journal_failures() == 0);
+    }
+
+    PositionLedger restarted;
+    assert(restarted.set_journal(directory, date, false));
+    assert(restarted.position("ACC1", "005930") == kPerThread);
+
+    std::error_code error_code;
+    std::filesystem::remove_all(directory, error_code);
+    PASS("journal_concurrent_writers_flush_in_order");
+}
+
 int main()
 {
 #ifdef _WIN32
@@ -261,6 +323,7 @@ int main()
     test_journal_truncates_broken_tail();
     test_journal_stops_at_corrupt_record();
     test_journal_opens_on_non_codepage_path();
+    test_journal_concurrent_writers_flush_in_order();
     std::cout << "=== All tests passed ===\n";
     return 0;
 }

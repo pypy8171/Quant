@@ -2,6 +2,9 @@
 
 namespace ledger_journal
 {
+// 묶음 쓰기 목록의 처음 용량. 잠금 한 번 사이에 쌓이는 레코드는 보통 몇 건이라 넉넉하다(W-2).
+constexpr size_t kBatchReserve = 256;
+
 void put_string(char* destination, size_t capacity, std::string_view text) noexcept
 {
     const size_t count = text.size() < capacity - 1 ? text.size() : capacity - 1;
@@ -49,6 +52,8 @@ LedgerJournal::LedgerJournal(const std::filesystem::path& directory, std::string
     }
 
     next_sequence_ = existing.last_sequence + 1;
+    pending_.reserve(kBatchReserve);
+    writing_.reserve(kBatchReserve);
     file_ = open_journal_file(path_, "ab");
 
     if (file_ == nullptr)
@@ -79,28 +84,48 @@ LedgerJournal::LedgerJournal(const std::filesystem::path& directory, std::string
 
 LedgerJournal::~LedgerJournal()
 {
+    (void)flush();
     close();
 }
 
-bool LedgerJournal::append(Record& record) noexcept
+uint64_t LedgerJournal::stage(Record& record)
 {
     if (file_ == nullptr)
     {
-        return false;
+        return 0;
     }
 
-    record.sequence = next_sequence_;
+    std::lock_guard<std::mutex> lock(stage_mutex_);
+    record.sequence = next_sequence_++;
     record.wall_us =
         std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch())
             .count();
     record.crc32 = record_crc(record);
+    pending_.push_back(record);
+    return record.sequence;
+}
 
-    if (std::fwrite(&record, sizeof(record), 1, file_) != 1 || std::fflush(file_) != 0)
+LedgerJournal::FlushResult LedgerJournal::flush()
+{
+    FlushResult result;
+    std::lock_guard<std::mutex> write_lock(write_mutex_);
+
     {
-        return false;
+        std::lock_guard<std::mutex> stage_lock(stage_mutex_);
+        writing_.swap(pending_);
     }
 
-    if (fsync_)
+    if (writing_.empty())
+    {
+        return result;
+    }
+
+    // 레코드는 seq 순으로 붙어 있어 한 번의 fwrite로 나간다. 도중에 실패하면 이 묶음 전체를 못 쓴 것으로 센다.
+    const bool wrote = file_ != nullptr &&
+                       std::fwrite(writing_.data(), sizeof(Record), writing_.size(), file_) == writing_.size() &&
+                       std::fflush(file_) == 0;
+
+    if (wrote && fsync_)
     {
 #ifdef _WIN32
         _commit(_fileno(file_));
@@ -109,7 +134,35 @@ bool LedgerJournal::append(Record& record) noexcept
 #endif
     }
 
-    ++next_sequence_;
+    if (!wrote)
+    {
+        result.failed            = writing_.size();
+        result.first_failed_kind = writing_.front().kind;
+        failed_ranges_.emplace_back(writing_.front().sequence, writing_.back().sequence);
+    }
+
+    flushed_through_ = writing_.back().sequence;
+    writing_.clear();
+    return result;
+}
+
+bool LedgerJournal::written(uint64_t sequence) const
+{
+    std::lock_guard<std::mutex> lock(write_mutex_);
+
+    if (sequence == 0 || sequence > flushed_through_)
+    {
+        return false;
+    }
+
+    for (const auto& [first, last] : failed_ranges_)
+    {
+        if (sequence >= first && sequence <= last)
+        {
+            return false;
+        }
+    }
+
     return true;
 }
 
