@@ -139,12 +139,12 @@
     {
       "from": "universe",
       "to": "core",
-      "weight": 4
+      "weight": 16
     },
     {
       "from": "universe",
       "to": "utils",
-      "weight": 3
+      "weight": 21
     },
     {
       "from": "utils",
@@ -363,7 +363,14 @@
     "strategy/ValueContraryStrategy.cpp": "strategy",
     "universe/MaAlign.cpp": "universe",
     "universe/ScoreWeight.cpp": "universe",
+    "universe/UniverseCandidates.cpp": "universe",
+    "universe/UniverseFeatures.cpp": "universe",
+    "universe/UniverseItb.cpp": "universe",
+    "universe/UniverseQuotes.cpp": "universe",
+    "universe/UniverseRiskGate.cpp": "universe",
     "universe/UniverseScanner.cpp": "universe",
+    "universe/UniverseScoring.cpp": "universe",
+    "universe/detail/Pipeline.h": "universe",
     "utils/EtfFilter.cpp": "utils",
     "utils/JsonNode.cpp": "utils",
     "utils/Logger.cpp": "utils",
@@ -1145,6 +1152,46 @@
     "universe/ScoreWeight.h": [
       "core/SymbolTable.h"
     ],
+    "universe/UniverseCandidates.cpp": [
+      "core/KstTime.h",
+      "core/Types.h",
+      "universe/MaAlign.h",
+      "utils/EtfFilter.h",
+      "utils/JsonNode.h",
+      "utils/Logger.h"
+    ],
+    "universe/UniverseFeatures.cpp": [
+      "core/KstTime.h",
+      "core/Types.h",
+      "universe/MaAlign.h",
+      "utils/EtfFilter.h",
+      "utils/JsonNode.h",
+      "utils/Logger.h"
+    ],
+    "universe/UniverseItb.cpp": [
+      "core/KstTime.h",
+      "core/Types.h",
+      "universe/MaAlign.h",
+      "utils/EtfFilter.h",
+      "utils/JsonNode.h",
+      "utils/Logger.h"
+    ],
+    "universe/UniverseQuotes.cpp": [
+      "core/KstTime.h",
+      "core/Types.h",
+      "universe/MaAlign.h",
+      "utils/EtfFilter.h",
+      "utils/JsonNode.h",
+      "utils/Logger.h"
+    ],
+    "universe/UniverseRiskGate.cpp": [
+      "core/KstTime.h",
+      "core/Types.h",
+      "universe/MaAlign.h",
+      "utils/EtfFilter.h",
+      "utils/JsonNode.h",
+      "utils/Logger.h"
+    ],
     "universe/UniverseScanner.cpp": [
       "core/KstTime.h",
       "core/Types.h",
@@ -1158,6 +1205,17 @@
       "api/KisClient.h",
       "core/SymbolTable.h",
       "universe/ScoreWeight.h"
+    ],
+    "universe/UniverseScoring.cpp": [
+      "core/KstTime.h",
+      "core/Types.h",
+      "universe/MaAlign.h",
+      "utils/EtfFilter.h",
+      "utils/JsonNode.h",
+      "utils/Logger.h"
+    ],
+    "universe/detail/Pipeline.h": [
+      "universe/UniverseScanner.h"
     ],
     "utils/EtfFilter.cpp": [
       "utils/EtfFilter.h"
@@ -1319,7 +1377,13 @@
       "strategy/StrategyFactory.cpp",
       "strategy/SupplyDemandPullbackStrategy.h",
       "strategy/TargetBasketStrategy.cpp",
-      "universe/UniverseScanner.cpp"
+      "universe/UniverseCandidates.cpp",
+      "universe/UniverseFeatures.cpp",
+      "universe/UniverseItb.cpp",
+      "universe/UniverseQuotes.cpp",
+      "universe/UniverseRiskGate.cpp",
+      "universe/UniverseScanner.cpp",
+      "universe/UniverseScoring.cpp"
     ],
     "core/LatencyTrace.h": [
       "core/Engine.cpp",
@@ -1495,7 +1559,13 @@
       "strategy/StrategyFactory.cpp",
       "strategy/SupplyDemandPullbackStrategy.h",
       "strategy/TargetBasketPlan.h",
-      "universe/UniverseScanner.cpp"
+      "universe/UniverseCandidates.cpp",
+      "universe/UniverseFeatures.cpp",
+      "universe/UniverseItb.cpp",
+      "universe/UniverseQuotes.cpp",
+      "universe/UniverseRiskGate.cpp",
+      "universe/UniverseScanner.cpp",
+      "universe/UniverseScoring.cpp"
     ],
     "core/UniverseExit.h": [
       "core/EngineUniverse.cpp",
@@ -1733,7 +1803,13 @@
     "universe/MaAlign.h": [
       "strategy/DeviationScaleStrategy.h",
       "universe/MaAlign.cpp",
-      "universe/UniverseScanner.cpp"
+      "universe/UniverseCandidates.cpp",
+      "universe/UniverseFeatures.cpp",
+      "universe/UniverseItb.cpp",
+      "universe/UniverseQuotes.cpp",
+      "universe/UniverseRiskGate.cpp",
+      "universe/UniverseScanner.cpp",
+      "universe/UniverseScoring.cpp"
     ],
     "universe/ScoreWeight.h": [
       "strategy/StrategyFactory.cpp",
@@ -1742,18 +1818,31 @@
     ],
     "universe/UniverseScanner.h": [
       "strategy/StrategyFactory.cpp",
-      "universe/UniverseScanner.cpp"
+      "universe/UniverseScanner.cpp",
+      "universe/detail/Pipeline.h"
     ],
     "utils/EtfFilter.h": [
       "api/KisClientInternal.h",
+      "universe/UniverseCandidates.cpp",
+      "universe/UniverseFeatures.cpp",
+      "universe/UniverseItb.cpp",
+      "universe/UniverseQuotes.cpp",
+      "universe/UniverseRiskGate.cpp",
       "universe/UniverseScanner.cpp",
+      "universe/UniverseScoring.cpp",
       "utils/EtfFilter.cpp"
     ],
     "utils/JsonNode.h": [
       "api/KisOrder.cpp",
       "core/AppConfig.cpp",
       "strategy/StrategyFactory.cpp",
+      "universe/UniverseCandidates.cpp",
+      "universe/UniverseFeatures.cpp",
+      "universe/UniverseItb.cpp",
+      "universe/UniverseQuotes.cpp",
+      "universe/UniverseRiskGate.cpp",
       "universe/UniverseScanner.cpp",
+      "universe/UniverseScoring.cpp",
       "utils/JsonNode.cpp"
     ],
     "utils/Logger.h": [
@@ -1800,7 +1889,13 @@
       "strategy/TargetBasketStrategy.cpp",
       "strategy/ThemeStrategy.h",
       "strategy/ValueContraryStrategy.h",
+      "universe/UniverseCandidates.cpp",
+      "universe/UniverseFeatures.cpp",
+      "universe/UniverseItb.cpp",
+      "universe/UniverseQuotes.cpp",
+      "universe/UniverseRiskGate.cpp",
       "universe/UniverseScanner.cpp",
+      "universe/UniverseScoring.cpp",
       "utils/Logger.cpp"
     ],
     "utils/ThreadName.h": [
@@ -1826,15 +1921,15 @@
   "hubs": [
     {
       "header": "utils/Logger.h",
-      "in_degree": 45
+      "in_degree": 51
     },
     {
       "header": "core/Types.h",
-      "in_degree": 42
+      "in_degree": 48
     },
     {
       "header": "core/KstTime.h",
-      "in_degree": 21
+      "in_degree": 27
     },
     {
       "header": "core/SymbolTable.h",
@@ -1861,8 +1956,20 @@
       "in_degree": 11
     },
     {
+      "header": "utils/JsonNode.h",
+      "in_degree": 11
+    },
+    {
       "header": "core/WakeGate.h",
       "in_degree": 10
+    },
+    {
+      "header": "universe/MaAlign.h",
+      "in_degree": 9
+    },
+    {
+      "header": "utils/EtfFilter.h",
+      "in_degree": 9
     },
     {
       "header": "core/MarketSession.h",
@@ -1891,18 +1998,6 @@
     {
       "header": "core/TickSize.h",
       "in_degree": 5
-    },
-    {
-      "header": "ipc/SharedSpscRing.h",
-      "in_degree": 5
-    },
-    {
-      "header": "utils/JsonNode.h",
-      "in_degree": 5
-    },
-    {
-      "header": "api/KisErrorCodes.h",
-      "in_degree": 4
     }
   ],
   "python": {
@@ -2924,7 +3019,7 @@
         "PYQuant/tools/load_injector.py",
         "PYQuant/tools/nxt_divergence_check.py",
         "PYQuant/tools/universe_feed.py",
-        "Quant/src/universe/UniverseScanner.cpp",
+        "Quant/src/universe/UniverseCandidates.cpp",
         "scripts/exit_ev_dashboard.py",
         "scripts/live_prices_feed.py",
         "scripts/make_load_test_config.py",
@@ -2940,7 +3035,7 @@
         "Quant/include/universe/UniverseScanner.h",
         "Quant/src/api/KisUniverse.cpp",
         "Quant/src/strategy/StrategyFactory.cpp",
-        "Quant/src/universe/UniverseScanner.cpp",
+        "Quant/src/universe/UniverseCandidates.cpp",
         "scripts/dashboard_server.py",
         "scripts/exit_ev_dashboard.py",
         "scripts/live_prices_feed.py",

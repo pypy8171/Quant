@@ -289,7 +289,7 @@ meaning = "정배열 판정에 종목당 받는 일봉 길이(SMA60 + 여유)"
 
 [[code_value]]
 id = "scanner_daily_lookup_sleep_ms"
-file = "Quant/src/universe/UniverseScanner.cpp"
+file = "Quant/src/universe/UniverseFeatures.cpp"
 regex = 'kDailyLookupSleepMs\s*=\s*(150);'
 unit = "ms"
 group = "KIS REST — 일봉·분봉·랭킹 조회"
@@ -297,7 +297,7 @@ meaning = "정배열 판정 일봉 조회 종목 간 간격, 실계좌(캐시 �
 
 [[code_value]]
 id = "scanner_daily_lookup_sleep_paper_ms"
-file = "Quant/src/universe/UniverseScanner.cpp"
+file = "Quant/src/universe/UniverseFeatures.cpp"
 regex = 'kDailyLookupSleepPaperMs\s*=\s*(600);'
 unit = "ms"
 group = "KIS REST — 일봉·분봉·랭킹 조회"
@@ -305,7 +305,7 @@ meaning = "같은 간격의 모의계좌 값 — 모의는 키 한도가 초당 
 
 [[code_value]]
 id = "scanner_sector_call_sleep_ms"
-file = "Quant/src/universe/UniverseScanner.cpp"
+file = "Quant/src/universe/UniverseCandidates.cpp"
 regex = 'constexpr int kSectorCallIntervalMs = (\d+);'
 unit = "ms"
 group = "KIS REST — 일봉·분봉·랭킹 조회"
@@ -321,8 +321,8 @@ meaning = "KIS 랭킹 TR 은 요청값과 무관하게 축당 30행 고정(연�
 
 [[code_value]]
 id = "scanner_prices_stale_warn_sec"
-file = "Quant/src/universe/UniverseScanner.cpp"
-regex = 'else if \(age > (\d+)\)'
+file = "Quant/src/universe/UniverseQuotes.cpp"
+regex = 'constexpr int kPricesStaleWarnSec = (\d+);'
 unit = "초"
 group = "네이버 시세 보조 프로세스 — prices_live.json"
 meaning = "시세 파일이 이보다 오래되면 경고(판정은 계속 그 값으로)"

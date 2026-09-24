@@ -874,7 +874,7 @@
       "start": 143
     },
     {
-      "file": "Quant/src/universe/UniverseScanner.cpp",
+      "file": "Quant/src/universe/UniverseCandidates.cpp",
       "symbol": "take_universe_file",
       "lines": 102,
       "start": 767
@@ -892,19 +892,19 @@
       "start": 863
     },
     {
-      "file": "Quant/src/universe/UniverseScanner.cpp",
+      "file": "Quant/src/universe/UniverseQuotes.cpp",
       "symbol": "load_quote_table",
       "lines": 98,
       "start": 627
     },
     {
-      "file": "Quant/src/universe/UniverseScanner.cpp",
+      "file": "Quant/src/universe/UniverseItb.cpp",
       "symbol": "scan_itb",
       "lines": 97,
       "start": 1481
     },
     {
-      "file": "Quant/src/universe/UniverseScanner.cpp",
+      "file": "Quant/src/universe/UniverseScoring.cpp",
       "symbol": "score_cross_section",
       "lines": 96,
       "start": 1312
@@ -1048,7 +1048,7 @@
       "start": 17
     },
     {
-      "file": "Quant/src/universe/UniverseScanner.cpp",
+      "file": "Quant/src/universe/UniverseFeatures.cpp",
       "symbol": "load_today",
       "lines": 84,
       "start": 71

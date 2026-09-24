@@ -35,7 +35,7 @@ digraph code_graph {
   "strategy" -> "universe" [label="3"];
   "strategy" -> "utils" [label="11"];
   "universe" -> "api" [label="1"];
-  "universe" -> "core" [label="4"];
-  "universe" -> "utils" [label="3"];
+  "universe" -> "core" [label="16"];
+  "universe" -> "utils" [label="21"];
   "utils" -> "core" [label="1"];
 }

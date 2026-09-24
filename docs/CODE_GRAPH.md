@@ -43,8 +43,8 @@ graph LR
   strategy -->|3| universe
   strategy -->|11| utils
   universe --> api
-  universe -->|4| core
-  universe -->|3| utils
+  universe -->|16| core
+  universe -->|21| utils
   utils --> core
 ```
 
@@ -55,9 +55,9 @@ graph LR
 
 | 헤더 | 유입 수 |
 |---|---|
-| `utils/Logger.h` | 45 |
-| `core/Types.h` | 42 |
-| `core/KstTime.h` | 21 |
+| `utils/Logger.h` | 51 |
+| `core/Types.h` | 48 |
+| `core/KstTime.h` | 27 |
 | `core/SymbolTable.h` | 20 |
 | `core/Engine.h` | 15 |
 | `strategy/StrategyBase.h` | 15 |
@@ -257,8 +257,15 @@ graph LR
     n_universe_MaAlign_cpp["universe/MaAlign.cpp"]
     n_universe_ScoreWeight_cpp["universe/ScoreWeight.cpp"]
     n_universe_ScoreWeight_h["universe/ScoreWeight.h"]
+    n_universe_UniverseCandidates_cpp["universe/UniverseCandidates.cpp"]
+    n_universe_UniverseFeatures_cpp["universe/UniverseFeatures.cpp"]
+    n_universe_UniverseItb_cpp["universe/UniverseItb.cpp"]
+    n_universe_UniverseQuotes_cpp["universe/UniverseQuotes.cpp"]
+    n_universe_UniverseRiskGate_cpp["universe/UniverseRiskGate.cpp"]
     n_universe_UniverseScanner_cpp["universe/UniverseScanner.cpp"]
     n_universe_UniverseScanner_h["universe/UniverseScanner.h"]
+    n_universe_UniverseScoring_cpp["universe/UniverseScoring.cpp"]
+    n_universe_detail_Pipeline_h["universe/detail/Pipeline.h"]
   end
   subgraph utils
     n_utils_EtfFilter_cpp["utils/EtfFilter.cpp"]
@@ -696,6 +703,36 @@ graph LR
   n_universe_MaAlign_cpp --> n_universe_MaAlign_h
   n_universe_ScoreWeight_cpp --> n_universe_ScoreWeight_h
   n_universe_ScoreWeight_h --> n_core_SymbolTable_h
+  n_universe_UniverseCandidates_cpp --> n_core_KstTime_h
+  n_universe_UniverseCandidates_cpp --> n_core_Types_h
+  n_universe_UniverseCandidates_cpp --> n_universe_MaAlign_h
+  n_universe_UniverseCandidates_cpp --> n_utils_EtfFilter_h
+  n_universe_UniverseCandidates_cpp --> n_utils_JsonNode_h
+  n_universe_UniverseCandidates_cpp --> n_utils_Logger_h
+  n_universe_UniverseFeatures_cpp --> n_core_KstTime_h
+  n_universe_UniverseFeatures_cpp --> n_core_Types_h
+  n_universe_UniverseFeatures_cpp --> n_universe_MaAlign_h
+  n_universe_UniverseFeatures_cpp --> n_utils_EtfFilter_h
+  n_universe_UniverseFeatures_cpp --> n_utils_JsonNode_h
+  n_universe_UniverseFeatures_cpp --> n_utils_Logger_h
+  n_universe_UniverseItb_cpp --> n_core_KstTime_h
+  n_universe_UniverseItb_cpp --> n_core_Types_h
+  n_universe_UniverseItb_cpp --> n_universe_MaAlign_h
+  n_universe_UniverseItb_cpp --> n_utils_EtfFilter_h
+  n_universe_UniverseItb_cpp --> n_utils_JsonNode_h
+  n_universe_UniverseItb_cpp --> n_utils_Logger_h
+  n_universe_UniverseQuotes_cpp --> n_core_KstTime_h
+  n_universe_UniverseQuotes_cpp --> n_core_Types_h
+  n_universe_UniverseQuotes_cpp --> n_universe_MaAlign_h
+  n_universe_UniverseQuotes_cpp --> n_utils_EtfFilter_h
+  n_universe_UniverseQuotes_cpp --> n_utils_JsonNode_h
+  n_universe_UniverseQuotes_cpp --> n_utils_Logger_h
+  n_universe_UniverseRiskGate_cpp --> n_core_KstTime_h
+  n_universe_UniverseRiskGate_cpp --> n_core_Types_h
+  n_universe_UniverseRiskGate_cpp --> n_universe_MaAlign_h
+  n_universe_UniverseRiskGate_cpp --> n_utils_EtfFilter_h
+  n_universe_UniverseRiskGate_cpp --> n_utils_JsonNode_h
+  n_universe_UniverseRiskGate_cpp --> n_utils_Logger_h
   n_universe_UniverseScanner_cpp --> n_core_KstTime_h
   n_universe_UniverseScanner_cpp --> n_core_Types_h
   n_universe_UniverseScanner_cpp --> n_universe_MaAlign_h
@@ -706,6 +743,13 @@ graph LR
   n_universe_UniverseScanner_h --> n_api_KisClient_h
   n_universe_UniverseScanner_h --> n_core_SymbolTable_h
   n_universe_UniverseScanner_h --> n_universe_ScoreWeight_h
+  n_universe_UniverseScoring_cpp --> n_core_KstTime_h
+  n_universe_UniverseScoring_cpp --> n_core_Types_h
+  n_universe_UniverseScoring_cpp --> n_universe_MaAlign_h
+  n_universe_UniverseScoring_cpp --> n_utils_EtfFilter_h
+  n_universe_UniverseScoring_cpp --> n_utils_JsonNode_h
+  n_universe_UniverseScoring_cpp --> n_utils_Logger_h
+  n_universe_detail_Pipeline_h --> n_universe_UniverseScanner_h
   n_utils_EtfFilter_cpp --> n_utils_EtfFilter_h
   n_utils_JsonNode_cpp --> n_utils_JsonNode_h
   n_utils_Logger_cpp --> n_core_MpscQueue_h
@@ -881,7 +925,7 @@ C++ 엔진·Python 보조 프로세스·스크립트가 파일로 주고받는 �
 | `regime.json` | `PYQuant/tools/macro_regime_feed.py`, `Quant/src/core/EngineRegime.cpp` | `PYQuant/tools/macro_regime_feed.py`, `Quant/src/core/AppConfig.cpp`, `Quant/src/core/EngineDataThread.cpp`, `Quant/src/core/EngineRegime.cpp`, `Quant/src/core/RegimeFileJudge.cpp`, `scripts/dashboard_server.py`, `scripts/notify_trades.py` | `Quant/include/core/AppConfig.h`, `Quant/include/core/Engine.h`, `Quant/include/core/RegimeFileJudge.h`, `Quant/src/core/EngineConfigure.cpp`, `Quant/src/ipc/ZmqBridge.cpp` |
 | `prices_live.json` | `scripts/live_prices_feed.py` | `scripts/live_prices_feed.py` |  |
 | `trades_*.csv` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/backfill_fills_db.py`, `scripts/exit_ev_dashboard.py` | `PYQuant/dashboard/backfill_live.py`, `PYQuant/tests/test_stats.py`, `Quant/src/ipc/OrderRouter.cpp`, `Quant/src/strategy/StrategyFactory.cpp`, `scripts/backfill_fills_db.py`, `scripts/check_runtime_health.py`, `scripts/exit_ev.py`, `scripts/exit_ev_dashboard.py`, `scripts/parse_quant_log.py`, `scripts/trade_costs.py` | `scripts/_logdir.py`, `scripts/notify_trades.py` |
-| `universe*.json` | `PYQuant/tools/load_injector.py`, `scripts/make_load_test_config.py` | `PYQuant/main.py`, `PYQuant/tools/full_universe_dump.py`, `PYQuant/tools/load_injector.py`, `PYQuant/tools/nxt_divergence_check.py`, `PYQuant/tools/universe_feed.py`, `Quant/src/universe/UniverseScanner.cpp`, `scripts/exit_ev_dashboard.py`, `scripts/live_prices_feed.py`, `scripts/make_load_test_config.py`, `scripts/market_close_minute_backfill.py`, `scripts/notify_trades.py` | `Quant/include/universe/UniverseScanner.h`, `Quant/src/api/KisUniverse.cpp`, `Quant/src/strategy/StrategyFactory.cpp`, `scripts/dashboard_server.py` |
+| `universe*.json` | `PYQuant/tools/load_injector.py`, `scripts/make_load_test_config.py` | `PYQuant/main.py`, `PYQuant/tools/full_universe_dump.py`, `PYQuant/tools/load_injector.py`, `PYQuant/tools/nxt_divergence_check.py`, `PYQuant/tools/universe_feed.py`, `Quant/src/universe/UniverseCandidates.cpp`, `scripts/exit_ev_dashboard.py`, `scripts/live_prices_feed.py`, `scripts/make_load_test_config.py`, `scripts/market_close_minute_backfill.py`, `scripts/notify_trades.py` | `Quant/include/universe/UniverseScanner.h`, `Quant/src/api/KisUniverse.cpp`, `Quant/src/strategy/StrategyFactory.cpp`, `scripts/dashboard_server.py` |
 | `open_orders.txt` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/seed_open_orders.py` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/seed_open_orders.py` |  |
 | `quant_trader.log` | `PYQuant/tools/log_report.py`, `scripts/build_review_entry.py`, `scripts/dashboard_server.py`, `scripts/summarize_trading_day.py` | `PYQuant/tools/compare_ws_bars.py`, `scripts/check_runtime_health.py`, `scripts/dashboard_server.py`, `scripts/extract_swap_what_if.py`, `scripts/notify_trades.py`, `scripts/parse_quant_log.py`, `scripts/seed_open_orders.py`, `scripts/summarize_trading_day.py` | `Quant/src/core/CommandLine.cpp`, `scripts/_logdir.py`, `scripts/exit_ev_dashboard.py` |
 | `kis_token_*.json` |  |  | `PYQuant/kis/client.py`, `Quant/src/api/KisAuth.cpp` |

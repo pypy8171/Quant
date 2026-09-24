@@ -10,7 +10,8 @@
 // 유니버스 스캐너 — config 스캔 파라미터로 "오늘 어떤 종목을 볼지" 티커 목록을 산출.
 //  전략 생성(파라미터·인스턴스화)은 호출자(StrategyFactory)가 담당하고, 여기서는
 //  레짐 게이트·랭킹·필터만 수행한다. 인증된 시세 클라이언트(KisClient&)를 받는다.
-//  스캔 스레드 전용. 선정 규칙과 단계 순서의 정본은 `UniverseScanner.cpp` 하나다.
+//  스캔 스레드 전용. 단계 순서는 `UniverseScanner.cpp`, 단계별 선정 규칙은 같은 폴더의 단계 파일
+//  (UniverseRiskGate·UniverseCandidates·UniverseFeatures·UniverseScoring, 선언은 detail/Pipeline.h)이 정본이다.
 // ─────────────────────────────────────────────────────────────────────────────
 namespace universe
 {

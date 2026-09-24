@@ -495,7 +495,14 @@
 
 - [MaAlign.cpp](../Quant/src/universe/MaAlign.cpp) — MaAlign.h 구현 — 일봉 이동평균 정배열 판정 공용 함수(D-005)
 - [ScoreWeight.cpp](../Quant/src/universe/ScoreWeight.cpp) — ScoreWeight.h 구현 — 종합 점수 → 종목별 비중 배수 변환
-- [UniverseScanner.cpp](../Quant/src/universe/UniverseScanner.cpp) — 유니버스 스캐너 구현 — 정배열 판정 캐시
+- [UniverseCandidates.cpp](../Quant/src/universe/UniverseCandidates.cpp) — DevScale 스캔 2단 — 후보 합집합 수집(랭킹·업종·유니버스 파일·전 종목, D-028)
+- [UniverseFeatures.cpp](../Quant/src/universe/UniverseFeatures.cpp) — DevScale 스캔 3단 — 일봉 요약 캐시·정배열 프리필터·지표 산출
+- [UniverseItb.cpp](../Quant/src/universe/UniverseItb.cpp) — ITB(장중 돌파) 유니버스 스캔
+- [UniverseQuotes.cpp](../Quant/src/universe/UniverseQuotes.cpp) — 전 종목 시세 파일 → 종목 id 시세 표
+- [UniverseRiskGate.cpp](../Quant/src/universe/UniverseRiskGate.cpp) — DevScale 스캔 1단 — 지수 위험회피 게이트와 래치(D-033)
+- [UniverseScanner.cpp](../Quant/src/universe/UniverseScanner.cpp) — 유니버스 스캐너 입구 — scan_devscale 단계 순서와 계측 로그
+- [UniverseScoring.cpp](../Quant/src/universe/UniverseScoring.cpp) — DevScale 스캔 4단 — 횡단면 점수(순수 함수)·순위 절단
+- [detail/Pipeline.h](../Quant/src/universe/detail/Pipeline.h) — 유니버스 스캔 단계 파일 사이의 자료형·함수 선언(src/universe 안에서만)
 
 ### Quant/src/utils/
 

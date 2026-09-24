@@ -188,7 +188,13 @@ set(HEADER_IMPL_SOURCES
 
 # main.cpp를 뺀 전부가 엔진 라이브러리다 — quant_trader와 test_engine이 같은 오브젝트를 링크한다(D-071).
 set(ENGINE_SOURCES
+  src/universe/UniverseCandidates.cpp
+  src/universe/UniverseFeatures.cpp
+  src/universe/UniverseItb.cpp
+  src/universe/UniverseQuotes.cpp
+  src/universe/UniverseRiskGate.cpp
   src/universe/UniverseScanner.cpp
+  src/universe/UniverseScoring.cpp
   src/strategy/StrategyFactory.cpp
   src/core/AppConfig.cpp
   src/core/CommandLine.cpp
