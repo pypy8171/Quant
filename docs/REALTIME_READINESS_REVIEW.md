@@ -32,12 +32,12 @@ D-NN으로 소유한다.
 `RingBuffer`는 생산자 하나를 전제한다. `push()`가 `head_`를 relaxed로 읽고 읽기-변경-쓰기 없이
 store하기 때문이다. 그런데 시세 큐에는 두 곳이 넣는다.
 
-- [Engine.cpp:349](../Quant/src/core/Engine.cpp#L349) WebSocket 콜백(수신 스레드)
-- [Engine.cpp:936](../Quant/src/core/Engine.cpp#L936) 데이터 스레드의 대체 경로
+- [Quant/src/core/Engine.cpp](../Quant/src/core/Engine.cpp#L691) `Engine::connect_feed` 의 WebSocket 콜백(수신 스레드)
+- [Quant/src/core/EngineDataThread.cpp](../Quant/src/core/EngineDataThread.cpp#L488) 데이터 스레드의 대체 경로
 
-콜백에는 `rest_feed_active`(지금은 `FeedState` 멤버) 가드가 없다. 겹치는 구간은 `Engine.cpp::control_thread_fn`(당시 1459줄)의
+콜백에는 `rest_feed_active`(지금은 `FeedState` 멤버) 가드가 없다. 겹치는 구간은 `Engine.cpp::control_thread_fn`(당시 1459줄, 지금은 `Quant/src/core/EngineControlThread.cpp`)의
 재연결 성공이 `deactivate_rest_fallback()`을 호출하지 않아서 열린다. 해제는 다음 루프 반복에서만
-일어나므로 최소 5초, 여기에 데이터 스레드가 플래그를 사이클당 한 번만 읽어([Engine.cpp:736](../Quant/src/core/Engine.cpp#L736))
+일어나므로 최소 5초, 여기에 데이터 스레드가 플래그를 사이클당 한 번만 읽어([Quant/src/core/EngineDataThread.cpp:108](../Quant/src/core/EngineDataThread.cpp#L108))
 진행 중이던 사이클의 잔여 시간이 더 붙는다. 40종목이면 종목당 150ms 슬립으로 6초가 추가된다.
 
 `TradeData`는 `std::string` 두 개를 가진 비-trivial 타입이다. 두 생산자가 같은 슬롯에 쓰고 소비자가

@@ -156,7 +156,7 @@
 - **4.2** 스레드 사이로 흘러가는 이벤트는 큐로 넘긴다. 생산자가 하나면 `RingBuffer`, 여럿이면 `MpscQueue`를 쓴다. 큐가
   찼을 때 버릴지 기다릴지는 큐를 만드는 자리에서 정한다. (리뷰)
   - 체결, 주문, 캡처 경로의 이벤트는 유실하지 않는다.
-  - 예외: 체결통보 큐(`fill_queue`, [Quant/src/core/Engine.cpp](../../Quant/src/core/Engine.cpp#L1884)의 `push_fill`)는
+  - 예외: 체결통보 큐(`fill_queue`, [Quant/src/core/Engine.cpp](../../Quant/src/core/Engine.cpp#L884)의 `push_fill`)는
     가득 차면 버린다. 수신 스레드가 기다리면 모든 종목의 틱 수신이 멈추기 때문이다(D-056). 건수는 `fill_dropped`로 센다.
     - 메우는 길: 잔고 대조가 원장과 잔고의 차이를 미체결 주문 이내에서만 맞춘다. 매도는 `absorb_missed_sell`,
       매수는 `absorb_missed_buy`(CODE_REVIEW W-1 전에는 매수를 메우지 않아 재기동 때까지 원장에 없었다).

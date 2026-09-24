@@ -42,13 +42,13 @@
 
 | # | 확인할 것 | 코드 위치 |
 |---|---|---|
-| 1 | `[Regime] force_liquidate=TRUE` ERROR가 **1회만** | [RegimeFileJudge.h::step](../../Quant/include/core/RegimeFileJudge.h) `log_liquidation_on`, 문구는 [Engine.cpp::poll_regime_file](../../Quant/src/core/Engine.cpp) |
+| 1 | `[Regime] force_liquidate=TRUE` ERROR가 **1회만** | [RegimeFileJudge.h::step](../../Quant/include/core/RegimeFileJudge.h) `log_liquidation_on`, 문구는 [EngineRegime.cpp::poll_regime_file](../../Quant/src/core/Engine.cpp) |
 | 2 | `entry_halt`가 OR로 함께 켜지는가 | [RegimeFileJudge.h::step](../../Quant/include/core/RegimeFileJudge.h) — `test_regime_file_judge`가 고정 |
-| 3 | 보유 종목마다 SELL/MARKET, 수량 = 보유 − 미체결매도 | [Engine.cpp::strategy_thread_fn](../../Quant/src/core/Engine.cpp) |
-| 4 | `reference_price`에 평단이 stamp되는가 | [Engine.cpp::strategy_thread_fn](../../Quant/src/core/Engine.cpp) |
+| 3 | 보유 종목마다 SELL/MARKET, 수량 = 보유 − 미체결매도 | [EngineStrategyThread.cpp::strategy_thread_fn](../../Quant/src/core/Engine.cpp) |
+| 4 | `reference_price`에 평단이 stamp되는가 | [EngineStrategyThread.cpp::strategy_thread_fn](../../Quant/src/core/Engine.cpp) |
 | 5 | 게이트가 SELL을 통과시키는가(BUY만 차단) | [OrderGate.cpp::check](../../Quant/src/risk/OrderGate.cpp) |
 | 6 | 명목 백스톱이 `reference_price`로 평가되는가(시장가 우회 없음) | [OrderGate.cpp::check](../../Quant/src/risk/OrderGate.cpp) |
-| 7 | 잔량이 남으면 2초 간격 재발주, 비면 멈추는가 | [Engine.cpp::strategy_thread_fn](../../Quant/src/core/Engine.cpp) |
+| 7 | 잔량이 남으면 2초 간격 재발주, 비면 멈추는가 | [EngineStrategyThread.cpp::strategy_thread_fn](../../Quant/src/core/Engine.cpp) |
 | 8 | 원장에 실현손익이 채워지는가 | 매매원장 CSV |
 
 ### 곁가지로 드러나는 D-11

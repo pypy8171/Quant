@@ -135,7 +135,7 @@
   (지금은 CSV 리플레이로 취소분과 생존 주문을 구분할 수 없다).
 
 ### D-14. DEVSCALE 주기적 재스캔이 결과를 계산만 하고 엔진에 반영하지 않는다
-- 위치: [Quant/src/core/Engine.cpp](../Quant/src/core/Engine.cpp#L265)의 `Engine::maybe_rescan_universe()`(data_thread 루프에서 주기 호출)
+- 위치: [Quant/src/core/EngineUniverse.cpp](../Quant/src/core/EngineUniverse.cpp#L132)의 `Engine::maybe_rescan_universe()`(data_thread 루프에서 주기 호출)
 - 현상: `rescan_interval_sec`(600) 주기로 스캔이 실제로 돈다. 2026-09-07 12:16:57 / 12:27:08 /
   12:37:16 세 번 모두 `후보=134 검사=134 정배열=13 과확장컷=22 등록=13`을 남겼다. 그런데 그 뒤에
   `전략 등록`도 `RegimeSelect` 재평가도 따라오지 않고, 존 판정을 내는 전략은 12:06 기동 때
@@ -202,7 +202,7 @@
   문제는 BULL·BEAR 경로가 미검증이라는 점이다.
   ma20(6,728)이 ma60(7,212)을 넘어야 BULL이라 현 추세로는 당분간 NEUTRAL이 이어진다.
 - 정정(2026-09-07): 이 항목을 처음 쓸 때 "BEAR가 `FORCE_LIQ`를 낸다"고 적었는데 틀렸다.
-  `force_liquidate_`를 세우는 곳은 [Engine.cpp::poll_regime_file](../Quant/src/core/Engine.cpp)
+  `force_liquidate_`를 세우는 곳은 [EngineRegime.cpp::poll_regime_file](../Quant/src/core/Engine.cpp)
   하나뿐이고 그 입력은 `regime.json`이다. `RegimeController`의 BEAR는 전략 집합만 고른다.
   같은 오류가 CLAUDE.md에도 있었고 함께 고쳤다. 두 축이라 검증도 둘로 나뉜다.
 - D-15a (강제청산 경로): 코드 변경 없이 `regime.json`에 `force_liquidate: true`를 써서
@@ -328,7 +328,7 @@
   6. 기존 이름을 일괄로 바꾼다. 바꾼 뒤 `git diff --word-diff`를 사람이 검토하는 것을 조건으로 한다. 예를 들어
      [Quant/src/ipc/OrderRouter.cpp:2314](../Quant/src/ipc/OrderRouter.cpp#L2314)의 `jitter`처럼 뜻이 달라진 이름을 이
      검토에서 잡는다.
-  7. 체결 원본 복구: 체결통보 큐에서 버린 건([Quant/src/core/Engine.cpp:1552](../Quant/src/core/Engine.cpp#L1552))은
+  7. 체결 원본 복구: 체결통보 큐에서 버린 건([Quant/src/core/Engine.cpp:939](../Quant/src/core/Engine.cpp#L939))은
      주문번호만 목록에 남긴다. 통제 스레드가 그 목록을 보고 REST 체결 조회로 가격·시각·주문번호를 다시 받아 원장에 넣는다.
      끝나면 규약 4.2의 예외 문장을 "버린 건은 REST로 복구한다"로 바꾼다.
 - 미룬 이유: 규약 문서를 먼저 확정하고, 장치는 한 단계씩 따로 커밋한다(단계마다 ctest와 베이스라인이 따로 필요하다).
