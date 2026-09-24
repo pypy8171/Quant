@@ -17,6 +17,7 @@
 //  22. 진입 정지 원천 셋(국면·사람·전략 사망)이 서로를 안 지운다 (D-114)
 //      원장만 보는 테스트(9·10·19~22)는 tests/test_position_ledger.cpp
 //  23. 장부 사본이 원본과 같은 값을 싣는다 — 보유·선점·매도가능·평단·면제·전역값 전부 (D-114)
+//  24. 판정은 거부 코드와 숫자만 돌려주고 문장은 describe가 만든다 (CODE_REVIEW W-8)
 
 #include "risk/OrderGate.h"
 #include "ipc/LedgerSnapshot.h"
@@ -24,6 +25,7 @@
 #include <algorithm>
 #include <cassert>
 #include <ctime>
+#include <format>
 #include <iostream>
 #include <thread>
 #include <chrono>
@@ -560,6 +562,35 @@ void test_slot_exempt()
 // ─── 테스트 23: 장부 사본이 원본과 같은 값을 싣는다 (D-114 단계 2.5) ──────────
 //   전략 쪽이 OrderGate 대신 읽을 사본이다. 사본이 원본과 한 자리라도 다르면 전략이 딴 장부를 보고
 //   매매하게 되므로, 사본의 모든 칸을 원본 접근자와 맞춰 본다.
+// ─── 판정은 코드만, 문장은 describe가 (CODE_REVIEW W-8) ────────────────────
+void test_verdict_codes_and_describe()
+{
+    OrderGate::Config config;
+    config.deduplicate_window_sec = 2.0;
+    config.max_orders_per_min     = 100;
+    config.max_orders_per_sec     = 100;
+    OrderGate gate(config);
+
+    const auto signal = make_signal("005930", OrderSide::BUY);
+    assert(gate.evaluate(signal).passed());
+
+    const GateVerdict duplicate = gate.evaluate(signal);
+    assert(duplicate.code == GateReject::Duplicate);
+    assert(gate.describe(duplicate).find("중복 신호") != std::string::npos);
+
+    gate.set_kill_switch(true);
+    const GateVerdict killed = gate.evaluate(signal);
+    assert(killed.code == GateReject::KillSwitch);
+    assert(gate.describe(killed) == "KILL_SWITCH 활성");
+
+    GateVerdict over_ticker;
+    over_ticker.code   = GateReject::TickerQuantityLimit;
+    over_ticker.amount = 7;
+    over_ticker.base   = 95;
+    assert(gate.describe(over_ticker) == std::format("포지션 한도 초과 (95+7 > {})", config.max_quantity_per_ticker));
+    PASS("verdict_codes_and_describe");
+}
+
 void test_publish_ledger_matches_gate()
 {
     auto config = displace_config();
@@ -690,6 +721,7 @@ int main()
     test_halt_sources_are_independent();
     test_slot_exempt();
     test_publish_ledger_matches_gate();
+    test_verdict_codes_and_describe();
     std::cout << "=== All tests passed ===\n";
     return 0;
 }

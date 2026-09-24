@@ -35,6 +35,51 @@ namespace ipc
 class LedgerSnapshot; // 장부 사본. 구현(.cpp)에서만 include한다 — 배선은 OrderGate → ipc 한 방향 [why D-114]
 }
 
+// 게이트가 주문을 막은 까닭. 판정(OrderGate::evaluate)은 이 코드와 숫자만 돌려주고, 문장은
+//  OrderGate::describe가 원장 잠금 밖에서 만든다. [why CODE_REVIEW W-8]
+enum class GateReject : uint8_t
+{
+    None,                // 통과
+    KillSwitch,
+    SideNone,
+    EntryHalt,
+    OutsideSession,      // amount = 지금 KST 분
+    BadQuantity,         // amount = 주문 수량
+    OrderQuantityLimit,  // amount = 주문 수량
+    OrderNotionalLimit,  // amount = 주문 명목(원), market_reference
+    TickerQuantityLimit, // amount = 주문 수량, base = 이미 가진 수량(보유 + 선점)
+    TickerNotionalLimit, // amount = 가진 수량까지 더한 명목(원)
+    ConcurrentLimit,     // amount = 열린 종목 수, base = 그중 실보유, symbol = 막힌 종목
+    DisplaceCooling,
+    SlotReserved,        // symbol = 비운 슬롯을 예약받은 종목
+    PriorityBar,         // amount = 열린 종목 수, base = 유효 랭크, ceiling = 모집단, rank·ratio·bar
+    GrossExposure,       // amount = 이 주문 뒤 총노출(원), ceiling = 상한(원), money = 자본(원)
+    DailyLoss,           // money = 당일 손익(원)
+    PnlStale,
+    Duplicate,
+    RatePerSecond,
+    RatePerMinute,
+};
+
+// 게이트 판정 한 건. 칸의 뜻은 코드마다 다르다(GateReject 옆 주석). 한도 값은 싣지 않는다 —
+//  describe가 게이트 설정에서 읽는다.
+struct GateVerdict
+{
+    GateReject       code               = GateReject::None;
+    bool             market_reference   = false; // 시장가라 참조가로 명목을 쟀다
+    bool             sell_over_notional = false; // 통과했지만 1주문 명목을 넘은 청산 — check()가 경고 한 줄을 남긴다
+    int32_t          rank               = 0;
+    int64_t          amount             = 0;
+    int64_t          base               = 0;
+    int64_t          ceiling            = 0;
+    double           ratio              = 0.0;
+    double           bar                = 0.0;
+    double           money              = 0.0;
+    symbol::SymbolId symbol             = symbol::kNone;
+
+    [[nodiscard]] bool passed() const noexcept { return code == GateReject::None; }
+};
+
 class OrderGate
 {
 public:
@@ -115,7 +160,12 @@ public:
     using HeldPos      = PositionLedger::HeldPos;
 
     // ── 주문 검증 (true = 통과, false = 거부) ──────────────────────────────
+    // evaluate로 판정하고, 막혔으면 describe로 사유 문장을 채운다.
     bool check(const OrderSignal& signal, std::string& reject_reason);
+    // 판정만 한다 — 문자열을 만들지 않는다. 통과하면 유량 창·중복 창에 이 신호를 적는다.
+    [[nodiscard]] GateVerdict evaluate(const OrderSignal& signal);
+    // 판정을 로그·운영단말에 나가는 문장으로 옮긴다. 원장 잠금을 잡지 않는다.
+    [[nodiscard]] std::string describe(const GateVerdict& verdict) const;
 
     // ── 한도 클램프 (BUY NEW 전용) ─────────────────────────────────────────
     // 한도를 넘는 수량을 거부하는 대신 한도 안으로 줄여 돌려준다. 분할 매수 전략은 매 틱

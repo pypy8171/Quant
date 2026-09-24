@@ -253,18 +253,144 @@ int OrderGate::clamp_buy_quantity(const OrderSignal& signal)
 
 bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
 {
+    const GateVerdict verdict = evaluate(signal);
+
+    // 경고는 비동기 로거 큐로 넘긴다 — 게이트 스레드에서 콘솔 I/O를 하지 않는다.
+    if (verdict.sell_over_notional)
+    {
+        LOG_WARN(std::format("[OrderGate] {} SELL 1주문 명목 한도 초과 ({} > {}{} — 청산이라 통과", signal.ticker, verdict.amount,
+                             static_cast<long long>(config_.max_notional_per_order),
+                             verdict.market_reference ? ", 시장가 참조평가)" : ")"));
+    }
+
+    if (verdict.passed())
+    {
+        return true;
+    }
+
+    reject_reason = describe(verdict);
+    return false;
+}
+
+std::string OrderGate::describe(const GateVerdict& verdict) const
+{
+    switch (verdict.code)
+    {
+    case GateReject::None:
+        return {};
+
+    case GateReject::KillSwitch:
+        return "KILL_SWITCH 활성";
+
+    case GateReject::SideNone:
+        return "OrderSide::NONE — 유효하지 않은 주문 방향";
+
+    case GateReject::EntryHalt:
+        return "ENTRY_HALT 활성 — 신규 진입 정지(청산은 허용)";
+
+    case GateReject::OutsideSession:
+    {
+        const int64_t now_min = verdict.amount;
+        std::string   text    = std::format("세션 창 밖 ({:02}:{:02}, 허용 {:02}:{:02}~{:02}:{:02}", now_min / 60, now_min % 60,
+                                            config_.session_open_min / 60, config_.session_open_min % 60,
+                                            config_.session_close_min / 60, config_.session_close_min % 60);
+
+        if (config_.after_close_min > config_.after_open_min)
+        {
+            text += std::format(" 및 {:02}:{:02}~{:02}:{:02}", config_.after_open_min / 60, config_.after_open_min % 60,
+                                config_.after_close_min / 60, config_.after_close_min % 60);
+        }
+
+        text += ") — 매매 창에만 주문한다";
+        return text;
+    }
+
+    case GateReject::BadQuantity:
+        return std::format("잘못된 주문 수량 ({})", verdict.amount);
+
+    case GateReject::OrderQuantityLimit:
+        return std::format("1주문 수량 한도 초과 ({} > {})", verdict.amount, config_.max_quantity_per_order);
+
+    case GateReject::OrderNotionalLimit:
+        return std::format("1주문 명목 한도 초과 ({} > {}{}", verdict.amount, static_cast<long long>(config_.max_notional_per_order),
+                           verdict.market_reference ? ", 시장가 참조평가)" : ")");
+
+    case GateReject::TickerQuantityLimit:
+        return std::format("포지션 한도 초과 ({}+{} > {})", verdict.base, verdict.amount, config_.max_quantity_per_ticker);
+
+    case GateReject::TickerNotionalLimit:
+        return std::format("종목당 명목 한도 초과 ({} > {})", verdict.amount, static_cast<long long>(config_.max_notional_per_ticker));
+
+    case GateReject::ConcurrentLimit:
+    {
+        std::string text = std::format("동시 보유 종목 한도 초과 ({} >= {}, 실보유 {} 선점만 {})", verdict.amount,
+                                       config_.max_concurrent_positions, verdict.base, verdict.amount - verdict.base);
+
+        // 교체 진입이 켜져 있으면 여기 오는 BUY는 교체 판정에서 떨어진 것이다. 그 사유를
+        //  같이 적지 않으면 한도 문구만 남아 "교체가 안 도는 것"으로 읽힌다(09-11 11:21).
+        if (!entry_priority_.append_decline(verdict.symbol, text))
+        {
+            text += " — 신규 종목 진입 정지";
+        }
+
+        return text;
+    }
+
+    case GateReject::DisplaceCooling:
+        return "교체 쿨다운 중 — 방금 슬롯을 내준 종목의 재진입 금지";
+
+    case GateReject::SlotReserved:
+        return std::format("교체로 비운 슬롯 예약분 ({}) — 다른 종목 진입 보류", ledger_.symbols().name(verdict.symbol).view());
+
+    case GateReject::PriorityBar:
+        return std::format("점수 우선순위 미달 (랭크 {} 유효 {}/{} = {:.2f} > 기준 {:.2f}, 슬롯 {}/{}) — 더 높은 점수 종목을 위해 보류",
+                           verdict.rank, verdict.base, verdict.ceiling, verdict.ratio, verdict.bar, verdict.amount,
+                           config_.max_concurrent_positions);
+
+    case GateReject::GrossExposure:
+        return std::format("총노출 한도 초과 ({} > {} = 자본 {}×{:g}) — 신규 매수 정지(청산 허용)", verdict.amount, verdict.ceiling,
+                           static_cast<long long>(verdict.money), config_.max_gross_exposure_percent);
+
+    case GateReject::DailyLoss:
+        return std::format("일일 손실 한도 초과 (현재 {:.0f}원 / 한도 {:.0f}원)", verdict.money, config_.daily_loss_limit);
+
+    case GateReject::PnlStale:
+        return "PNL_STALE — 잔고 대조 정체(daily_pnl 미갱신), 신규 진입 보수적 정지";
+
+    case GateReject::Duplicate:
+        return std::format("중복 신호 (윈도우 {}초)", config_.deduplicate_window_sec);
+
+    case GateReject::RatePerSecond:
+        return gate_reason::rate_limit(false, config_.max_orders_per_sec);
+
+    case GateReject::RatePerMinute:
+        return gate_reason::rate_limit(true, config_.max_orders_per_min);
+    }
+
+    return "알 수 없는 게이트 거부";
+}
+
+GateVerdict OrderGate::evaluate(const OrderSignal& signal)
+{
+    GateVerdict verdict;
+
+    // 거부 코드를 적고 판정을 돌려준다. 값 칸은 부른 자리가 채우고, 문장은 describe()가 만든다.
+    auto reject = [&verdict](GateReject code) -> GateVerdict&
+    {
+        verdict.code = code;
+        return verdict;
+    };
+
     // 1. Kill switch — 전방향 하드스톱(BUY·SELL 모두). 연결단절/수동 긴급정지용.
     if (kill_switch_.load())
     {
-        reject_reason = "KILL_SWITCH 활성";
-        return false;
+        return reject(GateReject::KillSwitch);
     }
 
     // 2. NONE side — 전략이 신호 없음을 나타낼 때 사용; 주문 처리 불가
     if (signal.side == OrderSide::NONE)
     {
-        reject_reason = "OrderSide::NONE — 유효하지 않은 주문 방향";
-        return false;
+        return reject(GateReject::SideNone);
     }
 
     // 1b. Entry halt — 신규 진입(BUY NEW)만 차단. SELL 청산·취소(CANCEL/REPLACE)는 통과시켜
@@ -272,8 +398,7 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
     //     kill_switch_(전방향)와 분리된 국면 리스크 플래그.
     if (entry_halt_.load() && signal.side == OrderSide::BUY && signal.action == OrderAction::NEW)
     {
-        reject_reason = "ENTRY_HALT 활성 — 신규 진입 정지(청산은 허용)";
-        return false;
+        return reject(GateReject::EntryHalt);
     }
 
     // 1c. 세션 창 — 매매 창 밖의 NEW 주문은 막는다. 통합 피드(KRX+NXT)는 08:00~20:00 틱을 주므로 전략이 그 밖에서
@@ -289,19 +414,8 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
 
         if (!in_regular && !in_after)
         {
-            reject_reason = std::format("세션 창 밖 ({:02}:{:02}, 허용 {:02}:{:02}~{:02}:{:02}", now_min / 60, now_min % 60,
-                                        config_.session_open_min / 60, config_.session_open_min % 60,
-                                        config_.session_close_min / 60, config_.session_close_min % 60);
-
-            if (config_.after_close_min > config_.after_open_min)
-            {
-                reject_reason += std::format(" 및 {:02}:{:02}~{:02}:{:02}", config_.after_open_min / 60,
-                                             config_.after_open_min % 60, config_.after_close_min / 60,
-                                             config_.after_close_min % 60);
-            }
-
-            reject_reason += ") — 매매 창에만 주문한다";
-            return false;
+            reject(GateReject::OutsideSession).amount = now_min;
+            return verdict;
         }
     }
 
@@ -311,14 +425,14 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
     {
         if (signal.quantity <= 0)
         {
-            reject_reason = std::format("잘못된 주문 수량 ({})", signal.quantity);
-            return false;
+            reject(GateReject::BadQuantity).amount = signal.quantity;
+            return verdict;
         }
 
         if (signal.quantity > config_.max_quantity_per_order)
         {
-            reject_reason = std::format("1주문 수량 한도 초과 ({} > {})", signal.quantity, config_.max_quantity_per_order);
-            return false;
+            reject(GateReject::OrderQuantityLimit).amount = signal.quantity;
+            return verdict;
         }
 
         // 명목 평가가: 지정가는 price, 시장가(price=0)는 reference_price(직전 현재가).
@@ -327,21 +441,18 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
 
         if (evaluation_price > 0.0 && evaluation_price * signal.quantity > config_.max_notional_per_order)
         {
-            const std::string reason_text = std::format("1주문 명목 한도 초과 ({} > {}{}",
-                                               static_cast<long long>(evaluation_price * signal.quantity),
-                                               static_cast<long long>(config_.max_notional_per_order),
-                                               signal.price > 0.0 ? ")" : ", 시장가 참조평가)");
+            verdict.amount           = static_cast<int64_t>(evaluation_price * signal.quantity);
+            verdict.market_reference = !(signal.price > 0.0);
 
             // SELL은 청산 계열이라 거부하지 않는다 — 정당한 청산을 막는 쪽이 대량 매도보다 위험하다.
-            //  (수량 한도는 위에서 이미 걸렸다.) 경고는 비동기 로거 큐로 넘긴다 — 게이트 스레드에서 콘솔 I/O를 하지 않는다.
+            //  (수량 한도는 위에서 이미 걸렸다.) 경고 한 줄은 check()가 남긴다.
             if (signal.side == OrderSide::SELL)
             {
-                LOG_WARN("[OrderGate] " + signal.ticker + " SELL " + reason_text + " — 청산이라 통과");
+                verdict.sell_over_notional = true;
             }
             else
             {
-                reject_reason = reason_text;
-                return false;
+                return reject(GateReject::OrderNotionalLimit);
             }
         }
     }
@@ -363,8 +474,9 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
 
         if (current_quantity + signal.quantity > config_.max_quantity_per_ticker)
         {
-            reject_reason = std::format("포지션 한도 초과 ({}+{} > {})", current_quantity, signal.quantity, config_.max_quantity_per_ticker);
-            return false;
+            reject(GateReject::TickerQuantityLimit).amount = signal.quantity;
+            verdict.base = current_quantity;
+            return verdict;
         }
 
         // 3b. 종목당 명목 한도 — 자본% 사이징의 상한 백스톱. 지정가는 price, 시장가는 ref_price로
@@ -374,10 +486,9 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
         if (config_.max_notional_per_ticker > 0.0 && evaluation_price > 0.0 &&
             (current_quantity + signal.quantity) * evaluation_price > config_.max_notional_per_ticker)
         {
-            reject_reason = std::format("종목당 명목 한도 초과 ({} > {})",
-                                        static_cast<long long>((current_quantity + signal.quantity) * evaluation_price),
-                                        static_cast<long long>(config_.max_notional_per_ticker));
-            return false;
+            reject(GateReject::TickerNotionalLimit).amount =
+                static_cast<int64_t>((current_quantity + signal.quantity) * evaluation_price);
+            return verdict;
         }
 
         // 3c. 동시 보유 종목 상한 — "새 종목"을 여는 BUY NEW에만 적용(기존 보유·예약 종목은 통과).
@@ -434,20 +545,11 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
 
             if (open >= static_cast<size_t>(config_.max_concurrent_positions))
             {
-                std::string reason_text = std::format("동시 보유 종목 한도 초과 ({} >= {}, 실보유 {} 선점만 {})",
-                                             open, config_.max_concurrent_positions, held, open - held);
-
-                // 교체 진입이 켜져 있으면 여기 오는 BUY는 교체 판정에서 떨어진 것이다. 그 사유를
-                //  같이 적지 않으면 한도 문구만 남아 "교체가 안 도는 것"으로 읽힌다(09-11 11:21).
-                // [lock-order] positions_mutex_ → displace_mutex_(EntryPriority 안). 반대 순서로 겹쳐 잡는 곳은 없다
-                //  (plan_displacement·note_displacement는 displace_mutex_를 단독 구간으로만 쓴다).
-                if (!entry_priority_.append_decline(key.symbol, reason_text))
-                {
-                    reason_text += " — 신규 종목 진입 정지";
-                }
-
-                reject_reason = std::move(reason_text);
-                return false;
+                // 교체가 떨어진 사유는 describe()가 원장 잠금 밖에서 붙인다.
+                reject(GateReject::ConcurrentLimit).amount = static_cast<int64_t>(open);
+                verdict.base   = static_cast<int64_t>(held);
+                verdict.symbol = key.symbol;
+                return verdict;
             }
 
             // 3c-1. 교체 쿨다운 / 비운 슬롯 예약 — 교체가 켜져 있을 때만.
@@ -461,15 +563,13 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
 
                 if (admission == EntryPriority::Admission::Cooling)
                 {
-                    reject_reason = "교체 쿨다운 중 — 방금 슬롯을 내준 종목의 재진입 금지";
-                    return false;
+                    return reject(GateReject::DisplaceCooling);
                 }
 
                 if (admission == EntryPriority::Admission::SlotReserved)
                 {
-                    reject_reason = std::format("교체로 비운 슬롯 예약분 ({}) — 다른 종목 진입 보류",
-                                                ledger_.symbols().name(reserved_for).view());
-                    return false;
+                    reject(GateReject::SlotReserved).symbol = reserved_for;
+                    return verdict;
                 }
             }
 
@@ -510,10 +610,13 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
 
                     if (quant > bar)
                     {
-                        reject_reason = std::format("점수 우선순위 미달 (랭크 {} 유효 {}/{} = {:.2f} > 기준 {:.2f}, 슬롯 {}/{}) — 더 높은 점수 종목을 위해 보류",
-                                                    rank, eff_rank, pool, quant, bar, open,
-                                                    config_.max_concurrent_positions);
-                        return false;
+                        reject(GateReject::PriorityBar).amount = static_cast<int64_t>(open);
+                        verdict.base    = eff_rank;
+                        verdict.ceiling = pool;
+                        verdict.rank    = rank;
+                        verdict.ratio   = quant;
+                        verdict.bar     = bar;
+                        return verdict;
                     }
                 }
             }
@@ -556,10 +659,10 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
 
             if (next_gross > exposure_ceiling)
             {
-                reject_reason = std::format("총노출 한도 초과 ({} > {} = 자본 {}×{:g}) — 신규 매수 정지(청산 허용)",
-                                            static_cast<long long>(next_gross), static_cast<long long>(exposure_ceiling),
-                                            static_cast<long long>(equity), config_.max_gross_exposure_percent);
-                return false;
+                reject(GateReject::GrossExposure).amount = static_cast<int64_t>(next_gross);
+                verdict.ceiling = static_cast<int64_t>(exposure_ceiling);
+                verdict.money   = equity;
+                return verdict;
             }
         }
     }
@@ -572,9 +675,8 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
 
         if (daily_pnl <= config_.daily_loss_limit)
         {
-            reject_reason = std::format("일일 손실 한도 초과 (현재 {:.0f}원 / 한도 {:.0f}원)",
-                                        daily_pnl, config_.daily_loss_limit);
-            return false;
+            reject(GateReject::DailyLoss).money = daily_pnl;
+            return verdict;
         }
     }
 
@@ -583,8 +685,7 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
     //     "신규 위험만 억제, 탈출은 허용"(entry_halt와 동일 의미론). Engine이 잔고조회 복구 시 해제.
     if (pnl_stale_.load() && signal.side == OrderSide::BUY && signal.action == OrderAction::NEW)
     {
-        reject_reason = "PNL_STALE — 잔고 대조 정체(daily_pnl 미갱신), 신규 진입 보수적 정지";
-        return false;
+        return reject(GateReject::PnlStale);
     }
 
     // 5. 중복 신호 제거 — rate 소비 전에 검사해 중복이 rate slot을 소모하지 않게 함.
@@ -617,8 +718,7 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
 
             if (elapsed < config_.deduplicate_window_sec)
             {
-                reject_reason = std::format("중복 신호 (윈도우 {}초)", config_.deduplicate_window_sec);
-                return false;
+                return reject(GateReject::Duplicate);
             }
         }
     }
@@ -638,8 +738,7 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
 
         if (static_cast<int>(order_times_sec_.size()) >= config_.max_orders_per_sec)
         {
-            reject_reason = gate_reason::rate_limit(false, config_.max_orders_per_sec);
-            return false;
+            return reject(GateReject::RatePerSecond);
         }
 
         // 분당 제한
@@ -652,8 +751,7 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
 
         if (static_cast<int>(order_times_min_.size()) >= config_.max_orders_per_min)
         {
-            reject_reason = gate_reason::rate_limit(true, config_.max_orders_per_min);
-            return false;
+            return reject(GateReject::RatePerMinute);
         }
 
         order_times_sec_.push_back(now);
@@ -666,7 +764,7 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
         last_signal_[deduplicate_key] = Clock::now();
     }
 
-    return true;
+    return verdict;
 }
 
 // ─── 교체 진입 ──────────────────────────────────────────────────────────────
