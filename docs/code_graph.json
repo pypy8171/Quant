@@ -120,7 +120,7 @@
     {
       "from": "risk",
       "to": "core",
-      "weight": 8
+      "weight": 9
     },
     {
       "from": "risk",
@@ -249,6 +249,7 @@
     "ipc/ZmqBridge.h": "ipc",
     "modes/Monitors.h": "modes",
     "risk/DisplacementDesk.h": "risk",
+    "risk/EntryPriority.h": "risk",
     "risk/GateReasons.h": "risk",
     "risk/LedgerJournal.h": "risk",
     "risk/LedgerKeys.h": "risk",
@@ -351,6 +352,7 @@
     "ipc/ZmqBridge.cpp": "ipc",
     "modes/Monitors.cpp": "modes",
     "risk/DisplacementDesk.cpp": "risk",
+    "risk/EntryPriority.cpp": "risk",
     "risk/GateReasons.cpp": "risk",
     "risk/LedgerJournal.cpp": "risk",
     "risk/LedgerKeys.cpp": "risk",
@@ -891,6 +893,12 @@
       "core/Types.h",
       "risk/OrderGate.h"
     ],
+    "risk/EntryPriority.cpp": [
+      "risk/EntryPriority.h"
+    ],
+    "risk/EntryPriority.h": [
+      "core/SymbolTable.h"
+    ],
     "risk/GateReasons.cpp": [
       "risk/GateReasons.h"
     ],
@@ -914,6 +922,7 @@
       "core/StrategyTable.h",
       "core/SymbolTable.h",
       "core/Types.h",
+      "risk/EntryPriority.h",
       "risk/LedgerJournal.h",
       "risk/LedgerKeys.h"
     ],
@@ -1363,6 +1372,7 @@
       "exchange/ZmqOrderFeed.h",
       "ipc/LedgerSnapshot.h",
       "ipc/SharedSymbolDictionary.h",
+      "risk/EntryPriority.h",
       "risk/LedgerKeys.h",
       "risk/OrderGate.h",
       "universe/ScoreWeight.h",
@@ -1532,6 +1542,10 @@
     "risk/DisplacementDesk.h": [
       "core/Engine.cpp",
       "risk/DisplacementDesk.cpp"
+    ],
+    "risk/EntryPriority.h": [
+      "risk/EntryPriority.cpp",
+      "risk/OrderGate.h"
     ],
     "risk/GateReasons.h": [
       "core/OrderRateLimiter.cpp",
@@ -1736,7 +1750,7 @@
     },
     {
       "header": "core/SymbolTable.h",
-      "in_degree": 18
+      "in_degree": 19
     },
     {
       "header": "strategy/StrategyBase.h",

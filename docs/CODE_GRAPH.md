@@ -40,7 +40,7 @@ graph LR
   modes -->|3| core
   modes --> ipc
   modes -->|2| utils
-  risk -->|8| core
+  risk -->|9| core
   risk --> ipc
   risk -->|2| utils
   strategy -->|5| api
@@ -64,7 +64,7 @@ graph LR
 | `core/Types.h` | 41 |
 | `utils/Logger.h` | 34 |
 | `core/KstTime.h` | 19 |
-| `core/SymbolTable.h` | 18 |
+| `core/SymbolTable.h` | 19 |
 | `strategy/StrategyBase.h` | 15 |
 | `api/KisClient.h` | 13 |
 | `core/WakeGate.h` | 10 |
@@ -202,6 +202,8 @@ graph LR
   subgraph risk
     n_risk_DisplacementDesk_cpp["risk/DisplacementDesk.cpp"]
     n_risk_DisplacementDesk_h["risk/DisplacementDesk.h"]
+    n_risk_EntryPriority_cpp["risk/EntryPriority.cpp"]
+    n_risk_EntryPriority_h["risk/EntryPriority.h"]
     n_risk_GateReasons_cpp["risk/GateReasons.cpp"]
     n_risk_LedgerJournal_cpp["risk/LedgerJournal.cpp"]
     n_risk_LedgerKeys_cpp["risk/LedgerKeys.cpp"]
@@ -542,6 +544,8 @@ graph LR
   n_risk_DisplacementDesk_cpp --> n_utils_Logger_h
   n_risk_DisplacementDesk_h --> n_core_Types_h
   n_risk_DisplacementDesk_h --> n_risk_OrderGate_h
+  n_risk_EntryPriority_cpp --> n_risk_EntryPriority_h
+  n_risk_EntryPriority_h --> n_core_SymbolTable_h
   n_risk_GateReasons_cpp --> n_risk_GateReasons_h
   n_risk_LedgerJournal_cpp --> n_risk_LedgerJournal_h
   n_risk_LedgerKeys_cpp --> n_risk_LedgerKeys_h
@@ -554,6 +558,7 @@ graph LR
   n_risk_OrderGate_h --> n_core_StrategyTable_h
   n_risk_OrderGate_h --> n_core_SymbolTable_h
   n_risk_OrderGate_h --> n_core_Types_h
+  n_risk_OrderGate_h --> n_risk_EntryPriority_h
   n_risk_OrderGate_h --> n_risk_LedgerJournal_h
   n_risk_OrderGate_h --> n_risk_LedgerKeys_h
   n_risk_ProtectiveOrders_cpp --> n_risk_ProtectiveOrders_h

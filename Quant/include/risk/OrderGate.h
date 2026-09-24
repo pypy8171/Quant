@@ -3,6 +3,7 @@
 #include "core/SymbolTable.h"
 #include "core/Types.h"
 #include "risk/LedgerJournal.h"
+#include "risk/EntryPriority.h"
 #include "risk/LedgerKeys.h"
 #include <atomic>
 #include <chrono>
@@ -26,9 +27,9 @@
 //  on_fill_confirmed 안에서 더한다. on_accept는 도구·테스트용이다.
 //  검사 항목과 그 실행 순서의 정본은 `OrderGate.cpp::check` 하나다 — 목록을 여기에 복사하지 않는다.
 //
-// [lock-order] check()는 positions_mutex_ 안에서 displace_mutex_·priority_mutex_를 잡는다(교체 후보·우선순위
-//   판정이 보유 스냅샷과 같은 시점이어야 해서). 그러므로 순서는 positions → {displace, priority}이고,
-//   displace·prio를 쥔 채 positions를 잡는 경로는 두지 않는다(plan_displacement는 비중첩).
+// [lock-order] check()는 positions_mutex_ 안에서 EntryPriority의 displace_mutex_·priority_mutex_를 잡는다(교체
+//   후보·우선순위 판정이 보유 스냅샷과 같은 시점이어야 해서). 그러므로 순서는 positions → {displace, priority}이고,
+//   displace·priority를 쥔 채 positions를 잡는 경로는 두지 않는다(plan_displacement는 비중첩).
 //   positions_mutex_ → journal_mutex_(잎), ledger_publish_mutex_ → positions_mutex_.
 //   pnl·rate·dedup은 독립 스코프에서만 획득한다.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -380,12 +381,7 @@ public:
     //  check()가 "나보다 위인데 아직 안 산 종목 수"를 원장 순회(보유·선점 ≤ 슬롯 수) 안에서 정수 조회로 센다 —
     //  문자열 맵 전체를 돌며 항목마다 해시하던 것(300종목 4.2µs)을 없앤다. 표는 통째로 바꿔 끼우고(shared_ptr)
     //  읽는 쪽은 포인터만 복사하므로 plan_displacement가 맵을 복사해 락 밖으로 들고 나오던 일도 없다. [why D-112]
-    struct PriorityEntry
-    {
-        symbol::SymbolId symbol = symbol::kNone;
-        int              rank   = 0;   // 1=최고
-        double           z_score = 0.0; // 종합점수 표준화값
-    };
+    using PriorityEntry = EntryPriority::Entry;
     void set_entry_priority(const std::vector<PriorityEntry>& entries, int total);
 
     // ── 교체 진입 ────────────────────────────────────────────────────────────
@@ -589,30 +585,9 @@ private:
     std::atomic<double> available_cash_{0.0}; // 주문가능현금 스냅샷. 잔고 대조가 갱신, clamp_buy_quantity가 락 없이 읽음
     std::atomic<double> equity_{0.0};      // 총평가금 스냅샷(§3d 총노출 게이트 분모). 잔고 대조가 갱신, check()가 락 없이 읽음
 
-    // 진입 우선순위 표 — 종목 id로 인덱스하는 배열. 재스캔이 새 표를 만들어 통째로 바꿔 끼운다(불변 스냅샷).
-    //  읽는 쪽(check·plan_displacement)은 priority_mutex_ 아래에서 포인터만 복사하고 락 밖에서 읽는다.
-    //  check()는 positions_mutex_ 안에서 priority_snapshot()으로 priority_mutex_를 잠깐 잡는다(잎 잠금,
-    //  포인터 복사만). priority_mutex_를 쥔 채 다른 잠금을 잡는 곳은 없다. [why D-112]
-    struct PriorityTable
-    {
-        std::vector<int32_t>          rank_by_symbol;  // id → 랭크(0=없음)
-        std::vector<int32_t>          below_by_symbol; // id → 나보다 랭크가 낮은(점수 높은) 표 항목 수
-        std::vector<double>           z_by_symbol;     // id → 종합점수 z
-        int                           total = 0;       // 랭크 모집단 크기(등록 종목 수)
-    };
-    [[nodiscard]] std::shared_ptr<const PriorityTable> priority_snapshot() const;
-    [[nodiscard]] static int  rank_of(const PriorityTable& table, symbol::SymbolId symbol) noexcept;
-    [[nodiscard]] static bool z_of(const PriorityTable& table, symbol::SymbolId symbol, double& z_score) noexcept;
-
-    mutable std::mutex                   priority_mutex_;
-    std::shared_ptr<const PriorityTable> priority_; // nullptr이면 표 없음(우선순위 바 미동작)
-
-    mutable std::mutex displace_mutex_;
-    std::vector<TimePoint> displace_cooldown_until_; // 밀려난 종목 id → 재진입 허용 시각(기본값 = 없음). 종목 테이블 용량만큼
-    symbol::SymbolId slot_reserved_for_ = symbol::kNone; // 비운 슬롯을 쓸 종목(다른 종목이 가로채지 못하게)
-    TimePoint        slot_reserved_until_{};          // 예약 만료 시각
-    mutable std::unordered_map<symbol::SymbolId, std::string> displace_decline_; // 신규 종목 id → 직전 교체 거절 사유(거부 문구용)
-    int              displace_count_ = 0;             // 당일 교체 횟수(reset_daily에서 0으로)
+    // 진입 우선순위 표와 교체 기록. 표는 불변 스냅샷(포인터 복사), 교체 기록은 자체 락 — 둘 다 잎 잠금이다. [why D-112]
+    using PriorityTable = EntryPriority::Table;
+    EntryPriority entry_priority_;
 
     // 원장 키 표 — 종목 테이블(자체 락)과 계좌 이름. 계좌 이름 쪽은 positions_mutex_를 잡고 쓴다.
     LedgerKeys keys_;

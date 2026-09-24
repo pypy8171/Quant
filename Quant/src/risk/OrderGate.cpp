@@ -401,8 +401,8 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
             // 3c-2(아래)가 쓰는 "나보다 랭크가 위인데 이미 차지된 종목 수"를 같은 순회에서 센다 — 표를 도는 대신
             //  원장(보유·선점 ≤ 슬롯 수)을 돈다. 표는 불변 스냅샷이라 락 밖 포인터로 읽는다.
             const std::shared_ptr<const PriorityTable> table =
-                config_.entry_priority_enabled ? priority_snapshot() : nullptr;
-            const int rank        = table ? rank_of(*table, key.symbol) : 0;
+                config_.entry_priority_enabled ? entry_priority_.snapshot() : nullptr;
+            const int rank        = table ? EntryPriority::rank_of(*table, key.symbol) : 0;
             int       taken_ahead = 0;
 
             auto counts_ahead = [&](const PosKey& taken_key)
@@ -412,7 +412,7 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
                     return false;
                 }
 
-                const int taken_rank = rank_of(*table, taken_key.symbol);
+                const int taken_rank = EntryPriority::rank_of(*table, taken_key.symbol);
                 return taken_rank > 0 && taken_rank < rank;
             };
 
@@ -447,22 +447,9 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
 
                 // 교체 진입이 켜져 있으면 여기 오는 BUY는 교체 판정에서 떨어진 것이다. 그 사유를
                 //  같이 적지 않으면 한도 문구만 남아 "교체가 안 도는 것"으로 읽힌다(09-11 11:21).
-                bool declined = false;
-                {
-                    // [lock-order] positions_mutex_ → displace_mutex_. 반대 순서로 겹쳐 잡는 곳은 없다
-                    //  (plan_displacement·note_displacement는 displace_mutex_를 단독 구간으로만 쓴다).
-                    std::lock_guard<std::mutex> dl(displace_mutex_);
-                    auto di = displace_decline_.find(key.symbol);
-
-                    if (di != displace_decline_.end())
-                    {
-                        reason_text += " — 교체 보류: ";
-                        reason_text += di->second;
-                        declined = true;
-                    }
-                }
-
-                if (!declined)
+                // [lock-order] positions_mutex_ → displace_mutex_(EntryPriority 안). 반대 순서로 겹쳐 잡는 곳은 없다
+                //  (plan_displacement·note_displacement는 displace_mutex_를 단독 구간으로만 쓴다).
+                if (!entry_priority_.append_decline(key.symbol, reason_text))
                 {
                     reason_text += " — 신규 종목 진입 정지";
                 }
@@ -477,56 +464,19 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
             //             매도 비용만 치르고 사려던 종목은 또 못 산다.
             if (config_.displace_enabled)
             {
-                const auto now = Clock::now();
-                bool blocked = false;
-                bool cooling = false;
-                {
-                    std::lock_guard<std::mutex> lock(displace_mutex_);
+                symbol::SymbolId reserved_for = symbol::kNone;
+                const EntryPriority::Admission admission = entry_priority_.admit(key.symbol, Clock::now(), reserved_for);
 
-                    if (key.symbol < displace_cooldown_until_.size())
-                    {
-                        TimePoint& cooldown_until = displace_cooldown_until_[key.symbol];
-
-                        if (cooldown_until != TimePoint{})
-                        {
-                            if (now < cooldown_until)
-                            {
-                                cooling = true;
-                            }
-                            else
-                            {
-                                cooldown_until = TimePoint{};
-                            }
-                        }
-                    }
-
-                    if (!cooling && slot_reserved_for_ != symbol::kNone)
-                    {
-                        if (now >= slot_reserved_until_)
-                        {
-                            slot_reserved_for_ = symbol::kNone;
-                        }
-                        else if (slot_reserved_for_ == key.symbol)
-                        {
-                            slot_reserved_for_ = symbol::kNone; // 수혜 종목이 자리를 가져갔다
-                        }
-                        else
-                        {
-                            blocked = true;
-                            reject_reason = std::format("교체로 비운 슬롯 예약분 ({}) — 다른 종목 진입 보류",
-                                                        keys_.symbols().name(slot_reserved_for_).view());
-                        }
-                    }
-                }
-
-                if (cooling)
+                if (admission == EntryPriority::Admission::Cooling)
                 {
                     reject_reason = "교체 쿨다운 중 — 방금 슬롯을 내준 종목의 재진입 금지";
                     return false;
                 }
 
-                if (blocked)
+                if (admission == EntryPriority::Admission::SlotReserved)
                 {
+                    reject_reason = std::format("교체로 비운 슬롯 예약분 ({}) — 다른 종목 진입 보류",
+                                                keys_.symbols().name(reserved_for).view());
                     return false;
                 }
             }
@@ -1526,7 +1476,7 @@ OrderGate::FillResult OrderGate::on_fill_confirmed(
 // ─── 교체 진입 ──────────────────────────────────────────────────────────────
 //  슬롯이 꽉 찼을 때 "먼저 온 순서"가 하루 종일 자리를 지키는 것을 막는다.
 //  여기서는 positions·priority·displace를 겹치지 않고 하나씩 잡는다. check()는 positions_mutex_ 안에서
-//  priority_mutex_(잎)와 displace_mutex_를 잡는다(한도 거부 문구, 3c-1 쿨다운·슬롯 예약).
+//  EntryPriority의 priority_mutex_·displace_mutex_(둘 다 잎)를 잡는다(한도 거부 문구, 3c-1 쿨다운·슬롯 예약).
 //  (헤더의 중첩 금지 규약 유지 — 각 구간에서 필요한 값만 복사해 나온다).
 bool OrderGate::slots_full() const
 {
@@ -1623,11 +1573,7 @@ OrderGate::DisplacePlan OrderGate::plan_displacement(const std::string& account,
     // 거절 사유는 한 곳에서 기록한다(뒤의 거부 문구가 읽는다). 락 안에서는 부르지 않는다.
     auto decline = [&](std::string why) -> DisplacePlan
     {
-        {
-            std::lock_guard<std::mutex> lock(displace_mutex_);
-            displace_decline_[new_symbol] = why;
-        }
-
+        entry_priority_.note_decline(new_symbol, why);
         plan.reason = std::move(why);
         return plan;
     };
@@ -1652,41 +1598,16 @@ OrderGate::DisplacePlan OrderGate::plan_displacement(const std::string& account,
 
     // (1) 신규 종목의 점수. 점수를 모르면 교체 근거가 없다.
     //  표는 불변 스냅샷이라 포인터만 들고 락 밖에서 읽는다 — 맵을 통째로 복사해 들고 나오던 비용이 없다.
-    const std::shared_ptr<const PriorityTable> table = priority_snapshot();
+    const std::shared_ptr<const PriorityTable> table = entry_priority_.snapshot();
 
-    if (!table || !z_of(*table, new_symbol, plan.new_z))
+    if (!table || !EntryPriority::z_of(*table, new_symbol, plan.new_z))
     {
         return decline("신규 종목 점수 없음");
     }
 
     // (2) 당일 교체 횟수·슬롯 예약 상태. 이미 비워 둔 슬롯이 있으면 또 비우지 않는다.
-    const auto now = Clock::now();
-    std::string why;
-    {
-        std::lock_guard<std::mutex> lock(displace_mutex_);
-
-        if (config_.displace_max_per_day > 0 && displace_count_ >= config_.displace_max_per_day)
-        {
-            why = std::format("당일 교체 횟수 {}/{} 소진", displace_count_, config_.displace_max_per_day);
-        }
-        else if (slot_reserved_for_ != symbol::kNone && now < slot_reserved_until_)
-        {
-            // 직전 교체로 비운 자리가 아직 안 찼다
-            const auto left = std::chrono::duration_cast<std::chrono::seconds>(slot_reserved_until_ - now).count();
-            why = std::format("비운 자리를 {}가 쓰는 중({}초 남음)", keys_.symbols().name(slot_reserved_for_).view(), left);
-        }
-        else if (new_symbol < displace_cooldown_until_.size())
-        {
-            const TimePoint cooldown_until = displace_cooldown_until_[new_symbol];
-
-            if (cooldown_until != TimePoint{} && now < cooldown_until)
-            {
-                // 방금 밀려난 종목이 곧장 되돌아오는 핑퐁 차단
-                const auto left = std::chrono::duration_cast<std::chrono::seconds>(cooldown_until - now).count();
-                why = std::format("밀려난 종목 재진입 대기({}초 남음)", left);
-            }
-        }
-    }
+    const auto  now = Clock::now();
+    std::string why = entry_priority_.refusal(new_symbol, now, config_.displace_max_per_day, keys_.symbols());
 
     if (!why.empty())
     {
@@ -1716,7 +1637,7 @@ OrderGate::DisplacePlan OrderGate::plan_displacement(const std::string& account,
 
             double cand_z = 0.0;
 
-            if (z_of(*table, key.symbol, cand_z))
+            if (EntryPriority::z_of(*table, key.symbol, cand_z))
             {
                 // 점수를 안다
             }
@@ -1825,11 +1746,7 @@ OrderGate::DisplacePlan OrderGate::plan_displacement(const std::string& account,
                               keys_.symbols().name(new_symbol).view(), plan.new_z, plan.ticker, plan.victim_z,
                               plan.new_z - plan.victim_z);
     plan.ok = true;
-    {
-        std::lock_guard<std::mutex> lock(displace_mutex_);
-        displace_decline_.erase(new_symbol);
-    }
-
+    entry_priority_.clear_decline(new_symbol);
     return plan;
 }
 
@@ -1840,26 +1757,8 @@ void OrderGate::note_displacement(const DisplacePlan& plan, symbol::SymbolId ben
         return;
     }
 
-    const auto now = Clock::now();
-    std::lock_guard<std::mutex> lock(displace_mutex_);
-    ++displace_count_;
-
-    if (config_.displace_cooldown_sec > 0 && plan.symbol != symbol::kNone)
-    {
-        // 종목 테이블 용량만큼 한 번만 늘린다 — id는 용량을 넘지 않으므로 그 뒤로는 인덱스 대입뿐이다.
-        if (plan.symbol >= displace_cooldown_until_.size())
-        {
-            displace_cooldown_until_.resize(std::max<size_t>(keys_.symbols().capacity(), plan.symbol + 1));
-        }
-
-        displace_cooldown_until_[plan.symbol] = now + std::chrono::seconds(config_.displace_cooldown_sec);
-    }
-
-    // 비운 슬롯을 수혜 종목에 예약한다. 예약이 없으면 매도 체결 직후 다른 종목이 가로채고,
-    //  그러면 교체 비용만 치르고 정작 사려던 종목은 또 못 산다.
-    slot_reserved_for_   = beneficiary;
-    slot_reserved_until_ = now + std::chrono::seconds(config_.displace_slot_hold_sec > 0
-                                                     ? config_.displace_slot_hold_sec : 120);
+    entry_priority_.note_displacement(plan.symbol, beneficiary, Clock::now(), config_.displace_cooldown_sec,
+                                      config_.displace_slot_hold_sec, keys_.symbols().capacity());
 }
 
 // ─── 일별 리셋 (장 시작 시) ─────────────────────────────────────────────────
@@ -1878,13 +1777,7 @@ void OrderGate::reset_daily()
         last_signal_.clear();
     }
 
-    {
-        std::lock_guard<std::mutex> lock(displace_mutex_);
-        std::fill(displace_cooldown_until_.begin(), displace_cooldown_until_.end(), TimePoint{});
-        slot_reserved_for_   = symbol::kNone;
-        slot_reserved_until_ = TimePoint{};
-        displace_count_ = 0;
-    }
+    entry_priority_.reset_daily();
 
     {
         // 미체결 선점은 일일 만료 (KIS 당일 주문은 장 마감 소멸 → 다음날 잘못된 차단 방지).
@@ -1901,83 +1794,7 @@ void OrderGate::reset_daily()
 // ─── 진입 우선순위 표 ─────────────────────────────────────────────────────────
 void OrderGate::set_entry_priority(const std::vector<PriorityEntry>& entries, int total)
 {
-    auto table   = std::make_shared<PriorityTable>();
-    table->total = total;
-
-    // id 배열은 종목 테이블 용량만큼 — id가 용량을 넘지 않으므로 경계 검사가 index < size() 하나로 끝난다.
-    size_t extent = keys_.symbols().capacity();
-
-    for (const PriorityEntry& entry : entries)
-    {
-        extent = std::max<size_t>(extent, static_cast<size_t>(entry.symbol) + 1);
-    }
-
-    table->rank_by_symbol.assign(extent, 0);
-    table->below_by_symbol.assign(extent, 0);
-    table->z_by_symbol.assign(extent, 0.0);
-    std::vector<symbol::SymbolId> symbols_by_rank; // 랭크 오름차순 id — below_by_symbol을 만들 때만 쓴다
-    symbols_by_rank.reserve(entries.size());
-
-    for (const PriorityEntry& entry : entries)
-    {
-        if (entry.symbol == symbol::kNone || entry.rank <= 0)
-        {
-            continue;
-        }
-
-        if (table->rank_by_symbol[entry.symbol] == 0)
-        {
-            symbols_by_rank.push_back(entry.symbol);
-        }
-
-        table->rank_by_symbol[entry.symbol] = entry.rank;
-        table->z_by_symbol[entry.symbol]    = entry.z_score;
-    }
-
-    std::sort(symbols_by_rank.begin(), symbols_by_rank.end(),
-              [&](symbol::SymbolId left, symbol::SymbolId right) {
-                  return table->rank_by_symbol[left] < table->rank_by_symbol[right];
-              });
-
-    // 같은 랭크가 여럿이면 그 묶음의 첫 위치가 "나보다 위" 수다.
-    for (size_t index = 0; index < symbols_by_rank.size(); ++index)
-    {
-        const symbol::SymbolId symbol = symbols_by_rank[index];
-        int32_t                below  = static_cast<int32_t>(index);
-
-        while (below > 0 && table->rank_by_symbol[symbols_by_rank[static_cast<size_t>(below) - 1]] ==
-                                table->rank_by_symbol[symbol])
-        {
-            --below;
-        }
-
-        table->below_by_symbol[symbol] = below;
-    }
-
-    std::lock_guard<std::mutex> lock(priority_mutex_);
-    priority_ = std::move(table);
-}
-
-std::shared_ptr<const OrderGate::PriorityTable> OrderGate::priority_snapshot() const
-{
-    std::lock_guard<std::mutex> lock(priority_mutex_);
-    return priority_;
-}
-
-int OrderGate::rank_of(const PriorityTable& table, symbol::SymbolId symbol) noexcept
-{
-    return symbol < table.rank_by_symbol.size() ? table.rank_by_symbol[symbol] : 0;
-}
-
-bool OrderGate::z_of(const PriorityTable& table, symbol::SymbolId symbol, double& z_score) noexcept
-{
-    if (rank_of(table, symbol) == 0)
-    {
-        return false;
-    }
-
-    z_score = table.z_by_symbol[symbol];
-    return true;
+    entry_priority_.set(entries, total, keys_.symbols().capacity());
 }
 
 // ─── 조회 (계좌별) ───────────────────────────────────────────────────────────
