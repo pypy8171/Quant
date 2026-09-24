@@ -9,7 +9,7 @@
 - [(루트)](#루트) — 11개
 - [.vscode](#vscode) — 4개
 - [PYQuant](#pyquant) — 118개
-- [Quant](#quant) — 311개
+- [Quant](#quant) — 312개
 - [docs](#docs) — 100개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 245개
@@ -399,6 +399,7 @@
 - [EngineConfigure.cpp](../Quant/src/core/EngineConfigure.cpp) — `Engine::configure(const AppConfig&)` — AppConfig 값을 Engine 세터에 옮기는 배선 4단계(채널·국면맵·시세 키·위험 한도)
 - [EngineDataThread.cpp](../Quant/src/core/EngineDataThread.cpp) — 데이터 수집 스레드 — 장 시작 감지·잔고 대조·일봉·지수·수급 조회를 한 사이클씩 돈다(`data_thread_fn`)
 - [EngineOpsServer.cpp](../Quant/src/core/EngineOpsServer.cpp) — 운영단말 서버 — 단말의 조회·수동 주문을 받아 주문 스레드가 꺼낼 자리에 넣는다(`start_ops_server`·`accept_manual_order`·`take_manual_order`)
+- [EngineOrderThread.cpp](../Quant/src/core/EngineOrderThread.cpp) — 주문 쪽 — 주문 실행 스레드(`order_thread_fn`), 보호 주문 표 한 주기, 전략 생존 추적
 - [EngineRegime.cpp](../Quant/src/core/EngineRegime.cpp) — 국면 선택 — regime.json 을 읽어 지금 국면을 정하고 그 국면 전략만 켠다(`poll_regime_file`·`apply_regime_selection`)
 - [EngineStrategyThread.cpp](../Quant/src/core/EngineStrategyThread.cpp) — 전략 쪽 — 전략 등록·시작, 전략 처리 스레드와 샤드 스레드(`strategy_thread_fn`·`shard_thread_fn`)
 - [EngineUniverse.cpp](../Quant/src/core/EngineUniverse.cpp) — 유니버스 재스캔 — 새 종목 등록, 스캔에서 빠진 소유 종목의 신규매수 차단·떼기(`maybe_rescan_universe`·`reap_retired`)

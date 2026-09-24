@@ -16,7 +16,7 @@ digraph code_graph {
   "core" -> "ipc" [label="10"];
   "core" -> "risk" [label="7"];
   "core" -> "strategy" [label="3"];
-  "core" -> "utils" [label="19"];
+  "core" -> "utils" [label="21"];
   "exchange" -> "core" [label="7"];
   "exchange" -> "utils" [label="2"];
   "ipc" -> "api" [label="2"];

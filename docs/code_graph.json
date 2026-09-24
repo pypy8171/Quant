@@ -44,7 +44,7 @@
     {
       "from": "core",
       "to": "utils",
-      "weight": 19
+      "weight": 21
     },
     {
       "from": "exchange",
@@ -282,6 +282,7 @@
     "core/EngineConfigure.cpp": "core",
     "core/EngineDataThread.cpp": "core",
     "core/EngineOpsServer.cpp": "core",
+    "core/EngineOrderThread.cpp": "core",
     "core/EngineRegime.cpp": "core",
     "core/EngineStrategyThread.cpp": "core",
     "core/EngineUniverse.cpp": "core",
@@ -483,7 +484,6 @@
       "core/KstTime.h",
       "core/LatencyTrace.h",
       "core/ReconcilePlan.h",
-      "risk/DisplacementDesk.h",
       "utils/Logger.h",
       "utils/ThreadName.h",
       "utils/Utf8.h"
@@ -542,6 +542,13 @@
       "core/Engine.h",
       "core/KstTime.h",
       "utils/Logger.h"
+    ],
+    "core/EngineOrderThread.cpp": [
+      "core/Engine.h",
+      "core/LatencyTrace.h",
+      "risk/DisplacementDesk.h",
+      "utils/Logger.h",
+      "utils/ThreadName.h"
     ],
     "core/EngineRegime.cpp": [
       "core/Engine.h",
@@ -1229,6 +1236,7 @@
       "core/EngineConfigure.cpp",
       "core/EngineDataThread.cpp",
       "core/EngineOpsServer.cpp",
+      "core/EngineOrderThread.cpp",
       "core/EngineRegime.cpp",
       "core/EngineStrategyThread.cpp",
       "core/EngineUniverse.cpp",
@@ -1278,6 +1286,7 @@
       "core/Engine.cpp",
       "core/Engine.h",
       "core/EngineDataThread.cpp",
+      "core/EngineOrderThread.cpp",
       "core/EngineStrategyThread.cpp",
       "core/LatencyTrace.cpp",
       "core/SignalDispatcher.cpp",
@@ -1557,7 +1566,7 @@
       "ipc/ZmqBridge.cpp"
     ],
     "risk/DisplacementDesk.h": [
-      "core/Engine.cpp",
+      "core/EngineOrderThread.cpp",
       "risk/DisplacementDesk.cpp"
     ],
     "risk/EntryPriority.h": [
@@ -1717,6 +1726,7 @@
       "core/EngineConfigure.cpp",
       "core/EngineDataThread.cpp",
       "core/EngineOpsServer.cpp",
+      "core/EngineOrderThread.cpp",
       "core/EngineRegime.cpp",
       "core/EngineStrategyThread.cpp",
       "core/EngineUniverse.cpp",
@@ -1750,6 +1760,7 @@
       "api/WebSocketClient.cpp",
       "core/Engine.cpp",
       "core/EngineDataThread.cpp",
+      "core/EngineOrderThread.cpp",
       "core/EngineStrategyThread.cpp",
       "core/PrefetchPool.h",
       "ipc/OpsServer.cpp",
@@ -1770,7 +1781,7 @@
     },
     {
       "header": "utils/Logger.h",
-      "in_degree": 39
+      "in_degree": 40
     },
     {
       "header": "core/SymbolTable.h",
@@ -1789,16 +1800,20 @@
       "in_degree": 11
     },
     {
+      "header": "core/Engine.h",
+      "in_degree": 10
+    },
+    {
       "header": "core/WakeGate.h",
       "in_degree": 10
     },
     {
-      "header": "core/Engine.h",
-      "in_degree": 9
+      "header": "utils/ThreadName.h",
+      "in_degree": 10
     },
     {
-      "header": "utils/ThreadName.h",
-      "in_degree": 9
+      "header": "core/LatencyTrace.h",
+      "in_degree": 8
     },
     {
       "header": "core/MarketSession.h",
@@ -1807,10 +1822,6 @@
     {
       "header": "risk/OrderGate.h",
       "in_degree": 8
-    },
-    {
-      "header": "core/LatencyTrace.h",
-      "in_degree": 7
     },
     {
       "header": "core/StrategyTable.h",
