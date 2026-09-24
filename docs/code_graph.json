@@ -44,7 +44,7 @@
     {
       "from": "core",
       "to": "utils",
-      "weight": 14
+      "weight": 16
     },
     {
       "from": "exchange",
@@ -280,6 +280,7 @@
     "core/DataPoller.cpp": "core",
     "core/Engine.cpp": "core",
     "core/EngineConfigure.cpp": "core",
+    "core/EngineDataThread.cpp": "core",
     "core/EngineOpsServer.cpp": "core",
     "core/EngineRegime.cpp": "core",
     "core/FeedMux.cpp": "core",
@@ -529,6 +530,12 @@
       "core/AppConfig.h",
       "core/Engine.h",
       "utils/Logger.h"
+    ],
+    "core/EngineDataThread.cpp": [
+      "core/Engine.h",
+      "core/LatencyTrace.h",
+      "utils/Logger.h",
+      "utils/ThreadName.h"
     ],
     "core/EngineOpsServer.cpp": [
       "core/Engine.h",
@@ -1207,6 +1214,7 @@
     "core/Engine.h": [
       "core/Engine.cpp",
       "core/EngineConfigure.cpp",
+      "core/EngineDataThread.cpp",
       "core/EngineOpsServer.cpp",
       "core/EngineRegime.cpp",
       "main.cpp",
@@ -1253,6 +1261,7 @@
     "core/LatencyTrace.h": [
       "core/Engine.cpp",
       "core/Engine.h",
+      "core/EngineDataThread.cpp",
       "core/LatencyTrace.cpp",
       "core/SignalDispatcher.cpp",
       "ipc/OrderRouter.cpp"
@@ -1689,6 +1698,7 @@
       "core/DataPoller.cpp",
       "core/Engine.cpp",
       "core/EngineConfigure.cpp",
+      "core/EngineDataThread.cpp",
       "core/EngineOpsServer.cpp",
       "core/EngineRegime.cpp",
       "core/HttpQuoteFeed.cpp",
@@ -1720,6 +1730,7 @@
     "utils/ThreadName.h": [
       "api/WebSocketClient.cpp",
       "core/Engine.cpp",
+      "core/EngineDataThread.cpp",
       "core/PrefetchPool.h",
       "ipc/OpsServer.cpp",
       "ipc/ZmqBridge.cpp",
@@ -1739,7 +1750,7 @@
     },
     {
       "header": "utils/Logger.h",
-      "in_degree": 36
+      "in_degree": 37
     },
     {
       "header": "core/SymbolTable.h",
@@ -1771,10 +1782,14 @@
     },
     {
       "header": "utils/ThreadName.h",
-      "in_degree": 7
+      "in_degree": 8
     },
     {
       "header": "core/Engine.h",
+      "in_degree": 7
+    },
+    {
+      "header": "core/LatencyTrace.h",
       "in_degree": 6
     },
     {
@@ -1787,10 +1802,6 @@
     },
     {
       "header": "core/IFeedSource.h",
-      "in_degree": 5
-    },
-    {
-      "header": "core/LatencyTrace.h",
       "in_degree": 5
     },
     {
@@ -2757,7 +2768,7 @@
       "readers": [
         "PYQuant/tools/macro_regime_feed.py",
         "Quant/src/core/AppConfig.cpp",
-        "Quant/src/core/Engine.cpp",
+        "Quant/src/core/EngineDataThread.cpp",
         "Quant/src/core/EngineRegime.cpp",
         "Quant/src/core/RegimeFileJudge.cpp",
         "scripts/dashboard_server.py",
@@ -2769,8 +2780,8 @@
         "Quant/include/core/Engine.h",
         "Quant/include/core/RegimeFileJudge.h",
         "Quant/src/core/AppConfig.cpp",
-        "Quant/src/core/Engine.cpp",
         "Quant/src/core/EngineConfigure.cpp",
+        "Quant/src/core/EngineDataThread.cpp",
         "Quant/src/core/EngineRegime.cpp",
         "Quant/src/core/RegimeFileJudge.cpp",
         "Quant/src/ipc/ZmqBridge.cpp",

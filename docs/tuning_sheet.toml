@@ -394,7 +394,7 @@ meaning = "보유 종목 시세 보충 간격"
 
 [[code_value]]
 id = "poller_top_up_stale_sec"
-file = "Quant/src/core/Engine.cpp"
+file = "Quant/src/core/EngineDataThread.cpp"
 regex = 'steady_clock::now\(\) - std::chrono::seconds\((60)\)\);'
 unit = "초"
 group = "KIS WebSocket — 구독·재연결·감독"
@@ -512,7 +512,7 @@ meaning = "control_thread 주기(WS stale·토큰·세션 종료 판정)"
 
 [[code_value]]
 id = "engine_monitor_every_ticks"
-file = "Quant/src/core/Engine.cpp"
+file = "Quant/src/core/EngineDataThread.cpp"
 regex = '\(sector_tick % (\d+)\) == 0'
 unit = "×fetch_interval"
 group = "엔진 — 스레드 주기·장 시간"
@@ -520,7 +520,7 @@ meaning = "업종 지수·매크로 모니터 로그 주기(fetch 30초면 5분)
 
 [[code_value]]
 id = "engine_offhours_sleep_sec"
-file = "Quant/src/core/Engine.cpp"
+file = "Quant/src/core/EngineDataThread.cpp"
 regex = 'wake::sleep_unless_stopped\(stop_token, (\d+)s\);'
 unit = "초"
 group = "엔진 — 스레드 주기·장 시간"

@@ -24,7 +24,7 @@ graph LR
   core -->|10| ipc
   core -->|7| risk
   core -->|3| strategy
-  core -->|14| utils
+  core -->|16| utils
   exchange -->|7| core
   exchange -->|2| utils
   ipc -->|2| api
@@ -56,7 +56,7 @@ graph LR
 | 헤더 | 유입 수 |
 |---|---|
 | `core/Types.h` | 42 |
-| `utils/Logger.h` | 36 |
+| `utils/Logger.h` | 37 |
 | `core/SymbolTable.h` | 20 |
 | `core/KstTime.h` | 18 |
 | `strategy/StrategyBase.h` | 15 |
@@ -103,6 +103,7 @@ graph LR
     n_core_Engine_cpp["core/Engine.cpp"]
     n_core_Engine_h["core/Engine.h"]
     n_core_EngineConfigure_cpp["core/EngineConfigure.cpp"]
+    n_core_EngineDataThread_cpp["core/EngineDataThread.cpp"]
     n_core_EngineOpsServer_cpp["core/EngineOpsServer.cpp"]
     n_core_EngineRegime_cpp["core/EngineRegime.cpp"]
     n_core_FeedMux_cpp["core/FeedMux.cpp"]
@@ -365,6 +366,10 @@ graph LR
   n_core_EngineConfigure_cpp --> n_core_AppConfig_h
   n_core_EngineConfigure_cpp --> n_core_Engine_h
   n_core_EngineConfigure_cpp --> n_utils_Logger_h
+  n_core_EngineDataThread_cpp --> n_core_Engine_h
+  n_core_EngineDataThread_cpp --> n_core_LatencyTrace_h
+  n_core_EngineDataThread_cpp --> n_utils_Logger_h
+  n_core_EngineDataThread_cpp --> n_utils_ThreadName_h
   n_core_EngineOpsServer_cpp --> n_core_Engine_h
   n_core_EngineOpsServer_cpp --> n_core_KstTime_h
   n_core_EngineOpsServer_cpp --> n_utils_Logger_h
@@ -837,7 +842,7 @@ C++ 엔진·Python 보조 프로세스·스크립트가 파일로 주고받는 �
 
 | 파일 | 쓰는 쪽 | 읽는 쪽 | 언급만 |
 |---|---|---|---|
-| `regime.json` | `PYQuant/tools/macro_regime_feed.py`, `Quant/src/core/EngineRegime.cpp` | `PYQuant/tools/macro_regime_feed.py`, `Quant/src/core/AppConfig.cpp`, `Quant/src/core/Engine.cpp`, `Quant/src/core/EngineRegime.cpp`, `Quant/src/core/RegimeFileJudge.cpp`, `scripts/dashboard_server.py`, `scripts/notify_trades.py` | `Quant/include/core/AppConfig.h`, `Quant/include/core/Engine.h`, `Quant/include/core/RegimeFileJudge.h`, `Quant/src/core/EngineConfigure.cpp`, `Quant/src/ipc/ZmqBridge.cpp` |
+| `regime.json` | `PYQuant/tools/macro_regime_feed.py`, `Quant/src/core/EngineRegime.cpp` | `PYQuant/tools/macro_regime_feed.py`, `Quant/src/core/AppConfig.cpp`, `Quant/src/core/EngineDataThread.cpp`, `Quant/src/core/EngineRegime.cpp`, `Quant/src/core/RegimeFileJudge.cpp`, `scripts/dashboard_server.py`, `scripts/notify_trades.py` | `Quant/include/core/AppConfig.h`, `Quant/include/core/Engine.h`, `Quant/include/core/RegimeFileJudge.h`, `Quant/src/core/EngineConfigure.cpp`, `Quant/src/ipc/ZmqBridge.cpp` |
 | `prices_live.json` | `scripts/live_prices_feed.py` | `scripts/live_prices_feed.py` |  |
 | `trades_*.csv` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/backfill_fills_db.py`, `scripts/exit_ev_dashboard.py` | `PYQuant/dashboard/backfill_live.py`, `PYQuant/tests/test_stats.py`, `Quant/src/ipc/OrderRouter.cpp`, `Quant/src/strategy/StrategyFactory.cpp`, `scripts/backfill_fills_db.py`, `scripts/check_runtime_health.py`, `scripts/exit_ev.py`, `scripts/exit_ev_dashboard.py`, `scripts/parse_quant_log.py`, `scripts/trade_costs.py` | `scripts/_logdir.py`, `scripts/notify_trades.py` |
 | `universe*.json` | `PYQuant/tools/load_injector.py`, `scripts/make_load_test_config.py` | `PYQuant/main.py`, `PYQuant/tools/full_universe_dump.py`, `PYQuant/tools/load_injector.py`, `PYQuant/tools/nxt_divergence_check.py`, `PYQuant/tools/universe_feed.py`, `Quant/src/universe/UniverseScanner.cpp`, `scripts/exit_ev_dashboard.py`, `scripts/live_prices_feed.py`, `scripts/make_load_test_config.py`, `scripts/market_close_minute_backfill.py`, `scripts/notify_trades.py` | `Quant/include/universe/UniverseScanner.h`, `Quant/src/api/KisUniverse.cpp`, `Quant/src/strategy/StrategyFactory.cpp`, `scripts/dashboard_server.py` |
