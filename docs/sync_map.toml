@@ -168,3 +168,9 @@ src = ["research/COUNCIL_CHARTER.md", "research/GUARDRAILS.md"]
 deps = ["research/RESEARCH_COUNCIL.md#멤버와 역할", ".claude/agents/bias-auditor.md", ".claude/AGENTS.md"]
 check = "hint"
 note = "헌장·규율(D-101)이 바뀌면 회의 멤버 표, 편향 감사관의 대조 기준, 에이전트 색인을 같이 본다"
+
+[[rule]]
+src = ["Quant/include/ipc/SharedLayout.h", "Quant/include/core/CommandLine.h", "Quant/src/core/Engine.cpp", "docs/code_flow.toml"]
+deps = ["docs/diagrams/README.md"]
+check = "stamp"
+note = "구조·코드 흐름 그림(docs/diagrams/*.html)이 보고 그린 소스. 도장이 낡으면 그림을 고쳐 같은 아티팩트 URL로 다시 올리고 --restamp docs/diagrams/README.md"

@@ -10,7 +10,7 @@
 - [.vscode](#vscode) — 4개
 - [PYQuant](#pyquant) — 118개
 - [Quant](#quant) — 300개
-- [docs](#docs) — 97개
+- [docs](#docs) — 100개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 245개
 - [scripts](#scripts) — 50개
@@ -624,6 +624,12 @@
 ### docs/design/
 
 - [DASHBOARD_SPEC.md](design/DASHBOARD_SPEC.md) — 대시보드 설계 스펙
+
+### docs/diagrams/
+
+- [README.md](diagrams/README.md) — 그림 색인 — 파일·발행 아티팩트 URL·보고 그린 소스 표, 다시 올리는 법, 낡음 도장
+- [code_walk.html](diagrams/code_walk.html) — 매매 코드 따라가기 그림 — KIS 수신부터 주문·체결·DB 적재까지 64걸음을 단계·스레드별로, 걸음마다 파일:줄
+- [engine_processes.html](diagrams/engine_processes.html) — 엔진 세 프로세스 구조 그림 — 시세·전략·주문으로 가른 흐름, 공유 면 열 개, 뒤집힌 전제(D-114)
 
 ### docs/guides/
 

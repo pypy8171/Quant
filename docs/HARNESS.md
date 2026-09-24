@@ -27,7 +27,7 @@
 <!-- gen:harness-counts -->
 | 항목 | 개수 | 이름 |
 |---|---|---|
-| 커맨드 | `16` | `auto-trade-day`, `build`, `comment-diet`, `daily`, `dashboard-sync`, `dev-loop`, `handoff`, `intraday-start`, `market-close-review`, `review-apply`, `review-bundle`, `strategy-debate`, `trade-log`, `triage`, `verify-backtest`, `watch` |
+| 커맨드 | `17` | `auto-trade-day`, `build`, `comment-diet`, `daily`, `dashboard-sync`, `dev-loop`, `doc-audit`, `handoff`, `intraday-start`, `market-close-review`, `review-apply`, `review-bundle`, `strategy-debate`, `trade-log`, `triage`, `verify-backtest`, `watch` |
 | 에이전트 | `20` | `backtest-runner`, `bias-auditor`, `claude-coach`, `committer`, `data-sourcer`, `fundamental-quant`, `harness-engineer`, `interviewer`, `intraday-analyst`, `log-reader`, `macro-quant`, `market-brief`, `perf-optimizer`, `planner`, `pm`, `prep-doc`, `quant-analyst`, `reviewer`, `risk-behavior`, `strategist` |
 | 스킬 | `1` | `stock-study` |
 | 훅 파일 | `18` | `cron-gate.ps1`, `dashboard-refresh.ps1`, `docs-gate.ps1`, `file-index-gate.ps1`, `handoff-due.ps1`, `handoff-list.ps1`, `lexicon-gate.ps1`, `market-close-gate.ps1`, `output-gate.ps1`, `pre-gates.ps1`, `precompact-handoff.ps1`, `push-summary.ps1`, `resume-work.ps1`, `review-reminder.ps1`, `secret-gate.ps1`, `session-board-server.ps1`, `stop-gates.ps1`, `sync-gate.ps1` |

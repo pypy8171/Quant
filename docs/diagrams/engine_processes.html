@@ -1,0 +1,637 @@
+<title>엔진 세 프로세스 구조</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@300;400;600&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<style>
+:root {
+  --ground: #F6F7F9;
+  --sheet: #FFFFFF;
+  --ink: #15191F;
+  --ink-soft: #55606E;
+  --rule: #DDE1E7;
+  --rule-soft: #EAEDF1;
+  --feed: #0E7C86;
+  --strategy: #4B4FA6;
+  --order: #A8442A;
+  --warn: #9A6A08;
+  --warn-bg: #FBF3E2;
+  --paper: #FBFAF7;
+  --paper-ink: #1A1E24;
+  --paper-rule: #D8D4CB;
+  --flow-bg: #1B1F26;
+  --flow-ink: #D9DEE6;
+  --flow-rule: #2B313A;
+  --flow-gap: #E7A15C;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --ground: #12151A;
+    --sheet: #191D24;
+    --ink: #E7EAEF;
+    --ink-soft: #99A3B0;
+    --rule: #2B313A;
+    --rule-soft: #21262E;
+    --feed: #4FC2CC;
+    --strategy: #9296E6;
+    --order: #E28266;
+    --warn: #E0B25C;
+    --warn-bg: #2A2318;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ground: #12151A;
+  --sheet: #191D24;
+  --ink: #E7EAEF;
+  --ink-soft: #99A3B0;
+  --rule: #2B313A;
+  --rule-soft: #21262E;
+  --feed: #4FC2CC;
+  --strategy: #9296E6;
+  --order: #E28266;
+  --warn: #E0B25C;
+  --warn-bg: #2A2318;
+}
+
+body {
+  background: var(--ground);
+  color: var(--ink);
+  font-family: "IBM Plex Sans KR", system-ui, -apple-system, "Malgun Gothic", sans-serif;
+  font-weight: 400;
+  line-height: 1.7;
+  font-size: 15px;
+}
+
+.wrap {
+  max-width: 1020px;
+  margin: 0 auto;
+  padding-inline: 20px;
+  padding-block: 48px 72px;
+  display: flex;
+  flex-direction: column;
+  gap: 44px;
+}
+
+header {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-bottom: 2px solid var(--ink);
+  padding-bottom: 20px;
+}
+
+.eyebrow {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+h1 {
+  font-size: clamp(26px, 5vw, 38px);
+  font-weight: 600;
+  line-height: 1.25;
+  margin: 0;
+  text-wrap: balance;
+  letter-spacing: -0.015em;
+}
+
+.lede {
+  margin: 0;
+  max-width: 62ch;
+  color: var(--ink-soft);
+  font-size: 16px;
+}
+
+section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+h2 {
+  font-size: 19px;
+  font-weight: 600;
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+h2 .num {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--ink-soft);
+}
+
+h3 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+  color: var(--ink-soft);
+}
+
+p {
+  margin: 0;
+  max-width: 68ch;
+}
+
+code, .mono {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.88em;
+}
+
+code {
+  background: var(--rule-soft);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.sheet {
+  background: var(--paper);
+  border: 1px solid var(--paper-rule);
+  border-radius: 4px;
+  overflow-x: auto;
+  padding: 18px 16px;
+}
+
+.sheet pre.mermaid {
+  margin: 0;
+  min-width: 620px;
+  color: var(--paper-ink);
+}
+
+.caption {
+  font-size: 13px;
+  color: var(--ink-soft);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+.flow {
+  background: var(--flow-bg);
+  color: var(--flow-ink);
+  border: 1px solid var(--flow-rule);
+  border-radius: 4px;
+  overflow-x: auto;
+  padding: 18px 16px;
+}
+
+.flow pre {
+  margin: 0;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 12.5px;
+  line-height: 1.75;
+  white-space: pre;
+}
+
+.flow .gap {
+  color: var(--flow-gap);
+  font-weight: 600;
+}
+
+.pipe {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.proc {
+  background: var(--flow-bg);
+  color: var(--flow-ink);
+  border: 1px solid var(--flow-rule);
+  border-left: 4px solid var(--tint);
+  border-radius: 4px;
+  padding: 13px 16px 15px;
+  overflow-x: auto;
+}
+
+.proc.kis { --tint: #7C8797; }
+.proc.pfeed { --tint: #4FC2CC; }
+.proc.pstrategy { --tint: #9296E6; }
+.proc.porder { --tint: #E28266; }
+.proc.psink { --tint: #7C8797; }
+
+.proc .ptitle {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--tint);
+  margin-bottom: 7px;
+}
+
+.proc pre {
+  margin: 0;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 12.5px;
+  line-height: 1.7;
+  white-space: pre;
+}
+
+.link {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--ink-soft);
+  padding: 7px 0 7px 18px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: baseline;
+}
+
+.link .arrow {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.link.new .arrow { color: var(--feed); }
+
+.pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+.pair-link {
+  grid-column: 1 / -1;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--ink-soft);
+  text-align: center;
+  padding: 7px 0;
+}
+
+@media (max-width: 640px) {
+  .pair { grid-template-columns: 1fr; }
+  .pair-link { text-align: left; padding-left: 18px; }
+}
+
+.roles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px;
+}
+
+.role {
+  background: var(--sheet);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 16px 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-top: 3px solid var(--tint);
+}
+
+.role.feed { --tint: var(--feed); }
+.role.strategy { --tint: var(--strategy); }
+.role.order { --tint: var(--order); }
+
+.role .flag {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--tint);
+  font-weight: 600;
+}
+
+.role .name {
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.role ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 14px;
+  color: var(--ink-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.table-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--sheet);
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 560px;
+  font-size: 14px;
+}
+
+th, td {
+  text-align: left;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--rule-soft);
+  vertical-align: top;
+}
+
+th {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  font-weight: 600;
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+}
+
+tbody tr:last-child td { border-bottom: none; }
+
+td.num, th.num {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.dir {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.dir .f { color: var(--feed); font-weight: 600; }
+.dir .s { color: var(--strategy); font-weight: 600; }
+.dir .o { color: var(--order); font-weight: 600; }
+
+.note {
+  background: var(--warn-bg);
+  border-left: 3px solid var(--warn);
+  padding: 14px 16px;
+  border-radius: 0 4px 4px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.note .head {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--warn);
+}
+
+.note p { font-size: 14px; }
+
+.steps {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 68ch;
+}
+
+footer {
+  border-top: 1px solid var(--rule);
+  padding-top: 16px;
+  font-size: 13px;
+  color: var(--ink-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+</style>
+
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">D-114 단계 5 · D-129 · 2026-09-24</div>
+  <h1>엔진 세 프로세스 구조</h1>
+  <p class="lede">시세·전략·주문이 각각 제 프로세스로 떨어졌다. 셋은 공유 메모리 한 덩이(<span class="mono">SharedLayout</span> 판 4, 면 열 개)로만 말을 주고받는다. 목적은 속도가 아니라 고장 격리다 — 한쪽이 죽어도 나머지가 서는 것.</p>
+</header>
+
+<section>
+  <h2><span class="num">01</span> 흐름</h2>
+  <div class="pipe">
+
+    <div class="proc kis">
+      <div class="ptitle">KIS OpenAPI</div>
+<pre>WebSocket — 시세 · 체결통보 (한 세션)
+REST      — 봉 · 잔고 · 주문</pre>
+    </div>
+
+    <div class="link"><span class="arrow">↓</span> 앱키 하나 = 실시간 세션 하나 = 소켓 하나</div>
+
+    <div class="proc pfeed">
+      <div class="ptitle">시세 프로세스 · --role feed</div>
+<pre>수신 ×N  →  종목 번호 찾기 (표에 없으면 버리고 센다)</pre>
+    </div>
+
+    <div class="pair">
+      <div class="link"><span class="arrow">↓</span> 시세 통로</div>
+      <div class="link new"><span class="arrow">↓</span> 체결 통로 (단계 5 신설)</div>
+
+      <div class="proc pstrategy">
+        <div class="ptitle">전략 프로세스 · --role strategy</div>
+<pre>줄 스레드
+   ↓
+샤드 ×M
+   ↓
+전략  →  신호</pre>
+      </div>
+
+      <div class="proc porder">
+        <div class="ptitle">주문 프로세스 · --role order</div>
+<pre>체결  →  원장 · 저널
+   ↓
+OrderGate 검증  →  주문  →  KIS 주문 API</pre>
+      </div>
+
+      <div class="pair-link">전략 <span class="arrow">──▶</span> 요청 면 <span class="arrow">──▶</span> 주문 &nbsp;·&nbsp; 주문 <span class="arrow">──▶</span> 응답 면 <span class="arrow">──▶</span> 전략 &nbsp;·&nbsp; 전략 <span class="arrow">──▶</span> 제어 면 <span class="arrow">──▶</span> 주문 · 시세</div>
+    </div>
+
+    <div class="link"><span class="arrow">↓</span> 시세 PUB :5557 (TRADE) &nbsp;·&nbsp; 전략 PUB :5558 (SIGNAL) &nbsp;·&nbsp; 주문 PUB :5555 (ORDER · FILL · HEALTH) &nbsp;·&nbsp; 주문 REP :5556 (KILL · STATUS)</div>
+
+    <div class="proc psink">
+      <div class="ptitle">적재 · 대시보드</div>
+<pre>Python SUB (PYQuant/main.py record)      원장 저널 파일  →  적재기
+                    └────────────────┬────────────────┘
+                                TimescaleDB</pre>
+    </div>
+
+  </div>
+  <div class="note">
+    <div class="head">지금 안 나가는 것 — TRADE · SIGNAL</div>
+    <p>TRADE는 시세 프로세스에서, SIGNAL은 전략 프로세스에서 난다. 그런데 발행 다리(<span class="mono">ZmqBridge</span>)는 주문 프로세스에만 있어 갈라 띄우면 둘이 통째로 멎는다. 포트를 역할마다 하나씩 여는 것으로 고치는 중이다.</p>
+  </div>
+  <p class="caption">한 프로세스(--role both)로 띄우면 같은 흐름이 한 주소공간 안에서 돈다 — 통로·면이 힙 한 덩이가 될 뿐 코드는 같다.</p>
+</section>
+
+<section>
+  <h2><span class="num">02</span> 역할 셋</h2>
+  <p><code>--role both|order|strategy|feed</code>. 갈라 띄우면 셋이 다 떠야 하고, 빠진 조합은 감시견이 거절한다.</p>
+  <div class="roles">
+    <div class="role feed">
+      <div class="flag">--role feed</div>
+      <div class="name">시세</div>
+      <ul>
+        <li>실시간 소켓을 쥔다(수신 ×N)</li>
+        <li>체결통보(H0STCNI)도 이 세션으로 온다</li>
+        <li>종목 번호는 찾기만 — 표에 없으면 버리고 센다</li>
+        <li><span class="mono">quant_trader.feed.log</span></li>
+      </ul>
+    </div>
+    <div class="role strategy">
+      <div class="flag">--role strategy</div>
+      <div class="name">전략</div>
+      <ul>
+        <li>줄 스레드 L+1 · 샤드 ×M · 전략</li>
+        <li>신호를 주문 요청으로 바꾼다</li>
+        <li>구독·해지를 시세 쪽으로 보낸다</li>
+        <li><span class="mono">quant_trader.strategy.log</span></li>
+      </ul>
+    </div>
+    <div class="role order">
+      <div class="flag">--role order</div>
+      <div class="name">주문</div>
+      <ul>
+        <li>공유 메모리를 만드는 주인</li>
+        <li>발주·체결·원장·저널</li>
+        <li>종목·전략 표에 번호를 딴다</li>
+        <li><span class="mono">quant_trader.order.log</span></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">03</span> 갈라 띄운 그림</h2>
+  <div class="sheet">
+<pre class="mermaid">
+flowchart LR
+    subgraph FD["시세 프로세스 (--role feed)"]
+        R["수신 ×N<br/>실시간 소켓"]
+    end
+    subgraph SHM["공유 메모리 · SharedLayout 판 4"]
+        FEED["시세 통로"]
+        FILL["체결 통로"]
+        CFF["제어 면 (시세)"]
+        REQ["요청 면"]
+        RESP["응답 면"]
+        CF["제어 면 (주문)"]
+        SNAP["장부 사본"]
+        HB["박동 ×3"]
+        DICT["종목·전략 표"]
+    end
+    subgraph STR["전략 프로세스 (--role strategy)"]
+        L["줄 스레드"]
+        S["샤드 ×M"]
+        D["전략"]
+    end
+    subgraph ORD["주문 프로세스 (--role order)"]
+        O["주문"]
+        F["체결"]
+    end
+    R --> FEED --> L --> S --> D
+    R --> FILL --> F
+    D --> REQ --> O
+    O --> RESP --> D
+    D --> CF --> O
+    D --> CFF --> R
+    O --> SNAP
+    F --> SNAP
+    SNAP --> D
+    O <--> HB
+    D <--> HB
+    R <--> HB
+    O --> DICT --> D
+    DICT --> R
+</pre>
+  </div>
+  <p class="caption">굵은 줄 둘이 단계 5에서 새로 난 길이다 — 시세→주문 체결 통로, 전략→시세 제어 면.</p>
+</section>
+
+<section>
+  <h2><span class="num">04</span> 뒤집힌 전제</h2>
+  <p>단계 3까지는 주문 프로세스가 소켓을 쥐고 시세를 전략에 넘겼다. 단계 5에서 방향이 뒤집혔다.</p>
+  <ol class="steps">
+    <li>앱키가 하나다 — 더 따지 않는다.</li>
+    <li>앱키 하나 = 실시간 세션 하나 = 소켓 하나.</li>
+    <li>체결통보 <span class="mono">H0STCNI</span>가 시세와 같은 세션으로 온다.</li>
+    <li>그러니 소켓은 <strong>시세</strong>가 쥐고, 체결통보는 <strong>시세 → 주문</strong>으로 공유 메모리를 건넌다.</li>
+  </ol>
+  <p>주문번호와 종목 코드는 글자 그대로 싣는다. 숫자로 바꾸면 앞의 0을 잃고, 그 번호로는 취소·정정을 못 한다.</p>
+</section>
+
+<section>
+  <h2><span class="num">05</span> 공유 면 열 개</h2>
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr><th>면</th><th class="num">방향</th><th class="num">칸</th><th>하는 일</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>시세 통로</td><td class="dir"><span class="f">시세</span> → <span class="s">전략</span></td><td class="num">줄당 4,096</td><td>줄 = 소켓, 마지막 줄은 REST 대체분. 값이 어긋나면 꺼내는 쪽이 버린다</td></tr>
+        <tr><td><strong>체결 통로</strong></td><td class="dir"><span class="f">시세</span> → <span class="o">주문</span></td><td class="num">1,024</td><td><strong>단계 5 신설.</strong> 소켓에 실려 온 체결통보를 주문 쪽 원장으로 나른다</td></tr>
+        <tr><td>요청 면</td><td class="dir"><span class="s">전략</span> → <span class="o">주문</span></td><td class="num">1,024</td><td>주문 요청. 차면 버리고 센다</td></tr>
+        <tr><td>응답 면</td><td class="dir"><span class="o">주문</span> → <span class="s">전략</span></td><td class="num">1,024</td><td>종착 상태</td></tr>
+        <tr><td>제어 면 (주문)</td><td class="dir"><span class="s">전략</span> → <span class="o">주문</span></td><td class="num">8,192</td><td>표 고치기와 스위치 다섯</td></tr>
+        <tr><td><strong>제어 면 (시세)</strong></td><td class="dir"><span class="s">전략</span> → <span class="f">시세</span></td><td class="num">1,024</td><td><strong>단계 5 신설.</strong> 구독·해지만 여기로. 가르는 자리는 <span class="mono">ipc::routes_to_feed</span> 하나</td></tr>
+        <tr><td>장부 사본</td><td class="dir"><span class="o">주문</span> → <span class="s">전략</span></td><td class="num">판 번호로 묶음</td><td>보유·선점·평단. 읽는 쪽은 잠금 없이 읽는다</td></tr>
+        <tr><td>박동</td><td class="dir">칸 셋, 서로 본다</td><td class="num">3</td><td>전략은 끊김 1초, 주문은 60초(증권사 왕복이 그 공백에 들어온다)</td></tr>
+        <tr><td>종목 표</td><td class="dir"><span class="o">주문</span>이 딴다</td><td class="num">—</td><td>시세는 찾기만 하고 없으면 버리고 센다</td></tr>
+        <tr><td>전략 표</td><td class="dir"><span class="o">주문</span>이 딴다</td><td class="num">—</td><td>이름 ↔ 번호</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">06</span> 한 프로세스로 띄울 때</h2>
+  <p><code>--role both</code>(기본)에서는 같은 바이트가 힙 한 덩이에 앉을 뿐, 넣고 꺼내는 코드는 같다. 고르는 자리는 <span class="mono">Engine::bind_layout</span> 하나다.</p>
+  <div class="sheet">
+<pre class="mermaid">
+flowchart LR
+    WS["KIS WebSocket"] --> RECV["수신 ×N"]
+    REST["KIS REST"] --> DATA["데이터"]
+    RECV -- "체결·호가 링 행렬" --> SHARD["샤드 ×M"]
+    DATA -- "봉·대체 체결" --> SHARD
+    SHARD --> STRAT["전략(디스패치)"]
+    STRAT -- "요청" --> ORDER["주문"]
+    ORDER -- "응답" --> STRAT
+    ORDER --> KISO["KIS 주문 API"]
+    RECV -- "체결통보" --> FILL["체결"]
+    FILL --> LEDGER["원장 · 저널"]
+    ORDER --> LEDGER
+</pre>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">07</span> 지금 상태</h2>
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr><th>항목</th><th class="num">결과</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>빌드</td><td class="num">76 / 76 · 경고 0</td></tr>
+        <tr><td>단위 테스트 (ctest)</td><td class="num">60 / 60 · 28.75초</td></tr>
+        <tr><td>경합 검사 (TSAN)</td><td class="num">57 / 57 · 경합 0</td></tr>
+        <tr><td>커밋 게이트</td><td class="num">8 항목 통과</td></tr>
+        <tr><td>커밋</td><td class="num">cc0ee04 · main</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="note">
+    <div class="head">메운 구멍 — 관측 발행을 역할마다 하나씩 (D-129)</div>
+    <p>예전에는 <span class="mono">ZmqBridge</span>를 <span class="mono">runs_order_side()</span> 안에서만 만들어, 갈라 띄운 날에는 체결 틱도 신호도 아무 데도 안 나갔다. 지금은 엔진 한 대가 <span class="mono">zmq_pub_port</span>부터 네 포트를 연달아 갖고, 역할마다 발행 다리를 하나씩 연다. 제어(REP)는 주문 쪽에만 남기고, 시세·전략 다리는 PUB만 여는다. 받는 쪽은 SUB 소켓 하나에 connect를 여럿 걸면 된다. 한 프로세스(<span class="mono">both</span>)로 뜨면 다리는 여전히 하나만 열어, 같은 건이 세 포트로 나가 표에 세 번 들어가는 일을 막는다.</p>
+  </div>
+  <p>그 밖에 남은 것: 수급 관측 적재가 어느 역할로 가는지 미정, 샤드 객체가 역할과 무관하게 만들어지는 것(스레드는 전략만 띄운다), 갈라 띄운 상태로 하루 장중 실측, 갈라 띄운 날 <span class="mono">fills.regime</span>이 비는 것(국면은 전략만 갱신하는데 FILL은 주문이 낸다).</p>
+</section>
+
+<footer>
+  <div>정본 — <span class="mono">docs/DECISIONS.md</span> D-114 "단계 5 시세 프로세스 분리"·D-129, <span class="mono">docs/ENGINE_ARCHITECTURE.md</span></div>
+  <div>자리표 — <span class="mono">Quant/include/ipc/SharedLayout.h</span> (판 4, 면 10, 박동 3)</div>
+</footer>
+
+</div>

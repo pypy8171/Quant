@@ -1,3 +1,4 @@
 # GitHub 언어 통계(linguist): 손으로 쓰는 대시보드 템플릿은 HTML로 세지 않는다(문서 취급).
 # 생성된 대시보드 HTML은 git에 두지 않는다(.gitignore).
 scripts/*_template.html linguist-documentation=true
+docs/diagrams/*.html linguist-documentation=true
