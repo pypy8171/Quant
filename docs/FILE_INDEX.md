@@ -583,6 +583,7 @@
 - [test_target_basket_strategy.cpp](../Quant/tests/test_target_basket_strategy.cpp) — 원장·시각 주입으로 집행 창·두 레그·예산·재기동 중복 방지·창 끝·dry_run 고정
 - [test_tick_capture.cpp](../Quant/tests/test_tick_capture.cpp) — 틱 캡처·리더 왕복·이어쓰기 단위 테스트
 - [test_ticker.cpp](../Quant/tests/test_ticker.cpp) — 티커 조회 방식 7가지(std::map·unordered_map·SymbolTable::intern·정수 id 배열·숫자 파싱 희소 배열·틱당 소비자 4곳 모델)를 2,700종목·1천만 회로 재는 벤치(체크섬 출력으로 데드코드 제거를 막는다)
+- [test_universe_scoring.cpp](../Quant/tests/test_universe_scoring.cpp) — 유니버스 횡단면 점수 단위 테스트: z-score·±2 절단·눌림 부호 반전·거래대금 결측 중앙값·가중합(D-018)
 - [test_wake_gate.cpp](../Quant/tests/test_wake_gate.cpp) — WakeGate 소비자 깨우기 단위 테스트
 - [test_websocket_slot_plan.cpp](../Quant/tests/test_websocket_slot_plan.cpp) — 구독 칸 배정 단위 테스트 — 우선순위·빈 칸·보유 보호·유지 시간·순위 차·교체 상한(D-132)
 - [test_ws_decode.cpp](../Quant/tests/test_ws_decode.cpp) — KIS 실시간 채널 디코더 단위 테스트(D-037)

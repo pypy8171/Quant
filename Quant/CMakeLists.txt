@@ -643,6 +643,10 @@ target_link_libraries(bench_engine_load PRIVATE quant_engine)
 add_executable(test_app_config tests/test_app_config.cpp)
 target_link_libraries(test_app_config PRIVATE quant_engine)
 
+# ─── 테스트 타깃: 유니버스 횡단면 점수 — z-score·±2 절단·눌림 부호 반전·거래대금 결측 중앙값·가중합 (순수 함수, D-018) ──
+add_executable(test_universe_scoring tests/test_universe_scoring.cpp)
+target_link_libraries(test_universe_scoring PRIVATE quant_engine)
+
 # ─── 테스트 타깃: WS 피드 감독기 — stale→재연결 백오프(step×n, 상한)→폴백 요구 한 번·복귀 재무장 (헤더 전용, D-071) ──
 add_executable(test_feed_supervisor tests/test_feed_supervisor.cpp)
 target_include_directories(test_feed_supervisor PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -938,6 +942,7 @@ set(QUANT_ASSERT_TARGETS
     test_displacement_desk
     test_heartbeat
     test_ledger_snapshot
+    test_universe_scoring
 )
 foreach(_qt IN LISTS QUANT_ASSERT_TARGETS)
     if(MSVC)
