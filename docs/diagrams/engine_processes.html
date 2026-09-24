@@ -406,7 +406,7 @@ footer {
 <header>
   <div class="eyebrow">D-114 단계 5 · D-129 · 2026-09-24</div>
   <h1>엔진 세 프로세스 구조</h1>
-  <p class="lede">시세·전략·주문이 각각 제 프로세스로 떨어졌다. 셋은 공유 메모리 한 덩이(<span class="mono">SharedLayout</span> 판 4, 면 열 개)로만 말을 주고받는다. 목적은 속도가 아니라 고장 격리다 — 한쪽이 죽어도 나머지가 서는 것.</p>
+  <p class="lede">시세·전략·주문이 각각 제 프로세스로 떨어졌다. 셋은 공유 메모리 한 덩이(<span class="mono">SharedLayout</span> 판 6, 면 열한 개)로만 말을 주고받는다. 목적은 속도가 아니라 고장 격리다 — 한쪽이 죽어도 나머지가 서는 것.</p>
 </header>
 
 <section>
@@ -511,7 +511,7 @@ flowchart LR
     subgraph FD["시세 프로세스 (--role feed)"]
         R["수신 ×N<br/>실시간 소켓"]
     end
-    subgraph SHM["공유 메모리 · SharedLayout 판 4"]
+    subgraph SHM["공유 메모리 · SharedLayout 판 6"]
         FEED["시세 통로"]
         FILL["체결 통로"]
         CFF["제어 면 (시세)"]
@@ -520,6 +520,7 @@ flowchart LR
         CF["제어 면 (주문)"]
         SNAP["장부 사본"]
         HB["박동 ×3"]
+        RGM["국면 칸"]
         DICT["종목·전략 표"]
     end
     subgraph STR["전략 프로세스 (--role strategy)"]
@@ -540,6 +541,7 @@ flowchart LR
     O --> SNAP
     F --> SNAP
     SNAP --> D
+    D --> RGM --> F
     O <--> HB
     D <--> HB
     R <--> HB
@@ -563,7 +565,7 @@ flowchart LR
 </section>
 
 <section>
-  <h2><span class="num">05</span> 공유 면 열 개</h2>
+  <h2><span class="num">05</span> 공유 면 열한 개</h2>
   <div class="table-scroll">
     <table>
       <thead>
@@ -578,6 +580,7 @@ flowchart LR
         <tr><td><strong>제어 면 (시세)</strong></td><td class="dir"><span class="s">전략</span> → <span class="f">시세</span></td><td class="num">1,024</td><td><strong>단계 5 신설.</strong> 구독·해지만 여기로. 가르는 자리는 <span class="mono">ipc::routes_to_feed</span> 하나</td></tr>
         <tr><td>장부 사본</td><td class="dir"><span class="o">주문</span> → <span class="s">전략</span></td><td class="num">판 번호로 묶음</td><td>보유·선점·평단. 읽는 쪽은 잠금 없이 읽는다</td></tr>
         <tr><td>박동</td><td class="dir">칸 셋, 서로 본다</td><td class="num">3</td><td>전략은 끊김 1초, 주문은 60초(증권사 왕복이 그 공백에 들어온다)</td></tr>
+        <tr><td><strong>국면 칸</strong></td><td class="dir"><span class="s">전략</span> → 나머지</td><td class="num">1</td><td><strong>D-129 신설.</strong> 링이 아니라 값 한 칸이다 — 붙는 순간 지금 국면을 그대로 읽는다. 주문 쪽이 체결 한 건마다 읽어 <span class="mono">fills.regime</span>을 채운다</td></tr>
         <tr><td>종목 표</td><td class="dir"><span class="o">주문</span>이 딴다</td><td class="num">—</td><td>시세는 찾기만 하고 없으면 버리고 센다</td></tr>
         <tr><td>전략 표</td><td class="dir"><span class="o">주문</span>이 딴다</td><td class="num">—</td><td>이름 ↔ 번호</td></tr>
       </tbody>
@@ -626,12 +629,12 @@ flowchart LR
     <div class="head">메운 구멍 — 관측 발행을 역할마다 하나씩 (D-129)</div>
     <p>예전에는 <span class="mono">ZmqBridge</span>를 <span class="mono">runs_order_side()</span> 안에서만 만들어, 갈라 띄운 날에는 체결 틱도 신호도 아무 데도 안 나갔다. 지금은 엔진 한 대가 <span class="mono">zmq_pub_port</span>부터 네 포트를 연달아 갖고, 역할마다 발행 다리를 하나씩 연다. 제어(REP)는 주문 쪽에만 남기고, 시세·전략 다리는 PUB만 여는다. 받는 쪽은 SUB 소켓 하나에 connect를 여럿 걸면 된다. 한 프로세스(<span class="mono">both</span>)로 뜨면 다리는 여전히 하나만 열어, 같은 건이 세 포트로 나가 표에 세 번 들어가는 일을 막는다.</p>
   </div>
-  <p>그 밖에 남은 것: 갈라 띄운 상태로 하루 장중 실측, 갈라 띄운 날 <span class="mono">fills.regime</span>이 비는 것(국면은 전략만 갱신하는데 FILL은 주문이 낸다). 수급 관측 적재는 전략 역할로 정했고(관측을 게이트로 올리면 읽는 쪽이 전략이다), 샤드 객체는 전략 역할에서만 만든다 — <span class="mono">setup_shards</span>가 줄 수만 정하고 나간다.</p>
+  <p>그 밖에 남은 것: 갈라 띄운 상태로 하루 장중 실측. 갈라 띄운 날 <span class="mono">fills.regime</span>이 비던 것은 국면 칸으로 메웠다(2026-09-25). 수급 관측 적재는 전략 역할로 정했고(관측을 게이트로 올리면 읽는 쪽이 전략이다), 샤드 객체는 전략 역할에서만 만든다 — <span class="mono">setup_shards</span>가 줄 수만 정하고 나간다.</p>
 </section>
 
 <footer>
   <div>정본 — <span class="mono">docs/DECISIONS.md</span> D-114 "단계 5 시세 프로세스 분리"·D-129, <span class="mono">docs/ENGINE_ARCHITECTURE.md</span></div>
-  <div>자리표 — <span class="mono">Quant/include/ipc/SharedLayout.h</span> (판 4, 면 10, 박동 3)</div>
+  <div>자리표 — <span class="mono">Quant/include/ipc/SharedLayout.h</span> (판 6, 면 11, 박동 3)</div>
 </footer>
 
 </div>

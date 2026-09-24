@@ -11,6 +11,7 @@
 #include "ipc/LedgerSnapshot.h"
 #include "ipc/MarketFeedChannel.h"
 #include "ipc/OrderChannel.h"
+#include "ipc/RegimeCell.h"
 #include "ipc/SharedRegion.h"
 #include "ipc/SharedSpscRing.h"
 #include "ipc/SharedStrategyDictionary.h"
@@ -31,7 +32,8 @@ namespace ipc
 //   박동 칸이 셋이 되고, 구역 머리에 붙은 쪽 자리 둘이 붙었다.
 //  판 5 — 체결 레코드의 빈 칸(reserved2)이 실시간 세션 번호가 됐다. 크기는 그대로지만 옛 판이 보낸 0을
 //   "모두 같은 세션"으로 읽으면 재연결 뒤 재전송을 못 가른다(OrderRouter::on_fill).
-constexpr uint32_t kSharedLayoutVersion = 5;
+//  판 6 — 국면 칸이 박동 뒤에 붙었다(D-129). 전략이 고른 국면을 주문 쪽이 읽어 체결의 regime 열을 채운다.
+constexpr uint32_t kSharedLayoutVersion = 6;
 
 // 칸 수 기본값 — 한 프로세스로 돌던 때 쓰던 값과 같다(Engine::ShardPipeline). 여기서 바꾸면 양쪽이 같이 바뀐다.
 constexpr size_t kLayoutRequestCapacity  = 1024; // 요청 하나에 답 하나라 응답과 같은 수다
@@ -48,7 +50,7 @@ constexpr size_t kLayoutFeedControlCapacity = 1024;
 // 시세 → 주문 체결 통로 칸 수. FillChannel 이 정한 수를 그대로 쓴다(kFillCapacity).
 constexpr size_t kLayoutFillCapacity = kFillCapacity;
 
-// 자리표 머리 — 면 여덟 앞에 둔다. 양쪽이 넘긴 설정이 한 칸이라도 다르면 붙기를 여기서 거절한다.
+// 자리표 머리 — 면 열 앞에 둔다. 양쪽이 넘긴 설정이 한 칸이라도 다르면 붙기를 여기서 거절한다.
 //  머리가 없으면 어긋난 설정이 "면의 머리가 우연히 안 맞아서" 걸리는 데 기대게 된다 — 값 하나가 우연히
 //  맞는 날 두 프로세스가 서로 다른 자리를 같은 자리로 알고 돈다. [why D-114]
 //  [inv] 고정 크기 정수만 둔다. 칸을 더할 때는 reserved를 쓰고 kSharedLayoutVersion을 올린다.
@@ -104,7 +106,7 @@ struct SharedLayoutConfig
 };
 
 // 쪽지 위에 머리 하나와 면 열을 이 차례로 놓는다: 머리 → 요청 큐 → 응답 큐 → 제어 큐(주문) →
-//  제어 큐(시세) → 체결 통로 → 박동 → 시세 통로 → 종목 표 → 전략 이름표 → 장부 사본.
+//  제어 큐(시세) → 체결 통로 → 박동 → 국면 칸 → 시세 통로 → 종목 표 → 전략 이름표 → 장부 사본.
 //  면마다 캐시라인 경계에서 시작한다.
 //  [inv] 제어 큐 둘 다 SPSC다 — 보내는 쪽은 둘 다 전략 하나이고 받는 쪽만 다르다. 전략 프로세스 안에서
 //   여러 스레드가 만든 제어 요청은 전략 스레드 하나가 모아서 줄에 옮긴다(원칙 5: 경계를 넘는 줄의
@@ -112,7 +114,7 @@ struct SharedLayoutConfig
 class SharedLayout
 {
 public:
-    // 머리와 면 여덟을 담는 데 드는 바이트. SharedRegion 머리는 포함하지 않는다 — payload_bytes()와 견준다.
+    // 머리와 면 열을 담는 데 드는 바이트. SharedRegion 머리는 포함하지 않는다 — payload_bytes()와 견준다.
     [[nodiscard]] static size_t bytes_for(const SharedLayoutConfig& config);
 
     // 주문 프로세스가 부른다. 머리와 면마다 새 머리를 적고 칸을 0으로 민다.
@@ -179,6 +181,13 @@ public:
         return heartbeats_;
     }
 
+    // 전략이 고른 국면. 주문 쪽이 체결 한 건마다 읽어 regime 열을 채운다 — 갈라 띄우면 국면을 고른 쪽과
+    //  체결을 적는 쪽이 다른 프로세스라, 이 칸이 없으면 그 열이 통째로 빈다. [why D-129]
+    [[nodiscard]] RegimeCell* regime_cell() noexcept
+    {
+        return regime_cell_;
+    }
+
     [[nodiscard]] LedgerSnapshot* ledger() noexcept
     {
         return ledger_;
@@ -209,9 +218,10 @@ private:
     MarketFeedChannel              feed_;
     SharedSymbolDictionary         symbols_;
     SharedStrategyDictionary       strategies_;
-    SharedLayoutHead*              head_       = nullptr;
-    SharedHeartbeats*              heartbeats_ = nullptr;
-    LedgerSnapshot*                ledger_     = nullptr;
+    SharedLayoutHead*              head_        = nullptr;
+    SharedHeartbeats*              heartbeats_  = nullptr;
+    RegimeCell*                    regime_cell_ = nullptr;
+    LedgerSnapshot*                ledger_      = nullptr;
     std::string                    last_error_;
 };
 

@@ -12,6 +12,7 @@ static_assert(std::is_standard_layout_v<LedgerSnapshot>, "장부 사본은 표�
 static_assert(std::is_trivially_destructible_v<LedgerSnapshot>, "장부 사본은 소멸자 없이 사라져야 한다");
 static_assert(alignof(LedgerSnapshot) <= kSharedCacheLine, "장부 사본 정렬이 캐시라인보다 크다");
 static_assert(alignof(SharedHeartbeats) <= kSharedCacheLine, "박동 정렬이 캐시라인보다 크다");
+static_assert(alignof(RegimeCell) <= kSharedCacheLine, "국면 칸 정렬이 캐시라인보다 크다");
 
 namespace
 {
@@ -68,6 +69,7 @@ size_t SharedLayout::bytes_for(const SharedLayoutConfig& config)
     total += align_up(SharedSpscRing<ControlRequest>::bytes_for(config.feed_control_capacity));
     total += align_up(FillChannel::bytes_for(config.fill_capacity));
     total += align_up(sizeof(SharedHeartbeats));
+    total += align_up(sizeof(RegimeCell));
     total += feed_span(config);
     total += align_up(SharedSymbolDictionary::bytes_for(config.symbol_capacity));
     total += align_up(SharedStrategyDictionary::bytes_for(config.strategy_capacity));
@@ -272,6 +274,21 @@ bool SharedLayout::bind(std::byte* base, const SharedLayoutConfig& config, bool 
 
     cursor += heartbeat_bytes;
 
+    // 국면 칸 — 박동과 같이 머리가 없는 값 한 칸이다. 놓는 쪽만 "아직 판정 없음"으로 민다.
+    //  붙는 쪽이 밀면 장중에 시세·전략이 다시 뜨는 순간 전략이 적어 둔 국면이 지워진다. [why D-129]
+    const size_t regime_bytes = align_up(sizeof(RegimeCell));
+
+    if (as_owner)
+    {
+        regime_cell_ = new (cursor) RegimeCell();
+    }
+    else
+    {
+        regime_cell_ = reinterpret_cast<RegimeCell*>(cursor);
+    }
+
+    cursor += regime_bytes;
+
     const size_t feed_bytes = feed_span(config);
 
     // 시세 통로: 시세가 보내고 전략이 받는다.
@@ -312,7 +329,7 @@ bool SharedLayout::bind(std::byte* base, const SharedLayoutConfig& config, bool 
 
     cursor += strategy_bytes;
 
-    // 장부 사본 — 머리가 없어 대조할 것이 없다. 앞 아홉 면이 다 맞았으면 이 자리도 맞는다.
+    // 장부 사본 — 머리가 없어 대조할 것이 없다. 앞선 면이 다 맞았으면 이 자리도 맞는다.
     //  붙는 쪽은 짓지 않는다(지으면 주문 쪽이 이미 실어 둔 보유가 0으로 지워진다).
     if (as_owner)
     {
@@ -356,9 +373,10 @@ void SharedLayout::unbind() noexcept
     feed_.unbind();
     symbols_.unbind();
     strategies_.unbind();
-    head_       = nullptr;
-    heartbeats_ = nullptr;
-    ledger_     = nullptr;
+    head_        = nullptr;
+    heartbeats_  = nullptr;
+    regime_cell_ = nullptr;
+    ledger_      = nullptr;
 }
 
 } // namespace ipc

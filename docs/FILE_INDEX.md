@@ -9,11 +9,11 @@
 - [(루트)](#루트) — 11개
 - [.vscode](#vscode) — 4개
 - [PYQuant](#pyquant) — 118개
-- [Quant](#quant) — 300개
+- [Quant](#quant) — 307개
 - [docs](#docs) — 100개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 245개
-- [scripts](#scripts) — 50개
+- [scripts](#scripts) — 49개
 - [strategies](#strategies) — 34개
 - [tools](#tools) — 3개
 
@@ -310,7 +310,8 @@
 - [OrderChannel.h](../Quant/include/ipc/OrderChannel.h) — 전략↔주문 요청·응답 레코드와 순번 규칙, 꺼낸 값 범위 검사(문자열·포인터 없음, D-114 단계 2·4)
 - [OrderRouter.h](../Quant/include/ipc/OrderRouter.h) — 주문 전처리·중계(FEP) 라우팅 레이어 선언
 - [ProcessIdentity.h](../Quant/include/ipc/ProcessIdentity.h) — 프로세스를 번호 + 기동 시각 한 쌍으로 가리킨다 — 번호 재사용을 가리고 주인이 산지 묻는다(D-114 단계 4-b)
-- [SharedLayout.h](../Quant/include/ipc/SharedLayout.h) — 공유 쪽지 한 장 위의 자리표 — 머리 하나와 면 여덟이 어디서 시작해 몇 바이트를 쓰는지 여기서만 정한다(D-114 단계 4)
+- [RegimeCell.h](../Quant/include/ipc/RegimeCell.h) — 국면 칸 — 전략이 고른 국면을 적고 주문·시세가 읽는 공유 값 한 칸(링 아님, D-129)
+- [SharedLayout.h](../Quant/include/ipc/SharedLayout.h) — 공유 쪽지 한 장 위의 자리표 — 머리 하나와 그 뒤 면들이 어디서 시작해 몇 바이트를 쓰는지 여기서만 정한다(D-114 단계 4)
 - [SharedRegion.h](../Quant/include/ipc/SharedRegion.h) — 프로세스 둘이 같이 보는 공유 쪽지 한 장 — 만들고 붙고, 주인 표·기동 번호·종료 사유로 같은 판인지 본다(D-114 단계 4·4-b)
 - [SharedSpscRing.h](../Quant/include/ipc/SharedSpscRing.h) — 공유 쪽지 위 한줄 큐 — 내 자리는 내 프로세스 안에 두고 건너편이 적은 칸은 믿지 않는다(D-114 단계 4)
 - [SharedStrategyDictionary.h](../Quant/include/ipc/SharedStrategyDictionary.h) — 공유 쪽지 위 전략 이름표 — 재스캔이 새로 등록하는 전략도 양쪽에서 같은 번호를 갖게 한다(D-114 단계 4)
@@ -318,18 +319,15 @@
 - [SharedWriteLock.h](../Quant/include/ipc/SharedWriteLock.h) — 공유 쪽지 위 표에 넣는 동안만 잡는 자물쇠 한 벌(D-114 단계 4)
 - [ZmqBridge.h](../Quant/include/ipc/ZmqBridge.h) — C++ 엔진 ↔ Python ZMQ IPC 브릿지
 
-### Quant/include/modes/
-
-
 ### Quant/include/risk/
 
 - [DisplacementDesk.h](../Quant/include/risk/DisplacementDesk.h) — 교체 진입 창구(주문 쪽): 꽉 찬 책에 새 종목 매수가 오면 최약체를 먼저 비우고 그 매수를 자리가 날 때까지 든다(D-114 단계 2.5 갈래 B)
+- [EntryPriority.h](../Quant/include/risk/EntryPriority.h) — 진입 우선순위 표(종목 id 배열 스냅샷)와 교체 진입 기록(쿨다운·슬롯 예약·거절 사유·당일 횟수) — OrderGate에서 뗐다
 - [GateReasons.h](../Quant/include/risk/GateReasons.h) — 게이트 거부 사유 문자열 계약(D-067)
 - [LedgerJournal.h](../Quant/include/risk/LedgerJournal.h) — 원장 선기록 저널: 192바이트 고정 레코드·CRC32·seq, 주문을 보내기 전에 적고 재기동 때 리플레이(D-113)
-- [EntryPriority.h](../Quant/include/risk/EntryPriority.h) — 진입 우선순위 표(종목 id 배열 스냅샷)와 교체 진입 기록(쿨다운·슬롯 예약·거절 사유·당일 횟수) — OrderGate에서 뗐다
 - [LedgerKeys.h](../Quant/include/risk/LedgerKeys.h) — 원장 키 (계좌 번호, 종목 id)를 만들고 되찾는 표 — OrderGate에서 뗐다. 신호·체결마다 부르는 함수는 헤더 인라인(D-118 예외, 잰 수치는 파일 안)
-- [PositionLedger.h](../Quant/include/risk/PositionLedger.h) — 원장(보유·선점·평단·매도가능·손익·현금)과 저널·장부 사본 발행 — OrderGate에서 뗐다. 판정은 Reader로 락 쥔 채 읽는다
 - [OrderGate.h](../Quant/include/risk/OrderGate.h) — 주문 전 위험 검증 게이트
+- [PositionLedger.h](../Quant/include/risk/PositionLedger.h) — 원장(보유·선점·평단·매도가능·손익·현금)과 저널·장부 사본 발행 — OrderGate에서 뗐다. 판정은 Reader로 락 쥔 채 읽는다
 - [ProtectiveOrders.h](../Quant/include/risk/ProtectiveOrders.h) — 보호 주문 표(주문 쪽): 보유·현재가·미체결 매도만으로 손절·트레일 청산 신호를 만든다(D-114 단계 1)
 - [ProtectiveRule.h](../Quant/include/risk/ProtectiveRule.h) — 보호 주문 규칙과 등록 창구 — 전략이 보는 경계(D-114 단계 1)
 
@@ -452,18 +450,15 @@
 - [SharedWriteLock.cpp](../Quant/src/ipc/SharedWriteLock.cpp) — SharedWriteLock.h 구현 — 돌다가 양보하는 자물쇠(D-114 단계 4)
 - [ZmqBridge.cpp](../Quant/src/ipc/ZmqBridge.cpp) — ZMQ IPC 브릿지 구현 — PUB/REP 소켓
 
-### Quant/src/modes/
-
-
 ### Quant/src/risk/
 
 - [DisplacementDesk.cpp](../Quant/src/risk/DisplacementDesk.cpp) — DisplacementDesk.h 구현 — 최약체 고르기·교체 매도 발주·쿨다운 기록·보류 매수 꺼내기(D-114 단계 2.5 갈래 B)
+- [EntryPriority.cpp](../Quant/src/risk/EntryPriority.cpp) — EntryPriority.h 구현 — 표 굳히기, 3c-1 진입 허용 판정, 교체 거절 사유·기록
 - [GateReasons.cpp](../Quant/src/risk/GateReasons.cpp) — GateReasons.h 구현 — 게이트 거부 사유 문자열 계약(D-067)
 - [LedgerJournal.cpp](../Quant/src/risk/LedgerJournal.cpp) — LedgerJournal.h 구현 — 원장 선기록 저널: 192바이트 고정 레코드·CRC32·seq, 주문을 보내기 전에 적고 재기동 때 리플레이(D-113)
-- [EntryPriority.cpp](../Quant/src/risk/EntryPriority.cpp) — EntryPriority.h 구현 — 표 굳히기, 3c-1 진입 허용 판정, 교체 거절 사유·기록
 - [LedgerKeys.cpp](../Quant/src/risk/LedgerKeys.cpp) — LedgerKeys.h 구현 — 살아 있는 종목 문자열을 종목 id 비트로 바꾸는 live_symbols
-- [PositionLedger.cpp](../Quant/src/risk/PositionLedger.cpp) — PositionLedger.h 구현 — 주문 생명주기(intent·accept·reject·fill·cancel), 시드·대조, 저널 리플레이, 장부 사본 채우기
 - [OrderGate.cpp](../Quant/src/risk/OrderGate.cpp) — 주문 위험 게이트 구현 — 수수료율·우선순위 바
+- [PositionLedger.cpp](../Quant/src/risk/PositionLedger.cpp) — PositionLedger.h 구현 — 주문 생명주기(intent·accept·reject·fill·cancel), 시드·대조, 저널 리플레이, 장부 사본 채우기
 - [ProtectiveOrders.cpp](../Quant/src/risk/ProtectiveOrders.cpp) — ProtectiveOrders.h 구현 — 보호 주문 표(주문 쪽): 보유·현재가·미체결 매도만으로 손절·트레일 청산 신호를 만든다(D-114 단계 1)
 - [ProtectiveRule.cpp](../Quant/src/risk/ProtectiveRule.cpp) — ProtectiveRule.h 구현 — 보호 주문 규칙과 등록 창구 — 전략이 보는 경계(D-114 단계 1)
 
@@ -544,11 +539,11 @@
 - [test_ops_server.cpp](../Quant/tests/test_ops_server.cpp) — 운영단말 서버 TCP 왕복 테스트(D-043)
 - [test_order_channel.cpp](../Quant/tests/test_order_channel.cpp) — 전략↔주문 통로 단위 테스트: 요청·응답 레코드, 기다리는 표, 같은 순번 거름, 주문번호 변환(D-114 단계 2)
 - [test_order_gate.cpp](../Quant/tests/test_order_gate.cpp) — OrderGate 한도·거부 사유 단위 테스트
-- [test_position_ledger.cpp](../Quant/tests/test_position_ledger.cpp) — PositionLedger 단위 테스트 — 매도 클램프·부분체결 평단·원장 저널 리플레이
 - [test_order_rate_limiter.cpp](../Quant/tests/test_order_rate_limiter.cpp) — 발주 조절기 단위 테스트(재시도 분류·만기, D-065)
 - [test_order_router.cpp](../Quant/tests/test_order_router.cpp) — OrderRouter 통합 테스트(접수·체결·이력)
 - [test_paper_executor.cpp](../Quant/tests/test_paper_executor.cpp) — 모의 체결기 단위 테스트(다음틱 체결·취소·정정)
 - [test_pipeline_stress.cpp](../Quant/tests/test_pipeline_stress.cpp) — 파이프라인 E2E 부하 테스트(WS수신-전략-주문-체결)
+- [test_position_ledger.cpp](../Quant/tests/test_position_ledger.cpp) — PositionLedger 단위 테스트 — 매도 클램프·부분체결 평단·원장 저널 리플레이
 - [test_prefetch_pool.cpp](../Quant/tests/test_prefetch_pool.cpp) — 프리페치 풀 고정 스레드·주기 실행·해제 대기·정지 단위 테스트
 - [test_protective_orders.cpp](../Quant/tests/test_protective_orders.cpp) — 보호 주문 표 단위 테스트: 전략 없이 가격 경로만으로 청산이 나가는지 검증(D-114 단계 1)
 - [test_reconcile_plan.cpp](../Quant/tests/test_reconcile_plan.cpp) — 잔고 대조 차이 계산 순수 함수 단위 테스트(D-038)

@@ -451,7 +451,8 @@ struct Options
     std::string           out_path;
     std::string           profile_path;              // 실측 유량 프로파일 JSON. 주면 zipf 대신 이 몫을 쓴다
     std::string           strategy_kind = "counter"; // counter(카운터) | itb(장중 돌파 — 체결마다 분봉·채널 계산)
-    std::string           zmq_bind;                  // 비면 발행 안 함. 라이브(127.0.0.1)와 겹치지 않는 주소를 준다
+    std::string           zmq_bind;                  // 비면 발행 안 함. 주소만으로는 안 갈린다 — 아래 포트도 같이 본다
+    int                   zmq_port_base = 5605;      // 발행·제어 포트 넷(base, +1, +2, +3). 운영 블록 밖 기본값
     double                clock_speed   = 1.0;       // 합성 장시계 배속 — 지표 전략이 분봉을 쌓으려면 시각이 흘러야 한다
     int                   channel_minutes = 10;      // itb 전략의 채널 길이(분). 짧은 구간을 잴 때 줄인다
     std::string           source        = "synthetic"; // synthetic(합성 생성기) | http(실제 장 시세를 주기마다 통째로)
@@ -642,12 +643,18 @@ RunResult run_once(const Options& options, const std::vector<std::string>& unive
     engine.set_order_interval(0, 0); // 주문마다 자는 350ms를 없앤다 — 안 풀면 초당 세 건이 천장이다
     // 구독자 없는 발행 채널은 아예 열지 않는다 — 주문마다 나는 drop 로그의 파일 I/O가 측정 대상을 덮는다.
     //  --zmq-bind를 주면 켠다. 그때는 리코더가 붙어 ORDER·FILL을 DB까지 가져가는 구간까지 재는 것이고,
-    //  주소는 라이브 트레이더(127.0.0.1:5555)와 겹치지 않아야 한다 — 겹치면 bind가 실패해 다리가 조용히 선다.
+    //  운영 중인 엔진과 포트가 겹치면 bind가 실패해 다리가 조용히 선다 — 측정은 끝까지 돌고 숫자만 틀린다.
+    //  주소를 바꿔도 127.0.0.1 이면 같은 포트를 무는 것이라, 포트를 운영 블록(모의 5555~5558 ·
+    //  실계좌 5565~5568) 밖 5605~5608로 기본을 잡는다. --zmq-port로 옮긴다.
     engine.set_zmq_enabled(!options.zmq_bind.empty());
 
     if (!options.zmq_bind.empty())
     {
         engine.set_zmq_control(options.zmq_bind, "");
+        engine.set_zmq_ports({.order_pub    = options.zmq_port_base,
+                              .order_rep    = options.zmq_port_base + 1,
+                              .feed_pub     = options.zmq_port_base + 2,
+                              .strategy_pub = options.zmq_port_base + 3});
     }
 
     engine.set_feed_source(std::move(feed_owned), 1e15);
@@ -963,6 +970,10 @@ int main(int argc, char** argv)
         else if (argument == "--zmq-bind")
         {
             options.zmq_bind = value;
+        }
+        else if (argument == "--zmq-port")
+        {
+            options.zmq_port_base = std::stoi(value);
         }
         else if (argument == "--out")
         {

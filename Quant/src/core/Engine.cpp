@@ -971,6 +971,11 @@ void Engine::setup_zmq_bridge()
     zmq_bridge_->set_account_no(kis_config_.account_no); // 실계좌·모의계좌 원장 분리용 [why D-090]
     zmq_bridge_->set_role_label(role_.to_string());       // HEALTH 를 역할별로 가르는 열 [why D-129]
 
+    // 국면 칸을 꽂는다. 국면을 고르는 쪽은 전략이고 체결을 적는 쪽은 주문이라, 갈라 띄우면 프로세스 안
+    //  정수만으로는 주문 쪽이 국면을 영영 모른다(체결의 regime 열이 통째로 빈다). [why D-129]
+    //  [inv] bind_layout() 뒤에 온다 — 자리표를 다시 깔면 이 포인터가 옮겨간다.
+    zmq_bridge_->set_regime_cell(layout_.regime_cell());
+
     // 제어(KILL·STATUS)는 주문 쪽 하나만 받는다 — 시세·전략 프로세스에는 REP 소켓 자체가 없어
     //  토큰도 핸들러도 걸 자리가 없다.
     if (reply_port <= 0)

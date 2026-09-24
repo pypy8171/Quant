@@ -268,11 +268,26 @@ const char* ZmqBridge::topic_name(Topic topic)
     return "UNKNOWN";
 }
 
+// 국면을 적는다. 공유 칸이 꽂혀 있으면 거기에도 같이 적는다 — 그 칸이 건너편 프로세스가 읽는 자리다.
+//  프로세스 안 정수도 계속 적는다: 한 프로세스로 돌 때(both) 읽는 자리가 그쪽이다. [why D-129]
+void ZmqBridge::set_regime(Regime regime)
+{
+    const int32_t code = static_cast<int32_t>(regime);
+    regime_code_.store(code, std::memory_order_relaxed);
+
+    if (regime_cell_ != nullptr)
+    {
+        regime_cell_->code.store(code, std::memory_order_relaxed);
+    }
+}
+
 // 국면 정수를 라벨로 편다. 아직 판정이 없으면(-1) 빈 문자열 — 판정 전 행을 "UNKNOWN"으로 적으면
 //  "판정이 UNKNOWN"과 구분이 안 된다. 리터럴이라 수명은 정적이다. [inv]
 std::string_view ZmqBridge::current_regime_label() const
 {
-    const int code = regime_code_.load(std::memory_order_relaxed);
+    // 꽂혀 있으면 공유 칸이 정본이다 — 갈라 띄운 날 주문 쪽은 제 정수를 한 번도 적지 않는다.
+    const int32_t code = regime_cell_ != nullptr ? regime_cell_->code.load(std::memory_order_relaxed)
+                                                 : regime_code_.load(std::memory_order_relaxed);
 
     if (code < 0)
     {

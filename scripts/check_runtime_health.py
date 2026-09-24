@@ -341,11 +341,14 @@ def feed_ledger_rows(date: str) -> list:
                 " WHERE (ts AT TIME ZONE 'Asia/Seoul')::date = %s", (date,))
             tick_count, tick_tickers, first_tick_time = cursor.fetchone()
             # 체결 건수는 시세 프로세스가 채운다 — 갈라 뜬 날은 role='feed' 행에 있다 [why D-129]
+            #  계좌도 가른다. 모의와 실계좌가 같은 DB 에 쌓여서, 안 가르면 한쪽이 0 이어도
+            #  다른 쪽 수치에 가려 보이지 않는다 [why D-129]
             cursor.execute(
-                "SELECT COALESCE(MAX(data_cnt), 0) FROM health"
-                " WHERE (ts AT TIME ZONE 'Asia/Seoul')::date = %s"
-                " AND role IN ('both','order','feed')", (date,))
-            data_count = cursor.fetchone()[0]
+                "SELECT COALESCE(NULLIF(TRIM(account), ''), '(빈칸)'), COALESCE(MAX(data_cnt), 0)"
+                " FROM health WHERE (ts AT TIME ZONE 'Asia/Seoul')::date = %s"
+                " AND role IN ('both','order','feed') GROUP BY 1", (date,))
+            data_by_account = dict(cursor.fetchall())
+            data_count = min(data_by_account.values()) if data_by_account else 0
             accounts = {}
 
             for table in ("orders", "fills"):
@@ -372,8 +375,9 @@ def feed_ledger_rows(date: str) -> list:
 
     # 27종목을 장중 내내 받으면 수만 건이다. 1,000건이면 리코더가 잠깐만 붙어 있던 것
     feed_row = ("피드 적재", tick_count >= 1000 and data_count > 0, "WARN",
-                f"ticks {tick_count}행·{tick_tickers}종목, HEALTH data 최대 {data_count}"
-                + (" — data가 0이면 WS 경로 계수 배포 전 바이너리" if data_count == 0 else ""))
+                f"ticks {tick_count}행·{tick_tickers}종목, HEALTH data 계좌별 "
+                + (", ".join(f"{name} {value}" for name, value in sorted(data_by_account.items())) or "행 없음")
+                + (" — 0인 계좌가 있으면 그 엔진이 WS 경로 계수 배포 전 바이너리다" if data_count == 0 else ""))
     # 한 계좌 = 한 프로세스다(다계좌는 계좌당 프로세스). 두 종류가 보이면 남의 엔진 데이터가 섞인 것
     ledger_row = ("원장 계좌 단일", len(accounts) <= 1, "FAIL",
                   "주문·체결 계좌 " + (", ".join(f"{name} {count}건" for name, count in sorted(accounts.items())) or "행 없음")
@@ -425,16 +429,20 @@ def queue_latency_row(date: str) -> tuple:
                                       password=password, connect_timeout=3)
         with connection.cursor() as cursor:
             cursor.execute(
-                "SELECT COUNT(*) FILTER (WHERE queue_shard_capacity IS NOT NULL),"
+                "SELECT COALESCE(NULLIF(TRIM(account), ''), '(빈칸)'),"
+                " COUNT(*) FILTER (WHERE queue_shard_capacity IS NOT NULL),"
                 " COALESCE(MAX(dropped_shard), 0) + COALESCE(MAX(dropped_order), 0)"
                 " + COALESCE(MAX(dropped_fill), 0),"
                 " COALESCE(MAX(100.0 * queue_shard_high_water / NULLIF(queue_shard_capacity, 0)), 0),"
                 " COALESCE(MAX(100.0 * queue_order_high_water / NULLIF(queue_order_capacity, 0)), 0),"
                 " COALESCE(MAX(total_p99_us), -1)"
                 # 샤드 큐는 전략, 주문·체결 큐와 지연은 주문 프로세스가 채운다 [why D-129]
+                #  계좌로도 가른다 — MAX 를 계좌까지 합쳐 잡으면 버린 계좌가 안 버린 계좌 수치에 묻힌다
                 " FROM health WHERE (ts AT TIME ZONE 'Asia/Seoul')::date = %s"
-                " AND role IN ('both','order','strategy')", (date,))
-            metric_rows, dropped, shard_percent, order_percent, total_p99 = cursor.fetchone()
+                " AND role IN ('both','order','strategy') GROUP BY 1", (date,))
+            by_account = {account: (metric_rows, dropped, shard_percent, order_percent, total_p99)
+                          for account, metric_rows, dropped, shard_percent, order_percent, total_p99
+                          in cursor.fetchall()}
 
         connection.close()
     except psycopg2.errors.UndefinedColumn:   # 열을 아직 안 만든 DB — 새 적재기가 첫 HEALTH에서 만든다
@@ -442,13 +450,47 @@ def queue_latency_row(date: str) -> tuple:
     except Exception as error:   # DB가 없거나 잠든 날은 판정을 미룬다
         return ("큐·지연 적재", True, "WARN", f"DB 조회 실패 — 판정 안 함 ({str(error).strip()[:80]})")
 
-    if metric_rows == 0:
+    if not any(metric_rows for metric_rows, _, _, _, _ in by_account.values()):
         return ("큐·지연 적재", True, "WARN", "HEALTH에 큐·지연 수치 없음 — 그 수치를 안 싣는 옛 exe")
 
-    return ("큐·지연 적재", dropped == 0, "FAIL",
-            f"HEALTH {metric_rows}건, 버린 건수 {dropped} (기대 0), 고수위 샤드 {float(shard_percent):.1f}%"
-            f"·주문 큐 {float(order_percent):.1f}%, 전체 지연 p99 "
-            + (f"{total_p99 / 1000:.0f}ms" if total_p99 >= 0 else "표본 없음"))
+    detail = " / ".join(
+        f"{account}: HEALTH {metric_rows}건, 버린 건수 {dropped} (기대 0),"
+        f" 고수위 샤드 {float(shard_percent):.1f}%·주문 큐 {float(order_percent):.1f}%, 전체 지연 p99 "
+        + (f"{total_p99 / 1000:.0f}ms" if total_p99 >= 0 else "표본 없음")
+        for account, (metric_rows, dropped, shard_percent, order_percent, total_p99)
+        in sorted(by_account.items()))
+
+    dropped_total = sum(dropped for _, dropped, _, _, _ in by_account.values())
+
+    return ("큐·지연 적재", dropped_total == 0, "FAIL", detail)
+
+
+def role_publish_verdict(by_role: dict) -> tuple:
+    """계좌 하나의 역할별 HEALTH 집계를 보고 (통과 여부, 문구) 를 낸다."""
+    if set(by_role) <= {"both"}:
+        count, data, signal, order = by_role["both"]
+        return (True, f"한 프로세스(both)로 떴다 — HEALTH {count}건, 체결 {data}·신호 {signal}·주문 {order}")
+
+    missing = [role for role in ("order", "strategy", "feed") if role not in by_role]
+
+    if missing:
+        return (False, f"갈라 떴는데 {'·'.join(missing)} 역할이 HEALTH를 한 건도 안 냈다"
+                       f" — 그 프로세스의 PUB 포트 설정이나 zmq_enabled를 본다"
+                       f" (있는 역할: {'·'.join(sorted(by_role))})")
+
+    empty = []
+
+    if by_role["feed"][1] == 0:
+        empty.append("시세 프로세스 체결 건수 0")
+
+    if by_role["order"][3] == 0:
+        empty.append("주문 프로세스 주문 건수 0")
+
+    if empty:
+        return (False, f"세 역할이 다 HEALTH는 냈으나 {', '.join(empty)}")
+
+    return (True, f"세 역할이 각자 발행 — 시세 체결 {by_role['feed'][1]},"
+                  f" 전략 신호 {by_role['strategy'][2]}, 주문 {by_role['order'][3]}")
 
 
 def role_publish_row(date: str) -> tuple:
@@ -475,11 +517,16 @@ def role_publish_row(date: str) -> tuple:
                                       password=password, connect_timeout=3)
         with connection.cursor() as cursor:
             cursor.execute(
-                "SELECT role, COUNT(*), COALESCE(MAX(data_cnt), 0), COALESCE(MAX(signal_cnt), 0),"
+                # 계좌까지 가른다 — 한 계좌가 셋 다 냈다는 것만으로 다른 계좌가 한 역할밖에
+                #  안 낸 것이 가려진다 (모의·실계좌가 같은 DB 에 쌓인다) [why D-129]
+                "SELECT COALESCE(NULLIF(TRIM(account), ''), '(빈칸)'), role, COUNT(*),"
+                " COALESCE(MAX(data_cnt), 0), COALESCE(MAX(signal_cnt), 0),"
                 " COALESCE(MAX(order_cnt), 0) FROM health"
-                " WHERE (ts AT TIME ZONE 'Asia/Seoul')::date = %s GROUP BY role", (date,))
-            by_role = {role: (count, data, signal, order)
-                       for role, count, data, signal, order in cursor.fetchall()}
+                " WHERE (ts AT TIME ZONE 'Asia/Seoul')::date = %s GROUP BY 1, 2", (date,))
+            by_account = {}
+
+            for account, role, count, data, signal, order in cursor.fetchall():
+                by_account.setdefault(account, {})[role] = (count, data, signal, order)
 
         connection.close()
     except psycopg2.errors.UndefinedColumn:   # role 열이 아직 없는 DB — 새 적재기가 첫 HEALTH에서 만든다
@@ -487,35 +534,13 @@ def role_publish_row(date: str) -> tuple:
     except Exception as error:   # DB가 없거나 잠든 날은 판정을 미룬다
         return ("역할별 발행", True, "WARN", f"DB 조회 실패 — 판정 안 함 ({str(error).strip()[:80]})")
 
-    if not by_role:
+    if not by_account:
         return ("역할별 발행", True, "WARN", "그날 HEALTH 행이 없음 — 엔진이 안 떴거나 발행이 꺼졌다")
 
-    if set(by_role) <= {"both"}:
-        count, data, signal, order = by_role["both"]
-        return ("역할별 발행", True, "FAIL",
-                f"한 프로세스(both)로 떴다 — HEALTH {count}건, 체결 {data}·신호 {signal}·주문 {order}")
+    verdicts = [(account, role_publish_verdict(by_role)) for account, by_role in sorted(by_account.items())]
 
-    missing = [role for role in ("order", "strategy", "feed") if role not in by_role]
-
-    if missing:
-        return ("역할별 발행", False, "FAIL",
-                f"갈라 떴는데 {'·'.join(missing)} 역할이 HEALTH를 한 건도 안 냈다"
-                f" — 그 프로세스의 PUB 포트 설정이나 zmq_enabled를 본다 (있는 역할: {'·'.join(sorted(by_role))})")
-
-    empty = []
-
-    if by_role["feed"][1] == 0:
-        empty.append("시세 프로세스 체결 건수 0")
-
-    if by_role["order"][3] == 0:
-        empty.append("주문 프로세스 주문 건수 0")
-
-    if empty:
-        return ("역할별 발행", False, "FAIL", f"세 역할이 다 HEALTH는 냈으나 {', '.join(empty)}")
-
-    return ("역할별 발행", True, "FAIL",
-            f"세 역할이 각자 발행 — 시세 체결 {by_role['feed'][1]},"
-            f" 전략 신호 {by_role['strategy'][2]}, 주문 {by_role['order'][3]}")
+    return ("역할별 발행", all(passed for _, (passed, _) in verdicts), "FAIL",
+            " / ".join(f"{account}: {reason}" for account, (_, reason) in verdicts))
 
 
 def tsan_stale_commits(commit: str) -> int:

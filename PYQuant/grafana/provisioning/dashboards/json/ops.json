@@ -9,6 +9,24 @@
     "to": "now"
   },
   "schemaVersion": 39,
+  "templating": {
+    "list": [
+      {
+        "name": "account",
+        "label": "계좌",
+        "description": "모의와 실계좌가 같은 DB 에 쌓인다. 안 가르면 두 계좌 수치가 한 줄에 겹쳐 그려진다 [why D-129]",
+        "type": "query",
+        "datasource": { "type": "postgres", "uid": "tsdb" },
+        "query": "SELECT DISTINCT COALESCE(NULLIF(TRIM(account), ''), '(빈칸)') FROM health ORDER BY 1;",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "current": { "selected": true, "text": ["All"], "value": ["$__all"] },
+        "options": []
+      }
+    ]
+  },
   "panels": [
     {
       "id": 1,
@@ -114,7 +132,7 @@
             "uid": "tsdb"
           },
           "format": "time_series",
-          "rawSql": "SELECT NOW() AS time, COUNT(*) AS restarts FROM (\n  -- 역할마다 제 카운터를 따로 올린다 — 안 가르면 갈라 뜬 날의 역할 교대가 재기동으로 잡힌다 [why D-129]\n  SELECT data_cnt - LAG(data_cnt) OVER (PARTITION BY role ORDER BY ts) AS counter_delta\n  FROM health WHERE ts::date = CURRENT_DATE) deltas WHERE counter_delta < 0;",
+          "rawSql": "SELECT NOW() AS time, COUNT(*) AS restarts FROM (\n  -- 역할마다 제 카운터를 따로 올린다 — 안 가르면 갈라 뜬 날의 역할 교대가 재기동으로 잡힌다 [why D-129]\n  SELECT data_cnt - LAG(data_cnt) OVER (PARTITION BY account, role ORDER BY ts) AS counter_delta\n  FROM health WHERE ts::date = CURRENT_DATE AND COALESCE(NULLIF(TRIM(account), ''), '(빈칸)') IN ($account)) deltas WHERE counter_delta < 0;",
           "refId": "A"
         }
       ],
@@ -163,7 +181,7 @@
             "uid": "tsdb"
           },
           "format": "time_series",
-          "rawSql": "SELECT ts AS time,\n       -- 체결은 시세, 주문은 주문 프로세스가 채운다. 역할을 안 가르면 0인 칸이 섞여 차이가 튄다 [why D-129]\n       GREATEST(data_cnt - LAG(data_cnt) OVER (PARTITION BY role ORDER BY ts), 0) AS \"30초당 체결\",\n       GREATEST(order_cnt - LAG(order_cnt) OVER (PARTITION BY role ORDER BY ts), 0) AS \"30초당 주문\"\nFROM health WHERE $__timeFilter(ts) AND role IN ('both','order','feed') ORDER BY ts;",
+          "rawSql": "SELECT ts AS time,\n       -- 체결은 시세, 주문은 주문 프로세스가 채운다. 역할을 안 가르면 0인 칸이 섞여 차이가 튄다 [why D-129]\n       GREATEST(data_cnt - LAG(data_cnt) OVER (PARTITION BY account, role ORDER BY ts), 0) AS \"30초당 체결\",\n       GREATEST(order_cnt - LAG(order_cnt) OVER (PARTITION BY account, role ORDER BY ts), 0) AS \"30초당 주문\"\nFROM health WHERE $__timeFilter(ts) AND COALESCE(NULLIF(TRIM(account), ''), '(빈칸)') IN ($account) AND role IN ('both','order','feed') ORDER BY ts;",
           "refId": "A"
         }
       ],
@@ -332,7 +350,7 @@
             "uid": "tsdb"
           },
           "format": "time_series",
-          "rawSql": "SELECT time_bucket('10 second', ts) AS time, COUNT(*) AS health FROM health WHERE $__timeFilter(ts) GROUP BY 1 ORDER BY 1;",
+          "rawSql": "SELECT time_bucket('10 second', ts) AS time, COUNT(*) AS health FROM health WHERE $__timeFilter(ts) AND COALESCE(NULLIF(TRIM(account), ''), '(빈칸)') IN ($account) GROUP BY 1 ORDER BY 1;",
           "refId": "E"
         }
       ],
@@ -895,7 +913,7 @@
             "uid": "tsdb"
           },
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, 100.0 * queue_shard_high_water / NULLIF(queue_shard_capacity, 0) AS \"샤드 셀 고수위\", 100.0 * queue_shard_out_size / NULLIF(queue_shard_out_capacity, 0) AS \"샤드→전략 현재 깊이\", 100.0 * queue_order_high_water / NULLIF(queue_order_capacity, 0) AS \"주문 큐 고수위\", 100.0 * queue_fill_high_water / NULLIF(queue_fill_capacity, 0) AS \"체결 큐 고수위\" FROM health WHERE $__timeFilter(ts) AND role IN ('both','order','strategy') AND queue_shard_capacity IS NOT NULL ORDER BY ts;",
+          "rawSql": "SELECT ts AS time, 100.0 * queue_shard_high_water / NULLIF(queue_shard_capacity, 0) AS \"샤드 셀 고수위\", 100.0 * queue_shard_out_size / NULLIF(queue_shard_out_capacity, 0) AS \"샤드→전략 현재 깊이\", 100.0 * queue_order_high_water / NULLIF(queue_order_capacity, 0) AS \"주문 큐 고수위\", 100.0 * queue_fill_high_water / NULLIF(queue_fill_capacity, 0) AS \"체결 큐 고수위\" FROM health WHERE $__timeFilter(ts) AND COALESCE(NULLIF(TRIM(account), ''), '(빈칸)') IN ($account) AND role IN ('both','order','strategy') AND queue_shard_capacity IS NOT NULL ORDER BY ts;",
           "refId": "A"
         }
       ],
@@ -913,8 +931,8 @@
     {
       "id": 20,
       "type": "timeseries",
-      "title": "버린 건수 (기동 후 누적) — 큐 가득 참 + ZMQ 발행",
-      "description": "앞의 셋은 큐가 가득 차 버린 틱·주문·체결통보다 — 0이 아니면 그만큼 파이프라인에서 빠졌다. 'ZMQ 발행'은 관측 경로에서 버린 건수라 매매에는 영향이 없지만, 대시보드가 듬성해지는 원인이다. 계단이 생긴 시각이 폭주 시각이다.",
+      "title": "버린 건수 (기동 후 누적) — 큐 가득 참 + ZMQ 발행(시세 링 포함)",
+      "description": "앞의 셋은 큐가 가득 차 버린 틱·주문·체결통보다 — 0이 아니면 그만큼 파이프라인에서 빠졌다. 'ZMQ 발행'은 관측 경로에서 버린 건수라 매매에는 영향이 없지만, 대시보드가 듬성해지는 원인이다. 그중 '시세 링'은 시세 프로세스가 체결을 발행 링에 못 넣고 버린 몫이다 — 갈라 띄운 날 여기만 오르면 관측이 시세를 못 따라간 것이다. 계단이 생긴 시각이 폭주 시각이다.",
       "gridPos": {
         "h": 10,
         "w": 12,
@@ -932,7 +950,7 @@
             "uid": "tsdb"
           },
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, dropped_shard AS \"샤드→전략\", dropped_order AS \"주문 큐\", dropped_fill AS \"체결 큐\", drop_cnt AS \"ZMQ 발행\" FROM health WHERE $__timeFilter(ts) AND role IN ('both','order','strategy') AND (dropped_shard IS NOT NULL OR drop_cnt IS NOT NULL) ORDER BY ts;",
+          "rawSql": "SELECT ts AS time, dropped_shard AS \"샤드→전략\", dropped_order AS \"주문 큐\", dropped_fill AS \"체결 큐\", drop_cnt AS \"ZMQ 발행\", drop_trade_ring_full AS \"ZMQ 발행 중 시세 링\" FROM health WHERE $__timeFilter(ts) AND COALESCE(NULLIF(TRIM(account), ''), '(빈칸)') IN ($account) AND role IN ('both','order','strategy','feed') AND (dropped_shard IS NOT NULL OR drop_cnt IS NOT NULL) ORDER BY ts;",
           "refId": "A"
         }
       ],
@@ -971,7 +989,7 @@
             "uid": "tsdb"
           },
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, NULLIF(tick_to_signal_p50_us, -1) AS \"틱→신호\", NULLIF(signal_to_pop_p50_us, -1) AS \"신호→주문 큐 pop\", NULLIF(pop_to_done_p50_us, -1) AS \"pop→주문 반환\", NULLIF(total_p50_us, -1) AS \"전체\" FROM health WHERE $__timeFilter(ts) AND role IN ('both','order') AND latency_samples > 0 ORDER BY ts;",
+          "rawSql": "SELECT ts AS time, NULLIF(tick_to_signal_p50_us, -1) AS \"틱→신호\", NULLIF(signal_to_pop_p50_us, -1) AS \"신호→주문 큐 pop\", NULLIF(pop_to_done_p50_us, -1) AS \"pop→주문 반환\", NULLIF(total_p50_us, -1) AS \"전체\" FROM health WHERE $__timeFilter(ts) AND COALESCE(NULLIF(TRIM(account), ''), '(빈칸)') IN ($account) AND role IN ('both','order') AND latency_samples > 0 ORDER BY ts;",
           "refId": "A"
         }
       ],
@@ -1008,7 +1026,7 @@
             "uid": "tsdb"
           },
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, NULLIF(tick_to_signal_p99_us, -1) AS \"틱→신호\", NULLIF(signal_to_pop_p99_us, -1) AS \"신호→주문 큐 pop\", NULLIF(pop_to_done_p99_us, -1) AS \"pop→주문 반환\", NULLIF(total_p99_us, -1) AS \"전체\" FROM health WHERE $__timeFilter(ts) AND role IN ('both','order') AND latency_samples > 0 ORDER BY ts;",
+          "rawSql": "SELECT ts AS time, NULLIF(tick_to_signal_p99_us, -1) AS \"틱→신호\", NULLIF(signal_to_pop_p99_us, -1) AS \"신호→주문 큐 pop\", NULLIF(pop_to_done_p99_us, -1) AS \"pop→주문 반환\", NULLIF(total_p99_us, -1) AS \"전체\" FROM health WHERE $__timeFilter(ts) AND COALESCE(NULLIF(TRIM(account), ''), '(빈칸)') IN ($account) AND role IN ('both','order') AND latency_samples > 0 ORDER BY ts;",
           "refId": "A"
         }
       ],
@@ -1095,7 +1113,7 @@
             "uid": "tsdb"
           },
           "format": "time_series",
-          "rawSql": "SELECT NOW() AS time, EXTRACT(EPOCH FROM NOW() - MAX(ts)) AS gap_sec FROM health WHERE role IN ('both','order');",
+          "rawSql": "SELECT NOW() AS time, EXTRACT(EPOCH FROM NOW() - MAX(ts)) AS gap_sec FROM health WHERE COALESCE(NULLIF(TRIM(account), ''), '(빈칸)') IN ($account) AND role IN ('both','order');",
           "refId": "A"
         }
       ],
@@ -1187,7 +1205,7 @@
             "uid": "tsdb"
           },
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, NULLIF(tick_to_signal_p50_interval_us, -1) AS \"틱→신호\", NULLIF(signal_to_pop_p50_interval_us, -1) AS \"신호→주문 큐 pop\", NULLIF(pop_to_send_p50_interval_us, -1) AS \"호출 간격 조절 대기(우리 쪽)\", NULLIF(gate_p50_interval_us, -1) AS \"리스크 점검\", NULLIF(journal_p50_interval_us, -1) AS \"원장 선기록\", NULLIF(bucket_wait_p50_interval_us, -1) AS \"증권사 초당 한도 대기\", NULLIF(transport_p50_interval_us, -1) AS \"증권사 왕복\", NULLIF(total_p50_interval_us, -1) AS \"전체\" FROM health WHERE $__timeFilter(ts) AND role IN ('both','order') AND latency_interval_samples > 0 ORDER BY ts;",
+          "rawSql": "SELECT ts AS time, NULLIF(tick_to_signal_p50_interval_us, -1) AS \"틱→신호\", NULLIF(signal_to_pop_p50_interval_us, -1) AS \"신호→주문 큐 pop\", NULLIF(pop_to_send_p50_interval_us, -1) AS \"호출 간격 조절 대기(우리 쪽)\", NULLIF(gate_p50_interval_us, -1) AS \"리스크 점검\", NULLIF(journal_p50_interval_us, -1) AS \"원장 선기록\", NULLIF(bucket_wait_p50_interval_us, -1) AS \"증권사 초당 한도 대기\", NULLIF(transport_p50_interval_us, -1) AS \"증권사 왕복\", NULLIF(total_p50_interval_us, -1) AS \"전체\" FROM health WHERE $__timeFilter(ts) AND COALESCE(NULLIF(TRIM(account), ''), '(빈칸)') IN ($account) AND role IN ('both','order') AND latency_interval_samples > 0 ORDER BY ts;",
           "refId": "A"
         }
       ],
@@ -1224,7 +1242,7 @@
             "uid": "tsdb"
           },
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, NULLIF(tick_to_signal_p99_interval_us, -1) AS \"틱→신호\", NULLIF(signal_to_pop_p99_interval_us, -1) AS \"신호→주문 큐 pop\", NULLIF(pop_to_send_p99_interval_us, -1) AS \"호출 간격 조절 대기(우리 쪽)\", NULLIF(gate_p99_interval_us, -1) AS \"리스크 점검\", NULLIF(journal_p99_interval_us, -1) AS \"원장 선기록\", NULLIF(bucket_wait_p99_interval_us, -1) AS \"증권사 초당 한도 대기\", NULLIF(transport_p99_interval_us, -1) AS \"증권사 왕복\", NULLIF(total_p99_interval_us, -1) AS \"전체\" FROM health WHERE $__timeFilter(ts) AND role IN ('both','order') AND latency_interval_samples > 0 ORDER BY ts;",
+          "rawSql": "SELECT ts AS time, NULLIF(tick_to_signal_p99_interval_us, -1) AS \"틱→신호\", NULLIF(signal_to_pop_p99_interval_us, -1) AS \"신호→주문 큐 pop\", NULLIF(pop_to_send_p99_interval_us, -1) AS \"호출 간격 조절 대기(우리 쪽)\", NULLIF(gate_p99_interval_us, -1) AS \"리스크 점검\", NULLIF(journal_p99_interval_us, -1) AS \"원장 선기록\", NULLIF(bucket_wait_p99_interval_us, -1) AS \"증권사 초당 한도 대기\", NULLIF(transport_p99_interval_us, -1) AS \"증권사 왕복\", NULLIF(total_p99_interval_us, -1) AS \"전체\" FROM health WHERE $__timeFilter(ts) AND COALESCE(NULLIF(TRIM(account), ''), '(빈칸)') IN ($account) AND role IN ('both','order') AND latency_interval_samples > 0 ORDER BY ts;",
           "refId": "A"
         }
       ],
@@ -1261,7 +1279,7 @@
             "uid": "tsdb"
           },
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, NULLIF(pop_to_send_p50_interval_us, -1) AS \"호출 간격 조절 대기(우리 쪽)\", NULLIF(gate_p50_interval_us, -1) AS \"리스크 점검\", NULLIF(journal_p50_interval_us, -1) AS \"원장 선기록\", NULLIF(bucket_wait_p50_interval_us, -1) AS \"증권사 초당 한도 대기\", NULLIF(transport_p50_interval_us, -1) AS \"증권사 왕복\" FROM health WHERE $__timeFilter(ts) AND role IN ('both','order') AND latency_interval_samples > 0 ORDER BY ts;",
+          "rawSql": "SELECT ts AS time, NULLIF(pop_to_send_p50_interval_us, -1) AS \"호출 간격 조절 대기(우리 쪽)\", NULLIF(gate_p50_interval_us, -1) AS \"리스크 점검\", NULLIF(journal_p50_interval_us, -1) AS \"원장 선기록\", NULLIF(bucket_wait_p50_interval_us, -1) AS \"증권사 초당 한도 대기\", NULLIF(transport_p50_interval_us, -1) AS \"증권사 왕복\" FROM health WHERE $__timeFilter(ts) AND COALESCE(NULLIF(TRIM(account), ''), '(빈칸)') IN ($account) AND role IN ('both','order') AND latency_interval_samples > 0 ORDER BY ts;",
           "refId": "A"
         }
       ],

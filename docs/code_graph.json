@@ -214,6 +214,7 @@
     "ipc/OrderChannel.h": "ipc",
     "ipc/OrderRouter.h": "ipc",
     "ipc/ProcessIdentity.h": "ipc",
+    "ipc/RegimeCell.h": "ipc",
     "ipc/SharedLayout.h": "ipc",
     "ipc/SharedRegion.h": "ipc",
     "ipc/SharedSpscRing.h": "ipc",
@@ -800,6 +801,7 @@
       "ipc/LedgerSnapshot.h",
       "ipc/MarketFeedChannel.h",
       "ipc/OrderChannel.h",
+      "ipc/RegimeCell.h",
       "ipc/SharedRegion.h",
       "ipc/SharedSpscRing.h",
       "ipc/SharedStrategyDictionary.h",
@@ -839,7 +841,8 @@
     "ipc/ZmqBridge.h": [
       "core/MpscQueue.h",
       "core/Types.h",
-      "core/WakeGate.h"
+      "core/WakeGate.h",
+      "ipc/RegimeCell.h"
     ],
     "main.cpp": [
       "core/AppConfig.h",
@@ -1473,6 +1476,10 @@
     "ipc/ProcessIdentity.h": [
       "ipc/ProcessIdentity.cpp",
       "ipc/SharedRegion.h"
+    ],
+    "ipc/RegimeCell.h": [
+      "ipc/SharedLayout.h",
+      "ipc/ZmqBridge.h"
     ],
     "ipc/SharedLayout.h": [
       "core/Engine.h",

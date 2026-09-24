@@ -119,6 +119,7 @@ void test_size_math()
     expected += align_up(ipc::SharedSpscRing<ipc::ControlRequest>::bytes_for(config.feed_control_capacity));
     expected += align_up(ipc::FillChannel::bytes_for(config.fill_capacity));
     expected += align_up(sizeof(ipc::SharedHeartbeats));
+    expected += align_up(sizeof(ipc::RegimeCell));
     expected += align_up(ipc::MarketFeedChannel::bytes_for(config.feed_lanes, config.feed_trade_capacity,
                                                            config.feed_order_book_capacity));
     expected += align_up(ipc::SharedSymbolDictionary::bytes_for(config.symbol_capacity));
@@ -161,6 +162,12 @@ void test_three_sides_see_the_same()
     order_side.ledger()->row_for_write(1).average_price     = 70000.0;
     order_side.ledger()->globals_for_write().open_slot_count = 25;
     order_side.ledger()->end_publish();
+
+    // 국면 칸 — 놓는 쪽이 "아직 판정 없음"으로 밀어야 판정 전 체결이 국면 0(RISK_ON)으로 적히지 않는다.
+    check(order_side.regime_cell()->code.load() == ipc::kRegimeNone, "놓는 쪽이 국면을 판정 없음으로 민다");
+
+    // 국면은 전략만 적는다. 값 하나라 순서 맞출 것이 없다 — 적은 뒤 나머지가 그 값을 본다. [why D-129]
+    strategy_side.regime_cell()->code.store(2);
 
     // 박동은 셋이 제 칸에만 찍는다.
     order_side.heartbeats()->order.beat(5678);
@@ -237,6 +244,10 @@ void test_three_sides_see_the_same()
     const ipc::LedgerRow row = strategy_side.ledger()->row(1);
     check(row.position == 33 && row.average_price == 70000.0, "전략 쪽 장부 줄이 그대로");
     check(feed_side.ledger()->globals().open_slot_count == 25, "시세 쪽 장부 전역값이 그대로");
+
+    // 여기가 뚫리면 갈라 띄운 날 체결의 regime 열이 통째로 빈다 — 국면별로 되짚을 수 없다. [why D-129]
+    check(order_side.regime_cell()->code.load() == 2, "주문 쪽이 전략이 고른 국면을 본다");
+    check(feed_side.regime_cell()->code.load() == 2, "시세 쪽도 같은 국면을 본다");
 }
 
 // ⑥ 제 줄이 아닌 면에서는 넣지도 꺼내지도 못한다. 여기가 뚫리면 붙는 쪽 하나가 남의 줄의
@@ -484,7 +495,7 @@ void test_head_guards()
     ipc::SharedLayoutHead* head = reinterpret_cast<ipc::SharedLayoutHead*>(g_storage);
     check(head->magic == ipc::kSharedLayoutMagic, "놓는 쪽이 표식을 적는다");
     check(head->layout_version == ipc::kSharedLayoutVersion, "놓는 쪽이 판 번호를 적는다");
-    check(ipc::kSharedLayoutVersion == 5, "이 단계의 판 번호는 5다 — 올릴 때 이 줄도 같이 본다");
+    check(ipc::kSharedLayoutVersion == 6, "이 단계의 판 번호는 6이다 — 올릴 때 이 줄도 같이 본다");
     check(head->symbol_capacity == config.symbol_capacity, "놓는 쪽이 종목 수를 적는다");
     check(head->feed_control_capacity == config.feed_control_capacity, "놓는 쪽이 구독 칸 수를 적는다");
     check(head->fill_capacity == config.fill_capacity, "놓는 쪽이 체결통보 칸 수를 적는다");

@@ -496,6 +496,7 @@ graph LR
   n_ipc_SharedLayout_h --> n_ipc_LedgerSnapshot_h
   n_ipc_SharedLayout_h --> n_ipc_MarketFeedChannel_h
   n_ipc_SharedLayout_h --> n_ipc_OrderChannel_h
+  n_ipc_SharedLayout_h --> n_ipc_RegimeCell_h
   n_ipc_SharedLayout_h --> n_ipc_SharedRegion_h
   n_ipc_SharedLayout_h --> n_ipc_SharedSpscRing_h
   n_ipc_SharedLayout_h --> n_ipc_SharedStrategyDictionary_h
@@ -518,6 +519,7 @@ graph LR
   n_ipc_ZmqBridge_h --> n_core_MpscQueue_h
   n_ipc_ZmqBridge_h --> n_core_Types_h
   n_ipc_ZmqBridge_h --> n_core_WakeGate_h
+  n_ipc_ZmqBridge_h --> n_ipc_RegimeCell_h
   n_main_cpp --> n_core_AppConfig_h
   n_main_cpp --> n_core_CommandLine_h
   n_main_cpp --> n_core_Engine_h
