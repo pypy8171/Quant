@@ -9,7 +9,7 @@
 - [(루트)](#루트) — 11개
 - [.vscode](#vscode) — 4개
 - [PYQuant](#pyquant) — 118개
-- [Quant](#quant) — 297개
+- [Quant](#quant) — 300개
 - [docs](#docs) — 97개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 245개
@@ -300,6 +300,7 @@
 ### Quant/include/ipc/
 
 - [ControlChannel.h](../Quant/include/ipc/ControlChannel.h) — 전략→주문 제어 요청 레코드와 표 모으기 규칙(문자열·포인터 없음, D-114 단계 2.5 갈래 B)
+- [FillChannel.h](../Quant/include/ipc/FillChannel.h) — 시세→주문 체결통보 통로 — 체결 한 건을 고정 칸 레코드(FillNotice)로 옮겨 큐 하나로 나른다(문자열·포인터 없음, D-114 단계 5)
 - [FillKey.h](../Quant/include/ipc/FillKey.h) — 체결통보 중복 키 — 날짜·주문번호·시각·수량·가격 정수 5개와 해시(D-112)
 - [Heartbeat.h](../Quant/include/ipc/Heartbeat.h) — 심장박동 — 박동 공백만으로 상대의 생사를 판정한다(시계·스레드 없음, D-114 단계 2)
 - [LedgerSnapshot.h](../Quant/include/ipc/LedgerSnapshot.h) — 장부 사본 — 전략이 주문 쪽 장부 대신 읽을 한 판(판 번호로 묶고 줄마다 판 번호를 찍는다, D-114 단계 2.5)
@@ -431,6 +432,7 @@
 ### Quant/src/ipc/
 
 - [ControlChannel.cpp](../Quant/src/ipc/ControlChannel.cpp) — ControlChannel.h 구현 — 계좌 칸 넣고 빼기, 여러 줄로 오는 표를 온전할 때만 거는 모으개(D-114 단계 2.5 갈래 B)
+- [FillChannel.cpp](../Quant/src/ipc/FillChannel.cpp) — FillChannel.h 구현 — 글자 경계에서 자르는 칸 옮기기, 말이 안 되는 레코드 버리고 세기(D-114 단계 5)
 - [FillKey.cpp](../Quant/src/ipc/FillKey.cpp) — FillKey.h 구현 — 체결통보 중복 키 — 날짜·주문번호·시각·수량·가격 정수 5개와 해시(D-112)
 - [Heartbeat.cpp](../Quant/src/ipc/Heartbeat.cpp) — Heartbeat.h 구현 — 박동 찍기와 정상·의심·사망 전이 판정(D-114 단계 2)
 - [LedgerSnapshot.cpp](../Quant/src/ipc/LedgerSnapshot.cpp) — LedgerSnapshot.h 구현 — 판 뒤집기와 되읽기, 이번 판에 실린 줄만 모아 주기(D-114 단계 2.5)
@@ -521,6 +523,7 @@
 - [test_engine.cpp](../Quant/tests/test_engine.cpp) — Engine 한 바퀴 단위 테스트(시험용 시세 주입, KIS·소켓 없이 틱→주문→모의 체결→원장, 수신 스레드 1×샤드 1과 2×2, 캡처 파일 리플레이는 KIS 없이)
 - [test_feed_mux.cpp](../Quant/tests/test_feed_mux.cpp) — 다중 소켓 피드 묶음(FeedMux) 단위 테스트
 - [test_feed_supervisor.cpp](../Quant/tests/test_feed_supervisor.cpp) — WS 피드 감독기 단위 테스트
+- [test_fill_channel.cpp](../Quant/tests/test_fill_channel.cpp) — 시세 → 주문 체결통보 통로 단위 테스트: 왕복 값 보존·보낸 차례·글자 경계 자르기·말 안 되는 레코드 버리기·넘침·끝 지키기를 검증(D-114 단계 5)
 - [test_heartbeat.cpp](../Quant/tests/test_heartbeat.cpp) — 심장박동 단위 테스트: 정상·의심·사망 전이와 사망 한 번만 가져가기를 시계 없이 검증(D-114 단계 2)
 - [test_kis_decode.cpp](../Quant/tests/test_kis_decode.cpp) — KIS REST 응답 디코더 단위 테스트(분봉·잔고·전광판, D-051·D-059)
 - [test_kis_rate_bucket.cpp](../Quant/tests/test_kis_rate_bucket.cpp) — 한도 버킷 단위 테스트: 한 초 최대치가 공표 한도 안인지, 첫 호출이 안 기다리는지, 시세 호출 요구량이 버킷 안인지
@@ -528,7 +531,7 @@
 - [test_ledger_reconciler.cpp](../Quant/tests/test_ledger_reconciler.cpp) — 잔고-원장 대조기 단위 테스트(D-038·D-061)
 - [test_ledger_snapshot.cpp](../Quant/tests/test_ledger_snapshot.cpp) — 장부 사본 단위 테스트: 지난 판 값이 안 남는지, 쓰는 중에 읽어도 반쪽 판이 안 나오는지 두 스레드로 검증(D-114 단계 2.5)
 - [test_logger.cpp](../Quant/tests/test_logger.cpp) — 비동기 Logger 무손실·flush·드롭 계수 검증(D-045)
-- [test_market_feed_channel.cpp](../Quant/tests/test_market_feed_channel.cpp) — 주문 → 전략 시세 통로 단위 테스트: 보낸 순서·줄 가르기·붙기 거절·넘침 세기·망가진 칸 버리기·두 스레드를 검증(D-114 단계 4)
+- [test_market_feed_channel.cpp](../Quant/tests/test_market_feed_channel.cpp) — 시세 → 전략 시세 통로 단위 테스트: 보낸 순서·줄 가르기·붙기 거절·넘침 세기·망가진 칸 버리기·두 스레드를 검증(D-114 단계 4·5)
 - [test_market_session.cpp](../Quant/tests/test_market_session.cpp) — 정규장 시각 판정·KST 시각 분해 단위 테스트(D-037·D-070)
 - [test_matching_engine.cpp](../Quant/tests/test_matching_engine.cpp) — 오더북 단위 테스트 — 단일가 규칙·체결 우선순위·호가 격자
 - [test_mpsc.cpp](../Quant/tests/test_mpsc.cpp) — MpscQueue·MutexQueue 정확성 검증
@@ -549,9 +552,9 @@
 - [test_ringbuffer_stress.cpp](../Quant/tests/test_ringbuffer_stress.cpp) — SPSC RingBuffer 실환경 부하 시뮬레이션(버스트·가변지연)
 - [test_session_end.cpp](../Quant/tests/test_session_end.cpp) — 마감 자기 종료 판정 단위 테스트(D-098)
 - [test_shard_matrix.cpp](../Quant/tests/test_shard_matrix.cpp) — 수신 N×전략 샤드 M 링 행렬 단위 테스트
-- [test_shared_layout.cpp](../Quant/tests/test_shared_layout.cpp) — 공유 쪽지 위 자리표 단위 테스트: 자리 셈·면끼리 안 덮는지·붙어도 값이 남는지·설정이 다르면 거절하는지를 검증(D-114 단계 4)
-- [test_shared_region.cpp](../Quant/tests/test_shared_region.cpp) — 공유 쪽지 단위 테스트: 붙기·판 불일치·살아 있는 구역 두 번 만들기·닫은 뒤 재생성을 검증(D-114 단계 4)
-- [test_shared_spsc_ring.cpp](../Quant/tests/test_shared_spsc_ring.cpp) — 공유 쪽지 위 한줄 큐 단위 테스트: 순서·가득참·되감기와, 건너편이 공유 칸을 망가뜨렸을 때 수로 남기는지 검증(D-114 단계 4)
+- [test_shared_layout.cpp](../Quant/tests/test_shared_layout.cpp) — 공유 쪽지 위 자리표 단위 테스트: 자리 셈·면끼리 안 덮는지·셋이 같은 값을 보는지·역할이 제 끝만 맡는지·붙어도 값이 남는지·설정이나 판이 다르면 거절하는지를 검증(D-114 단계 4·5)
+- [test_shared_region.cpp](../Quant/tests/test_shared_region.cpp) — 공유 쪽지 단위 테스트: 붙기·판 불일치·살아 있는 구역 두 번 만들기·닫은 뒤 재생성·역할별 종료 사유를 검증(D-114 단계 4·5)
+- [test_shared_spsc_ring.cpp](../Quant/tests/test_shared_spsc_ring.cpp) — 공유 쪽지 위 한줄 큐 단위 테스트: 순서·가득참·되감기와, 건너편이 공유 칸을 망가뜨렸을 때 수로 남기는지, 붙은 끝이 남의 커서를 안 건드리는지 검증(D-114 단계 4·5)
 - [test_shared_strategy_dictionary.cpp](../Quant/tests/test_shared_strategy_dictionary.cpp) — 공유 쪽지 위 전략 이름표 단위 테스트: 손잡이 둘이 같은 번호를 보는지·긴 이름 거절·가득참·붙기 거절·넣는 스레드 여럿을 검증(D-114 단계 4)
 - [test_shared_symbol_dictionary.cpp](../Quant/tests/test_shared_symbol_dictionary.cpp) — 공유 쪽지 위 종목 표 단위 테스트: 손잡이 둘이 같은 번호를 보는지·가득참·붙기 거절·넣는 스레드 여럿을 검증(D-114 단계 4)
 - [test_signal_dispatcher.cpp](../Quant/tests/test_signal_dispatcher.cpp) — 신호 디스패처 단위 테스트(교체진입·강제청산·유니버스 이탈)

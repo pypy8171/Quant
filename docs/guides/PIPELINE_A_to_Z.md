@@ -49,7 +49,7 @@ TRADE 모드의 데이터 흐름:
 
 ### 1.1 진입점과 인자 파싱
 - `main()` 진입: `main.cpp::main`. Windows 콘솔 UTF-8/ANSI 설정 후 (`main.cpp::main`) `Logger::instance().init("logs/quant_trader.log", INFO)` (`main.cpp::main`, logs/ 하위 고정·부모폴더 자동생성).
-- 인자 파싱: `quant_trader [config] [MODE] [--role both|order|strategy]`. `KR_TEST/US_TEST/FEED/TRADE`는 `mode_override`로, `--role`은 이 프로세스가 맡는 자리로, 그 외 토큰은 `config_path`로 해석 (`Quant/src/core/CommandLine.cpp::parse_command_line`). 모르는 역할·`-`로 시작하는 모르는 깃발은 기본값으로 낙하하지 않고 종료코드 2로 멈춘다. `order`·`strategy`를 주면 그 역할만 띄우고(`engine.set_role`), 로그는 `logs/quant_trader.order.log`·`logs/quant_trader.strategy.log`로 갈린다(D-114 단계 4).
+- 인자 파싱: `quant_trader [config] [MODE] [--role both|order|strategy|feed]`. `KR_TEST/US_TEST/FEED/TRADE`는 `mode_override`로, `--role`은 이 프로세스가 맡는 자리로, 그 외 토큰은 `config_path`로 해석 (`Quant/src/core/CommandLine.cpp::parse_command_line`). 모르는 역할·`-`로 시작하는 모르는 깃발은 기본값으로 낙하하지 않고 종료코드 2로 멈춘다. `order`·`strategy`·`feed`를 주면 그 역할만 띄우고(`engine.set_role`), 로그는 `logs/quant_trader.order.log`·`logs/quant_trader.strategy.log`·`logs/quant_trader.feed.log`로 갈린다(D-114 단계 5). 역할 낱말은 `MODE` 자리의 `FEED`(주문 없이 시세만 보는 실행 모드)와 다른 것이다 — `--role feed`는 갈라 띄운 엔진에서 실시간 소켓을 쥐는 자리다.
 - 설정 로드: `main.cpp::main`이 파일을 읽어 `json::parse`한 뒤 `Quant/src/core/AppConfig.cpp::parse_config`가 typed `AppConfig`로 바꾸고, `Quant/src/core/EngineConfigure.cpp::Engine::configure`가 그 값을 엔진 세터에 옮긴다(d7ef5ac·27a6a70). 옛 `main.cpp` 안의 설정 로더와 빈 설정 파일은 지웠다.
 
 ### 1.2 config.json 스키마

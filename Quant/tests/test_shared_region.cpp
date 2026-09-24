@@ -82,7 +82,7 @@ int main()
         std::memcpy(owner.payload(), message, sizeof(message));
 
         ipc::SharedRegion guest;
-        CHECK(guest.attach(name, kRegionBytes, kLayoutVersion));
+        CHECK(guest.attach(name, kRegionBytes, kLayoutVersion, ipc::SharedAttachRole::kStrategy));
         CHECK(guest.is_open());
         CHECK(!guest.is_owner());
         CHECK(std::memcmp(guest.payload(), message, sizeof(message)) == 0);
@@ -100,19 +100,19 @@ int main()
         CHECK(owner.create(name, kRegionBytes, kLayoutVersion));
 
         ipc::SharedRegion other_layout;
-        CHECK(!other_layout.attach(name, kRegionBytes, kLayoutVersion + 1));
+        CHECK(!other_layout.attach(name, kRegionBytes, kLayoutVersion + 1, ipc::SharedAttachRole::kStrategy));
         CHECK(!other_layout.is_open());
         CHECK(!other_layout.last_error().empty());
 
         ipc::SharedRegion other_size;
-        CHECK(!other_size.attach(name, kRegionBytes * 2, kLayoutVersion));
+        CHECK(!other_size.attach(name, kRegionBytes * 2, kLayoutVersion, ipc::SharedAttachRole::kStrategy));
         CHECK(!other_size.is_open());
     }
 
     // 4. 없는 이름에는 붙지 않는다(주문 쪽이 아직 안 떴을 때 전략 쪽이 보는 경우).
     {
         ipc::SharedRegion guest;
-        CHECK(!guest.attach(unique_name("absent"), kRegionBytes, kLayoutVersion));
+        CHECK(!guest.attach(unique_name("absent"), kRegionBytes, kLayoutVersion, ipc::SharedAttachRole::kStrategy));
         CHECK(!guest.is_open());
         CHECK(!guest.last_error().empty());
     }
@@ -191,7 +191,7 @@ int main()
         CHECK(!owner.took_over_stale());
 
         ipc::SharedRegion peer;
-        CHECK(peer.attach(name, kRegionBytes, kLayoutVersion));
+        CHECK(peer.attach(name, kRegionBytes, kLayoutVersion, ipc::SharedAttachRole::kStrategy));
         CHECK(peer.creator_identity().same_as(mine));
         CHECK(peer.boot_generation() == 1);
         CHECK(peer.shutdown_reason() == ipc::SharedShutdownReason::kNone);
@@ -199,9 +199,12 @@ int main()
         owner.mark_clean_shutdown(ipc::SharedShutdownReason::kSessionEnd);
         CHECK(peer.shutdown_reason() == ipc::SharedShutdownReason::kSessionEnd);
 
-        // 붙은 쪽은 주인이 아니라 적지 못한다 — 적히면 남은 쪽이 크래시를 정상 종료로 읽는다.
+        // 붙은 쪽은 주인 칸이 아니라 제 역할 칸에 적는다 — 주인 칸에 적히면 남은 쪽이 주인의 크래시를
+        //  정상 종료로 읽는다.
         peer.mark_clean_shutdown(ipc::SharedShutdownReason::kOperator);
         CHECK(owner.shutdown_reason() == ipc::SharedShutdownReason::kSessionEnd);
+        CHECK(owner.participant_shutdown_reason(ipc::SharedAttachRole::kStrategy) ==
+              ipc::SharedShutdownReason::kOperator);
 
         // 먼저 적은 사유가 남는다 — stop()은 소멸자에서 한 번 더 불리고, 그때는 왜 내려갔는지를 모른다.
         owner.mark_clean_shutdown(ipc::SharedShutdownReason::kStartupFail);
@@ -236,7 +239,7 @@ int main()
         CHECK(dead_owner.boot_generation() == 1);
 
         ipc::SharedRegion holder; // 짝 — 이것이 붙어 있어 윈도우에서 이름이 사라지지 않는다
-        CHECK(holder.attach(name, kRegionBytes, kLayoutVersion));
+        CHECK(holder.attach(name, kRegionBytes, kLayoutVersion, ipc::SharedAttachRole::kStrategy));
 
         // 주인이 죽은 모양을 만든다. 번호는 내 것 그대로 두고 기동 시각만 어긋내면 "번호는 살아 있는데
         //  그 프로세스는 아니다"가 되어, 죽은 주인과 번호 재사용을 한 번에 흉내 낸다.
@@ -257,6 +260,62 @@ int main()
             CHECK(taker.boot_generation() == 2);
             CHECK(taker.creator_identity().same_as(ipc::current_process_identity()));
         }
+    }
+
+    // 12. 붙는 쪽이 둘이 되면 종료 사유도 역할마다 따로 남는다 — 전략이 곱게 내려간 날 시세가 크래시했는지를
+    //  가려야 재기동이 무엇을 되살릴지 정한다. 칸 하나를 나눠 쓰면 나중에 적은 쪽이 앞선 쪽을 덮는다. [why D-114]
+    {
+        const std::string name = unique_name("roles");
+        ipc::SharedRegion owner;
+        CHECK(owner.create(name, kRegionBytes, kLayoutVersion));
+
+        // 아무도 안 붙은 자리는 "안 붙었다"다 — 크래시로 읽으면 매번 되살리기가 돈다.
+        CHECK(!owner.participant_attached(ipc::SharedAttachRole::kStrategy));
+        CHECK(!owner.participant_attached(ipc::SharedAttachRole::kFeed));
+        CHECK(!owner.participant_is_alive(ipc::SharedAttachRole::kFeed));
+
+        ipc::SharedRegion strategy_side;
+        CHECK(strategy_side.attach(name, kRegionBytes, kLayoutVersion, ipc::SharedAttachRole::kStrategy));
+        CHECK(strategy_side.attached_role() == ipc::SharedAttachRole::kStrategy);
+
+        ipc::SharedRegion feed_side;
+        CHECK(feed_side.attach(name, kRegionBytes, kLayoutVersion, ipc::SharedAttachRole::kFeed));
+        CHECK(feed_side.attached_role() == ipc::SharedAttachRole::kFeed);
+
+        const ipc::ProcessIdentity mine = ipc::current_process_identity();
+        CHECK(owner.participant_attached(ipc::SharedAttachRole::kStrategy));
+        CHECK(owner.participant_attached(ipc::SharedAttachRole::kFeed));
+        CHECK(owner.participant_identity(ipc::SharedAttachRole::kFeed).same_as(mine));
+        CHECK(owner.participant_is_alive(ipc::SharedAttachRole::kStrategy));
+
+        // 전략만 곱게 내려간다. 시세 칸은 아무것도 안 적힌 채 남아야 한다 = 크래시.
+        strategy_side.mark_clean_shutdown(ipc::SharedShutdownReason::kSessionEnd);
+        CHECK(owner.participant_shutdown_reason(ipc::SharedAttachRole::kStrategy) ==
+              ipc::SharedShutdownReason::kSessionEnd);
+        CHECK(owner.participant_shutdown_reason(ipc::SharedAttachRole::kFeed) == ipc::SharedShutdownReason::kNone);
+        CHECK(feed_side.participant_shutdown_reason(ipc::SharedAttachRole::kStrategy) ==
+              ipc::SharedShutdownReason::kSessionEnd);
+
+        // 주인 칸은 둘 중 누가 적어도 안 바뀐다.
+        CHECK(owner.shutdown_reason() == ipc::SharedShutdownReason::kNone);
+
+        // 시세도 내려간다 — 그제야 제 칸에 사유가 실린다.
+        feed_side.mark_clean_shutdown(ipc::SharedShutdownReason::kOperator);
+        CHECK(owner.participant_shutdown_reason(ipc::SharedAttachRole::kFeed) ==
+              ipc::SharedShutdownReason::kOperator);
+        CHECK(owner.participant_shutdown_reason(ipc::SharedAttachRole::kStrategy) ==
+              ipc::SharedShutdownReason::kSessionEnd);
+
+        // 이름은 로그에 그대로 싣는다.
+        CHECK(ipc::role_name(ipc::SharedAttachRole::kStrategy) == "strategy");
+        CHECK(ipc::role_name(ipc::SharedAttachRole::kFeed) == "feed");
+
+        // 다시 붙으면 사유가 지워진다 — 지난 판의 종료 사유가 이번 판의 판정에 섞이면 안 된다.
+        ipc::SharedRegion feed_again;
+        CHECK(feed_again.attach(name, kRegionBytes, kLayoutVersion, ipc::SharedAttachRole::kFeed));
+        CHECK(owner.participant_shutdown_reason(ipc::SharedAttachRole::kFeed) == ipc::SharedShutdownReason::kNone);
+        CHECK(owner.participant_shutdown_reason(ipc::SharedAttachRole::kStrategy) ==
+              ipc::SharedShutdownReason::kSessionEnd);
     }
 
     std::cout << "test_shared_region OK (" << g_checks << " checks)\n";

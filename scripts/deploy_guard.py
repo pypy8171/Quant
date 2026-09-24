@@ -38,7 +38,7 @@ TRADER_PATTERN = re.compile(r"quant_trader(\.exe)?(?:[\s\"']|$)", re.IGNORECASE)
 WATCHDOG_PATTERN = re.compile(r"auto_trade_day\.(?:ps1|sh)", re.IGNORECASE)
 CONFIG_TOKEN_PATTERN = re.compile(r"[^\s\"']*config[^\s\"']*\.json", re.IGNORECASE)
 # 갈라 띄운 엔진의 역할. `--role order` 와 `--role=order` 둘 다 받는다(CommandLine.cpp 와 같다).
-ROLE_PATTERN = re.compile(r"--role[=\s]+(order|strategy|both)", re.IGNORECASE)
+ROLE_PATTERN = re.compile(r"--role[=\s]+(order|strategy|feed|both)", re.IGNORECASE)
 
 PAPER_WINDOW_END = dt.time(15, 30)   # 모의는 정규장까지
 LIVE_WINDOW_END = dt.time(20, 0)     # 실계좌는 애프터마켓까지(D-097)
@@ -198,7 +198,7 @@ def main() -> int:
     if roles:
         role_note = " 도는 엔진 " + "·".join(roles) + f" {len(roles)}개."
         if len(roles) > 1:
-            role_note += " exe 하나를 바꾸면 둘 다 내려갔다 다시 뜬다."
+            role_note += " exe 하나를 바꾸면 전부 내려갔다 다시 뜬다."
 
     if end is None:
         print(f"[deploy_guard] 통과 — {reason}. 바꿀 exe를 쓰는 프로세스가 없다.")

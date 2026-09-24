@@ -124,7 +124,8 @@ void test_round_trip()
     ipc::MarketFeedChannel receiver;
 
     check(sender.create(g_storage, kStorageBytes, kLanes, kTradeCapacity, kBookCapacity), "놓기");
-    check(receiver.attach(g_storage, kStorageBytes, kLanes, kTradeCapacity, kBookCapacity), "붙기");
+    check(receiver.attach(g_storage, kStorageBytes, kLanes,
+                          ipc::RingEndpoint::kConsumer, kTradeCapacity, kBookCapacity), "붙기");
     check(sender.lanes() == kLanes && receiver.is_bound(), "줄 수");
 
     for (int64_t quantity = 1; quantity <= 5; ++quantity)
@@ -151,11 +152,12 @@ void test_round_trip()
     check(!receiver.pop_order_book(0, limits(), book), "호가도 다 읽으면 빈 큐");
     check(receiver.discarded() == 0, "버린 칸이 없다");
 
-    // 넘어간 건수는 링 순번을 그대로 읽는다 — 보낸 쪽은 sent_* 만, 받은 쪽은 received_* 만 오른다.
+    // 넘어간 건수는 링 순번을 그대로 읽고, 그 순번은 공유 칸에 있다 — 어느 손잡이로 물어도 같은 답이다.
+    //  한쪽 프로세스만 보고도 통로가 도는지 알 수 있다. [why D-114 단계 5]
     check(sender.sent_trades() == 5 && sender.sent_order_books() == 1, "보낸 수를 센다");
-    check(sender.received_trades() == 0 && sender.received_order_books() == 0, "보낸 쪽은 꺼낸 수가 없다");
     check(receiver.received_trades() == 5 && receiver.received_order_books() == 1, "꺼낸 수를 센다");
-    check(receiver.sent_trades() == 0 && receiver.sent_order_books() == 0, "받은 쪽은 보낸 수가 없다");
+    check(sender.received_trades() == 5 && sender.received_order_books() == 1, "보낸 쪽에서도 꺼낸 수가 보인다");
+    check(receiver.sent_trades() == 5 && receiver.sent_order_books() == 1, "받은 쪽에서도 보낸 수가 보인다");
 }
 
 void test_lanes_are_separate()
@@ -164,7 +166,8 @@ void test_lanes_are_separate()
     ipc::MarketFeedChannel receiver;
 
     check(sender.create(g_storage, kStorageBytes, kLanes, kTradeCapacity, kBookCapacity), "놓기(줄 가르기)");
-    check(receiver.attach(g_storage, kStorageBytes, kLanes, kTradeCapacity, kBookCapacity), "붙기(줄 가르기)");
+    check(receiver.attach(g_storage, kStorageBytes, kLanes,
+                          ipc::RingEndpoint::kConsumer, kTradeCapacity, kBookCapacity), "붙기(줄 가르기)");
 
     check(sender.push_trade(1, trade_of(9, 33)), "둘째 줄에 보내기");
 
@@ -185,19 +188,27 @@ void test_attach_refusals()
 
     ipc::MarketFeedChannel other;
 
-    check(!other.attach(g_storage, kStorageBytes, kLanes, kTradeCapacity * 2, kBookCapacity),
+    check(!other.attach(g_storage, kStorageBytes, kLanes,
+                        ipc::RingEndpoint::kConsumer, kTradeCapacity * 2, kBookCapacity),
           "체결 칸 수가 다르면 안 붙는다");
-    check(!other.attach(g_storage, kStorageBytes, kLanes, kTradeCapacity, kBookCapacity * 2),
+    check(!other.attach(g_storage, kStorageBytes, kLanes,
+                        ipc::RingEndpoint::kConsumer, kTradeCapacity, kBookCapacity * 2),
           "호가 칸 수가 다르면 안 붙는다");
-    check(!other.attach(g_storage, 64, kLanes, kTradeCapacity, kBookCapacity), "구역이 작으면 안 붙는다");
-    check(!other.attach(g_storage + 8, kStorageBytes - 8, kLanes, kTradeCapacity, kBookCapacity),
+    check(!other.attach(g_storage, 64, kLanes,
+                        ipc::RingEndpoint::kConsumer, kTradeCapacity, kBookCapacity), "구역이 작으면 안 붙는다");
+    check(!other.attach(g_storage + 8, kStorageBytes - 8, kLanes,
+                        ipc::RingEndpoint::kConsumer, kTradeCapacity, kBookCapacity),
           "경계가 어긋나면 안 붙는다");
-    check(!other.attach(nullptr, kStorageBytes, kLanes, kTradeCapacity, kBookCapacity), "자리가 없으면 안 붙는다");
-    check(!other.attach(g_storage, kStorageBytes, 0, kTradeCapacity, kBookCapacity), "줄 0은 안 붙는다");
-    check(!other.attach(g_storage, kStorageBytes, ipc::kMaxFeedLanes + 1, kTradeCapacity, kBookCapacity),
+    check(!other.attach(nullptr, kStorageBytes, kLanes,
+                        ipc::RingEndpoint::kConsumer, kTradeCapacity, kBookCapacity), "자리가 없으면 안 붙는다");
+    check(!other.attach(g_storage, kStorageBytes, 0,
+                        ipc::RingEndpoint::kConsumer, kTradeCapacity, kBookCapacity), "줄 0은 안 붙는다");
+    check(!other.attach(g_storage, kStorageBytes, ipc::kMaxFeedLanes + 1,
+                        ipc::RingEndpoint::kConsumer, kTradeCapacity, kBookCapacity),
           "줄 상한을 넘으면 안 붙는다");
     check(!other.last_error().empty(), "거절 사유가 남는다");
-    check(other.attach(g_storage, kStorageBytes, kLanes, kTradeCapacity, kBookCapacity), "머리가 같으면 붙는다");
+    check(other.attach(g_storage, kStorageBytes, kLanes,
+                       ipc::RingEndpoint::kConsumer, kTradeCapacity, kBookCapacity), "머리가 같으면 붙는다");
 
     // 둘째 줄 머리를 망가뜨리면 그 줄에서 걸린다 — 첫째 줄만 보고 통과시키지 않는다.
     auto* second = reinterpret_cast<ipc::SharedRingControl*>(
@@ -205,7 +216,8 @@ void test_attach_refusals()
     second->magic = 0;
 
     ipc::MarketFeedChannel late;
-    check(!late.attach(g_storage, kStorageBytes, kLanes, kTradeCapacity, kBookCapacity), "표식이 깨지면 안 붙는다");
+    check(!late.attach(g_storage, kStorageBytes, kLanes,
+                       ipc::RingEndpoint::kConsumer, kTradeCapacity, kBookCapacity), "표식이 깨지면 안 붙는다");
     check(!late.is_bound(), "반쪽으로 붙어 있지 않다");
 
     late.unbind();
@@ -218,7 +230,8 @@ void test_overflow_is_counted()
     ipc::MarketFeedChannel receiver;
 
     check(sender.create(g_storage, kStorageBytes, kLanes, kTradeCapacity, kBookCapacity), "놓기(넘침 시험)");
-    check(receiver.attach(g_storage, kStorageBytes, kLanes, kTradeCapacity, kBookCapacity), "붙기(넘침 시험)");
+    check(receiver.attach(g_storage, kStorageBytes, kLanes,
+                          ipc::RingEndpoint::kConsumer, kTradeCapacity, kBookCapacity), "붙기(넘침 시험)");
 
     for (size_t index = 0; index < kTradeCapacity; ++index)
     {
@@ -240,7 +253,8 @@ void test_broken_slots_are_discarded()
     ipc::MarketFeedChannel receiver;
 
     check(sender.create(g_storage, kStorageBytes, kLanes, kTradeCapacity, kBookCapacity), "놓기(망가진 칸 시험)");
-    check(receiver.attach(g_storage, kStorageBytes, kLanes, kTradeCapacity, kBookCapacity), "붙기(망가진 칸 시험)");
+    check(receiver.attach(g_storage, kStorageBytes, kLanes,
+                          ipc::RingEndpoint::kConsumer, kTradeCapacity, kBookCapacity), "붙기(망가진 칸 시험)");
 
     // 네 건을 보낸 뒤 앞의 셋을 서로 다른 방식으로 망가뜨린다. 넷째는 성한 것으로 둔다.
     for (int64_t quantity = 1; quantity <= 4; ++quantity)
@@ -285,7 +299,8 @@ void test_two_threads()
     ipc::MarketFeedChannel receiver;
 
     check(sender.create(g_storage, kStorageBytes, kLanes, kTradeCapacity, kBookCapacity), "놓기(두 스레드)");
-    check(receiver.attach(g_storage, kStorageBytes, kLanes, kTradeCapacity, kBookCapacity), "붙기(두 스레드)");
+    check(receiver.attach(g_storage, kStorageBytes, kLanes,
+                          ipc::RingEndpoint::kConsumer, kTradeCapacity, kBookCapacity), "붙기(두 스레드)");
 
     constexpr int64_t kTotal = 20000;
 

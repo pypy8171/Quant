@@ -10,9 +10,9 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import csv
 import datetime as dt
-import gzip
 import json
 import re
 import subprocess
@@ -110,6 +110,9 @@ PROTECTIVE_MATCH_SEC = 60
 # 임계값. 넘으면 그날 운영이 실제로 상했던 수준이다.
 MAX_STALE_ORDERS = 25     # 유령주문 재부활 — 취소 왕복이 초당한도를 밀어낸다
 MIN_SESSION_SEC = 30      # 이보다 짧게 죽으면 배선/바이너리 문제(정상 재기동 아님)
+# 갈라 띄운 날(D-114)에는 주문·전략·시세 프로세스가 같은 기동에서 엔진 시작 줄을 각각 찍는다.
+#  두 줄 사이가 이 안이면 한 번의 기동으로 센다(09-23 실측 1.1초 — 설정 로드·유니버스 스캔에 걸린 시간 차이다).
+SAME_BOOT_SEC = 60
 GUARD_QUIET_SEC = 90      # 청산 관리 부착 직후 이 시간 안의 본전탈출은 재기동 투매다
 CHURN_SEC = 120           # 같은 종목 매도→매수가 이 안에 오면 회전
 MAX_CHURN = 3
@@ -158,6 +161,14 @@ WATCH_OVERFLOW_RE = re.compile(r"watch_overflow=(\d+)")
 # 시세 통로(D-114 단계 4 배선 2') — 큐가 차서 못 넘긴 건수, 꺼낸 값이 말이 안 돼 버린 건수.
 FEED_CHANNEL_OVERFLOW_RE = re.compile(r"feed_channel_overflow=(\d+)")
 FEED_CHANNEL_DISCARD_RE = re.compile(r"feed_channel_discarded=(\d+)")
+# 통로를 지나간 건수(D-114 단계 5) — 보낸 쪽과 받은 쪽을 따로 센다. 갈라 띄운 날에 둘 다 0이면
+#  통로가 붙지 않은 것이라, 버린 건수가 0이어도 그날 시세는 경계를 넘지 못했다.
+FEED_CHANNEL_SENT_RE = re.compile(r"feed_channel_sent=(\d+)")
+FEED_CHANNEL_RECEIVED_RE = re.compile(r"feed_channel_received=(\d+)")
+# 체결 통로(D-114 단계 5) — 체결통보는 시세 소켓에 실려 오므로 시세 프로세스가 받아 주문 쪽으로 넘긴다.
+#  이 길이 끊기면 주문 쪽 선점분이 안 풀려 총노출을 이중계상하고 원장에 체결이 안 실린다.
+FILL_CHANNEL_SENT_RE = re.compile(r"fill_channel_sent=(\d+)")
+FILL_CHANNEL_RECEIVED_RE = re.compile(r"fill_channel_received=(\d+)")
 # 체결통보 세션(D-114 단계 3) — 기동마다 한 줄. 맡은 소켓이 몇 번인지, 아무도 안 맡았는지, 둘 이상이 맡았는지.
 FILL_SESSION_ONE_RE = re.compile(r"\[Engine\] 체결통보 세션: 소켓 (\d+)")
 FILL_SESSION_NONE_RE = re.compile(r"\[Engine\] 체결통보 세션: 없음")
@@ -591,6 +602,27 @@ def restart_verify_row(date: str) -> tuple:
     return (name, True, "FAIL", detail)
 
 
+def engine_logs() -> list:
+    """계좌마다 그날 실행 로그를 이름표와 함께 낸다.
+
+    갈라 띄운 날에는 로그 폴더에 quant_trader.log 가 없고 역할별 파일 셋뿐이라, 파일 이름으로
+    훑던 전역 판정이 통째로 비었다. 이름표는 한 프로세스면 계좌 이름, 갈라 띄웠으면 "계좌/역할" 이다 —
+    어느 역할이 사유를 안 적고 내려갔는지 판정 문구에서 바로 보이게 한다. [why D-114 단계 5]
+    """
+    labelled = []
+
+    for directory in sorted(REPO.glob("Quant/build*/logs*")):
+        if not directory.is_dir():
+            continue
+
+        for engine_log in _logdir.live_logs(directory):
+            role = _logdir.role_of(engine_log)
+            labelled.append((directory.name if role == "both" else f"{directory.name}/{role}",
+                             engine_log))
+
+    return labelled
+
+
 def shared_region_exit_row(date: str) -> tuple:
     """앞선 기동이 종료 사유를 적고 내려갔는지, 짝이 몰래 다시 떴는지.
 
@@ -609,6 +641,9 @@ def shared_region_exit_row(date: str) -> tuple:
 
     기동 실패(3)를 적고 내려간 것도 FAIL 이다. 기동 번호가 바뀐 것을 제어 스레드가 잡은 줄도
     FAIL 이다 — 짝 프로세스가 죽고 다시 떠서 한쪽이 옛 판을 들고 주문을 내려 했다는 뜻이다.
+
+    갈라 띄운 날에는 붙은 프로세스가 셋(주문·전략·시세)이고 저마다 제 칸에 사유를 적으므로, 로그도
+    역할별로 읽어 어느 역할이 안 적고 내려갔는지 문구에 이름표로 남긴다. [why D-114 단계 5]
     """
     name = "공유 쪽지 종료 판정"
     blank_reasons: dict[str, int] = {}
@@ -617,13 +652,11 @@ def shared_region_exit_row(date: str) -> tuple:
     desyncs: dict[str, int] = {}
     saw_any_line = False
 
-    for engine_log in sorted(REPO.glob("Quant/build*/logs*/quant_trader.log")):
+    for account, engine_log in engine_logs():
         try:
             body = engine_log.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-
-        account = engine_log.parent.name
 
         for line in body.splitlines():
             if date not in line:
@@ -706,13 +739,11 @@ def order_answer_row(date: str) -> tuple:
     overdue: dict[str, int] = {}
     gap_max_ms = -1
 
-    for engine_log in sorted(REPO.glob("Quant/build*/logs*/quant_trader.log")):
+    for account, engine_log in engine_logs():
         try:
             body = engine_log.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-
-        account = engine_log.parent.name
 
         for line in body.splitlines():
             if date not in line:
@@ -771,13 +802,11 @@ def scan_registration_row(date: str) -> tuple:
     registered_by_account: dict = {}
     breakdown_by_account: dict = {}
 
-    for engine_log in sorted(REPO.glob("Quant/build*/logs*/quant_trader.log")):
+    for account, engine_log in engine_logs():
         try:
             body = engine_log.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-
-        account = engine_log.parent.name
 
         for line in body.splitlines():
             if date not in line or "정배열 프리필터" not in line:
@@ -827,7 +856,7 @@ def fill_notice_session_row(date: str) -> tuple:
     missing: list[str] = []
     attached = 0
 
-    for engine_log in sorted(REPO.glob("Quant/build*/logs*/quant_trader.log")):
+    for account, engine_log in engine_logs():
         try:
             body = engine_log.read_text(encoding="utf-8", errors="replace")
         except OSError:
@@ -846,7 +875,7 @@ def fill_notice_session_row(date: str) -> tuple:
 
             if "WS 구독 종목" in line:
                 if pending_start:
-                    missing.append(f"{pending_start} [{engine_log.parent.name}]")
+                    missing.append(f"{pending_start} [{account}]")
 
                 # 구독이 한 종목이라도 있으면 WS 는 열렸다 — 문제는 0개일 때였다.
                 pending_start = line[11:19] if "0개" in line else ""
@@ -858,12 +887,12 @@ def fill_notice_session_row(date: str) -> tuple:
             pending_start = ""
 
             if "없음" in line:
-                missing.append(f"{line[11:19]} [{engine_log.parent.name}]")
+                missing.append(f"{line[11:19]} [{account}]")
             else:
                 attached += 1
 
         if pending_start:
-            missing.append(f"{pending_start} [{engine_log.parent.name}]")
+            missing.append(f"{pending_start} [{account}]")
 
     if not attached and not missing:
         return (name, True, "WARN", f"{date} 기동 로그가 없다 — 판정 안 함")
@@ -1135,8 +1164,66 @@ def print_rows(rows: list) -> int:
     return bad
 
 
+def log_lines(date: str, log: Path):
+    """판정이 읽을 줄을 낸다(개행 포함).
+
+    로그 폴더를 주면 그 폴더의 실행 로그와 그날 회전본을 줄머리 시각으로 합쳐 낸다 — 갈라 띄운 날에는
+    역할마다 파일을 나눠 쓰므로, 이어 붙이면 시각이 되감겨 '마지막 줄'을 보는 판정이 틀린다.
+    파일 하나를 주면 그 파일만 읽는다(7일 지난 날의 archive/*.log.gz 도 그대로). [why D-114]
+    """
+    if log.is_dir():
+        yield from _logdir.iter_log_lines(date, log)
+        return
+
+    with _logdir.open_log(log) as log_file:
+        yield from log_file
+
+
+def role_process_count(directory: Path, date: str) -> int:
+    """그 폴더에서 그날 로그를 쓴 역할 프로세스 수. 갈라 띄운 날은 3(주문·전략·시세), 한 프로세스면 1이다."""
+    roles = {_logdir.role_of(path) for path in _logdir.log_sources(date, directory)}
+    roles.discard("both")
+    return max(1, len(roles))
+
+
+def boot_starts(starts: list[int], process_count: int) -> list[int]:
+    """엔진 시작 줄을 기동 단위로 묶는다.
+
+    갈라 띄우면 역할마다 같은 기동에서 한 줄씩 찍는다. 그대로 세면 세션 수가 역할 수만큼 불고,
+    두 줄 사이가 몇 초뿐이라 '일찍 끝난 세션'도 기동마다 헛으로 잡힌다. 붙어 있는 줄을 프로세스 수만큼까지만
+    한 기동으로 본다 — 한 프로세스로 띄운 날은 아무것도 묶지 않아 판정이 예전 그대로다.
+    """
+    if process_count <= 1:
+        return starts
+
+    boots: list[int] = []
+    grouped = 0
+
+    for second in starts:
+        if boots and grouped < process_count and second - boots[-1] < SAME_BOOT_SEC:
+            grouped += 1
+            continue
+
+        boots.append(second)
+        grouped = 1
+
+    return boots
+
+
+def account_name(target: Path) -> str:
+    """판정 묶음에 붙일 계좌 이름 — 로그 폴더 이름이다. 파일 하나를 받으면 그 파일이 든 로그 폴더 이름."""
+    return target.name if target.is_dir() else _logdir.dir_of(target).name
+
+
+def health_targets() -> list[Path]:
+    """계좌마다 판정할 로그 폴더. 갈라 띄운 날에는 폴더에 quant_trader.log 가 없고 역할별 파일 셋뿐이라,
+    파일 이름으로 훑으면 그날 판정이 통째로 빈다 — 그래서 폴더째로 고른다. [why D-114]"""
+    return [directory for directory in sorted(REPO.glob("Quant/build*/logs*"))
+            if directory.is_dir() and _logdir.live_logs(directory)]
+
+
 def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
-    """로그 한 파일에서 그날 점검 행을 만든다.
+    """로그 폴더 하나(또는 로그 파일 하나)에서 그날 점검 행을 만든다.
 
     반환 (rows, session_count). rows 원소는 (이름, 통과, 등급, 설명). 세션이 없으면 rows 빈 리스트.
     market_close_autodoc이 마감 문서 4절에 이 표를 그대로 싣는다 — 사람이 따로 돌려 보지 않아도 되게.
@@ -1209,14 +1296,20 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
     watch_overflow = -1                          # 구독 상한에 밀린 종목 수. -1이면 그 줄이 없는 구 exe
     feed_channel_overflow = -1                   # 통로가 차서 못 넘긴 시세 건수. -1이면 그 줄이 없는 구 exe
     feed_channel_discarded = -1                  # 꺼낸 값이 말이 안 돼 버린 건수. -1이면 그 줄이 없는 구 exe
+    feed_channel_sent = -1                       # 시세 통로로 보낸 건수. -1이면 그 칸이 없는 구 exe
+    feed_channel_received = -1                   # 시세 통로에서 꺼낸 건수. -1이면 그 칸이 없는 구 exe
+    fill_channel_sent = -1                       # 체결 통로로 보낸 체결통보 수. -1이면 그 칸이 없는 구 exe
+    fill_channel_received = -1                   # 체결 통로에서 꺼낸 체결통보 수. -1이면 그 칸이 없는 구 exe
     fill_session_socket = -1                     # 체결통보를 맡은 소켓 번호. -1이면 그 줄이 없는 구 exe
     fill_session_none = 0                        # 맡은 소켓이 없다고 찍힌 기동 수
     fill_session_many = 0                        # 둘 이상이 맡았다고 찍힌 기동 수
     zmq_bind_fail = 0                            # ZMQ 포트 bind 실패(포트 충돌) 횟수
 
-    # 7일 지난 날은 archive/quant_trader_<날짜>.log.gz — market_close_autodoc이 그 경로를 그대로 넘긴다
-    opener = (lambda: gzip.open(log, "rt", encoding="utf-8", errors="replace")) if log.suffix == ".gz"         else (lambda: log.open(encoding="utf-8", errors="replace"))
-    with opener() as log_file:
+    # 폴더면 갈라 띄운 로그를 시각순으로 합쳐 본다. 파일 하나면 그 파일만 —
+    #  7일 지난 날은 archive/quant_trader_<날짜>.log.gz 를 market_close_autodoc이 그대로 넘긴다.
+    process_count = role_process_count(log, date) if log.is_dir() else 1
+
+    with contextlib.closing(log_lines(date, log)) as log_file:
         for line in log_file:
             m = TS_RE.match(line)
             if not m or m.group(1) != date:
@@ -1291,6 +1384,14 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
                 feed_channel_overflow = max(feed_channel_overflow, int(found.group(1)))
             if found := FEED_CHANNEL_DISCARD_RE.search(line):
                 feed_channel_discarded = max(feed_channel_discarded, int(found.group(1)))
+            if found := FEED_CHANNEL_SENT_RE.search(line):
+                feed_channel_sent = max(feed_channel_sent, int(found.group(1)))
+            if found := FEED_CHANNEL_RECEIVED_RE.search(line):
+                feed_channel_received = max(feed_channel_received, int(found.group(1)))
+            if found := FILL_CHANNEL_SENT_RE.search(line):
+                fill_channel_sent = max(fill_channel_sent, int(found.group(1)))
+            if found := FILL_CHANNEL_RECEIVED_RE.search(line):
+                fill_channel_received = max(fill_channel_received, int(found.group(1)))
             if found := FILL_SESSION_ONE_RE.search(line):
                 fill_session_socket = int(found.group(1))
             elif FILL_SESSION_NONE_RE.search(line):
@@ -1380,6 +1481,8 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
                 protective_shadow.append((second, found.group(1)))
             if PROTECTIVE_FIRED_RE.search(line):
                 protective_fired += 1
+
+    starts = boot_starts(starts, process_count)
 
     if not starts:
         return [], 0
@@ -1533,6 +1636,28 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
             return (name, True, level, "시세 통로 수치 줄 없음(D-114 단계 4 배선 2' 배포 전 바이너리) — 판정 안 함")
         return (name, ok, level, detail)
 
+    # 통로 흐름(D-114 단계 5) — 역할 셋(주문·전략·시세)으로 갈라 띄운 날에만 본다. 한 프로세스로 뜬 날은
+    #  경계가 없어 통로가 아예 안 만들어지고, 그 칸이 없는 옛 바이너리도 같이 건너뛴다.
+    three_roles = process_count >= 3
+
+    def feed_flow_row(name: str, ok: bool, level: str, detail: str):
+        if feed_channel_sent < 0 and feed_channel_received < 0:
+            return (name, True, level, "시세 통로 흐름 수치 줄 없음(D-114 단계 5 배포 전 바이너리) — 판정 안 함")
+
+        if not three_roles:
+            return (name, True, level, "한 프로세스로 뜬 날 — 경계가 없어 판정 안 함")
+
+        return (name, ok, level, detail)
+
+    def fill_flow_row(name: str, ok: bool, level: str, detail: str):
+        if fill_channel_sent < 0 and fill_channel_received < 0:
+            return (name, True, level, "체결 통로 수치 줄 없음(D-114 단계 5 배포 전 바이너리) — 판정 안 함")
+
+        if not three_roles:
+            return (name, True, level, "한 프로세스로 뜬 날 — 경계가 없어 판정 안 함")
+
+        return (name, ok, level, detail)
+
     # 보호 주문 대조(D-114 단계 1) — 표가 shadow 인 날만 맞댈 것이 있다. owner 로 올린 날이나
     #  걸린 규칙도 청산도 없던 날은 판정하지 않는다.
     def protective_row(name: str, ok: bool, level: str, detail: str):
@@ -1611,6 +1736,17 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
         feed_channel_row("시세 통로", feed_channel_overflow <= 0 and feed_channel_discarded <= 0, "FAIL",
                          f"못 넘긴 시세 {max(feed_channel_overflow, 0)}건 · 값이 이상해 버린 시세 "
                          f"{max(feed_channel_discarded, 0)}건 (둘 다 기대 0)"),
+        # 버린 건수가 0이어도 한 건도 안 지나갔으면 통로가 안 붙은 것이다. 갈라 띄운 날에 둘 다 0이면
+        #  전략은 그날 틱을 하나도 못 본 채 돌았다 — 신호가 아예 안 났으므로 조용한 실패다.
+        feed_flow_row("시세 통로 흐름", feed_channel_sent > 0 or feed_channel_received > 0, "FAIL",
+                      f"보낸 시세 {max(feed_channel_sent, 0)}건 · 꺼낸 시세 {max(feed_channel_received, 0)}건"
+                      " (둘 다 0이면 시세가 경계를 못 넘어 전략이 틱을 하나도 못 봤다)"),
+        # 체결통보는 시세 소켓에 같이 실려 온다. 시세 쪽이 주문 쪽으로 넘기지 못하면 주문 쪽은 자기가 낸
+        #  주문이 체결된 줄을 모른다 — 선점분(reserved_)이 안 풀려 총노출을 이중계상하고 원장도 빈다.
+        fill_flow_row("체결 통로", not fills or fill_channel_received > 0, "FAIL",
+                      f"체결통보 {len(fills)}건 · 통로로 보낸 {max(fill_channel_sent, 0)}건 ·"
+                      f" 꺼낸 {max(fill_channel_received, 0)}건"
+                      " (체결이 난 날에 꺼낸 건수가 0이면 주문 쪽 선점분이 안 풀린다)"),
         # 보호 주문 표는 아직 shadow — 판정만 남기고 발주는 전략이 한다. 표의 판정과 전략의 청산이 같은
         #  종목·같은 자리에서 나는 날이 쌓여야 owner 로 올릴 수 있다. 어긋나면 표가 먼저 보거나 놓친 것이다.
         protective_row("보호 주문 대조",
@@ -1754,15 +1890,15 @@ def main() -> int:
     log = Path(arguments.log)
 
     if arguments.log != str(DEFAULT_LOG):
-        log_files = [log] if log.exists() else []
+        targets = [log] if log.exists() else []
     else:
         # 계좌마다 로그 폴더가 다르다. 기본값 하나만 보면 _logdir.log_dir() 이 그날 마지막으로
         #  쓰인 폴더를 고르므로, 실계좌를 돌린 날에도 모의 로그만 판정하는 일이 생긴다
         #  (2026-09-23 실계좌 첫날 실측 — FAIL 7건 중 실계좌 것은 하나였는데 구분이 안 됐다).
         #  계좌 폴더를 모두 돌고 계좌별로 낸다. [why D-097]
-        log_files = sorted(REPO.glob("Quant/build*/logs*/quant_trader.log"))
+        targets = health_targets()
 
-    if not log_files:
+    if not targets:
         print(f"로그 없음: {log}")
         return 1
 
@@ -1772,14 +1908,14 @@ def main() -> int:
     bad = 0
     seen_session = False
 
-    for log_file in log_files:
-        rows, session_count = collect(arguments.date, log_file, since, include_global=False)
+    for target in targets:
+        rows, session_count = collect(arguments.date, target, since, include_global=False)
 
         if not rows:
             continue
 
         seen_session = True
-        print(f"-- 계좌 {log_file.parent.name} (세션 {session_count}회) --")
+        print(f"-- 계좌 {account_name(target)} (세션 {session_count}회) --")
         bad += print_rows(rows)
 
     if not seen_session:

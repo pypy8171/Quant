@@ -407,9 +407,11 @@ def render(ymd: str, log_facts: dict, led: dict, log_path, csv_path) -> str:
     # 계좌마다 로그 폴더가 다르다. 하나만 실으면 그날 마지막으로 쓰인 폴더가 뽑혀
     #  실계좌를 돌린 날에도 모의 판정이 문서에 남는다(2026-09-23 실계좌 첫날 실측).
     #  계좌별로 표를 나누고, 계좌와 무관한 판정은 끝에 한 번만 싣는다. [why D-097]
-    log_files = sorted(REPO.glob("Quant/build*/logs*/quant_trader.log"))
-    if not log_files and log_path is not None:
-        log_files = [Path(log_path)]
+    #  고르는 단위는 파일이 아니라 폴더다 — 갈라 띄운 날에는 폴더에 quant_trader.log 가 없고
+    #  주문·전략·시세 파일 셋뿐이라, 파일 이름으로 훑으면 그날 표가 통째로 빈다. [why D-114]
+    targets = check_runtime_health.health_targets()
+    if not targets and log_path is not None:
+        targets = [Path(log_path)]
 
     def add_health_table(rows: list) -> None:
         add("| 판정 | 항목 | 내용 |")
@@ -422,15 +424,15 @@ def render(ymd: str, log_facts: dict, led: dict, log_path, csv_path) -> str:
 
     seen_session = False
 
-    for log_file in log_files:
+    for target in targets:
         health_rows, session_count = check_runtime_health.collect(
-            ymd, log_file, include_global=False)
+            ymd, target, include_global=False)
 
         if not health_rows:
             continue
 
         seen_session = True
-        add(f"**계좌 `{log_file.parent.name}`** (세션 {session_count}회)")
+        add(f"**계좌 `{check_runtime_health.account_name(target)}`** (세션 {session_count}회)")
         add("")
         add_health_table(health_rows)
 

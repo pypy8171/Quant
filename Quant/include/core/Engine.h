@@ -103,16 +103,24 @@ public:
         return role_;
     }
 
-    // 이 프로세스가 맡는 일감. Both 면 둘 다 참이다 — 지금까지의 한 프로세스와 같다.
-    //  주문 쪽은 주문·체결·원장·게이트, 전략 쪽은 시세·전략·신호다(가르는 선은 docs/DECISIONS.md D-114).
+    // 이 프로세스가 맡는 일감. Both 면 셋 다 참이다 — 지금까지의 한 프로세스와 같다.
+    //  주문 쪽은 주문·체결·원장·게이트, 전략 쪽은 전략·신호, 시세 쪽은 WebSocket 소켓과 디코드다
+    //  (가르는 선은 docs/DECISIONS.md D-114).
+    // **긍정형이다** — 열거한 역할만 참이다. 부정형으로 두면 역할이 늘 때 새 역할이 조용히 참이 되어
+    //  시세만 맡을 프로세스가 주문 스레드·원장까지 띄운다. 판정 본문은 ProcessRole 쪽에 있다. [why D-114]
     [[nodiscard]] bool runs_order_side() const noexcept
     {
-        return role_ != ProcessRole::Strategy;
+        return role_.runs_order_side();
     }
 
     [[nodiscard]] bool runs_strategy_side() const noexcept
     {
-        return role_ != ProcessRole::Order;
+        return role_.runs_strategy_side();
+    }
+
+    [[nodiscard]] bool runs_feed_side() const noexcept
+    {
+        return role_.runs_feed_side();
     }
 
     // ── 티커 문자열이 종목 번호가 되는 자리 ─────────────────────────────────
@@ -138,6 +146,12 @@ public:
     [[nodiscard]] uint64_t symbol_lookup_misses() const noexcept
     {
         return symbol_lookup_misses_.load(std::memory_order_relaxed);
+    }
+
+    // 시세 역할이 구독 목록에 없는 종목을 받아 버린 횟수.
+    [[nodiscard]] uint64_t unknown_ticker_dropped() const noexcept
+    {
+        return unknown_ticker_dropped_.load(std::memory_order_relaxed);
     }
 
     // 전략 이름 등록을 주문 쪽에 맡겼다가 못 받은 횟수. 0이 아니면 그 전략의 손익 귀속이 비어 있다.
@@ -175,6 +189,16 @@ public:
 
     // 통로의 줄 수 = 소켓 수 + REST 대체 줄 하나. 마지막 줄에 넣는 쪽은 데이터 스레드다. [why D-114]
     [[nodiscard]] uint32_t feed_channel_lanes();
+
+    // ── 체결 통로(시세 → 주문) ────────────────────────────────────────────
+    // 앱키가 하나라 체결통보가 시세 소켓에 실린다 — 갈라 띄우면 체결이 이 통로로 경계를 넘는다.
+    //  큐가 차서 못 넘긴 수·값이 말이 안 돼 버린 수는 둘 다 0이어야 한다. 0이 아니면 주문 쪽 예약 수량이
+    //  안 풀려 총노출을 이중계상한다(단계 5의 A급 자리). 밀어 넣은 수·꺼낸 수는 시세 통로와 같은 모양으로
+    //  프로세스마다 제 쪽 것만 는다. 한 프로세스로 돌면 넷 다 0이다. [why D-114 단계 5]
+    [[nodiscard]] uint64_t fill_channel_overflows();
+    [[nodiscard]] uint64_t fill_channel_discarded();
+    [[nodiscard]] uint64_t fill_channel_sent();
+    [[nodiscard]] uint64_t fill_channel_received();
 
     // ── 주문 쪽 스위치를 고치는 자리 ────────────────────────────────────────
     // OrderGate·원장은 주문 프로세스 것이다. 전략 역할이면 여기서 직접 고치지 않고 제어 요청 한 줄을
@@ -565,6 +589,11 @@ private:
     // 제어 면에 쌓인 요청을 비우고 완성된 표를 건다. [inv] order_thread에서만 부른다(원칙 4).
     void apply_control_requests(ControlInbox& inbox);
 
+    // 전략 → 시세 제어 줄을 비운다. 구독·해지 낱말만 이 줄로 오므로 받는 자리도 여기 하나다.
+    //  소켓을 쥔 쪽의 감시 스레드가 부른다 — 목록에만 올리고 소켓에 거는 것은 이어지는
+    //  drain_pending_subscriptions()가 한다. [why D-114 단계 5]
+    void apply_feed_control_requests();
+
     // 전략이 보는 보호 주문 창구. 켜고 끄기는 요청으로 주문 스레드에 넘기고, 읽기 둘은 표를 그대로 본다 —
     //  표를 고치는 것은 단일 시퀀서다(원칙 4). 프로세스를 가르면 읽기 둘도 응답 통로로 바뀐다. [why D-114]
     class ControlProtectiveRegistry : public risk::ProtectiveOrderRegistry
@@ -854,6 +883,10 @@ private:
         // 뒤 토막. 자리표 위 제어 면이고 여기 있는 것은 그 자리를 가리키는 포인터다. 전략 스레드가 넣고
         //  주문 스레드가 꺼낸다. [inv] bind_layout()이 꽂는다. [why D-114]
         ipc::SharedSpscRing<ipc::ControlRequest>* controls = nullptr;
+        // 전략 → 시세 제어 줄. 구독·해지 낱말만 이리로 간다(ipc::routes_to_feed). 소켓을 쥔 쪽이 시세로
+        //  옮겨 가면서 구독 요청이 갈 곳도 같이 옮겼다 — 주문 쪽을 거쳐 가면 한 홉이 늘고, 주문 스레드가
+        //  소켓 쓰기에 막히면 그동안 주문이 안 나간다. [inv] bind_layout()이 꽂는다. [why D-114 단계 5]
+        ipc::SharedSpscRing<ipc::ControlRequest>* feed_controls = nullptr;
         std::atomic<uint64_t> control_sequence{0};  // 제어 요청 순번 발급기. 0은 안 쓴다
         std::atomic<uint64_t> control_dropped{0};   // 앞 토막이 가득 차 못 보낸 줄 수. 0이 아니면 표가 버려졌다
         std::atomic<uint64_t> control_relay_dropped{0}; // 뒤 토막이 가득 차 못 옮긴 줄 수. 보낸 쪽은 성공을 받은 뒤다
@@ -869,6 +902,12 @@ private:
         //  가리킨다 — 칸은 처음부터 있었지만 찍는 쪽도 보는 쪽도 없어 비어 있었다. [why D-114]
         //  [inv] bind_layout()이 꽂는다.
         ipc::Heartbeat* order_heartbeat = nullptr;
+        // 시세 스레드가 한 바퀴마다 찍는다. 시세가 죽으면 체결통보가 주문 쪽에 안 들어와 예약 수량이 안
+        //  풀리므로(총노출 이중계상), 이 칸의 공백이 그 사고를 가장 먼저 알리는 자리다. [why D-114 단계 5]
+        //  [inv] bind_layout()이 꽂는다.
+        ipc::Heartbeat* feed_heartbeat = nullptr;
+        // 시세 → 주문 체결통보 큐에 밀어 넣은 순번 발급기. 0은 안 쓴다 — 받는 쪽이 0을 "안 채워진 칸"으로 본다.
+        std::atomic<uint64_t> fill_sequence{0};
         // 전략 스레드가 본 가장 긴 주문 박동 공백(나노초). 전략 쪽 공백과 달리 여기에는 증권사 왕복이
         //  그대로 들어온다 — 문턱을 실측으로 좁히려고 밖으로 낸다. [why D-114]
         std::atomic<int64_t> order_beat_gap_max_ns{0};
@@ -1018,6 +1057,9 @@ private:
     std::atomic<uint64_t> symbol_register_timeouts_{0};
     std::atomic<uint64_t> symbol_lookup_misses_{0};
     std::atomic<uint64_t> strategy_register_timeouts_{0};
+
+    // 시세 역할이 구독하지 않은 종목을 받아 버린 횟수. 0이 아니면 구독 목록과 세션이 어긋난 것이다.
+    std::atomic<uint64_t> unknown_ticker_dropped_{0};
 
     // ── 종목명 캐시 ──────────────────────────────────────────────────────────
     // 종목 id→종목명 라벨(로그 표시용, 빈 문자열=없음). 여러 스레드가 접근해 ticker_names_mutex_로 보호.

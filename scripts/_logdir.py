@@ -9,8 +9,9 @@ logs/ 에 쓴다. 그래서 같은 날짜의 trades_YYYYMMDD.csv 가 두 폴더�
   log_dir()          엔진 로그 폴더. QUANT_LOG_DIR > 실행 로그가 가장 최근에 쓰인 후보
                      > 실재하는 첫 후보 > Quant/build_win/logs
   live_logs(dir)     그 폴더의 실행 로그들. D-114로 갈라 띄우면 한 프로세스가 quant_trader.log 를 쓰는 대신
-                     주문 쪽이 quant_trader.order.log, 전략 쪽이 quant_trader.strategy.log 를 쓴다
-  role_of(path)      그 파일을 쓴 역할("both"·"order"·"strategy") — 판정을 역할별로 가르는 쪽이 쓴다
+                     주문 쪽이 quant_trader.order.log, 전략 쪽이 quant_trader.strategy.log,
+                     시세 쪽이 quant_trader.feed.log 를 쓴다
+  role_of(path)      그 파일을 쓴 역할("both"·"order"·"strategy"·"feed") — 판정을 역할별로 가르는 쪽이 쓴다
   find_ledger(date)  그 날짜 원장. 행 수 최대, 동률이면 mtime 최신
   find_log(date)     고른 원장 옆의 quant_trader.log, 없으면 log_dir() 의 것
   log_sources(date, directory)   그 날짜 줄이 들어 있을 수 있는 파일 — archive/quant_trader_<날짜>.log.gz 뒤에
@@ -31,7 +32,8 @@ LEDGER_NAME = "trades_{ymd}.csv"
 LOG_NAME = "quant_trader.log"
 # 역할을 주고 띄운 프로세스가 쓰는 이름(D-114 단계 4). 갈라 띄우면 둘이 한 파일에 섞여 써서 `[큐 고수위]` 줄이
 #  어느 쪽 수인지 모르기에 파일을 가른다. 이름은 Quant/src/core/CommandLine.cpp 의 log_file_name 이 정본이다.
-ROLE_LOG_NAMES = {"order": "quant_trader.order.log", "strategy": "quant_trader.strategy.log"}
+ROLE_LOG_NAMES = {"order": "quant_trader.order.log", "strategy": "quant_trader.strategy.log",
+                  "feed": "quant_trader.feed.log"}
 LIVE_LOG_NAMES = (LOG_NAME,) + tuple(ROLE_LOG_NAMES.values())
 ARCHIVE_DIR_NAME = "archive"
 ARCHIVE_NAME = "quant_trader_{iso}.log.gz"   # maintain.py rotate_engine_log 가 쓰는 이름
@@ -124,7 +126,7 @@ def find_ledger(date: str) -> Path | None:
 
 
 def live_logs(directory: Path | None = None) -> list[Path]:
-    """그 폴더에 실재하는 실행 로그들 — 한 프로세스면 quant_trader.log 하나, 갈라 띄웠으면 역할별 둘."""
+    """그 폴더에 실재하는 실행 로그들 — 한 프로세스면 quant_trader.log 하나, 갈라 띄웠으면 역할별 셋."""
     base = directory if directory is not None else log_dir()
     return [base / name for name in LIVE_LOG_NAMES if (base / name).is_file()]
 
@@ -141,7 +143,7 @@ def role_of(path: Path) -> str:
 def find_log(date: str | None = None) -> Path | None:
     """원장을 고른 폴더의 로그를 우선한다 — 그날 실제로 돈 엔진의 로그가 원장 옆에 있다.
     갈라 띄운 폴더에는 quant_trader.log 가 없어 역할별 파일 중 최신을 낸다. 한 파일만 보는 옛 소비자를 위한
-    것이고, 둘 다 봐야 하면 live_logs() 나 iter_log_lines() 를 쓴다."""
+    것이고, 전부 봐야 하면 live_logs() 나 iter_log_lines() 를 쓴다."""
     if date:
         led = find_ledger(date)
         if led is not None:
@@ -198,7 +200,7 @@ def iter_log_lines(date: str | None = None, directory: Path | None = None) -> It
     """log_sources() 의 파일을 열어 줄을 낸다(개행 포함). 소비자는 date 로 줄을 거르는 일을 그대로 한다 —
     gz 에는 그 날짜 줄만 있지만 라이브 로그에는 여러 날이 섞여 있다.
 
-    파일이 둘 이상이면 줄머리 시각으로 합친다. 갈라 띄운 주문·전략 로그는 같은 시각대를 나눠 쓰고 있어,
+    파일이 둘 이상이면 줄머리 시각으로 합친다. 갈라 띄운 주문·전략·시세 로그는 같은 시각대를 나눠 쓰고 있어,
     이어 붙이면 시각이 되감겨 '마지막 줄'을 보는 판정이 틀린다. [why D-114]"""
     sources = log_sources(date, directory)
 

@@ -15,6 +15,7 @@
   powershell -ExecutionPolicy Bypass -File scripts\auto_trade_day.ps1 -Config Quant\config\config.json -Until 15:35
   powershell -ExecutionPolicy Bypass -File scripts\auto_trade_day.ps1 -DryRun
   powershell -ExecutionPolicy Bypass -File scripts\auto_trade_day.ps1 -NoTrader   # 트레이더는 리눅스(WSL)에서 손으로 띄우는 날
+  powershell -ExecutionPolicy Bypass -File scripts\auto_trade_day.ps1 -Roles order,strategy,feed   # 역할 셋으로 갈라 띄운다(-Split 과 같다)
 #>
 [CmdletBinding()]
 param(
@@ -29,7 +30,8 @@ param(
   [switch]$NoMarketClose,                    # 마감 뒤 사실 문서·대시보드 갱신을 건너뛴다
   [switch]$NoBuild,                  # 기동 전 재빌드를 건너뛴다(exe를 손으로 바꾼 날). 이때는 소스가 exe보다 새면 중단
   [switch]$NoTrader,                 # 트레이더를 이 창이 띄우지 않는다(리눅스 등 다른 곳이 띄우는 날). 부속 창·유니버스 갱신·마감 정리는 그대로
-  [switch]$Split,                    # 엔진을 주문 쪽·전략 쪽 두 프로세스로 띄운다(D-114 단계 4). 한쪽이 내려가면 짝도 내리고 둘을 같이 재기동한다
+  [switch]$Split,                    # (옛 이름) -Roles order,strategy,feed 와 같다. 이 이름을 쓰던 부름자가 그대로 돌게 남겨 둔다
+  [string[]]$Roles = @('both'),      # 트레이더를 어떤 역할로 띄울지. both 하나이거나 order,strategy,feed 셋이다(D-114 단계 5)
   [switch]$DryRun
 )
 
@@ -342,6 +344,28 @@ function Refresh-Universe {
 # ─────────────── 사전 점검 ───────────────
 Say "자동매매 하루 루프 시작 — config=$Config until=$Until$(if($DryRun){' (dry-run)'})"
 
+# ─────────────── 역할 정리 ───────────────
+# 성립하는 조합은 둘뿐이다 — 한 프로세스(both), 또는 주문·전략·시세 셋.
+#  시세 프로세스가 WebSocket 소켓을 쥐므로 order+strategy 둘만 띄우면 아무도 소켓을 안 쥔다. 시세도
+#  체결통보도 안 들어오는데 프로세스는 멀쩡히 떠 있어 아무도 못 알아챈다 — 그 조합은 뜨기 전에 거절한다.
+#  체결통보가 안 들어오면 주문 쪽 reserved_ 가 안 풀려 총노출을 이중계상한다. [why D-114 단계 5]
+$SplitRoles = @('order', 'strategy', 'feed')
+if ($Split) { $Roles = $SplitRoles }
+$Roles = @($Roles | ForEach-Object { "$_".Trim().ToLower() } | Where-Object { $_ })
+if ($Roles.Count -eq 0) { $Roles = @('both') }
+
+$IsSplit = -not ($Roles.Count -eq 1 -and $Roles[0] -eq 'both')
+if ($IsSplit) {
+  $missing = @($SplitRoles | Where-Object { $Roles -notcontains $_ })
+  $unknown = @($Roles | Where-Object { $SplitRoles -notcontains $_ })
+  if ($missing -or $unknown -or $Roles.Count -ne $SplitRoles.Count) {
+    Say ("역할 목록이 성립하지 않는다: $($Roles -join ',') — 쓸 수 있는 것은 both 하나이거나" +
+         " $($SplitRoles -join ',') 셋이다. 셋 중 하나라도 빠지면 시세 소켓을 아무도 쥐지 않는다.") "ERROR"
+    Save-Status "aborted" @{ error = "bad_roles"; roles = $Roles }
+    exit 2
+  }
+}
+
 # 지난 회차의 남은 프로세스를 먼저 치운다. Job Object는 워치독이 정상적으로 사라질 때만 자식을 내리는데,
 # 강제 종료·리부트·워치독 없이 손으로 띄운 창은 그 경로를 타지 않는다. 그렇게 남은 보조 프로세스·
 # 대시보드가 계속 폴링하면 REST 초당 한도를 같이 갉아먹고, 창만 남은 빈 창은 화면을 먹는다.
@@ -418,9 +442,9 @@ $dup = @(Get-Process quant_trader -ErrorAction SilentlyContinue | Where-Object {
 })
 if ($dup) {
   # 두 프로세스가 같은 계좌에 발주하면 원장이 깨진다. 자동으로 정리하지 않고 멈춘다.
-  # 갈라 띄운 날에는 한 엔진이 프로세스 둘이다(주문·전략) — 2개가 떠 있어도 엔진은 하나다.
+  # 갈라 띄운 날에는 한 엔진이 프로세스 셋이다(주문·전략·시세) — 3개가 떠 있어도 엔진은 하나다.
   #  그래도 막는 판정은 같다. 이 창이 또 띄우면 그 계좌에 엔진이 둘이 된다. [why D-114]
-  Say "같은 계좌($myAccountKey)에 발주하는 quant_trader가 이미 $($dup.Count)개 떠 있다(갈라 띄운 날에는 엔진 하나가 2개다). 중복 발주를 막기 위해 중단한다." "ERROR"
+  Say "같은 계좌($myAccountKey)에 발주하는 quant_trader가 이미 $($dup.Count)개 떠 있다(갈라 띄운 날에는 엔진 하나가 3개다). 중복 발주를 막기 위해 중단한다." "ERROR"
   Save-Status "aborted" @{ error = "duplicate_process"; pids = @($dup.Id); account = $myAccountKey }
   exit 2
 }
@@ -567,7 +591,7 @@ if (-not $NoRecorder) {
 }
 
 # ─────────────── 트레이더 기동 ───────────────
-# 짝 하나가 내려간 뒤 남은 쪽이 스스로 나가기를 기다리는 시간. 엔진이 공유 쪽지의 종료 사유를
+# 하나가 내려간 뒤 남은 쪽이 스스로 나가기를 기다리는 시간. 엔진이 공유 쪽지의 종료 사유를
 #  보는 주기가 5초고 거기에 스레드 회수가 더 든다 — 그 둘을 다 덮는다. [why D-114]
 $PeerExitGraceMs = 20000
 
@@ -610,7 +634,7 @@ if ($NoTrader) {
 }
 while (-not $NoTrader -and (Get-Date) -lt $deadline) {
   $n = $script:Sessions.Count + 1
-  Say $(if ($Split) { "세션 #$n 기동 — $Exe $Config (갈라 띄운다: 주문 쪽 + 전략 쪽)" } else { "세션 #$n 기동 — $Exe $Config" })
+  Say $(if ($IsSplit) { "세션 #$n 기동 — $Exe $Config (갈라 띄운다: $($Roles -join ' + ') 쪽)" } else { "세션 #$n 기동 — $Exe $Config" })
   if ($DryRun) { Say "  (dry) 트레이더 기동 생략, 루프 종료"; break }
 
   # 직전 세션이 '이미 한 번 당한' 실패 유형을 다시 냈는지 본다. 재기동마다 확인하지 않으면
@@ -627,16 +651,21 @@ while (-not $NoTrader -and (Get-Date) -lt $deadline) {
   # 엔진이 스스로 쓰는 보조 프로세스가 정상이면 이 복원은 같은 내용을 다시 쓸 뿐이라 무해하다.
   $null = Run-Native ("py `"{0}`"" -f (Join-Path $Repo "scripts\seed_open_orders.py")) "  "
 
-  # 갈라 띄우는 날은 순서가 있다 — 주문 쪽이 공유 쪽지를 만들고 전략 쪽이 거기 붙는다.
-  #  뒤집어 띄우면 전략 쪽이 30초를 기다리다 못 붙고 내려간다. [why D-114]
-  if ($Split) {
-    $members = @(
-      [pscustomobject]@{ role = "order";    proc = (Start-TraderProcess "order") }
-      [pscustomobject]@{ role = "strategy"; proc = (Start-TraderProcess "strategy") }
-    )
+  # 갈라 띄우는 날은 순서가 있다 — 주문 쪽이 공유 쪽지를 만들고 전략·시세가 거기 붙는다.
+  #  뒤집어 띄우면 붙는 쪽이 30초를 기다리다 못 붙고 내려간다. 전략과 시세 사이에는 차례가 없다 —
+  #  시세는 구독 목록이 안 와도 소켓을 먼저 열어 체결통보를 받는다. 그래서 주문을 맨 앞으로 끌어올려
+  #  띄우고 나머지는 적힌 차례대로 띄운다. [why D-114]
+  if ($IsSplit) {
+    $launchOrder = @('order') + @($Roles | Where-Object { $_ -ne 'order' })
+    $members = @($launchOrder | ForEach-Object {
+      [pscustomobject]@{ role = $_; proc = (Start-TraderProcess $_) }
+    })
     # pid 는 예전 이름 그대로 주문 쪽을 담는다 — 이 값을 읽는 감시자·판정이 그대로 돌게.
+    #  pids 는 역할 이름을 열쇠로 하는 표다. 역할이 늘면 칸도 같이 는다.
+    $pidsByRole = [ordered]@{}
+    foreach ($member in $members) { $pidsByRole[$member.role] = $member.proc.Id }
     Save-Status "running" @{ pid = $members[0].proc.Id; session = $n; split = $true
-                             pids = @{ order = $members[0].proc.Id; strategy = $members[1].proc.Id } }
+                             roles = @($members | ForEach-Object { $_.role }); pids = $pidsByRole }
   } else {
     $members = @([pscustomobject]@{ role = ""; proc = (Start-TraderProcess "") })
     Save-Status "running" @{ pid = $members[0].proc.Id; session = $n }
@@ -644,8 +673,10 @@ while (-not $NoTrader -and (Get-Date) -lt $deadline) {
 
   # WaitForExit로 통째로 막지 않는다. 트레이더를 기다리는 동안 부속 창 안의 파이썬이
   # 죽었는지도 같이 본다 — 알림·국면 보조 프로세스가 조용히 사라지는 것을 놓치지 않기 위해서다.
-  #  갈라 띄운 날에는 5초마다 짝을 함께 본다. 한쪽만 내려간 채로 도는 시간을 짧게 하려는 것이다 —
-  #  주문 쪽이 없으면 전략 쪽은 발주를 못 하고, 전략 쪽이 없으면 주문 쪽은 신호가 없다.
+  #  갈라 띄운 날에는 5초마다 셋을 함께 본다. 하나만 내려간 채로 도는 시간을 짧게 하려는 것이다 —
+  #  주문 쪽이 없으면 전략 쪽은 발주를 못 하고, 전략 쪽이 없으면 주문 쪽은 신호가 없다. 시세 쪽이 없으면
+  #  틱도 체결통보도 안 들어온다. 체결통보가 끊기면 주문 쪽의 선점분이 안 풀려 총노출이 이중계상되므로
+  #  시세가 죽은 날도 남은 둘을 내리고 셋을 같이 다시 띄운다.
   #  부속 창·유니버스 갱신은 예전처럼 60초에 한 번만 한다(REST 호출이 붙는다). [why D-114]
   $exitedMember = $null
   $lastChores   = Get-Date
@@ -653,7 +684,7 @@ while (-not $NoTrader -and (Get-Date) -lt $deadline) {
     foreach ($member in $members) { if ($member.proc.HasExited) { $exitedMember = $member; break } }
     if ($exitedMember) { break }
 
-    $null = $members[0].proc.WaitForExit($(if ($Split) { 5000 } else { 60000 }))
+    $null = $members[0].proc.WaitForExit($(if ($IsSplit) { 5000 } else { 60000 }))
 
     if (((Get-Date) - $lastChores).TotalSeconds -ge 60) {
       $lastChores = Get-Date
@@ -662,7 +693,7 @@ while (-not $NoTrader -and (Get-Date) -lt $deadline) {
     }
   }
 
-  # 남은 짝을 내린다. 이 창이 죽인 것이라 그쪽 exit 코드는 뜻이 없다 — 판정은 먼저 내려간 쪽으로 한다.
+  # 남은 쪽을 내린다. 이 창이 죽인 것이라 그쪽 exit 코드는 뜻이 없다 — 판정은 먼저 내려간 쪽으로 한다.
   foreach ($member in $members) {
     if (-not $member.proc.HasExited) {
       # 먼저 내려간 쪽이 깔끔하게 나갔을 때만 스스로 나가기를 기다린다 — 엔진의 control 스레드가
@@ -671,11 +702,11 @@ while (-not $NoTrader -and (Get-Date) -lt $deadline) {
       #  없어 기다려봐야 헛일이다 — 그때는 곧장 강제로 내린다. [why D-114]
       $peerLeftClean = ($exitedMember.proc.ExitCode -eq 0)
       $graceMs       = if ($peerLeftClean) { $PeerExitGraceMs } else { 0 }
-      $how           = if ($peerLeftClean) { "스스로 나가기를 기다린다" } else { "짝이 크래시라 곧장 내린다" }
-      Say "  $($member.role) 쪽 pid=$($member.proc.Id) 도 내린다 — 짝($($exitedMember.role) 쪽)이 내려갔다. $how." "WARN"
+      $how           = if ($peerLeftClean) { "스스로 나가기를 기다린다" } else { "먼저 내려간 쪽이 크래시라 곧장 내린다" }
+      Say "  $($member.role) 쪽 pid=$($member.proc.Id) 도 내린다 — $($exitedMember.role) 쪽이 내려갔다. $how." "WARN"
 
       if ($graceMs -gt 0 -and $member.proc.WaitForExit($graceMs)) {
-        Say "  $($member.role) 쪽 pid=$($member.proc.Id) 은 스스로 나갔다 — 짝($($exitedMember.role) 쪽)을 따랐다."
+        Say "  $($member.role) 쪽 pid=$($member.proc.Id) 은 스스로 나갔다 — $($exitedMember.role) 쪽을 따랐다."
         continue
       }
 
@@ -707,7 +738,7 @@ while (-not $NoTrader -and (Get-Date) -lt $deadline) {
   $now = Get-Date
   # 배포가 일부러 내린 것(scripts/deploy_trader.py 가 pid 표지를 남긴다)은 크래시로 세지 않는다 — 30분 안에 세 번
   #  배포하면 감시견이 크래시 루프로 보고 멈췄다.
-  # 갈라 띄운 날에는 표지가 프로세스마다 하나다 — 먼저 내려간 쪽 것만 지우면 짝의 표지가 _private\state\ 에 쌓인다. [why D-114]
+  # 갈라 띄운 날에는 표지가 프로세스마다 하나다 — 먼저 내려간 쪽 것만 지우면 나머지의 표지가 _private\state\ 에 쌓인다. [why D-114]
   $plannedReason = ""
   foreach ($member in $members) {
     $planned = "_private\state\planned_restart_$($member.proc.Id)"

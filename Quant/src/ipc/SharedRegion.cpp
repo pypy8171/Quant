@@ -45,6 +45,13 @@ bool header_matches(const SharedRegionHeader& header, size_t bytes, uint32_t lay
            header.bytes == bytes;
 }
 
+// 역할 값이 머리의 배열 밖을 짚지 않게 본다 — 이 값은 우리 프로세스 안에서 오지만, 첨자로 쓰는 자리라
+//  한 곳에서 막고 지나간다.
+bool role_in_range(SharedAttachRole role) noexcept
+{
+    return static_cast<size_t>(role) < kSharedAttachRoleCount;
+}
+
 #ifndef _WIN32
 // 구역 파일 권한 — 만든 사용자만 읽고 쓴다. 트레이더와 전략은 같은 계정으로 돈다(감시견이 띄운다).
 constexpr int kRegionPermissions = 0600;
@@ -91,6 +98,7 @@ SharedRegion::SharedRegion(SharedRegion&& other) noexcept
     , bytes_(other.bytes_)
     , owner_(other.owner_)
     , took_over_stale_(other.took_over_stale_)
+    , role_(other.role_)
     , name_(std::move(other.name_))
     , last_error_(std::move(other.last_error_))
 #ifdef _WIN32
@@ -123,6 +131,7 @@ SharedRegion& SharedRegion::operator=(SharedRegion&& other) noexcept
     bytes_           = other.bytes_;
     owner_           = other.owner_;
     took_over_stale_ = other.took_over_stale_;
+    role_            = other.role_;
     name_            = std::move(other.name_);
     last_error_      = std::move(other.last_error_);
 #ifdef _WIN32
@@ -276,7 +285,21 @@ bool SharedRegion::create(std::string_view name, size_t bytes, uint32_t layout_v
     return true;
 }
 
-bool SharedRegion::attach(std::string_view name, size_t bytes, uint32_t layout_version)
+std::string_view role_name(SharedAttachRole role) noexcept
+{
+    switch (role)
+    {
+        case SharedAttachRole::kStrategy:
+            return "strategy";
+
+        case SharedAttachRole::kFeed:
+            return "feed";
+    }
+
+    return "unknown";
+}
+
+bool SharedRegion::attach(std::string_view name, size_t bytes, uint32_t layout_version, SharedAttachRole role)
 {
     close();
     last_error_.clear();
@@ -287,9 +310,16 @@ bool SharedRegion::attach(std::string_view name, size_t bytes, uint32_t layout_v
         return false;
     }
 
+    if (!role_in_range(role))
+    {
+        last_error_ = "붙는 역할 값이 표 밖이다 — 받은 것=" + std::to_string(static_cast<uint32_t>(role));
+        return false;
+    }
+
     name_  = std::string(name);
     bytes_ = bytes;
     owner_ = false;
+    role_  = role;
 
 #ifdef _WIN32
     mapping_handle_ = OpenFileMappingA(FILE_MAP_ALL_ACCESS, FALSE, name_.c_str());
@@ -343,6 +373,17 @@ bool SharedRegion::attach(std::string_view name, size_t bytes, uint32_t layout_v
         return false;
     }
 
+    // 제 자리에 번호와 기동 시각을 적는다. 사유 칸은 0으로 되돌린다 — 앞선 기동이 곱게 내려가며 적어 둔 값이
+    //  남아 있으면, 이번에 죽어도 남은 쪽이 "곱게 내려갔다"로 읽는다.
+    const ProcessIdentity identity = current_process_identity();
+    SharedParticipant&    slot     = mutable_header()->attached[static_cast<size_t>(role)];
+    slot.start_time                = identity.start_time;
+    slot.attached_at_ns            = now_ns();
+    std::atomic_ref<uint32_t>(slot.shutdown_reason)
+        .store(static_cast<uint32_t>(SharedShutdownReason::kNone), std::memory_order_relaxed);
+
+    // 번호를 마지막에 적는다(release) — 보는 쪽은 번호가 0이 아닌 것을 보고 나머지 칸을 읽는다.
+    std::atomic_ref<uint32_t>(slot.process_id).store(identity.process_id, std::memory_order_release);
     return true;
 }
 
@@ -446,21 +487,107 @@ SharedShutdownReason SharedRegion::shutdown_reason() const noexcept
         std::atomic_ref<uint32_t>(const_cast<uint32_t&>(head->shutdown_reason)).load(std::memory_order_acquire));
 }
 
+// 붙은 쪽 한 자리를 짚는다. 열려 있지 않거나 역할 값이 표 밖이면 nullptr — 부르는 쪽이 보고 넘어간다.
+const SharedParticipant* SharedRegion::participant_of(SharedAttachRole role) const noexcept
+{
+    const SharedRegionHeader* head = header();
+
+    if (head == nullptr || !role_in_range(role))
+    {
+        return nullptr;
+    }
+
+    return &head->attached[static_cast<size_t>(role)];
+}
+
+bool SharedRegion::participant_attached(SharedAttachRole role) const noexcept
+{
+    const SharedParticipant* slot = participant_of(role);
+
+    if (slot == nullptr)
+    {
+        return false;
+    }
+
+    return std::atomic_ref<uint32_t>(const_cast<uint32_t&>(slot->process_id)).load(std::memory_order_acquire) != 0;
+}
+
+ProcessIdentity SharedRegion::participant_identity(SharedAttachRole role) const noexcept
+{
+    const SharedParticipant* slot = participant_of(role);
+
+    if (slot == nullptr)
+    {
+        return ProcessIdentity{};
+    }
+
+    ProcessIdentity identity;
+    identity.process_id =
+        std::atomic_ref<uint32_t>(const_cast<uint32_t&>(slot->process_id)).load(std::memory_order_acquire);
+
+    if (identity.process_id == 0)
+    {
+        return ProcessIdentity{};
+    }
+
+    identity.start_time = slot->start_time;
+    return identity;
+}
+
+bool SharedRegion::participant_is_alive(SharedAttachRole role) const noexcept
+{
+    const ProcessIdentity identity = participant_identity(role);
+
+    if (identity.process_id == 0)
+    {
+        return false;
+    }
+
+    return process_is_alive(identity);
+}
+
+SharedShutdownReason SharedRegion::participant_shutdown_reason(SharedAttachRole role) const noexcept
+{
+    const SharedParticipant* slot = participant_of(role);
+
+    if (slot == nullptr)
+    {
+        return SharedShutdownReason::kNone;
+    }
+
+    return static_cast<SharedShutdownReason>(
+        std::atomic_ref<uint32_t>(const_cast<uint32_t&>(slot->shutdown_reason)).load(std::memory_order_acquire));
+}
+
 void SharedRegion::mark_clean_shutdown(SharedShutdownReason reason) noexcept
 {
     SharedRegionHeader* head = mutable_header();
 
-    if (head == nullptr || !owner_ || reason == SharedShutdownReason::kNone)
+    if (head == nullptr || reason == SharedShutdownReason::kNone)
     {
         return;
+    }
+
+    // 주인은 주인 칸에, 붙은 쪽은 제 역할 칸에 적는다. 예전에는 주인만 적었는데, 붙는 쪽이 둘이 되면서
+    //  그 둘의 정상/크래시 구분이 통째로 비었다 — 남은 쪽이 "시세가 죽었나 곱게 내려갔나"를 못 가린다.
+    //  [inv] 제 칸 말고는 아무도 쓰지 않는다. [why D-114]
+    uint32_t* field = &head->shutdown_reason;
+
+    if (!owner_)
+    {
+        if (!role_in_range(role_))
+        {
+            return;
+        }
+
+        field = &head->attached[static_cast<size_t>(role_)].shutdown_reason;
     }
 
     // 먼저 적은 사유가 남는다 — stop() 은 두 번 불릴 수 있고(소멸자가 또 부른다) 뒤엣것은 왜 내려갔는지를
     //  모른다. 덮어쓰면 마감 자기 종료가 기동 실패로 바뀐다.
     uint32_t expected = static_cast<uint32_t>(SharedShutdownReason::kNone);
-    std::atomic_ref<uint32_t>(head->shutdown_reason)
-        .compare_exchange_strong(expected, static_cast<uint32_t>(reason), std::memory_order_release,
-                                 std::memory_order_relaxed);
+    std::atomic_ref<uint32_t>(*field).compare_exchange_strong(expected, static_cast<uint32_t>(reason),
+                                                              std::memory_order_release, std::memory_order_relaxed);
 }
 
 std::byte* SharedRegion::payload() noexcept

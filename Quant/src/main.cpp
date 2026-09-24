@@ -263,7 +263,7 @@ static int run_trade(const AppConfig& app, ProcessRole role)
     g_engine = &engine;
 
     // 역할은 configure·전략 로딩보다 먼저 정한다 — start()가 자리표를 역할대로 깔고(주문 쪽은 공유 쪽지를
-    //  만들고 전략 쪽은 붙는다) 스레드도 역할대로 띄운다. [why D-114]
+    //  만들고 전략·시세 쪽은 붙는다) 스레드도 역할대로 띄운다. [why D-114]
     engine.set_role(role);
     engine.configure(app);
 
@@ -282,7 +282,8 @@ static int run_trade(const AppConfig& app, ProcessRole role)
     }
     else
     {
-        LOG_INFO("[Main] 주문 역할 — 전략은 올리지 않는다(유니버스 스캔은 전략 프로세스에서 한 번만 돌린다)");
+        LOG_INFO(std::string("[Main] ") + role.to_string() +
+                 " 역할 — 전략은 올리지 않는다(유니버스 스캔은 전략 프로세스에서 한 번만 돌린다)");
     }
 
     engine.start();

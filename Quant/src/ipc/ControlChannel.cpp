@@ -29,6 +29,13 @@ std::string_view view_of_field(const char* field, size_t field_size) noexcept
 }
 } // namespace
 
+bool routes_to_feed(ControlKind kind) noexcept
+{
+    // 소켓을 쥔 쪽에 닿아야 하는 낱말만 고른다. 나머지(종목 등록·전략 등록·진입 정지·배수·킬스위치·손 정지·
+    //  하루 초기화·보호 주문·슬롯 면제·진입 우선순위)는 원장과 주문 게이트를 쥔 주문 프로세스 몫이다.
+    return kind == ControlKind::kWatchSubscribe || kind == ControlKind::kWatchUnsubscribe;
+}
+
 void set_account(ControlRequest& request, std::string_view account) noexcept
 {
     copy_into_field(request.account, kControlAccountMax, account);

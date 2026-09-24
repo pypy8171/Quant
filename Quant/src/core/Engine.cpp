@@ -123,10 +123,12 @@ bool Engine::bind_layout(uint32_t feed_lanes)
     // 자리표 위 면을 쓰는 자리에 꽂는다. [inv] 이 포인터들은 다음 bind_layout 까지만 유효하다.
     ledger_snapshot_             = layout_.ledger();
     pipeline_.controls           = &layout_.controls();
+    pipeline_.feed_controls      = &layout_.feed_controls();
     pipeline_.requests           = &layout_.requests();
     pipeline_.order_responses    = &layout_.responses();
     pipeline_.strategy_heartbeat = &layout_.heartbeats()->strategy;
     pipeline_.order_heartbeat    = &layout_.heartbeats()->order;
+    pipeline_.feed_heartbeat     = &layout_.heartbeats()->feed;
 
     adopt_shared_dictionaries();
     return true;
@@ -150,6 +152,29 @@ void Engine::adopt_shared_dictionaries()
                              [this](std::string_view ticker) { return layout_.symbols().intern(ticker); });
         order_gate_.adopt_strategy_table(layout_.strategies().slots(),
                                          [this](std::string_view name) { return layout_.strategies().intern(name); });
+    }
+    else if (role_ == ProcessRole::Feed)
+    {
+        // 시세는 찾기만 한다 — 넣어 달라는 부탁은 제어 줄을 타는데, 그 줄은 보내는 쪽 하나(전략)로 선
+        //  한줄 큐다. 시세가 같은 줄에 끼면 깨진다. 표에 없는 티커는 청하지 않은 종목이 세션에 실려 온
+        //  것이니 버리고 센다. 부르는 자리가 register_symbol 이든 표의 넣기 훅이든 같게 막는다.
+        //  [why D-114 단계 5]
+        symbols_.table.adopt(layout_.symbols().slots(),
+                             [this](std::string_view)
+                             {
+                                 unknown_ticker_dropped_.fetch_add(1, std::memory_order_relaxed);
+
+                                 return symbol::kNone;
+                             });
+        order_gate_.adopt_strategy_table(layout_.strategies().slots(),
+                                         [](std::string_view)
+                                         {
+                                             // 시세는 주문을 내지 않아 전략 번호를 쓸 일이 없다. 여기 오면
+                                             //  부르는 자리가 잘못 섞인 것이다.
+                                             LOG_ERROR("[Engine] 시세 역할이 전략 번호를 청했다 — 부르는 자리가 잘못됐다");
+
+                                             return strategy_table::kNone;
+                                         });
     }
     else
     {
@@ -227,12 +252,15 @@ bool Engine::bind_layout_on_region(size_t needed)
         return layout_.create(layout_region_.payload(), layout_region_.payload_bytes(), layout_config_);
     }
 
-    // 붙는 쪽은 전략 프로세스다. 주문 쪽이 먼저 떠야 쪽지가 있으므로 그동안 기다린다 — 감시견은 둘을
-    //  같이 띄우고 순서를 정해 주지 않는다. 기다려도 없으면 뜨지 않는다(빈 큐로 돌면 신호가 사라진다).
-    const auto deadline = std::chrono::steady_clock::now() + kSharedRegionAttachTimeout;
-    bool       waited   = false;
+    // 붙는 쪽은 전략·시세 프로세스 둘이다. 주문 쪽이 먼저 떠야 쪽지가 있으므로 그동안 기다린다 — 감시견은
+    //  셋을 같이 띄우고 순서를 정해 주지 않는다. 기다려도 없으면 뜨지 않는다(빈 큐로 돌면 신호가 사라진다).
+    //  역할을 같이 넘기는 것은 면마다 제 끝(보내는 쪽·받는 쪽)이 다르기 때문이다 — 제 끝이 아닌 면에
+    //  손대면 남의 소비자 칸을 덮는다. [why D-114 단계 5]
+    const auto attach_role = role_ == ProcessRole::Feed ? ipc::SharedAttachRole::kFeed : ipc::SharedAttachRole::kStrategy;
+    const auto deadline    = std::chrono::steady_clock::now() + kSharedRegionAttachTimeout;
+    bool       waited      = false;
 
-    while (!layout_region_.attach(name, bytes, ipc::kSharedLayoutVersion))
+    while (!layout_region_.attach(name, bytes, ipc::kSharedLayoutVersion, attach_role))
     {
         if (std::chrono::steady_clock::now() >= deadline)
         {
@@ -254,7 +282,7 @@ bool Engine::bind_layout_on_region(size_t needed)
              std::to_string(layout_region_.boot_generation()) + ")");
     // 붙은 판의 기동 번호를 적어 둔다 — 제어 스레드가 이 값과 대조해 건너편 재기동을 잡는다. [why D-114]
     peer_boot_generation_ = layout_region_.boot_generation();
-    return layout_.attach(layout_region_.payload(), layout_region_.payload_bytes(), layout_config_);
+    return layout_.attach(layout_region_.payload(), layout_region_.payload_bytes(), layout_config_, attach_role);
 }
 
 Engine::~Engine()
@@ -1045,7 +1073,8 @@ void Engine::initialize_data_poller()
             // 갈라 띄우면 샤드가 저쪽에 있다 — WS 수신 스레드와 같은 길로 통로에 넣고, 꺼내 가르는 일은
             //  전략 쪽 줄 스레드가 한다. 줄 번호는 행렬의 데이터 스레드 행과 같은 자리다(폴러 몫 한 줄).
             //  [inv] 이 줄에 넣는 스레드는 데이터 스레드 하나다 — SPSC가 그 위에 서 있다. [why D-114]
-            if (role_ == ProcessRole::Order)
+            //  단계 5부터 소켓과 넘침 폴러를 쥔 쪽은 시세 프로세스다 — 여기 넣는 쪽도 그쪽 하나다.
+            if (role_ == ProcessRole::Feed)
             {
                 push_feed_trade(pipeline_.data_row, trade);
                 return;
@@ -1296,7 +1325,7 @@ void Engine::drain_pending_subscriptions()
     }
 }
 
-// 소켓을 쥔 쪽이 디코드한 체결을 전략 프로세스로 넘긴다. 기다리지 않는다 — 큐가 차면 버리고 센다(원칙 3).
+// 소켓을 쥔 시세 프로세스가 디코드한 체결을 전략 프로세스로 넘긴다. 기다리지 않는다 — 큐가 차면 버리고 센다(원칙 3).
 //  [inv] 한 줄의 보내는 쪽은 그 소켓의 수신 스레드 하나다. 여기를 다른 스레드가 부르면 SPSC가 깨진다. [why D-114]
 void Engine::push_feed_trade(uint32_t lane, const TradeData& trade)
 {
@@ -1325,6 +1354,26 @@ uint64_t Engine::feed_channel_received()
 uint32_t Engine::feed_channel_lanes()
 {
     return layout_.feed().lanes();
+}
+
+uint64_t Engine::fill_channel_overflows()
+{
+    return layout_.fills().overflow();
+}
+
+uint64_t Engine::fill_channel_discarded()
+{
+    return layout_.fills().discarded();
+}
+
+uint64_t Engine::fill_channel_sent()
+{
+    return layout_.fills().sent();
+}
+
+uint64_t Engine::fill_channel_received()
+{
+    return layout_.fills().received();
 }
 
 void Engine::push_feed_order_book(uint32_t lane, const OrderBook& order_book)
@@ -1395,10 +1444,10 @@ void Engine::connect_feed()
     //  구독할 종목이 없어도 hts_id 가 있으면 열어둔다 — 체결통보(H0STCNI)는 종목 구독과
     //  별개라, 유니버스가 비었다고 닫아버리면 이월 보유분을 청산하는 주문의 체결을 못 듣고
     //  원장이 빈다. 2026-09-23 실계좌 첫날 청산 체결이 이렇게 사라졌다. [why D-097]
-    //  갈라 띄울 때도 같다 — 구독 목록은 전략 쪽에서 요청으로 오므로 주문만 맡은 프로세스는
+    //  갈라 띄울 때도 같다 — 구독 목록은 전략 쪽에서 요청으로 오므로 시세만 맡은 프로세스는
     //  목록이 비어도 소켓을 열어 둔다. 그때 소켓이 없으면 걸 곳이 없다. [why D-114]
     if (feed_.rest_price_feed ||
-        (watch_specifications_.empty() && kis_config_.hts_id.empty() && role_ != ProcessRole::Order))
+        (watch_specifications_.empty() && kis_config_.hts_id.empty() && role_ != ProcessRole::Feed))
     {
         // 안 열었다는 것도 남긴다 — 이 줄이 없으면 건강 점검은 체결통보가 끈겼는지를 못 가른다.
         LOG_INFO(std::string("[Engine] 체결통보 세션: 없음(") +
@@ -1503,7 +1552,7 @@ void Engine::connect_feed()
                            }
 
                            // 갈라 띄우면 소켓을 쥔 쪽은 통로에 넣기까지만 한다 — 샤드도 전략도 저쪽에 있다(원칙 3). [why D-114]
-                           if (role_ == ProcessRole::Order)
+                           if (role_ == ProcessRole::Feed)
                            {
                                push_feed_order_book(lane, order_book);
                                return;
@@ -1517,6 +1566,16 @@ void Engine::connect_feed()
                            //  수신 스레드가 디코드 시점에 찍은 값을 지키고, 안 찍힌 소스만 여기서 찍는다.
                            TradeData trade = in;
                            trade.symbol_id       = symbols_.table.intern(trade.ticker);
+
+                           // 번호가 안 붙었으면 이 줄을 접는다. 시세 역할은 표에 없는 티커를 버리고 세고
+                           //  (청하지 않은 종목이 세션에 실려 온 것이다), 전략 역할은 주문 쪽이 제때 안 달아
+                           //  준 때다. 그대로 보내면 통로 저쪽이 못 알아보고, 샤드로 가면 번호 없는 값이
+                           //  남의 샤드를 깨운다. 센 것에도 넣지 않는다 — 못 알아본 줄은 받은 시세가 아니다.
+                           //  [why D-114 단계 5]
+                           if (trade.symbol_id == symbol::kNone)
+                           {
+                               return;
+                           }
 
                            // 받은 체결을 센다. 예전엔 REST 폴링 경로(data_thread_fn)에서만 올려서, WS로만 도는
                            //  구성(DevScale 27종목)에서는 HEALTH의 data가 늘 0이었다 — 그라파나 "초당 틱 처리량"이
@@ -1541,15 +1600,19 @@ void Engine::connect_feed()
                            }
 
 #ifdef HAS_ZMQ
-                           // 발행은 팬아웃보다 먼저 한다 — 발행 채널은 주문 쪽에 있어 갈라 띄우면 여기가 유일한 자리이고,
-                           //  샤드 큐가 차서 돌아가던 예전 순서에서는 정체 때 그라파나까지 같이 멎었다. [why D-114]
+                           // 발행은 팬아웃보다 먼저 한다 — 샤드 큐가 차서 돌아가던 예전 순서에서는 정체 때
+                           //  그라파나까지 같이 멎었다. [why D-114]
+                           // [한계] 셋으로 가르면 이 포인터가 비어 체결 발행이 멎는다. 발행 소켓(PUB)과 명령
+                           //  소켓(REP)이 한 `ZmqBridge` 에 묶여 있고 명령은 주문 쪽에 있어야 해서, 가르려면
+                           //  포트를 둘로 나누고 대시보드가 보는 자리도 같이 바꿔야 한다 — 별개 결정이라
+                           //  단계 5의 남은 것에 적었다. [why D-114 단계 5]
                            if (zmq_bridge_)
                            {
                                zmq_bridge_->publish_trade(trade);
                            }
 #endif
 
-                           if (role_ == ProcessRole::Order)
+                           if (role_ == ProcessRole::Feed)
                            {
                                push_feed_trade(lane, trade);
                                return;
@@ -1557,8 +1620,37 @@ void Engine::connect_feed()
 
                            fan_out_trade(lane, trade);
                        });
-    auto push_fill = [this](const FillNotification& fill_notification)
+    // 갈라 띄운 날의 체결통보는 이 프로세스 것이 아니다 — 소켓이 시세로 오면서 체결통보도 같이 따라왔고,
+    //  원장을 쥔 쪽은 주문이다. 그래서 시세 역할일 때만 공유 체결 통로로 넘긴다. 한 프로세스로 돌면
+    //  예전처럼 프로세스 안 큐로 가 홉이 늘지 않는다. [why D-114 단계 5]
+    const bool fill_crosses_boundary = role_ == ProcessRole::Feed;
+
+    auto push_fill = [this, fill_crosses_boundary](const FillNotification& fill_notification)
                            {
+                               if (fill_crosses_boundary)
+                               {
+                                   bool           truncated = false;
+                                   const uint64_t sequence  = pipeline_.fill_sequence.fetch_add(1, std::memory_order_relaxed) + 1;
+                                   const auto     notice    = ipc::to_notice(fill_notification, sequence, trace::now_ns(), &truncated);
+
+                                   if (truncated)
+                                   {
+                                       // 잘린 주문번호로는 취소·정정을 증권사에 되돌려 줄 수 없다. 넘기기는 하되 남긴다.
+                                       LOG_ERROR("[Engine] 체결통보 칸이 모자라 글자가 잘렸다 — " + fill_notification.ticker +
+                                                 " ODNO=" + fill_notification.kis_order_no);
+                                   }
+
+                                   if (!layout_.fills().push(notice))
+                                   {
+                                       const auto count = pipeline_.fill_dropped.fetch_add(1, std::memory_order_relaxed) + 1;
+                                       LOG_ERROR("[Engine] 체결 통로 가득 참 — 드롭 " + fill_notification.ticker + " ODNO=" +
+                                                 fill_notification.kis_order_no + " (누적 " + std::to_string(count) +
+                                                 "건) 주문 쪽 예약 수량이 안 풀린다");
+                                   }
+
+                                   return;
+                               }
+
                                // 수신 스레드는 큐에 넣고 바로 돌아간다. 가득 찼으면(1024건 밀림 = 소비자가 멈춘 것)
                                //  기다리지 않고 버린다 — 여기서 대기하면 전 종목 틱이 같이 선다. 버린 건은
                                //  잔고 대조(control_thread)가 원장에 메운다. [why D-056]
@@ -1685,8 +1777,9 @@ void Engine::start()
         }
     }
 
-    // 틱 파이프라인 자리는 양쪽에 그대로 둔다 — 소켓을 쥔 쪽이 아직 샤드에 흘리기 때문이다.
-    //  시세가 통로로 건너가는 단계 5에서 주문 쪽 샤드는 사라진다. [why D-114]
+    // 틱 파이프라인 자리는 역할에 상관없이 그대로 깐다. 샤드 스레드를 띄우는 것은 전략 역할뿐이라
+    //  (spawn_threads) 주문·시세 쪽에서는 아무도 돌지 않지만, 자리는 아직 잡는다 — 떼는 것은 남은 일이다
+    //  (docs/DECISIONS.md D-114 단계 5 "남은 것"). [why D-114 단계 5]
     setup_shards();
 
     // [inv] 자리표를 깔 때 쓴 셈과 샤드가 실제로 연 줄 수는 같아야 한다 — 다르면 통로의 줄 자리가
@@ -1714,8 +1807,9 @@ void Engine::start()
         return;
     }
 
-    // REST 폴러는 양쪽에 둔다 — 전략 쪽은 유니버스·일봉·시세 보충에 쓰고, 주문 쪽은 WS 구독 상한에 밀린
-    //  종목의 대체 시세에 쓴다. 그 넘침 목록은 소켓을 쥔 쪽에만 있어 폴링도 그쪽이 해야 한다. [why D-114]
+    // REST 폴러는 역할마다 둔다 — 전략 쪽은 유니버스·일봉·시세 보충에 쓰고, 시세 쪽은 WS 구독 상한에 밀린
+    //  종목의 대체 시세와 WS가 죽었을 때의 폴백에 쓴다. 넘침 목록은 소켓을 쥔 쪽에만 있어 폴링도
+    //  그쪽이 해야 한다. [why D-114 단계 5]
     initialize_data_poller();
 
     if (runs_order_side())
@@ -1747,8 +1841,10 @@ void Engine::start()
     // 런타임 피드 상태를 config 의도로 초기화. 이후 WS 생사에 따라 control_thread가 토글한다.
     feed_.rest_feed_active.store(feed_.rest_price_feed, std::memory_order_relaxed);
 
-    // 시세 소켓은 주문 쪽이 쥔다 — 체결통보와 현재가 배열이 경계를 넘지 않게 하는 갈래다. [why D-114]
-    if (runs_order_side())
+    // 시세 소켓은 시세 쪽이 쥔다. 앱키 하나에 실시간 세션 하나라 소켓도 하나뿐이고, 체결통보(H0STCNI)가
+    //  시세와 같은 세션에 실린다 — 그래서 체결통보가 시세 → 주문으로 경계를 넘는다. 단계 4까지는 그 반대였다
+    //  (소켓을 주문에 두어 체결통보를 안 넘겼다). 앱키를 더 딸 수 없어 뒤집었다. [why D-114 단계 5]
+    if (runs_feed_side())
     {
         connect_feed();
     }
@@ -1831,13 +1927,28 @@ symbol::SymbolId Engine::register_symbol(std::string_view ticker)
 {
     // 표에 넣는 쪽은 주문 프로세스 하나다 — 양쪽이 각자 번호를 찍으면 같은 번호가 다른 종목을 가리킨다.
     //  갈라 띄우면 표 자체가 넣기를 주문 쪽으로 돌리므로(adopt_shared_dictionaries) 부르는 자리는 역할을
-    //  몰라도 된다. 아래 한 갈래는 표를 아직 안 바꾼 채 전략 역할로 도는 길을 막는 것이다 —
-    //  자리표를 못 깔았거나 단위 시험이 역할만 바꿔 도는 때다. [why D-114]
-    if (role_ == ProcessRole::Strategy)
+    //  몰라도 된다. 아래 한 갈래는 표를 아직 안 바꾼 채 번호를 안 다는 역할로 도는 길을 막는 것이다 —
+    //  자리표를 못 깔았거나 단위 시험이 역할만 바꿔 도는 때다. 시세 역할도 번호를 안 딴다. [why D-114]
+    if (!runs_order_side())
     {
         const symbol::SymbolId known = symbols_.table.lookup(ticker);
 
-        return known != symbol::kNone ? known : request_symbol_registration(ticker);
+        if (known != symbol::kNone)
+        {
+            return known;
+        }
+
+        // 시세 역할은 청하지도 않는다 — 제어 줄은 보내는 쪽 하나(전략)로 SPSC가 서 있어, 시세가 같은 줄에
+        //  끼면 깨진다. 구독 목록은 전략이 번호를 붙여 넘기므로 여기 모르는 티커가 오는 것은 구독하지 않은
+        //  종목이 세션에 실려 온 때다 — 버리고 센다. [why D-114 단계 5]
+        if (role_ == ProcessRole::Feed)
+        {
+            unknown_ticker_dropped_.fetch_add(1, std::memory_order_relaxed);
+
+            return symbol::kNone;
+        }
+
+        return request_symbol_registration(ticker);
     }
 
     return symbols_.table.intern(ticker);
@@ -1929,9 +2040,16 @@ void Engine::apply_reset_daily()
 
 void Engine::request_reset_daily()
 {
-    if (role_ != ProcessRole::Strategy)
+    // 부르는 자리는 데이터 스레드의 장 시작 감지라 역할 셋이 다 지난다. 원장·게이트를 든 쪽만 그 자리서
+    //  고치고, 전략은 통로로 청하고, 시세는 고칠 것이 없어 지나간다. [why D-114 단계 5]
+    if (runs_order_side())
     {
         apply_reset_daily();
+        return;
+    }
+
+    if (role_ == ProcessRole::Feed)
+    {
         return;
     }
 
@@ -1951,6 +2069,12 @@ void Engine::request_entry_halt(bool on)
         return;
     }
 
+    // 시세 프로세스는 제어 줄의 보내는 쪽이 아니다 — 여기서 보내면 SPSC가 깨진다. [why D-114 단계 5]
+    if (role_ == ProcessRole::Feed)
+    {
+        return;
+    }
+
     ipc::ControlRequest request;
     request.kind      = ipc::ControlKind::kEntryHalt;
     request.toggle_on = on ? 1 : 0;
@@ -1966,6 +2090,11 @@ void Engine::request_entry_scale(double entry_scale)
         return;
     }
 
+    if (role_ == ProcessRole::Feed)
+    {
+        return;
+    }
+
     ipc::ControlRequest request;
     request.kind        = ipc::ControlKind::kEntryScale;
     request.entry_scale = entry_scale;
@@ -1974,9 +2103,15 @@ void Engine::request_entry_scale(double entry_scale)
 
 void Engine::request_kill_switch(bool on)
 {
-    if (role_ != ProcessRole::Strategy)
+    if (runs_order_side())
     {
         order_gate_.set_kill_switch(on);
+        return;
+    }
+
+    // 시세 프로세스에는 게이트가 없다 — 주문을 내지 않으므로 막을 것도 없다. [why D-114 단계 5]
+    if (role_ == ProcessRole::Feed)
+    {
         return;
     }
 
@@ -1988,9 +2123,14 @@ void Engine::request_kill_switch(bool on)
 
 void Engine::request_manual_halt(OrderSide side, bool on)
 {
-    if (role_ != ProcessRole::Strategy)
+    if (runs_order_side())
     {
         order_gate_.set_manual_halt(side, on);
+        return;
+    }
+
+    if (role_ == ProcessRole::Feed)
+    {
         return;
     }
 
@@ -2189,6 +2329,7 @@ void Engine::data_thread_fn(std::stop_token stop_token)
     // 맡는 일감은 역할로 갈린다. [inv] 역할은 start() 전에 정해지고 도는 동안 바뀌지 않는다. [why D-114]
     const bool strategy_side = runs_strategy_side();
     const bool order_side    = runs_order_side();
+    const bool feed_side     = runs_feed_side();
 
     bool was_market_open = false;
 
@@ -2572,11 +2713,6 @@ void Engine::data_thread_fn(std::stop_token stop_token)
                     ++macro_tick;
                 }
 
-                // REST 현재가 폴링 → TradeData(WS on_trade 경로 대체). 깨진 일봉(G1/G2) 대신 살아있는
-                //  get_current_price를 쓰고, ITB는 이 틱으로 1분 버킷 채널을 구성/스탑 평가한다.
-                //  종전엔 WS와 같은 큐에 넣었는데, WS 폴백 중 WS가 되살아나면 생산자가 둘이 됐다 — 폴러의
-                //  싱크는 행렬의 데이터 스레드 행이라 그 경우가 없다. [why D-062]
-                data_count_ += poller_->poll_universe(watch_specifications_, std::time(nullptr));
             }
             else if (strategy_side)
             {
@@ -2634,10 +2770,25 @@ void Engine::data_thread_fn(std::stop_token stop_token)
                     }
                 }
 
-                // WS 상한에 밀린 종목 — 재구독을 먼저 시도하고(드롭으로 슬롯이 비었을 수 있다) 안 되면 REST로.
-                //  rest 분기가 도는 사이클에는 부르지 않는다(그쪽이 이미 전 종목을 폴링한다).
-                if (order_side && poller_ && feed_.websocket)
+            }
+
+            // 폴링 두 가지는 시세 소켓을 쥔 쪽 일감이다 — 넘침 목록이 그 소켓에만 있고, WS가 죽어 REST로
+            //  낮출지를 아는 것도 그쪽뿐이다. 한 프로세스로 돌면 셋이 다 참이라 예전과 같은 자리에서 돈다.
+            //  [why D-114 단계 5]
+            if (feed_side && poller_)
+            {
+                if (rest_now)
                 {
+                    // REST 현재가 폴링 → TradeData(WS on_trade 경로 대체). 깨진 일봉(G1/G2) 대신 살아있는
+                    //  get_current_price를 쓰고, ITB는 이 틱으로 1분 버킷 채널을 구성/스탑 평가한다.
+                    //  종전엔 WS와 같은 큐에 넣었는데, WS 폴백 중 WS가 되살아나면 생산자가 둘이 됐다 — 폴러의
+                    //  싱크는 행렬의 데이터 스레드 행이라 그 경우가 없다. [why D-062]
+                    data_count_ += poller_->poll_universe(watch_specifications_, std::time(nullptr));
+                }
+                else if (feed_.websocket)
+                {
+                    // WS 상한에 밀린 종목 — 재구독을 먼저 시도하고(드롭으로 슬롯이 비었을 수 있다) 안 되면 REST로.
+                    //  REST 폴백이 도는 사이클에는 부르지 않는다(그쪽이 이미 전 종목을 폴링한다).
                     data_count_ += poller_->poll_overflow(
                         feed_.websocket->take_overflow_specifications(), [this](const WatchSpec& specification) { return feed_.websocket->subscribe_incremental(specification); },
                         std::time(nullptr));
@@ -2909,15 +3060,25 @@ void Engine::relay_control_requests()
 
     while (auto option = pipeline_.strategy_control_outbox.pop())
     {
-        if (!pipeline_.controls->push(*option))
+        // 낱말로 줄을 가른다 — 구독·해지는 소켓을 쥔 시세 쪽으로, 나머지 표 고치기는 원장을 쥔 주문 쪽으로.
+        //  역할이 아니라 낱말로 가르는 것은 한 프로세스로 돌 때도 같은 길을 타야 갈라 띄운 날과 동작이
+        //  같기 때문이다(줄이 둘 다 이 프로세스 안에 있을 뿐이다). [why D-114 단계 5]
+        const bool to_feed = ipc::routes_to_feed(option->kind);
+        auto&      lane    = to_feed ? *pipeline_.feed_controls : *pipeline_.controls;
+
+        if (!lane.push(*option))
         {
             // 보낸 쪽은 이미 성공을 받아 갔다 — 여기서 조용히 버리면 사라진 표를 아무도 모른다.
             pipeline_.control_relay_dropped.fetch_add(1, std::memory_order_relaxed);
-            LOG_ERROR("[Engine] 제어 요청을 주문 쪽에 못 옮겼다 — 경계 너머 제어 면이 가득 찼다");
+            LOG_ERROR(std::string("[Engine] 제어 요청을 ") + (to_feed ? "시세" : "주문") +
+                      " 쪽에 못 옮겼다 — 경계 너머 제어 면이 가득 찼다");
             continue;
         }
 
-        moved = true;
+        if (!to_feed)
+        {
+            moved = true; // 깨울 쪽은 주문 스레드다. 시세 쪽은 건너편 프로세스라 깨울 수 없다 — 제 바퀴에서 본다
+        }
     }
 
     if (moved)
@@ -3034,8 +3195,28 @@ void Engine::apply_control_requests(ControlInbox& inbox)
                                         request.toggle_on != 0);
             break;
 
-        // 구독을 거는 자리도 소켓을 쥔 여기 하나다. 다만 여기서는 목록에만 올리고 소켓에 거는 것은
-        //  감시 스레드가 한다 — 주문 스레드는 단일 시퀀서라 소켓 쓰기에 막히면 그동안 주문이 안 나간다. [why D-114]
+        // 구독 낱말은 이 줄로 오지 않는다 — 소켓이 시세로 옮겨 가면서 구독 요청도 전략 → 시세 줄로 갈렸다
+        //  (ipc::routes_to_feed). 받는 자리는 apply_feed_control_requests 하나다. [why D-114 단계 5]
+
+        default:
+            break;
+        }
+    }
+
+    const uint64_t discarded = inbox.slot_exempt.discarded() + inbox.entry_priority.discarded();
+    pipeline_.control_discarded.store(discarded, std::memory_order_relaxed);
+}
+
+void Engine::apply_feed_control_requests()
+{
+    ipc::ControlRequest request;
+
+    while (pipeline_.feed_controls->pop(request))
+    {
+        switch (request.kind)
+        {
+        // 목록에만 올리고 소켓에 거는 것은 이어지는 drain_pending_subscriptions()가 한다 — 꺼내는 자리가
+        //  소켓 쓰기에 막히면 그동안 제어 줄이 밀린다. [why D-114]
         case ipc::ControlKind::kWatchSubscribe:
         {
             if (request.ticker.empty() || request.ticker.size() > symbol::Ticker::kMax)
@@ -3061,13 +3242,19 @@ void Engine::apply_control_requests(ControlInbox& inbox)
             break;
         }
 
+        // 해지 낱말은 아직 보내는 쪽이 없다. 줄을 가르는 규칙이 낱말 둘을 한 묶음으로 잡고 있어 자리만
+        //  비워 둔다 — 여기 오면 세션 상한을 되찾는 길이 생기는 것이므로 조용히 버리지 않는다.
+        case ipc::ControlKind::kWatchUnsubscribe:
+            LOG_WARN("[Engine] 구독 해지 요청이 왔지만 아직 거는 자리가 없다 — " + std::string(request.ticker.view()));
+            break;
+
         default:
+            // 이 줄로는 구독·해지만 온다. 다른 낱말이 보이면 가르는 규칙과 보내는 쪽이 어긋난 것이다.
+            LOG_ERROR("[Engine] 시세 제어 줄에 엉뚱한 낱말이 왔다 — " +
+                      std::to_string(static_cast<int>(request.kind)));
             break;
         }
     }
-
-    const uint64_t discarded = inbox.slot_exempt.discarded() + inbox.entry_priority.discarded();
-    pipeline_.control_discarded.store(discarded, std::memory_order_relaxed);
 }
 
 void Engine::set_entry_priority(const std::vector<OrderGate::PriorityEntry>& entries, int total)
@@ -3998,15 +4185,39 @@ void Engine::fill_thread_fn(std::stop_token stop_token)
     thread_name::set_current("Fill");
     LOG_INFO("[FillThread] 시작");
 
-    // 정지 요청 뒤에도 큐를 비운다 — stop()이 WS를 끊은 다음 join하므로 남은 통보가 여기서 빠진다.
-    while (!stop_token.stop_requested() || !pipeline_.fill_queue.empty())
+    // 갈라 띄운 날의 체결통보는 건너편 시세 프로세스가 통로로 넘긴 것이다. 한 프로세스로 돌면 예전처럼
+    //  프로세스 안 큐에서 꺼낸다 — 두 길의 나머지(원장 반영·방송)는 같다. [why D-114 단계 5]
+    const bool from_channel = role_ == ProcessRole::Order;
+    const ipc::FillLimits fill_limits;
+
+    // 큐가 비었는가 — 어느 길인지에 따라 보는 자리가 다르다. 잠드는 조건과 정지 뒤 비우기가 같이 쓴다.
+    auto fill_queue_empty = [this, from_channel]
     {
-        auto option = pipeline_.fill_queue.pop();
+        return from_channel ? layout_.fills().readable() == 0 : pipeline_.fill_queue.empty();
+    };
+
+    // 정지 요청 뒤에도 큐를 비운다 — stop()이 WS를 끊은 다음 join하므로 남은 통보가 여기서 빠진다.
+    while (!stop_token.stop_requested() || !fill_queue_empty())
+    {
+        std::optional<FillNotification> option;
+
+        if (from_channel)
+        {
+            if (ipc::FillNotice notice; layout_.fills().pop(fill_limits, notice))
+            {
+                option = ipc::to_fill(notice);
+            }
+        }
+        else
+        {
+            option = pipeline_.fill_queue.pop();
+        }
 
         if (!option)
         {
-            // 상한 100ms는 신호가 샐 때의 보험이다. 깨우는 것은 WS 콜백의 notify와 정지 요청.
-            pipeline_.fill_wake.wait_for(100ms, stop_token, [this] { return pipeline_.fill_queue.empty(); });
+            // 상한 100ms는 신호가 샐 때의 보험이다. 깨우는 것은 WS 콜백의 notify와 정지 요청. 건너편
+            //  프로세스는 깨울 수 없으므로 갈라 띄운 날에는 이 상한이 곧 폴링 간격이다. [why D-114 단계 5]
+            pipeline_.fill_wake.wait_for(100ms, stop_token, fill_queue_empty);
             continue;
         }
 
@@ -4255,10 +4466,18 @@ void Engine::control_thread_fn(std::stop_token stop_token)
                      // 시세 통로 — 큐가 차서 못 넘긴 건수와, 값이 말이 안 돼 꺼내는 쪽이 버린 건수. 둘 다 0이어야 한다. [why D-114]
                      " feed_channel_overflow=" + std::to_string(feed_channel_overflows()) +
                      " feed_channel_discarded=" + std::to_string(feed_channel_discarded()) +
-                     // 경계를 실제로 넘은 건수 — 주문 쪽은 sent 가, 전략 쪽은 received 가 늘어난다. 갈라 띄운 날에
+                     // 경계를 실제로 넘은 건수 — 공유 칸에서 읽어 어느 역할에서 봐도 같은 값이다. 갈라 띄운 날에
                      //  둘 다 0 이면 시세가 한 건도 안 넘어간 것이다(한 프로세스로 돌면 원래 둘 다 0 이다). [why D-114]
                      " feed_channel_sent=" + std::to_string(feed_channel_sent()) +
-                     " feed_channel_received=" + std::to_string(feed_channel_received()));
+                     " feed_channel_received=" + std::to_string(feed_channel_received()) +
+                     // 체결 통로 — 큐가 차서 못 넘긴 건수와 값이 말이 안 돼 버린 건수. 둘 다 0이어야 한다.
+                     //  0이 아니면 주문 쪽 예약 수량이 안 풀려 총노출을 이중계상한다. [why D-114 단계 5]
+                     " fill_channel_overflow=" + std::to_string(fill_channel_overflows()) +
+                     " fill_channel_discarded=" + std::to_string(fill_channel_discarded()) +
+                     // 체결이 실제로 경계를 넘었는지 — 공유 칸에서 읽어 어느 역할에서 봐도 같은 값이다.
+                     //  셋으로 갈라 띄운 날에 체결이 있었는데 둘 다 0 이면 통로가 막힌 것이다. [why D-114 단계 5]
+                     " fill_channel_sent=" + std::to_string(fill_channel_sent()) +
+                     " fill_channel_received=" + std::to_string(fill_channel_received()));
         }
 
         if (++token_tick >= kTokenEvery)
@@ -4284,14 +4503,23 @@ void Engine::control_thread_fn(std::stop_token stop_token)
             step_session_end();
         }
 
-        // 재연결은 소켓을 쥔 쪽이 본다 — 단계 4에서 소켓은 주문 프로세스에 있다(체결통보가 경계를 넘지
-        //  않게 하는 갈래). 전략 프로세스는 이 포인터가 비어 있어 아래를 통째로 건너뛴다. [why D-114]
+        // 재연결은 소켓을 쥔 쪽이 본다 — 단계 5부터 소켓은 시세 프로세스에 있다(앱키 하나에 세션 하나라
+        //  체결통보도 같은 소켓에 실린다). 주문·전략 프로세스는 이 포인터가 비어 있어 아래를 통째로
+        //  건너뛴다. [why D-114 단계 5]
         if (!feed_.websocket)
         {
             continue;
         }
 
-        // 전략 쪽이 보낸 구독 요청을 소켓에 건다. 여기 두는 이유는 위 case 주석에 있다. [why D-114]
+        // 살아 있다고 찍는다. 시세가 죽으면 체결통보가 주문 쪽에 안 들어와 예약 수량이 안 풀리므로
+        //  (총노출 이중계상) 이 칸의 공백이 그 사고를 가장 먼저 알린다. 찍는 간격은 이 바퀴의 5초다 —
+        //  전략·주문 칸과 달리 hot loop 가 아니라 소켓이 깨우는 쪽이라, 문턱은 그 간격 위에서 잡는다.
+        //  [why D-114 단계 5]
+        pipeline_.feed_heartbeat->beat(trace::now_ns());
+
+        // 전략 쪽이 보낸 구독 요청을 꺼내 목록에 올리고, 이어서 소켓에 건다. 꺼내는 자리가 여기 하나라
+        //  시세 제어 줄은 받는 쪽이 하나로 선다(SPSC). [why D-114 단계 5]
+        apply_feed_control_requests();
         drain_pending_subscriptions();
 
         // 장 외 시간에는 stale이 정상 — 장 중에만 묻는다. 전이 판정은 감독기, 소켓·폴백 적용은 여기. [why D-071]
@@ -4352,9 +4580,10 @@ void Engine::step_session_end()
 {
     const auto kst            = ::kst::to_tm(std::time(nullptr));
     const int  now_sec_of_day = kst.tm_hour * 3600 + kst.tm_min * 60 + kst.tm_sec;
-    // 받는 쪽이라 readable() 로 묻는다 — pending() 은 내가 보낸 수라 여기서는 늘 0이고, 큐에 주문이
-    //  남았는데도 비었다고 보고 마감 종료를 내보낸다. [why D-114]
-    const bool orders_pending = pipeline_.requests->readable() > 0;
+    // 이 자리는 보내는 쪽도 받는 쪽도 아니다(감시 스레드) — 공유 칸만 보는 in_flight() 로 묻는다.
+    //  pending() 은 내가 보낸 수라 여기서는 늘 0이고 큐에 주문이 남았는데도 비었다고 본다. readable() 은
+    //  받는 쪽 제 자리 값을 읽어, 주문 스레드가 꺼내는 것과 겹친다(TSAN 확인 2026-09-24). [why D-114]
+    const bool orders_pending = pipeline_.requests->in_flight() > 0;
     const auto step           = session_end_.observe(now_sec_of_day, orders_pending);
 
     switch (step)
@@ -4375,7 +4604,7 @@ void Engine::step_session_end()
 
     case session_end::Judge::Step::kShutdownForced:
         LOG_ERROR("[Engine] 마감 뒤 " + std::to_string(session_end_.config().drain_limit_sec) + "초가 지나도 주문 큐 " +
-                  std::to_string(pipeline_.requests->readable()) + "건이 남아 강제 종료한다");
+                  std::to_string(pipeline_.requests->in_flight()) + "건이 남아 강제 종료한다");
         write_state_marker("session_done", "마감 자기 종료(배출 한도 초과, 강제)");
         request_shutdown("마감 자기 종료 — 배출 한도 초과(강제)", ipc::SharedShutdownReason::kSessionEnd);
         return;

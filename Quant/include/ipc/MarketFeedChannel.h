@@ -1,12 +1,13 @@
-// 주문 프로세스 → 전략 프로세스 시세 통로 — 소켓 한 줄이 나르는 체결·호가 두 큐 한 벌.
-//  갈래 2에서는 실시간 세션이 하나라 **주문 프로세스가 WebSocket을 쥔다**. 전략은 제 소켓이 없으므로
-//  수신 스레드가 디코드한 체결·호가를 이 통로로 받는다. REST 폴링 틱과 일봉은 여기를 안 지난다 —
-//  데이터 스레드 몸통이 전략 프로세스에 있어 경계를 넘지 않는다. [why D-114]
+// 시세 → 전략 시세 통로 — 소켓 한 줄이 나르는 체결·호가 두 큐 한 벌.
+//  실시간 세션이 하나라(앱키 하나) 그 소켓은 **시세 프로세스가 쥔다**. 전략은 제 소켓이 없으므로
+//  수신 스레드가 디코드한 체결·호가를 이 통로로 받는다. REST 넘침 폴링도 시세 프로세스에 있어 그 줄의
+//  보내는 쪽 또한 시세다. 일봉은 여기를 안 지난다 — 데이터 스레드 몸통이 전략 프로세스에 있다. [why D-114]
 //
 //  줄(lane) 하나가 소켓 하나다. 한 종목은 소켓 하나에만 있으므로(FeedMux) 그 종목의 체결은 큐 하나만
 //  지나고 순서가 지켜진다(원칙 2). 체결과 호가를 따로 둔 것은 지금 행렬(shard::Matrix)이 그렇기 때문이고,
 //  한 봉투에 담으면 80바이트짜리 체결이 200바이트 호가 칸을 쓰게 된다.
-//  [inv] 한 줄의 보내는 쪽은 그 소켓의 수신 스레드 하나, 받는 쪽은 전략 프로세스의 그 줄 담당 스레드 하나다.
+//  [inv] 한 줄의 보내는 쪽은 시세 프로세스의 그 소켓 수신 스레드 하나, 받는 쪽은 전략 프로세스의 그 줄 담당
+//  스레드 하나다. 쪽지를 만드는 쪽(주문)은 이 통로의 양끝 어느 쪽도 아니다 — 자리만 놓고 지나간다.
 //  보내는 쪽은 기다리지 않는다 — 큐가 차면 버리고 센다(원칙 3).
 #pragma once
 
@@ -47,8 +48,9 @@ struct MarketLimits
 // 큐에서 꺼낸 호가가 말이 되는가. 다섯 단계 값과 종목 코드 길이까지 본다 — 길이가 칸을 넘으면 읽다가 칸 밖을 짚는다.
 [[nodiscard]] bool is_plausible(const OrderBook& order_book, const MarketLimits& limits) noexcept;
 
-// 줄마다 체결 큐·호가 큐를 한 쌍씩 들고 있는 손잡이. 한 인스턴스가 한쪽만 맡는다 —
-//  create는 보내는 쪽(주문 프로세스), attach는 받는 쪽(전략 프로세스)이 부른다.
+// 줄마다 체결 큐·호가 큐를 한 쌍씩 들고 있는 손잡이. 한 인스턴스가 한쪽 끝만 맡는다 —
+//  create 는 쪽지를 만드는 쪽(주문 프로세스)이 자리를 놓느라 한 번 부르고, attach 는 보내는 쪽(시세)과
+//  받는 쪽(전략)이 각각 제 끝을 적어 부른다. 한 프로세스로 돌 때는 create 하나가 양끝을 다 맡는다.
 class MarketFeedChannel
 {
 public:
@@ -60,13 +62,15 @@ public:
     [[nodiscard]] static size_t bytes_for(uint32_t lanes, size_t trade_capacity = kFeedTradeCapacity,
                                           size_t order_book_capacity = kFeedOrderBookCapacity);
 
-    // 통로를 새로 놓는다(주문 프로세스가 한 번 부른다). base는 캐시라인 경계여야 한다.
+    // 통로를 새로 놓는다(쪽지를 만드는 쪽이 한 번 부른다). base는 캐시라인 경계여야 한다.
     [[nodiscard]] bool create(std::byte* base, size_t bytes, uint32_t lanes,
                               size_t trade_capacity      = kFeedTradeCapacity,
                               size_t order_book_capacity = kFeedOrderBookCapacity);
 
-    // 이미 놓인 통로에 붙는다(전략 프로세스가 부른다). 큐 머리가 하나라도 다르면 붙지 않는다.
-    [[nodiscard]] bool attach(std::byte* base, size_t bytes, uint32_t lanes,
+    // 이미 놓인 통로에 붙는다. 큐 머리가 하나라도 다르면 붙지 않는다.
+    //  endpoint 는 이 손잡이가 맡는 끝이다 — 시세는 RingEndpoint::kProducer, 전략은 kConsumer 로 붙는다.
+    //  받는 끝으로 붙은 손잡이만 공유 칸의 받은 자리를 적는다(SharedSpscRing::attach). [why D-114]
+    [[nodiscard]] bool attach(std::byte* base, size_t bytes, uint32_t lanes, RingEndpoint endpoint,
                               size_t trade_capacity      = kFeedTradeCapacity,
                               size_t order_book_capacity = kFeedOrderBookCapacity);
 
@@ -108,9 +112,9 @@ public:
         return discarded_.load(std::memory_order_relaxed);
     }
 
-    // 이 프로세스가 통로로 밀어 넣은 건수·통로에서 꺼낸 건수의 줄 합. 늘리는 계수기를 따로 두지 않는다 —
-    //  링이 순번으로 이미 세고 있어 그 순번을 그대로 읽는다(수신 스레드를 얇게 두는 원칙 3). 순번은
-    //  프로세스마다 제 쪽 것이라, 보내는 쪽에서는 sent_* 만 받는 쪽에서는 received_* 만 늘어난다. [why D-114]
+    // 통로로 밀어 넣은 건수·통로에서 꺼낸 건수의 줄 합. 늘리는 계수기를 따로 두지 않는다 — 링이 순번으로
+    //  이미 세고 있어 그 순번을 그대로 읽는다(수신 스레드를 얇게 두는 원칙 3). 순번은 공유 칸에 있어 어느
+    //  프로세스에서 물어도 같은 답이 온다 — 한쪽만 보고도 통로가 도는지 알 수 있다. [why D-114 단계 5]
     [[nodiscard]] uint64_t sent_trades() const;
     [[nodiscard]] uint64_t sent_order_books() const;
     [[nodiscard]] uint64_t received_trades() const;
@@ -133,9 +137,9 @@ private:
     [[nodiscard]] bool check_arguments(const std::byte* base, size_t bytes, uint32_t lanes, size_t trade_capacity,
                                        size_t order_book_capacity);
 
-    // 줄마다 체결 큐·호가 큐를 차례로 놓는다. create면 새로 놓고, 아니면 붙는다.
+    // 줄마다 체결 큐·호가 큐를 차례로 놓는다. as_owner면 새로 놓고, 아니면 endpoint 끝으로 붙는다.
     [[nodiscard]] bool bind(std::byte* base, uint32_t lanes, size_t trade_capacity, size_t order_book_capacity,
-                            bool as_owner);
+                            bool as_owner, RingEndpoint endpoint);
 
     std::vector<SharedSpscRing<TradeData>> trades_;
     std::vector<SharedSpscRing<OrderBook>> order_books_;

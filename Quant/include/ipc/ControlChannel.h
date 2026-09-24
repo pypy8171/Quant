@@ -45,9 +45,16 @@ enum class ControlKind : uint8_t
     kEntryScale          = 12, // 신규 진입 매수 비율 0~1
     kKillSwitch          = 13, // 전방향 주문 차단
     kManualHalt          = 14, // 운영단말이 손으로 거는 한 방향 정지
-    kWatchSubscribe      = 15, // 이 종목 시세를 구독해 달라 — 소켓을 쥔 쪽은 주문 프로세스 하나다
+    kWatchSubscribe      = 15, // 이 종목 시세를 구독해 달라 — 소켓을 쥔 쪽은 시세 프로세스 하나다
     kRegisterStrategy    = 16, // 전략 이름표에 이름 하나를 넣어 달라 — 넣는 쪽은 주문 프로세스 하나다
+    kWatchUnsubscribe    = 17, // 이 종목 시세를 그만 받아 달라 — 구독 자리가 한정되어 있어 놓는 낱말이 있어야 한다
 };
+
+// 이 낱말이 시세 프로세스로 가는가. 제어 줄은 낱말로 가른다 — 구독·해지만 전략 → 시세 줄로 가고 나머지는
+//  전과 같이 전략 → 주문 줄로 간다. 줄 둘 다 보내는 쪽은 전략 하나라 SPSC 가 그대로다(받는 쪽만 다르다).
+//  시세가 주문에게 무엇을 청하는 길은 내지 않는다 — 그 줄에 시세가 끼면 보내는 쪽이 둘이 된다. [why D-114]
+//  [inv] 보내는 자리(Engine::send_control_switch)는 이 함수 하나로 줄을 고른다. 낱말을 더하면 여기도 본다.
+[[nodiscard]] bool routes_to_feed(ControlKind kind) noexcept;
 
 // 제어 요청 한 줄. 칸은 kind 마다 쓰는 것만 채우고 나머지는 기본값 그대로 둔다.
 struct ControlRequest

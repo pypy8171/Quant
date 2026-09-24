@@ -64,10 +64,10 @@ function Get-QRole([string]$cmd) {
   return $null
 }
 
-# 갈라 띄운 날에는 quant_trader.exe 가 둘이다 — 주문 쪽과 전략 쪽. 명령줄의 --role 로 가른다.
-#  안 가르면 성한 짝 하나가 "중복"으로 찍히고, -Reap -IncludeTrader 가 그걸 내린다. [why D-114]
+# 갈라 띄운 날에는 quant_trader.exe 가 셋이다 — 주문·전략·시세. 명령줄의 --role 로 가른다.
+#  안 가르면 성한 것이 "중복"으로 찍히고, -Reap -IncludeTrader 가 그걸 내린다. [why D-114]
 function Get-QVariant([string]$cmd) {
-  if ($cmd -match '--role[=\s]+(order|strategy|both)') { return $Matches[1].ToLower() }
+  if ($cmd -match '--role[=\s]+(order|strategy|feed|both)') { return $Matches[1].ToLower() }
   return ""
 }
 
@@ -94,7 +94,7 @@ foreach ($p in $all) {
   if ($selfChain -contains $pid_) { continue }
   $anc = Get-Ancestors $pid_
   if (($anc | Where-Object { $selfChain -contains $_ }).Count -gt 0 -and $role -ne "trader") { }
-  # 묶고 세는 열쇠는 RoleKey 다(trader(order)·trader(strategy)). 내리는 판정은 Role 그대로 본다.
+  # 묶고 세는 열쇠는 RoleKey 다(trader(order)·trader(strategy)·trader(feed)). 내리는 판정은 Role 그대로 본다.
   $variant = Get-QVariant $p.CommandLine
   $tagged += [pscustomobject]@{
     QPid = $pid_; QPpid = [int]$p.ParentProcessId; Name = $p.Name

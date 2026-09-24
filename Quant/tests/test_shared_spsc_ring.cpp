@@ -72,20 +72,20 @@ int main()
         CHECK(sender.last_error().empty());
 
         Ring receiver;
-        CHECK(receiver.attach(g_storage, storage_bytes, kCapacity));
+        CHECK(receiver.attach(g_storage, storage_bytes, kCapacity, ipc::RingEndpoint::kConsumer));
         CHECK(receiver.is_bound());
 
         ipc::SharedSpscRing<uint64_t> other_record;
-        CHECK(!other_record.attach(g_storage, storage_bytes, kCapacity));
+        CHECK(!other_record.attach(g_storage, storage_bytes, kCapacity, ipc::RingEndpoint::kConsumer));
         CHECK(!other_record.last_error().empty());
 
         Ring other_capacity;
-        CHECK(!other_capacity.attach(g_storage, storage_bytes, kCapacity / 2));
+        CHECK(!other_capacity.attach(g_storage, storage_bytes, kCapacity / 2, ipc::RingEndpoint::kConsumer));
 
         // 아직 아무도 안 놓은 바이트에는 붙지 않는다(주문 프로세스가 먼저 떠야 한다).
         alignas(ipc::kSharedCacheLine) static std::byte empty_storage[storage_bytes] = {};
         Ring                                            absent;
-        CHECK(!absent.attach(empty_storage, storage_bytes, kCapacity));
+        CHECK(!absent.attach(empty_storage, storage_bytes, kCapacity, ipc::RingEndpoint::kConsumer));
     }
 
     // 2. 잘못된 인자는 놓지 않는다 — 2의 거듭제곱이 아닌 칸 수, 모자란 바이트, 어긋난 경계.
@@ -105,7 +105,7 @@ int main()
         Ring sender;
         CHECK(sender.create(g_storage, storage_bytes, kCapacity));
         Ring receiver;
-        CHECK(receiver.attach(g_storage, storage_bytes, kCapacity));
+        CHECK(receiver.attach(g_storage, storage_bytes, kCapacity, ipc::RingEndpoint::kConsumer));
 
         Counted taken;
         CHECK(!receiver.pop(taken));
@@ -136,7 +136,7 @@ int main()
         Ring sender;
         CHECK(sender.create(g_storage, storage_bytes, kCapacity));
         Ring receiver;
-        CHECK(receiver.attach(g_storage, storage_bytes, kCapacity));
+        CHECK(receiver.attach(g_storage, storage_bytes, kCapacity, ipc::RingEndpoint::kConsumer));
 
         for (uint64_t value = 1; value <= kCapacity; ++value)
         {
@@ -158,7 +158,7 @@ int main()
         Ring sender;
         CHECK(sender.create(g_storage, storage_bytes, kCapacity));
         Ring receiver;
-        CHECK(receiver.attach(g_storage, storage_bytes, kCapacity));
+        CHECK(receiver.attach(g_storage, storage_bytes, kCapacity, ipc::RingEndpoint::kConsumer));
 
         Counted taken;
 
@@ -198,7 +198,7 @@ int main()
         Ring sender;
         CHECK(sender.create(g_storage, storage_bytes, kCapacity));
         Ring receiver;
-        CHECK(receiver.attach(g_storage, storage_bytes, kCapacity));
+        CHECK(receiver.attach(g_storage, storage_bytes, kCapacity, ipc::RingEndpoint::kConsumer));
 
         CHECK(sender.push(Counted{1, 0, 0}));
         CHECK(sender.push(Counted{2, 0, 0}));
@@ -227,7 +227,7 @@ int main()
         control->published_tail.store(123'456, std::memory_order_release);
 
         Ring rebound;
-        CHECK(rebound.attach(g_storage, storage_bytes, kCapacity));
+        CHECK(rebound.attach(g_storage, storage_bytes, kCapacity, ipc::RingEndpoint::kBoth));
         CHECK(rebound.peer_counter_rejected() == 1);
         CHECK(rebound.received() == 2); // 보낸 자리까지 따라간다 — 안 읽은 두 칸은 버린다
         CHECK(rebound.sent() == 2);
@@ -252,9 +252,10 @@ int main()
         CHECK(order_sender.create(owner_region.payload(), owner_region.payload_bytes(), request_capacity));
 
         ipc::SharedRegion guest_region;
-        CHECK(guest_region.attach(name, region_bytes, 1));
+        CHECK(guest_region.attach(name, region_bytes, 1, ipc::SharedAttachRole::kStrategy));
         RequestRing order_receiver;
-        CHECK(order_receiver.attach(guest_region.payload(), guest_region.payload_bytes(), request_capacity));
+        CHECK(order_receiver.attach(guest_region.payload(), guest_region.payload_bytes(), request_capacity,
+                                   ipc::RingEndpoint::kConsumer));
 
         ipc::OrderRequest request;
         request.sequence       = 77;
@@ -292,7 +293,7 @@ int main()
         Ring sender;
         CHECK(sender.create(g_storage, storage_bytes, kCapacity));
         Ring receiver;
-        CHECK(receiver.attach(g_storage, storage_bytes, kCapacity));
+        CHECK(receiver.attach(g_storage, storage_bytes, kCapacity, ipc::RingEndpoint::kConsumer));
 
         CHECK(receiver.readable() == 0);
 
@@ -315,6 +316,60 @@ int main()
         }
 
         CHECK(receiver.readable() == 0);
+    }
+
+    // 11. 붙는 쪽이 셋이 된 뒤의 그물 — 읽기만 하려고 붙은 손잡이는 남의 받은 자리를 건드리지 않는다.
+    //  시세·전략 둘이 같은 쪽지에 붙으면서, 제 줄이 아닌 줄에도 자리를 잡게 됐다. 그때 그 손잡이가
+    //  published_tail 을 적으면 흐르고 있던 줄의 받는 자리가 뒤로 밀려 이미 읽은 것을 다시 읽는다. [why D-114]
+    {
+        Ring sender;
+        CHECK(sender.create(g_storage, storage_bytes, kCapacity));
+        Ring receiver;
+        CHECK(receiver.attach(g_storage, storage_bytes, kCapacity, ipc::RingEndpoint::kConsumer));
+
+        for (uint64_t value = 1; value <= 4; ++value)
+        {
+            CHECK(sender.push(Counted{value, 0x11, 0}));
+        }
+
+        Counted taken;
+        CHECK(receiver.pop(taken));
+        CHECK(taken.value == 1);
+        CHECK(receiver.pop(taken));
+        CHECK(taken.value == 2);
+
+        auto*          control     = reinterpret_cast<ipc::SharedRingControl*>(g_storage);
+        const uint64_t tail_before = control->published_tail.load(std::memory_order_acquire);
+        CHECK(tail_before == 2);
+
+        // 제3자가 붙는다 — 이 줄은 제 줄이 아니라 자리만 잡는다.
+        Ring onlooker;
+        CHECK(onlooker.attach(g_storage, storage_bytes, kCapacity, ipc::RingEndpoint::kObserver));
+        CHECK(control->published_tail.load(std::memory_order_acquire) == tail_before);
+
+        // 자리만 잡은 손잡이가 꺼내거나 넣으려 하면 아무 일도 안 하고 수로 남는다.
+        Counted stolen;
+        CHECK(!onlooker.pop(stolen));
+        CHECK(!onlooker.push(Counted{99, 0, 0}));
+        CHECK(onlooker.endpoint_misuse() == 2);
+        CHECK(control->published_tail.load(std::memory_order_acquire) == tail_before);
+
+        // 흐르던 줄은 그대로 이어진다 — 3번부터다.
+        CHECK(receiver.pop(taken));
+        CHECK(taken.value == 3);
+        CHECK(receiver.pop(taken));
+        CHECK(taken.value == 4);
+        CHECK(!receiver.pop(taken));
+
+        // 받는 끝으로 붙은 손잡이는 넣지 못하고, 보내는 끝으로 붙은 손잡이는 꺼내지 못한다.
+        CHECK(!receiver.push(Counted{5, 0, 0}));
+        CHECK(receiver.endpoint_misuse() == 1);
+
+        Ring feeder;
+        CHECK(feeder.attach(g_storage, storage_bytes, kCapacity, ipc::RingEndpoint::kProducer));
+        CHECK(!feeder.pop(stolen));
+        CHECK(feeder.endpoint_misuse() == 1);
+        CHECK(control->published_tail.load(std::memory_order_acquire) == 4);
     }
 
     std::cout << "test_shared_spsc_ring OK (" << g_checks << " checks)\n";

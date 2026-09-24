@@ -22,6 +22,8 @@ std::string to_lower(std::string_view text)
 }
 
 // config의 "mode"를 덮어쓰는 낱말들. 이 넷만 모드로 보고 나머지 맨 인자는 설정 경로다.
+// 여기 `FEED`는 **실행 모드**다(주문 없이 시세만 본다). 역할 `--role feed`와 철자만 닮았지 다른 것이고,
+//  역할 값은 parse_command_line의 `--role` 가지가 먼저 집어 가므로 이 함수까지 오지 않는다. [why D-114]
 bool is_mode_word(std::string_view argument)
 {
     return argument == "KR_TEST" || argument == "US_TEST" || argument == "FEED" || argument == "TRADE";
@@ -51,6 +53,12 @@ bool ProcessRole::from_string(std::string_view text, ProcessRole& role)
         return true;
     }
 
+    if (lowered == "feed")
+    {
+        role = ProcessRole(Feed);
+        return true;
+    }
+
     return false;
 }
 
@@ -64,6 +72,9 @@ const char* ProcessRole::to_string() const
     case Strategy:
         return "strategy";
 
+    case Feed:
+        return "feed";
+
     case Both:
     default:
         return "both";
@@ -72,7 +83,7 @@ const char* ProcessRole::to_string() const
 
 const char* command_line_usage()
 {
-    return "사용법: quant_trader [설정파일] [FEED|KR_TEST|US_TEST|TRADE] [--role both|order|strategy]";
+    return "사용법: quant_trader [설정파일] [FEED|KR_TEST|US_TEST|TRADE] [--role both|order|strategy|feed]";
 }
 
 CommandLine parse_command_line(int argc, char* argv[])
@@ -145,6 +156,9 @@ const char* log_file_name(ProcessRole role)
 
         case ProcessRole::Strategy:
             return "quant_trader.strategy.log";
+
+        case ProcessRole::Feed:
+            return "quant_trader.feed.log";
 
         case ProcessRole::Both:
         default:

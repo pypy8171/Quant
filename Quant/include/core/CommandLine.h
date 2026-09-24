@@ -7,7 +7,8 @@
 #include <string_view>
 
 // 한 exe가 맡는 자리. Both는 지금까지의 한 프로세스(시세·전략·주문·원장 전부), Order는 주문·원장·체결,
-//  Strategy는 시세·전략이다. StrategyType·Mode와 같은 스마트enum idiom.
+//  Strategy는 전략·신호, Feed는 WebSocket 소켓 하나와 디코드다. StrategyType·Mode와 같은 스마트enum idiom.
+//  값은 뒤에만 더한다 — 앞에 끼우면 저장된 숫자가 다른 역할을 가리킨다.
 class ProcessRole
 {
 public:
@@ -15,7 +16,8 @@ public:
     {
         Both,
         Order,
-        Strategy
+        Strategy,
+        Feed
     };
 
     ProcessRole() = default;
@@ -37,6 +39,27 @@ public:
     // 로그·오류 문구에 쓰는 이름. from_string이 받는 철자 그대로다.
     [[nodiscard]] const char* to_string() const;
 
+    // ── 이 역할이 맡는 일감 ────────────────────────────────────────────────
+    // **긍정형으로 적는다** — 여기 적힌 역할만 참이다. 부정형(`value_ != Strategy`)으로 두면 역할이
+    //  늘어날 때 새 역할이 아무도 손대지 않은 채 참이 되어, 시세만 맡을 프로세스가 주문 스레드와 원장까지
+    //  띄운다. 그건 같은 계좌에 주문 프로세스가 둘이라는 뜻이다. [why D-114]
+    // 이 셋이 역할 판정의 정본이다. Engine의 같은 이름 술어는 자기 역할을 넘겨 이것을 부르기만 한다 —
+    //  Engine을 만들지 않고도 표를 시험으로 박아 둘 수 있게.
+    [[nodiscard]] constexpr bool runs_order_side() const noexcept
+    {
+        return value_ == Order || value_ == Both;
+    }
+
+    [[nodiscard]] constexpr bool runs_strategy_side() const noexcept
+    {
+        return value_ == Strategy || value_ == Both;
+    }
+
+    [[nodiscard]] constexpr bool runs_feed_side() const noexcept
+    {
+        return value_ == Feed || value_ == Both;
+    }
+
 private:
     Value value_ = Both;
 };
@@ -52,11 +75,14 @@ struct CommandLine
     std::string error;
 };
 
-// quant_trader [config] [MODE] [--role both|order|strategy]
+// quant_trader [config] [MODE] [--role both|order|strategy|feed]
 //   quant_trader.exe                          → config/config.json, mode from json, 역할 both
 //   quant_trader.exe KR_TEST                  → config/config.json, mode=KR_TEST
 //   quant_trader.exe config.json TRADE        → 지정 config, mode=TRADE
 //   quant_trader.exe config.json --role order → 지정 config, 주문·원장만 맡는다
+//   quant_trader.exe config.json --role feed  → 지정 config, 시세 소켓만 맡는다
+// 모드 낱말 `FEED`와 역할 `--role feed`는 다른 것이다. 앞은 config의 "mode"를 덮어써 주문 없이 시세만
+//  보게 하는 실행 모드고, 뒤는 TRADE 중에도 이 프로세스가 맡는 자리다. [why D-114]
 [[nodiscard]] CommandLine parse_command_line(int argc, char* argv[]);
 
 // 인자를 못 알아들었을 때 로그에 같이 싣는 한 줄. 쓰는 사람이 로그만 보고 고칠 수 있게.

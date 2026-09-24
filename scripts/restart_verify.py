@@ -8,8 +8,8 @@
   1. 재기동 직전에 엔진 로그 파일마다 끝 위치를 적어 둔다 — 그 뒤에 새로 쓰인 부분만 읽어서, 이전 기동의
      줄과 섞이지 않게 한다. 파일이 줄었으면(회전) 처음부터 읽는다.
   2. 새 부분에서 `퀀트 엔진 시작` 을 찾고, 역할별 필수 표지가 다 나오면 성공 후보다.
-       both·order : OrderRouter (FEP) 초기화 완료 → 모든 스레드 시작 완료
-       strategy   : 모든 스레드 시작 완료
+       both·order      : OrderRouter (FEP) 초기화 완료 → 모든 스레드 시작 완료
+       strategy·feed   : 모든 스레드 시작 완료
      원장 시드(`원장 부트스트랩 완료`)는 config 가 끌 수 있어 필수로 두지 않고, 없으면 성공에 메모만 붙인다.
   3. 성공 후보가 된 뒤에도 settle 초 동안 기다려 그 사이 죽지 않았는지 본다.
   4. 실패 문구(비정상 종료·기동 중단·인증 실패·설정 로드 실패)가 나오면 실패, 제한 시간을 넘기면 판정 불가.
@@ -40,6 +40,8 @@ REQUIRED_MARKS = {
     "both": ("[Engine] OrderRouter (FEP) 초기화 완료", READY_MARK),
     "order": ("[Engine] OrderRouter (FEP) 초기화 완료", READY_MARK),
     "strategy": (READY_MARK,),
+    # 시세 쪽은 주문도 원장도 안 든다 — WebSocket 소켓과 디코드만 맡는다. 스레드 줄 하나로 본다.
+    "feed": (READY_MARK,),
 }
 LEDGER_MARK = "[Engine] 원장 부트스트랩 완료"
 FILL_SESSION_MARK = "[Engine] 체결통보 세션:"
@@ -135,7 +137,7 @@ def _judge_text(path: Path, text: str) -> LogVerdict | None:
     if len(verdict.reached) == len(required):
         verdict.result = SUCCESS
         notes = []
-        if role != "strategy" and LEDGER_MARK not in body:
+        if role in ("both", "order") and LEDGER_MARK not in body:
             notes.append("원장 시드 줄 없음")
 
         fill_line = next((line for line in body.splitlines() if FILL_SESSION_MARK in line), "")
@@ -232,7 +234,7 @@ def summary_text(row: dict) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description="다음 트레이더 재기동을 기다려 기동 성공을 판정한다")
     parser.add_argument("--watch", action="store_true", help="지금 위치를 적고 다음 재기동을 기다린다")
-    parser.add_argument("--expected", type=int, default=1, help="새로 뜰 트레이더 수(갈라 띄우면 2)")
+    parser.add_argument("--expected", type=int, default=1, help="새로 뜰 트레이더 수(갈라 띄우면 3 — 주문·전략·시세)")
     parser.add_argument("--timeout", type=float, default=600.0, help="--watch 에서 기다릴 최대 초")
     parser.add_argument("--who", default="손 재기동")
     arguments = parser.parse_args()

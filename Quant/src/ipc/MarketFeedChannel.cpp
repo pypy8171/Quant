@@ -156,7 +156,7 @@ bool MarketFeedChannel::check_arguments(const std::byte* base, size_t bytes, uin
 }
 
 bool MarketFeedChannel::bind(std::byte* base, uint32_t lanes, size_t trade_capacity, size_t order_book_capacity,
-                             bool as_owner)
+                             bool as_owner, RingEndpoint endpoint)
 {
     std::vector<SharedSpscRing<TradeData>> trades(lanes);
     std::vector<SharedSpscRing<OrderBook>> order_books(lanes);
@@ -168,7 +168,7 @@ bool MarketFeedChannel::bind(std::byte* base, uint32_t lanes, size_t trade_capac
     for (uint32_t lane = 0; lane < lanes; ++lane)
     {
         const bool trade_ok = as_owner ? trades[lane].create(cursor, trade_bytes, trade_capacity)
-                                       : trades[lane].attach(cursor, trade_bytes, trade_capacity);
+                                       : trades[lane].attach(cursor, trade_bytes, trade_capacity, endpoint);
 
         if (!trade_ok)
         {
@@ -179,7 +179,7 @@ bool MarketFeedChannel::bind(std::byte* base, uint32_t lanes, size_t trade_capac
         cursor += trade_bytes;
 
         const bool book_ok = as_owner ? order_books[lane].create(cursor, book_bytes, order_book_capacity)
-                                      : order_books[lane].attach(cursor, book_bytes, order_book_capacity);
+                                      : order_books[lane].attach(cursor, book_bytes, order_book_capacity, endpoint);
 
         if (!book_ok)
         {
@@ -205,18 +205,18 @@ bool MarketFeedChannel::create(std::byte* base, size_t bytes, uint32_t lanes, si
         return false;
     }
 
-    return bind(base, lanes, trade_capacity, order_book_capacity, true);
+    return bind(base, lanes, trade_capacity, order_book_capacity, true, RingEndpoint::kBoth);
 }
 
-bool MarketFeedChannel::attach(std::byte* base, size_t bytes, uint32_t lanes, size_t trade_capacity,
-                               size_t order_book_capacity)
+bool MarketFeedChannel::attach(std::byte* base, size_t bytes, uint32_t lanes, RingEndpoint endpoint,
+                               size_t trade_capacity, size_t order_book_capacity)
 {
     if (!check_arguments(base, bytes, lanes, trade_capacity, order_book_capacity))
     {
         return false;
     }
 
-    return bind(base, lanes, trade_capacity, order_book_capacity, false);
+    return bind(base, lanes, trade_capacity, order_book_capacity, false, endpoint);
 }
 
 void MarketFeedChannel::unbind() noexcept

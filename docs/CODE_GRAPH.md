@@ -29,7 +29,7 @@ graph LR
   exchange -->|7| core
   exchange -->|2| utils
   ipc -->|2| api
-  ipc -->|13| core
+  ipc -->|14| core
   ipc --> risk
   ipc -->|5| utils
   main -->|4| core
@@ -61,7 +61,7 @@ graph LR
 
 | 헤더 | 유입 수 |
 |---|---|
-| `core/Types.h` | 39 |
+| `core/Types.h` | 40 |
 | `utils/Logger.h` | 34 |
 | `core/KstTime.h` | 19 |
 | `core/SymbolTable.h` | 17 |
@@ -164,6 +164,8 @@ graph LR
   subgraph ipc
     n_ipc_ControlChannel_cpp["ipc/ControlChannel.cpp"]
     n_ipc_ControlChannel_h["ipc/ControlChannel.h"]
+    n_ipc_FillChannel_cpp["ipc/FillChannel.cpp"]
+    n_ipc_FillChannel_h["ipc/FillChannel.h"]
     n_ipc_FillKey_cpp["ipc/FillKey.cpp"]
     n_ipc_Heartbeat_cpp["ipc/Heartbeat.cpp"]
     n_ipc_LedgerSnapshot_cpp["ipc/LedgerSnapshot.cpp"]
@@ -458,6 +460,9 @@ graph LR
   n_exchange_ZmqOrderFeed_h --> n_core_SymbolTable_h
   n_ipc_ControlChannel_cpp --> n_ipc_ControlChannel_h
   n_ipc_ControlChannel_h --> n_core_Types_h
+  n_ipc_FillChannel_cpp --> n_ipc_FillChannel_h
+  n_ipc_FillChannel_h --> n_core_Types_h
+  n_ipc_FillChannel_h --> n_ipc_SharedSpscRing_h
   n_ipc_FillKey_cpp --> n_ipc_FillKey_h
   n_ipc_Heartbeat_cpp --> n_ipc_Heartbeat_h
   n_ipc_LedgerSnapshot_cpp --> n_ipc_LedgerSnapshot_h
@@ -487,10 +492,12 @@ graph LR
   n_ipc_ProcessIdentity_cpp --> n_ipc_ProcessIdentity_h
   n_ipc_SharedLayout_cpp --> n_ipc_SharedLayout_h
   n_ipc_SharedLayout_h --> n_ipc_ControlChannel_h
+  n_ipc_SharedLayout_h --> n_ipc_FillChannel_h
   n_ipc_SharedLayout_h --> n_ipc_Heartbeat_h
   n_ipc_SharedLayout_h --> n_ipc_LedgerSnapshot_h
   n_ipc_SharedLayout_h --> n_ipc_MarketFeedChannel_h
   n_ipc_SharedLayout_h --> n_ipc_OrderChannel_h
+  n_ipc_SharedLayout_h --> n_ipc_SharedRegion_h
   n_ipc_SharedLayout_h --> n_ipc_SharedSpscRing_h
   n_ipc_SharedLayout_h --> n_ipc_SharedStrategyDictionary_h
   n_ipc_SharedLayout_h --> n_ipc_SharedSymbolDictionary_h

@@ -15,6 +15,32 @@
 namespace ipc
 {
 
+// 쪽지에 붙는 쪽이 누구인가. 만드는 쪽(주문)은 여기 없다 — 주인 칸은 머리에 따로 있다.
+//  [inv] 값은 머리의 배열 첨자로 쓴다. 끝에만 더하고 더할 때 kSharedAttachRoleCount 를 같이 올린다.
+enum class SharedAttachRole : uint8_t
+{
+    kStrategy = 0, // 전략 프로세스
+    kFeed     = 1, // 시세 프로세스 — 소켓 하나를 쥐고 체결통보까지 받는다 [why D-114]
+};
+
+constexpr size_t kSharedAttachRoleCount = 2;
+
+// 로그에 싣는 역할 이름. [inv] 돌려주는 조각은 정적 글자라 수명이 끝나지 않는다.
+[[nodiscard]] std::string_view role_name(SharedAttachRole role) noexcept;
+
+// 붙은 쪽 한 자리. 머리 안에 박히므로 고정 크기 정수만 둔다.
+//  번호와 기동 시각을 같이 둔다 — 번호만 보면 죽은 쪽의 번호를 물려받은 남이 산 것으로 읽힌다.
+struct SharedParticipant
+{
+    uint32_t process_id      = 0; // 0 = 아무도 안 붙었다
+    uint32_t shutdown_reason = 0; // SharedShutdownReason. 0 = 안 적혔다 = 크래시
+    uint64_t start_time      = 0;
+    int64_t  attached_at_ns  = 0;
+    uint64_t reserved0       = 0;
+};
+
+static_assert(sizeof(SharedParticipant) == 32, "붙은 쪽 한 자리는 32바이트여야 머리가 캐시라인 두 줄로 떨어진다");
+
 // 구역 머리. 붙는 쪽이 "내가 아는 판인가"를 이것만 보고 정한다 — 안 맞으면 붙지 않는다.
 //  주문 쪽이 재기동하면 created_at_ns가 바뀌므로, 전략 쪽은 자기가 붙었던 판이 갈린 것을 안다.
 //  [inv] 고정 크기 정수만 둔다. 칸을 더할 때는 reserved를 쓰고 layout_version을 올린다.
@@ -34,6 +60,9 @@ struct SharedRegionHeader
     uint64_t boot_generation = 0;
     uint64_t reserved3       = 0;
     uint64_t reserved4       = 0;
+    // 붙은 쪽 자리 — 역할마다 하나다. 붙는 쪽이 둘(전략·시세)이 되면서 주인 칸 하나로는 누가 곱게 내려갔고
+    //  누가 죽었는지를 못 가린다. 남은 쪽은 제 자리가 아닌 칸은 읽기만 한다. [why D-114]
+    SharedParticipant attached[kSharedAttachRoleCount];
 };
 
 // shutdown_reason 에 들어가는 값. 0은 "안 적혔다"라서 뜻을 주지 않는다.
@@ -45,9 +74,9 @@ enum class SharedShutdownReason : uint32_t
     kStartupFail = 3, // 기동 중 접고 내려갔다
 };
 
-// 머리는 캐시라인 한 줄이다 — 뒤에 놓이는 큐의 제어 칸이 캐시라인 경계에서 시작해야 두 프로세스가
-//  머리와 큐 칸을 두고 싸우지 않는다(payload()는 페이지 머리 + 64바이트라 64로 나뉜다).
-static_assert(sizeof(SharedRegionHeader) == 64, "구역 머리는 캐시라인 한 줄이어야 한다");
+// 머리는 캐시라인 두 줄이다 — 뒤에 놓이는 큐의 제어 칸이 캐시라인 경계에서 시작해야 두 프로세스가
+//  머리와 큐 칸을 두고 싸우지 않는다(payload()는 페이지 머리 + 128바이트라 64로 나뉜다).
+static_assert(sizeof(SharedRegionHeader) == 2 * 64, "구역 머리는 캐시라인 두 줄이어야 한다");
 
 constexpr uint32_t kSharedRegionMagic = 0x51'54'52'47; // 'QTRG'
 
@@ -69,8 +98,9 @@ public:
     //  이다 — 그때는 실패한다(엔진 둘이 뜬 것을 여기서 잡는다). bytes는 머리를 포함한 크기다.
     bool create(std::string_view name, size_t bytes, uint32_t layout_version);
 
-    // 이미 있는 구역에 붙는다(전략 프로세스가 부른다). 머리의 magic·layout_version·bytes가 다르면 붙지 않는다.
-    bool attach(std::string_view name, size_t bytes, uint32_t layout_version);
+    // 이미 있는 구역에 붙는다(전략·시세 프로세스가 부른다). 머리의 magic·layout_version·bytes가 다르면
+    //  붙지 않는다. role 은 제 자리를 고르는 값이다 — 붙자마자 그 칸에 제 번호와 기동 시각을 적는다.
+    bool attach(std::string_view name, size_t bytes, uint32_t layout_version, SharedAttachRole role);
 
     void close() noexcept;
 
@@ -102,7 +132,26 @@ public:
     // 0이면 아직 안 적혔다 — 주인이 죽었는데 이 값이 0이면 크래시다.
     [[nodiscard]] SharedShutdownReason shutdown_reason() const noexcept;
 
-    // 정상 종료 자리에서 마지막에 부른다(주인만). 이 줄 뒤에 죽으면 남은 쪽이 크래시로 세지 않는다.
+    // 이 손잡이가 붙은 역할. 주인이면 뜻이 없다(is_owner()를 먼저 본다).
+    [[nodiscard]] SharedAttachRole attached_role() const noexcept
+    {
+        return role_;
+    }
+
+    // 그 역할이 이 판에 붙은 적이 있는가(번호가 적혔는가).
+    [[nodiscard]] bool participant_attached(SharedAttachRole role) const noexcept;
+
+    // 그 역할의 표(번호 + 기동 시각). 안 붙었으면 빈 표다.
+    [[nodiscard]] ProcessIdentity participant_identity(SharedAttachRole role) const noexcept;
+
+    // 그 역할이 아직 사는지 운영체제에 묻는다. 안 붙었으면 거짓이다.
+    [[nodiscard]] bool participant_is_alive(SharedAttachRole role) const noexcept;
+
+    // 그 역할의 종료 사유. kNone 인데 살아 있지 않으면 크래시다.
+    [[nodiscard]] SharedShutdownReason participant_shutdown_reason(SharedAttachRole role) const noexcept;
+
+    // 정상 종료 자리에서 마지막에 부른다. 주인이면 주인 칸에, 붙은 쪽이면 제 역할 칸에 적는다 —
+    //  이 줄 뒤에 죽으면 남은 쪽이 크래시로 세지 않는다.
     void mark_clean_shutdown(SharedShutdownReason reason) noexcept;
 
     // create()가 주인 없이 남아 있던 옛 쪽지를 물려받았는가. 참이면 앞선 기동이 크래시로 끝났다는 뜻이라
@@ -143,12 +192,16 @@ private:
     // 머리를 고쳐 쓰는 자리(주인만). const 판은 header()다.
     [[nodiscard]] SharedRegionHeader* mutable_header() noexcept;
 
-    void*       address_          = nullptr; // 매핑된 첫 바이트(= 머리)
-    size_t      bytes_            = 0;
-    bool        owner_            = false;
-    bool        took_over_stale_  = false;
-    std::string name_;
-    std::string last_error_;
+    // 붙은 쪽 한 자리. 열려 있지 않거나 역할 값이 표 밖이면 nullptr이다.
+    [[nodiscard]] const SharedParticipant* participant_of(SharedAttachRole role) const noexcept;
+
+    void*            address_         = nullptr; // 매핑된 첫 바이트(= 머리)
+    size_t           bytes_           = 0;
+    bool             owner_           = false;
+    bool             took_over_stale_ = false;
+    SharedAttachRole role_            = SharedAttachRole::kStrategy; // 주인이면 뜻이 없다
+    std::string      name_;
+    std::string      last_error_;
 
 #ifdef _WIN32
     void* mapping_handle_ = nullptr; // HANDLE. windows.h를 헤더로 끌어오지 않으려고 void*로 둔다

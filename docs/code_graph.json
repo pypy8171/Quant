@@ -65,7 +65,7 @@
     {
       "from": "ipc",
       "to": "core",
-      "weight": 13
+      "weight": 14
     },
     {
       "from": "ipc",
@@ -230,6 +230,7 @@
     "exchange/OrderWire.h": "exchange",
     "exchange/ZmqOrderFeed.h": "exchange",
     "ipc/ControlChannel.h": "ipc",
+    "ipc/FillChannel.h": "ipc",
     "ipc/FillKey.h": "ipc",
     "ipc/Heartbeat.h": "ipc",
     "ipc/LedgerSnapshot.h": "ipc",
@@ -331,6 +332,7 @@
     "exchange/OrderWire.cpp": "exchange",
     "exchange/ZmqOrderFeed.cpp": "exchange",
     "ipc/ControlChannel.cpp": "ipc",
+    "ipc/FillChannel.cpp": "ipc",
     "ipc/FillKey.cpp": "ipc",
     "ipc/Heartbeat.cpp": "ipc",
     "ipc/LedgerSnapshot.cpp": "ipc",
@@ -743,6 +745,13 @@
     "ipc/ControlChannel.h": [
       "core/Types.h"
     ],
+    "ipc/FillChannel.cpp": [
+      "ipc/FillChannel.h"
+    ],
+    "ipc/FillChannel.h": [
+      "core/Types.h",
+      "ipc/SharedSpscRing.h"
+    ],
     "ipc/FillKey.cpp": [
       "ipc/FillKey.h"
     ],
@@ -803,10 +812,12 @@
     ],
     "ipc/SharedLayout.h": [
       "ipc/ControlChannel.h",
+      "ipc/FillChannel.h",
       "ipc/Heartbeat.h",
       "ipc/LedgerSnapshot.h",
       "ipc/MarketFeedChannel.h",
       "ipc/OrderChannel.h",
+      "ipc/SharedRegion.h",
       "ipc/SharedSpscRing.h",
       "ipc/SharedStrategyDictionary.h",
       "ipc/SharedSymbolDictionary.h"
@@ -1380,6 +1391,7 @@
       "core/Types.cpp",
       "exchange/MatchingEngine.h",
       "ipc/ControlChannel.h",
+      "ipc/FillChannel.h",
       "ipc/MarketFeedChannel.h",
       "ipc/OrderChannel.h",
       "ipc/OrderRouter.h",
@@ -1415,6 +1427,10 @@
     "ipc/ControlChannel.h": [
       "core/Engine.h",
       "ipc/ControlChannel.cpp",
+      "ipc/SharedLayout.h"
+    ],
+    "ipc/FillChannel.h": [
+      "ipc/FillChannel.cpp",
       "ipc/SharedLayout.h"
     ],
     "ipc/FillKey.h": [
@@ -1464,9 +1480,11 @@
     ],
     "ipc/SharedRegion.h": [
       "core/Engine.h",
+      "ipc/SharedLayout.h",
       "ipc/SharedRegion.cpp"
     ],
     "ipc/SharedSpscRing.h": [
+      "ipc/FillChannel.h",
       "ipc/MarketFeedChannel.h",
       "ipc/SharedLayout.h",
       "ipc/SharedStrategyDictionary.h",
@@ -1686,7 +1704,7 @@
   "hubs": [
     {
       "header": "core/Types.h",
-      "in_degree": 39
+      "in_degree": 40
     },
     {
       "header": "utils/Logger.h",
@@ -1753,15 +1771,15 @@
       "in_degree": 5
     },
     {
+      "header": "ipc/SharedSpscRing.h",
+      "in_degree": 5
+    },
+    {
       "header": "utils/JsonNode.h",
       "in_degree": 5
     },
     {
       "header": "api/KisErrorCodes.h",
-      "in_degree": 4
-    },
-    {
-      "header": "api/KisRestDecode.h",
       "in_degree": 4
     }
   ],

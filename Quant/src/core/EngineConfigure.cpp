@@ -35,8 +35,10 @@ void configure_channels(Engine& engine, const AppConfig& app)
     // 부하시험 주문 수신단(D-071). 리플레이와 같은 자리에 들어가 같은 콜백으로 체결을 올린다 — 엔진이 보기에는
     //  그냥 또 하나의 피드라 샤드·전략·OrderGate·원장이 평소대로 돈다. KIS·인증·실주문 경로는 만들어지지 않는다.
     //  갈라 띄우면 소켓을 쥐는 쪽만 만든다 — 생성자가 유니버스 파일을 비우고 다시 쓰기 때문에(ZmqOrderFeed.cpp:129)
-    //  둘이 만들면 부하 투입기가 반쪽짜리를 읽는다. 바인드 자체는 connect()가 하고 그쪽은 이미 갈라져 있다. [why D-114]
-    if (app.load_test_enabled && engine.runs_order_side())
+    //  둘이 만들면 부하 투입기가 반쪽짜리를 읽는다. 바인드 자체는 connect()가 하고 그쪽은 이미 갈라져 있다.
+    //  단계 5에서 소켓이 시세로 옮겨 가면서 이 갈래도 같이 옮겼다 — 피드 소스는 소켓 쥔 쪽 것이다.
+    //  [why D-114 단계 5]
+    if (app.load_test_enabled && engine.runs_feed_side())
     {
         exchange::ZmqOrderFeed::Options load_test_options;
         load_test_options.lane_count   = app.load_test_lanes;

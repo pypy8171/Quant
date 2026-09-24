@@ -23,6 +23,16 @@ constexpr size_t kSharedCacheLine = 64;
 // 제어 칸 머리. 붙는 쪽이 "같은 큐인가"를 이것만 보고 정한다.
 constexpr uint32_t kSharedRingMagic = 0x51'52'4e'47; // 'QRNG'
 
+// 이 인스턴스가 줄의 어느 끝을 맡는가. 붙는 쪽이 셋(전략·시세)이 되면서 "읽기만 하려고 붙는" 자리가 생겼다 —
+//  그 자리가 남의 소비자 칸을 건드리지 않게 목적을 붙을 때 받는다. [why D-114]
+enum class RingEndpoint : uint8_t
+{
+    kBoth     = 0, // 한 인스턴스가 양쪽 끝을 맡는다 — 한 프로세스로 돌 때와 자리를 놓는 쪽
+    kProducer = 1, // 넣기만 한다. published_tail 은 읽기만 한다
+    kConsumer = 2, // 꺼내기만 한다. published_tail 을 적는 쪽은 여기뿐이다
+    kObserver = 3, // 자리만 잡는다. 공유 칸에 아무것도 안 적는다
+};
+
 // 큐 하나의 제어 칸. 순번 셋은 각각 제 캐시라인을 차지한다 — 보내는 쪽과 받는 쪽이 같은 줄을 두고 싸우면
 //  프로세스 사이에서는 스레드 사이보다 더 비싸다.
 //  [inv] 여기 있는 값은 전부 건너편이 고칠 수 있다고 보고 읽는다. 배열 첨자는 이 값으로 만들지 않는다.
@@ -79,11 +89,16 @@ public:
         control->magic = kSharedRingMagic;
 
         bind(base, capacity);
+
+        // 자리를 놓는 쪽은 이 줄을 한 프로세스가 다 쓸 때도 있어(Both) 양쪽 끝을 다 맡는다.
+        endpoint_ = RingEndpoint::kBoth;
         return true;
     }
 
     // 이미 놓인 큐에 붙는다(건너편 프로세스가 부른다). 머리가 다르면 붙지 않는다.
-    [[nodiscard]] bool attach(std::byte* base, size_t bytes, size_t capacity) noexcept
+    //  endpoint 는 이 손잡이가 줄의 어느 끝인가다 — 기본값을 안 두는 것은 붙는 쪽이 셋이라
+    //  "그냥 붙기"가 남의 커서를 덮는 일이 실제로 생기기 때문이다. [why D-114]
+    [[nodiscard]] bool attach(std::byte* base, size_t bytes, size_t capacity, RingEndpoint endpoint) noexcept
     {
         if (!check_arguments(base, bytes, capacity))
         {
@@ -100,6 +115,7 @@ public:
         }
 
         bind(base, capacity);
+        endpoint_ = endpoint;
 
         // 붙는 쪽은 자기 자리를 이미 돌던 큐에서 이어받는다 — 재기동 전 칸을 처음부터 다시 읽지 않는다.
         //  다만 두 순번이 서로 말이 안 되면(뒤가 앞을 넘거나 차이가 칸 수보다 크면) 그대로 쓰지 않는다.
@@ -112,8 +128,13 @@ public:
             tail = head;
             ++peer_counter_rejected_;
 
-            // 고친 자리를 공유 칸에도 적는다 — 안 적으면 보내는 쪽이 계속 "가득 참"으로 보고 큐가 굳는다.
-            control_->published_tail.store(tail, std::memory_order_release);
+            // 고친 자리를 공유 칸에 적는 것은 **받는 쪽으로 붙은 손잡이뿐**이다. 안 적으면 보내는 쪽이 계속
+            //  "가득 참"으로 보고 큐가 굳으니 받는 쪽은 적어야 하고, 반대로 보내는 쪽·구경하는 쪽이 적으면
+            //  이미 잘 돌던 줄에서 남의 받은 자리를 통째로 앞으로 밀어 안 읽은 칸을 버리게 된다. [why D-114]
+            if (writes_consumer_cursor())
+            {
+                control_->published_tail.store(tail, std::memory_order_release);
+            }
         }
 
         next_to_send_    = head;
@@ -137,6 +158,14 @@ public:
     {
         if (control_ == nullptr)
         {
+            return false;
+        }
+
+        // 보내는 끝이 아닌 손잡이로 넣으면 건너편 보내는 쪽과 같은 칸을 두고 다툰다(SPSC 가 깨진다).
+        //  막고 센다 — 배선이 어긋난 것이라 소리 없이 지나가면 안 된다.
+        if (endpoint_ != RingEndpoint::kBoth && endpoint_ != RingEndpoint::kProducer)
+        {
+            ++endpoint_misuse_;
             return false;
         }
 
@@ -172,6 +201,13 @@ public:
     {
         if (control_ == nullptr)
         {
+            return false;
+        }
+
+        // 꺼내는 쪽은 published_tail 을 적는다. 받는 끝이 아닌 손잡이가 꺼내면 남의 받은 자리를 덮는다.
+        if (!writes_consumer_cursor())
+        {
+            ++endpoint_misuse_;
             return false;
         }
 
@@ -233,14 +269,36 @@ public:
         return ready > capacity_ ? 0 : static_cast<size_t>(ready);
     }
 
+    // 보낸 쪽도 받는 쪽도 아닌 스레드가 "큐에 남았나"를 물을 때 쓴다 — 공유 칸 둘만 읽고 두 끝의 제 자리
+    //  값(next_to_send_·next_to_receive_)은 건드리지 않는다. readable() 은 받는 쪽 제 자리를 읽으므로
+    //  남이 부르면 꺼내는 스레드와 겹친다. 두 순번을 따로 읽어 그 사이 건너편이 움직일 수 있다 — 어림값이다.
+    //  [inv] 아무 스레드나 불러도 된다. [why D-114 단계 5]
+    [[nodiscard]] size_t in_flight() const noexcept
+    {
+        if (control_ == nullptr)
+        {
+            return 0;
+        }
+
+        const uint64_t published = control_->published_head.load(std::memory_order_acquire);
+        const uint64_t consumed  = control_->published_tail.load(std::memory_order_acquire);
+        const uint64_t used      = published - consumed;
+
+        return used > capacity_ ? 0 : static_cast<size_t>(used);
+    }
+
+    // 지금까지 보낸 수·받은 수. 둘 다 공유 칸에서 읽는다 — 제 자리 값(next_to_send_·next_to_receive_)을
+    //  읽으면 건너편 끝이나 제3의 스레드(5초마다 도는 고수위 로그)가 부를 때 그 끝과 겹친다.
+    //  공유 칸은 같은 값을 release 로 적어 둔 것이라 숫자는 그대로고, 어느 끝에서 물어도 같은 답이 온다.
+    //  [why D-114 단계 5]
     [[nodiscard]] uint64_t sent() const noexcept
     {
-        return next_to_send_;
+        return control_ == nullptr ? 0 : control_->published_head.load(std::memory_order_acquire);
     }
 
     [[nodiscard]] uint64_t received() const noexcept
     {
-        return next_to_receive_;
+        return control_ == nullptr ? 0 : control_->published_tail.load(std::memory_order_acquire);
     }
 
     // 건너편이 적어 둔 순번이 말이 안 돼 보내기를 미룬 횟수. 0이 아니면 건너편 프로세스를 의심한다.
@@ -255,6 +313,17 @@ public:
         return stamp_out_of_turn_;
     }
 
+    // 제 끝이 아닌 일(보내는 쪽이 꺼내거나 그 반대)을 청한 횟수. 0이 아니면 배선이 어긋난 것이다.
+    [[nodiscard]] uint64_t endpoint_misuse() const noexcept
+    {
+        return endpoint_misuse_;
+    }
+
+    [[nodiscard]] RingEndpoint endpoint() const noexcept
+    {
+        return endpoint_;
+    }
+
     [[nodiscard]] size_t capacity() const noexcept
     {
         return static_cast<size_t>(capacity_);
@@ -266,6 +335,12 @@ public:
     }
 
 private:
+    // published_tail 을 적어도 되는 끝인가. 받는 쪽과 한 프로세스가 양쪽을 다 맡는 경우뿐이다.
+    [[nodiscard]] bool writes_consumer_cursor() const noexcept
+    {
+        return endpoint_ == RingEndpoint::kBoth || endpoint_ == RingEndpoint::kConsumer;
+    }
+
     [[nodiscard]] bool check_arguments(std::byte* base, size_t bytes, size_t capacity) noexcept
     {
         last_error_.clear();
@@ -309,8 +384,12 @@ private:
     uint64_t next_to_send_    = 0;
     uint64_t next_to_receive_ = 0;
 
+    // 이 손잡이가 맡은 끝. create() 는 kBoth, attach() 는 부르는 쪽이 정한다.
+    RingEndpoint endpoint_ = RingEndpoint::kBoth;
+
     uint64_t    peer_counter_rejected_ = 0;
     uint64_t    stamp_out_of_turn_     = 0;
+    uint64_t    endpoint_misuse_       = 0;
     std::string last_error_;
 };
 

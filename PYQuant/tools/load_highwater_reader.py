@@ -3,10 +3,10 @@
     py -m tools.load_highwater_reader --round N --output <경로>.csv
     py -m tools.load_highwater_reader --round N --log-dir out/build/x64-release/Quant/logs --judge
 
-왜 로그인가. 갈라 띄우면(D-114) 요청·응답 소켓은 **주문 쪽만** 연다 — 전략 프로세스는 PUB·REP·운영단말
+왜 로그인가. 갈라 띄우면(D-114) 요청·응답 소켓은 **주문 쪽만** 연다 — 전략·시세 프로세스는 PUB·REP·운영단말
 어느 포트도 바인드하지 않는다(Quant/src/core/Engine.cpp 의 `zmq_enabled_ && runs_order_side()`).
-그래서 tools.load_status_sampler 로는 전략 쪽을 못 읽는다. 대신 두 프로세스가 실행 로그를 제 파일에
-따로 쓰고(quant_trader.order.log · quant_trader.strategy.log), 1분마다 나오는 `[큐 고수위]` 줄에
+그래서 tools.load_status_sampler 로는 그 둘을 못 읽는다. 대신 프로세스마다 실행 로그를 제 파일에
+따로 쓰고(quant_trader.order.log · quant_trader.strategy.log · quant_trader.feed.log), 1분마다 나오는 `[큐 고수위]` 줄에
 분리판 안전성 계수기가 그대로 실려 있다.
 
 그 줄의 계수기 중 **0 이어야 하는 것**은 엔진 주석이 정본이다(Quant/src/core/Engine.cpp 의 큐 고수위
@@ -46,6 +46,8 @@ FIELD_PATTERN = re.compile(r"(?P<name>[a-z_]+)=(?P<value>[^\s]+)")
 #  strategy_*      — 전략 이름표 등록을 못 받은 수(quant-53 이 뒤에 실었다. 없는 판이면 그냥 빠진다)
 #  watch_overflow  — 상한에 밀려 소켓에 못 건 종목(그 종목은 틱이 영영 안 온다)
 #  feed_channel_*  — 시세 통로가 차서 못 넘겼거나, 값이 말이 안 돼 꺼내는 쪽이 버린 건수
+#  fill_channel_*  — 체결 통로(시세→주문)가 차서 못 넘겼거나, 값이 말이 안 돼 버린 체결통보 건수.
+#                    여기서 새면 주문 쪽 선점분이 안 풀려 총노출을 이중계상한다(D-114 단계 5)
 MUST_BE_ZERO = (
     "ledger_foreign",
     "control_dropped",
@@ -57,6 +59,8 @@ MUST_BE_ZERO = (
     "watch_overflow",
     "feed_channel_overflow",
     "feed_channel_discarded",
+    "fill_channel_overflow",
+    "fill_channel_discarded",
 )
 
 # 0 이 아닐 수 있지만 both 판과 견줘야 하는 칸. 늘었으면 분리가 가져온 값이다.
@@ -68,6 +72,8 @@ COMPARE_WITH_BOTH = (
     "order_duplicate",
     "order_implausible",
     "order_response_dropped",
+    "fill_channel_sent",
+    "fill_channel_received",
     "beat_gap_max",
 )
 
@@ -116,7 +122,11 @@ def read_role_log(path: Path, role: str, round_name: str) -> list[dict[str, str]
 
 
 def collect(log_directory: Path | None, round_name: str) -> list[dict[str, str]]:
-    """역할별 로그를 다 읽어 행으로. 한 프로세스로 돌았으면 role 이 `both` 한 갈래로만 나온다."""
+    """역할별 로그를 다 읽어 행으로. 한 프로세스로 돌았으면 role 이 `both` 한 갈래로만 나온다.
+
+    모르는 이름이 줄에 실려도 그냥 한 열로 더 들어온다 — FIELD_PATTERN 이 `이름=값` 을 다 뽑고,
+    판정은 MUST_BE_ZERO 에 적힌 이름만 본다. 없는 칸은 "없음" 으로 적고 넘어간다.
+    """
     sources = _logdir.live_logs(log_directory)
     rows: list[dict[str, str]] = []
 
