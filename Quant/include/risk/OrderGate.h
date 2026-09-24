@@ -3,6 +3,7 @@
 #include "core/SymbolTable.h"
 #include "core/Types.h"
 #include "risk/LedgerJournal.h"
+#include "risk/LedgerKeys.h"
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -109,26 +110,26 @@ public:
     //  이미 든 키의 번호가 다른 테이블의 것이 된다.
     void set_symbol_table(symbol::SymbolTable* table) noexcept
     {
-        symbols_ = table ? table : &own_symbols_;
+        keys_.set_symbol_table(table);
     }
 
     // 원장이 아는 종목 id(모르면 kNone). 찾기만 하고 새 번호는 주지 않는다 — 신호에 id가 비었을 때
     //  디스패처·라우터가 부른다(Quant/src/core/SignalDispatcher.cpp symbol_of).
     [[nodiscard]] symbol::SymbolId symbol_id_of(std::string_view ticker) const
     {
-        return symbols_->lookup(ticker);
+        return keys_.symbols().lookup(ticker);
     }
 
     // 종목을 테이블에 등록하고 id를 돌려준다 — 우선순위 표·테스트가 원장보다 먼저 종목을 알 때 쓴다.
     [[nodiscard]] symbol::SymbolId intern_symbol(std::string_view ticker)
     {
-        return symbols_->intern(ticker);
+        return keys_.symbols().intern(ticker);
     }
 
     // 원장이 쓰는 종목 테이블(읽기) — id를 로그용 문자열로 되돌릴 때만 쓴다.
     [[nodiscard]] const symbol::SymbolTable& symbols() const noexcept
     {
-        return *symbols_;
+        return keys_.symbols();
     }
 
     // 원장 저널 — 원장을 바꾸는 모든 사건(시드·주문 의도·접수·거부·체결·취소·대조·현금)을 바꾸기 전에 파일에 적고,
@@ -548,50 +549,11 @@ private:
     using Clock = std::chrono::steady_clock;
     using TimePoint = Clock::time_point;
 
-    // 원장 파티션 키 — 계좌별 독립. 두 필드를 따로 들어 "A"+"B:C"와 "A:B"+"C"가 섞이지 않고(W-1),
-    //  키에서 (account,ticker)를 되찾는 파싱이 없다. 문자열 하나로 합치던 때는 역파싱이 정리·교체·
-    //  스냅샷 세 곳에 복제돼 있었고 키 하나 만들 때마다 힙 할당이 났다. [why D-057]
-    //  두 필드 모두 정수 id — 종목은 SymbolTable(Engine이 set_symbol_table로 넘긴 것, 없으면 자체 테이블),
-    //  계좌는 account_names_ 인덱스. 문자열 두 개이던 때는 조회 한 번이 34~40 ns였고 대부분이 문자열
-    //  해시였다. 문자열은 로그·계획·스냅샷에서 ticker_of()·account_of()로 되찾는다. [why D-105]
-    static constexpr uint32_t kUnknownAccount = UINT32_MAX;
-
-    struct PosKey
-    {
-        uint32_t         account = kUnknownAccount;
-        symbol::SymbolId symbol  = symbol::kNone;
-
-        bool operator==(const PosKey&) const = default;
-    };
-
-    struct PosKeyHash
-    {
-        size_t operator()(const PosKey& key) const noexcept;
-    };
-
+    // 원장 파티션 키 — (계좌 번호, 종목 id). 만드는 규칙과 [why]는 Quant/include/risk/LedgerKeys.h.
+    static constexpr uint32_t kUnknownAccount = LedgerKeys::kUnknownAccount;
+    using PosKey = LedgerKeys::Key;
     template <class V>
-    using PosMap = std::unordered_map<PosKey, V, PosKeyHash>;
-
-    // 쓰기 경로(체결·시드·선점) — 처음 보는 계좌·종목을 등록한다. 종목 테이블이 가득 차면 던진다.
-    //  [inv] positions_mutex_를 잡고 부른다(account_names_가 그 락으로 보호된다).
-    PosKey make_key(std::string_view account, std::string_view ticker);
-    // 읽기 경로(조회·정리·게이트) — 등록하지 않는다. 모르는 계좌·종목이면 원장에 없는 키가 나와 find가 빈다.
-    //  [inv] positions_mutex_를 잡고 부른다.
-    [[nodiscard]] PosKey lookup_key(std::string_view account, std::string_view ticker) const;
-    [[nodiscard]] PosKey lookup_key(std::string_view account, symbol::SymbolId symbol) const;
-    // 신호는 수신 스레드가 찍은 symbol_id를 이미 들고 있다 — Engine 테이블을 쓸 때만 그 id를 믿는다
-    //  (자체 테이블이면 다른 테이블의 id라 문자열로 찾는다).
-    [[nodiscard]] PosKey lookup_key(const OrderSignal& signal) const;
-    // check() 전용 — 처음 보는 계좌·종목을 등록해 중복 신호 키가 모르는 계좌끼리 겹치지 않게 한다.
-    //  [inv] positions_mutex_를 잡고 부른다.
-    [[nodiscard]] PosKey register_key(const OrderSignal& signal);
-    // 계좌 문자열 → 계좌 번호. create면 처음 보는 계좌를 등록한다. [inv] positions_mutex_를 잡고 부른다.
-    [[nodiscard]] uint32_t account_index(std::string_view account, bool create);
-    // 16바이트 값이라 힙 할당이 없다 — std::string이 필요한 자리(계획·스냅샷)만 .string()으로 만든다.
-    [[nodiscard]] symbol::Ticker ticker_of(const PosKey& key) const;
-    // 종목 문자열 목록 → 종목 id 비트(테이블 용량 크기). 유령 정리 두 곳이 쓴다.
-    [[nodiscard]] std::vector<bool> live_symbols(const std::vector<std::string>& live_tickers) const;
-    [[nodiscard]] const std::string& account_of(const PosKey& key) const;
+    using PosMap = LedgerKeys::Map<V>;
 
     // 선점 해제의 유일한 경로 — 취소 통보(on_cancel)와 체결 통보(on_fill_confirmed)가 함께 쓴다.
     //  없는 선점은 손대지 않고, 과잉 해제는 0에서 멈춘다. 규칙이 두 곳에 갈라져 있으면 한쪽만
@@ -652,12 +614,10 @@ private:
     mutable std::unordered_map<symbol::SymbolId, std::string> displace_decline_; // 신규 종목 id → 직전 교체 거절 사유(거부 문구용)
     int              displace_count_ = 0;             // 당일 교체 횟수(reset_daily에서 0으로)
 
-    // 종목 id 테이블 — Engine 것을 가리키거나(set_symbol_table) 자체 테이블. 테이블 자체가 락을 든다.
-    symbol::SymbolTable  own_symbols_;
-    symbol::SymbolTable* symbols_ = &own_symbols_;
+    // 원장 키 표 — 종목 테이블(자체 락)과 계좌 이름. 계좌 이름 쪽은 positions_mutex_를 잡고 쓴다.
+    LedgerKeys keys_;
 
     mutable std::mutex positions_mutex_;
-    std::vector<std::string> account_names_{std::string()}; // 계좌 id → 문자열. [0]은 ""(단일 계좌 하위호환). positions_mutex_ 보호
     PosMap<int>    reserved_;    // (account,ticker) → 미체결 선점 수량 (BUY +, SELL -). 재주문 차단용
     PosMap<double> reserved_price_; // (account,ticker) → 미체결 선점가(§3d 총노출 계산용). reserved_와 동일 생명주기로 정리
     // 원장 저널 — set_journal() 이전엔 nullptr(저널 없이 동작, 테스트·벤치 기본). replaying_은 set_journal 안에서만

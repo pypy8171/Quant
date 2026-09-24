@@ -40,7 +40,7 @@ graph LR
   modes -->|3| core
   modes --> ipc
   modes -->|2| utils
-  risk -->|6| core
+  risk -->|8| core
   risk --> ipc
   risk -->|2| utils
   strategy -->|5| api
@@ -61,10 +61,10 @@ graph LR
 
 | 헤더 | 유입 수 |
 |---|---|
-| `core/Types.h` | 40 |
+| `core/Types.h` | 41 |
 | `utils/Logger.h` | 34 |
 | `core/KstTime.h` | 19 |
-| `core/SymbolTable.h` | 17 |
+| `core/SymbolTable.h` | 18 |
 | `strategy/StrategyBase.h` | 15 |
 | `api/KisClient.h` | 13 |
 | `core/WakeGate.h` | 10 |
@@ -204,6 +204,8 @@ graph LR
     n_risk_DisplacementDesk_h["risk/DisplacementDesk.h"]
     n_risk_GateReasons_cpp["risk/GateReasons.cpp"]
     n_risk_LedgerJournal_cpp["risk/LedgerJournal.cpp"]
+    n_risk_LedgerKeys_cpp["risk/LedgerKeys.cpp"]
+    n_risk_LedgerKeys_h["risk/LedgerKeys.h"]
     n_risk_OrderGate_cpp["risk/OrderGate.cpp"]
     n_risk_OrderGate_h["risk/OrderGate.h"]
     n_risk_ProtectiveOrders_cpp["risk/ProtectiveOrders.cpp"]
@@ -542,6 +544,9 @@ graph LR
   n_risk_DisplacementDesk_h --> n_risk_OrderGate_h
   n_risk_GateReasons_cpp --> n_risk_GateReasons_h
   n_risk_LedgerJournal_cpp --> n_risk_LedgerJournal_h
+  n_risk_LedgerKeys_cpp --> n_risk_LedgerKeys_h
+  n_risk_LedgerKeys_h --> n_core_SymbolTable_h
+  n_risk_LedgerKeys_h --> n_core_Types_h
   n_risk_OrderGate_cpp --> n_core_KstTime_h
   n_risk_OrderGate_cpp --> n_ipc_LedgerSnapshot_h
   n_risk_OrderGate_cpp --> n_risk_GateReasons_h
@@ -550,6 +555,7 @@ graph LR
   n_risk_OrderGate_h --> n_core_SymbolTable_h
   n_risk_OrderGate_h --> n_core_Types_h
   n_risk_OrderGate_h --> n_risk_LedgerJournal_h
+  n_risk_OrderGate_h --> n_risk_LedgerKeys_h
   n_risk_ProtectiveOrders_cpp --> n_risk_ProtectiveOrders_h
   n_risk_ProtectiveOrders_h --> n_risk_OrderGate_h
   n_risk_ProtectiveOrders_h --> n_risk_ProtectiveRule_h

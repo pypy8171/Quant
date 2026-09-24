@@ -327,6 +327,7 @@
 - [DisplacementDesk.h](../Quant/include/risk/DisplacementDesk.h) — 교체 진입 창구(주문 쪽): 꽉 찬 책에 새 종목 매수가 오면 최약체를 먼저 비우고 그 매수를 자리가 날 때까지 든다(D-114 단계 2.5 갈래 B)
 - [GateReasons.h](../Quant/include/risk/GateReasons.h) — 게이트 거부 사유 문자열 계약(D-067)
 - [LedgerJournal.h](../Quant/include/risk/LedgerJournal.h) — 원장 선기록 저널: 192바이트 고정 레코드·CRC32·seq, 주문을 보내기 전에 적고 재기동 때 리플레이(D-113)
+- [LedgerKeys.h](../Quant/include/risk/LedgerKeys.h) — 원장 키 (계좌 번호, 종목 id)를 만들고 되찾는 표 — OrderGate에서 뗐다. 신호·체결마다 부르는 함수는 헤더 인라인(D-118 예외, 잰 수치는 파일 안)
 - [OrderGate.h](../Quant/include/risk/OrderGate.h) — 주문 전 위험 검증 게이트
 - [ProtectiveOrders.h](../Quant/include/risk/ProtectiveOrders.h) — 보호 주문 표(주문 쪽): 보유·현재가·미체결 매도만으로 손절·트레일 청산 신호를 만든다(D-114 단계 1)
 - [ProtectiveRule.h](../Quant/include/risk/ProtectiveRule.h) — 보호 주문 규칙과 등록 창구 — 전략이 보는 경계(D-114 단계 1)
@@ -458,6 +459,7 @@
 - [DisplacementDesk.cpp](../Quant/src/risk/DisplacementDesk.cpp) — DisplacementDesk.h 구현 — 최약체 고르기·교체 매도 발주·쿨다운 기록·보류 매수 꺼내기(D-114 단계 2.5 갈래 B)
 - [GateReasons.cpp](../Quant/src/risk/GateReasons.cpp) — GateReasons.h 구현 — 게이트 거부 사유 문자열 계약(D-067)
 - [LedgerJournal.cpp](../Quant/src/risk/LedgerJournal.cpp) — LedgerJournal.h 구현 — 원장 선기록 저널: 192바이트 고정 레코드·CRC32·seq, 주문을 보내기 전에 적고 재기동 때 리플레이(D-113)
+- [LedgerKeys.cpp](../Quant/src/risk/LedgerKeys.cpp) — LedgerKeys.h 구현 — 살아 있는 종목 문자열을 종목 id 비트로 바꾸는 live_symbols
 - [OrderGate.cpp](../Quant/src/risk/OrderGate.cpp) — 주문 위험 게이트 구현 — 수수료율·우선순위 바
 - [ProtectiveOrders.cpp](../Quant/src/risk/ProtectiveOrders.cpp) — ProtectiveOrders.h 구현 — 보호 주문 표(주문 쪽): 보유·현재가·미체결 매도만으로 손절·트레일 청산 신호를 만든다(D-114 단계 1)
 - [ProtectiveRule.cpp](../Quant/src/risk/ProtectiveRule.cpp) — ProtectiveRule.h 구현 — 보호 주문 규칙과 등록 창구 — 전략이 보는 경계(D-114 단계 1)

@@ -204,6 +204,7 @@ set(ENGINE_SOURCES
   src/strategy/TargetBasketPlan.cpp
   src/strategy/TargetBasketStrategy.cpp
   src/risk/OrderGate.cpp
+  src/risk/LedgerKeys.cpp
   src/utils/Logger.cpp
   src/utils/Timer.cpp
 )

@@ -103,7 +103,7 @@ int OrderGate::clamp_buy_quantity(const OrderSignal& signal)
     if (signal.side == OrderSide::SELL && signal.action == OrderAction::NEW && quantity > 0)
     {
         std::lock_guard<std::mutex> lock(positions_mutex_);
-        const PosKey key = lookup_key(signal);
+        const PosKey key = keys_.lookup(signal);
         auto position_iterator = positions_.find(key);
 
         if (position_iterator == positions_.end() || position_iterator->second <= 0)
@@ -160,7 +160,7 @@ int OrderGate::clamp_buy_quantity(const OrderSignal& signal)
 
     {
         std::lock_guard<std::mutex> lock(positions_mutex_);
-        const PosKey key = lookup_key(signal);
+        const PosKey key = keys_.lookup(signal);
         auto position_iterator = positions_.find(key);
         auto reserved_iterator = reserved_.find(key);
         const int current_quantity = (position_iterator != positions_.end() ? position_iterator->second : 0) +
@@ -359,7 +359,7 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
     PosKey key;
     {
         std::lock_guard<std::mutex> lock(positions_mutex_);
-        key = register_key(signal);
+        key = keys_.register_signal(signal);
     }
 
     if (signal.side == OrderSide::BUY)
@@ -514,7 +514,7 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
                         {
                             blocked = true;
                             reject_reason = std::format("교체로 비운 슬롯 예약분 ({}) — 다른 종목 진입 보류",
-                                                        symbols_->name(slot_reserved_for_).view());
+                                                        keys_.symbols().name(slot_reserved_for_).view());
                         }
                     }
                 }
@@ -748,7 +748,7 @@ bool OrderGate::on_intent(const std::string& account, const std::string& ticker,
                           double price, const OrderRef& reference, strategy_table::StrategyId strategy)
 {
     std::lock_guard<std::mutex> lock(positions_mutex_);
-    const PosKey key   = make_key(account, ticker);
+    const PosKey key   = keys_.make(account, ticker);
     const int    delta = (side == OrderSide::BUY) ? quantity : -quantity; // BUY 선점 +, SELL 선점 -
     const auto   previous_price_iterator = reserved_price_.find(key);
     const bool   had_price               = previous_price_iterator != reserved_price_.end();
@@ -792,7 +792,7 @@ void OrderGate::on_reject(const std::string& account, const std::string& ticker,
                           const OrderRef& reference, std::string_view reason)
 {
     std::lock_guard<std::mutex> lock(positions_mutex_);
-    release_reservation(make_key(account, ticker), (side == OrderSide::BUY) ? -quantity : quantity);
+    release_reservation(keys_.make(account, ticker), (side == OrderSide::BUY) ? -quantity : quantity);
     ledger_journal::Record record = make_order_record(ledger_journal::Kind::REJECT, side, quantity, reference);
     ledger_journal::put_string(record.reason, sizeof(record.reason), reason);
     journal_append(record, account, ticker);
@@ -802,7 +802,7 @@ void OrderGate::on_reject(const std::string& account, const std::string& ticker,
 //  [inv] positions_mutex_를 잡고 부른다.
 void OrderGate::apply_reservation_delta(std::string_view account, std::string_view ticker, int delta, double price)
 {
-    const PosKey key  = make_key(account, ticker);
+    const PosKey key  = keys_.make(account, ticker);
     int          next = (reserved_.count(key) ? reserved_[key] : 0) + delta;
 
     if (next == 0)
@@ -868,7 +868,7 @@ void OrderGate::on_cancel(const std::string& account, const std::string& ticker,
 
     std::lock_guard<std::mutex> lock(positions_mutex_);
     // BUY 선점은 +였으므로 -quantity, SELL 선점은 -였으므로 +quantity (해제 = 반대부호 가산)
-    release_reservation(make_key(account, ticker), (side == OrderSide::BUY) ? -quantity : quantity);
+    release_reservation(keys_.make(account, ticker), (side == OrderSide::BUY) ? -quantity : quantity);
     ledger_journal::Record record = make_order_record(ledger_journal::Kind::CANCEL, side, quantity, reference);
     journal_append(record, account, ticker);
 }
@@ -939,7 +939,7 @@ void OrderGate::journal_adjust(const PosKey& key, std::string_view reason)
     record.sellable          = sellable_iterator != sellable_.end() ? sellable_iterator->second : -1;
     record.reserved_quantity = reserved_iterator != reserved_.end() ? reserved_iterator->second : 0;
     ledger_journal::put_string(record.reason, sizeof(record.reason), reason);
-    journal_append(record, account_of(key), ticker_of(key).view());
+    journal_append(record, keys_.account_of(key), keys_.ticker_of(key).view());
 }
 
 std::vector<OrderGate::OpenIntent> OrderGate::open_intents() const
@@ -1041,7 +1041,7 @@ void OrderGate::apply_record(const ledger_journal::Record& record)
     case Kind::CANCEL:
     {
         std::lock_guard<std::mutex> lock(positions_mutex_);
-        release_reservation(make_key(account, ticker), release);
+        release_reservation(keys_.make(account, ticker), release);
         break;
     }
 
@@ -1053,7 +1053,7 @@ void OrderGate::apply_record(const ledger_journal::Record& record)
     case Kind::ADJUST:
     {
         std::lock_guard<std::mutex> lock(positions_mutex_);
-        apply_adjust_locked(make_key(account, ticker), record);
+        apply_adjust_locked(keys_.make(account, ticker), record);
         break;
     }
 
@@ -1140,29 +1140,10 @@ void OrderGate::set_available_cash(double available_cash)
 }
 
 // ─── 유령 슬롯 정리 ─────────────────────────────────────────────────────────
-//  살아 있는 종목 문자열(브로커 잔고·라우터 이력)을 종목 id 비트로 한 번만 바꾼다 — 원장을 돌며 항목마다
-//  문자열 집합을 묻던 것을 비트 인덱스로 바꿨다. 테이블이 모르는 종목은 원장에도 없으니 빠뜨려도 같다.
-std::vector<bool> OrderGate::live_symbols(const std::vector<std::string>& live_tickers) const
-{
-    std::vector<bool> live(symbols_->capacity(), false);
-
-    for (const std::string& ticker : live_tickers)
-    {
-        const symbol::SymbolId symbol = symbols_->lookup(ticker);
-
-        if (symbol != symbol::kNone && symbol < live.size())
-        {
-            live[symbol] = true;
-        }
-    }
-
-    return live;
-}
-
 std::vector<symbol::SymbolId> OrderGate::prune_positions(const std::vector<std::string>& live_tickers, int min_age_sec)
 {
     std::vector<symbol::SymbolId> gone;
-    const std::vector<bool>  live = live_symbols(live_tickers);
+    const std::vector<bool>  live = keys_.live_symbols(live_tickers);
     std::lock_guard<std::mutex> lock(positions_mutex_);
     const auto now = Clock::now();
 
@@ -1199,7 +1180,7 @@ std::vector<symbol::SymbolId> OrderGate::prune_positions(const std::vector<std::
 
 std::vector<std::string> OrderGate::prune_reservations(const std::vector<std::string>& live_tickers)
 {
-    return prune_reservations(live_symbols(live_tickers));
+    return prune_reservations(keys_.live_symbols(live_tickers));
 }
 
 std::vector<std::string> OrderGate::prune_reservations(const std::vector<bool>& live)
@@ -1216,7 +1197,7 @@ std::vector<std::string> OrderGate::prune_reservations(const std::vector<bool>& 
         }
 
         const PosKey key = iterator->first;
-        gone.emplace_back(ticker_of(key).view());
+        gone.emplace_back(keys_.ticker_of(key).view());
         reserved_price_.erase(key);
         iterator = reserved_.erase(iterator);
         journal_adjust(key, "prune_reservations");
@@ -1233,7 +1214,7 @@ void OrderGate::restore_sellable(const std::string& account, const std::string& 
     }
 
     std::lock_guard<std::mutex> lock(positions_mutex_);
-    const PosKey key = make_key(account, ticker);
+    const PosKey key = keys_.make(account, ticker);
     auto position_iterator = positions_.find(key);
 
     if (position_iterator == positions_.end() || position_iterator->second <= 0)
@@ -1252,7 +1233,7 @@ OrderGate::SellableView OrderGate::sellable_view(const std::string& account, con
 {
     SellableView sellable_view;
     std::lock_guard<std::mutex> lock(positions_mutex_);
-    const PosKey key = lookup_key(account, ticker);
+    const PosKey key = keys_.lookup(account, ticker);
     auto position_iterator = positions_.find(key);
 
     if (position_iterator == positions_.end() || position_iterator->second <= 0)
@@ -1282,7 +1263,7 @@ void OrderGate::refresh_sellable(const std::string& account, const std::string& 
     }
 
     std::lock_guard<std::mutex> lock(positions_mutex_);
-    const PosKey key = make_key(account, ticker);
+    const PosKey key = keys_.make(account, ticker);
     auto position_iterator = positions_.find(key);
 
     if (position_iterator == positions_.end() || position_iterator->second <= 0)
@@ -1305,7 +1286,7 @@ int OrderGate::absorb_missed_sell(const std::string& account, const std::string&
     }
 
     std::lock_guard<std::mutex> lock(positions_mutex_);
-    const PosKey key = make_key(account, ticker);
+    const PosKey key = keys_.make(account, ticker);
     auto position_iterator = positions_.find(key);
 
     if (position_iterator == positions_.end() || position_iterator->second <= balance_quantity)
@@ -1372,7 +1353,7 @@ void OrderGate::seed_position(const std::string& account, const std::string& tic
     }
 
     std::lock_guard<std::mutex> lock(positions_mutex_);
-    const PosKey key = make_key(account, ticker);
+    const PosKey key = keys_.make(account, ticker);
     positions_[key]  = quantity;
     average_prices_[key] = average;
     // 매도가능수량. 모르면(-1) 보유수량으로 둔다 - 모르는 것을 0으로 두면 정당한 청산이 막힌다.
@@ -1400,7 +1381,7 @@ OrderGate::FillResult OrderGate::on_fill_confirmed(
 
     {
         std::lock_guard<std::mutex> lock(positions_mutex_);
-        const PosKey key = make_key(account, ticker);
+        const PosKey key = keys_.make(account, ticker);
         int pre_quantity    = positions_.count(key) ? positions_[key] : 0; // 체결 전 실보유
         double current_average = average_prices_.count(key) ? average_prices_[key] : 0.0;
 
@@ -1692,7 +1673,7 @@ OrderGate::DisplacePlan OrderGate::plan_displacement(const std::string& account,
         {
             // 직전 교체로 비운 자리가 아직 안 찼다
             const auto left = std::chrono::duration_cast<std::chrono::seconds>(slot_reserved_until_ - now).count();
-            why = std::format("비운 자리를 {}가 쓰는 중({}초 남음)", symbols_->name(slot_reserved_for_).view(), left);
+            why = std::format("비운 자리를 {}가 쓰는 중({}초 남음)", keys_.symbols().name(slot_reserved_for_).view(), left);
         }
         else if (new_symbol < displace_cooldown_until_.size())
         {
@@ -1814,8 +1795,8 @@ OrderGate::DisplacePlan OrderGate::plan_displacement(const std::string& account,
     {
         std::lock_guard<std::mutex> lock(positions_mutex_);
 
-        plan.account = account_of(best_key);
-        plan.ticker  = ticker_of(best_key).string();
+        plan.account = keys_.account_of(best_key);
+        plan.ticker  = keys_.ticker_of(best_key).string();
         plan.symbol  = best_key.symbol;
         auto position_iterator = positions_.find(best_key);
         auto reserved_found  = reserved_.find(best_key);
@@ -1841,7 +1822,7 @@ OrderGate::DisplacePlan OrderGate::plan_displacement(const std::string& account,
     (void)account; // 계좌는 피교체 종목 쪽에서 복원한다(신호 계좌와 다를 수 있음)
     plan.victim_z = worst_z;
     plan.reason = std::format("교체 진입 — {}(z={:.2f})가 {}(z={:.2f})보다 {:.2f}σ 높아 슬롯을 넘긴다",
-                              symbols_->name(new_symbol).view(), plan.new_z, plan.ticker, plan.victim_z,
+                              keys_.symbols().name(new_symbol).view(), plan.new_z, plan.ticker, plan.victim_z,
                               plan.new_z - plan.victim_z);
     plan.ok = true;
     {
@@ -1868,7 +1849,7 @@ void OrderGate::note_displacement(const DisplacePlan& plan, symbol::SymbolId ben
         // 종목 테이블 용량만큼 한 번만 늘린다 — id는 용량을 넘지 않으므로 그 뒤로는 인덱스 대입뿐이다.
         if (plan.symbol >= displace_cooldown_until_.size())
         {
-            displace_cooldown_until_.resize(std::max<size_t>(symbols_->capacity(), plan.symbol + 1));
+            displace_cooldown_until_.resize(std::max<size_t>(keys_.symbols().capacity(), plan.symbol + 1));
         }
 
         displace_cooldown_until_[plan.symbol] = now + std::chrono::seconds(config_.displace_cooldown_sec);
@@ -1917,80 +1898,6 @@ void OrderGate::reset_daily()
     // average_prices_ / positions_ 는 영속 원장 — 장 시작에 초기화하지 않는다
 }
 
-// ─── 원장 키 — (계좌 id, 종목 id) ─────────────────────────────────────────────
-//  계좌는 기동 중 몇 개뿐이라 벡터를 앞에서부터 비교한다(해시보다 싸다). positions_mutex_ 아래에서만 부른다.
-uint32_t OrderGate::account_index(std::string_view account, bool create)
-{
-    for (size_t index = 0; index < account_names_.size(); ++index)
-    {
-        if (account_names_[index] == account)
-        {
-            return static_cast<uint32_t>(index);
-        }
-    }
-
-    if (!create)
-    {
-        return kUnknownAccount;
-    }
-
-    account_names_.emplace_back(account);
-    return static_cast<uint32_t>(account_names_.size() - 1);
-}
-
-OrderGate::PosKey OrderGate::make_key(std::string_view account, std::string_view ticker)
-{
-    const uint32_t         account_id = account_index(account, true);
-    const symbol::SymbolId symbol     = symbols_->intern(ticker);
-
-    if (symbol == symbol::kNone)
-    {
-        throw std::runtime_error(std::format("OrderGate: 종목 테이블이 가득 차 원장 키를 못 만든다 ticker={} capacity={}",
-                                             ticker, symbols_->capacity()));
-    }
-
-    return PosKey{account_id, symbol};
-}
-
-OrderGate::PosKey OrderGate::lookup_key(std::string_view account, symbol::SymbolId symbol) const
-{
-    // const 경로라 등록하지 않는다 — account_index(create=false)와 같은 탐색이지만 const 멤버로 둔다.
-    for (size_t index = 0; index < account_names_.size(); ++index)
-    {
-        if (account_names_[index] == account)
-        {
-            return PosKey{static_cast<uint32_t>(index), symbol};
-        }
-    }
-
-    return PosKey{kUnknownAccount, symbol};
-}
-
-OrderGate::PosKey OrderGate::lookup_key(std::string_view account, std::string_view ticker) const
-{
-    return lookup_key(account, symbols_->lookup(ticker));
-}
-
-OrderGate::PosKey OrderGate::lookup_key(const OrderSignal& signal) const
-{
-    if (symbols_ != &own_symbols_ && signal.symbol_id != symbol::kNone)
-    {
-        return lookup_key(signal.account_id, signal.symbol_id);
-    }
-
-    return lookup_key(signal.account_id, signal.ticker);
-}
-
-OrderGate::PosKey OrderGate::register_key(const OrderSignal& signal)
-{
-    if (symbols_ != &own_symbols_ && signal.symbol_id != symbol::kNone)
-    {
-        return PosKey{account_index(signal.account_id, true), signal.symbol_id};
-    }
-
-    return make_key(signal.account_id, signal.ticker);
-}
-
 // ─── 진입 우선순위 표 ─────────────────────────────────────────────────────────
 void OrderGate::set_entry_priority(const std::vector<PriorityEntry>& entries, int total)
 {
@@ -1998,7 +1905,7 @@ void OrderGate::set_entry_priority(const std::vector<PriorityEntry>& entries, in
     table->total = total;
 
     // id 배열은 종목 테이블 용량만큼 — id가 용량을 넘지 않으므로 경계 검사가 index < size() 하나로 끝난다.
-    size_t extent = symbols_->capacity();
+    size_t extent = keys_.symbols().capacity();
 
     for (const PriorityEntry& entry : entries)
     {
@@ -2073,49 +1980,39 @@ bool OrderGate::z_of(const PriorityTable& table, symbol::SymbolId symbol, double
     return true;
 }
 
-symbol::Ticker OrderGate::ticker_of(const PosKey& key) const
-{
-    return symbols_->name(key.symbol);
-}
-
-const std::string& OrderGate::account_of(const PosKey& key) const
-{
-    return account_names_[key.account];
-}
-
 // ─── 조회 (계좌별) ───────────────────────────────────────────────────────────
 int OrderGate::position(const std::string& account, const std::string& ticker) const
 {
     std::lock_guard<std::mutex> lock(positions_mutex_);
-    auto iterator = positions_.find(lookup_key(account, ticker));
+    auto iterator = positions_.find(keys_.lookup(account, ticker));
     return (iterator != positions_.end()) ? iterator->second : 0;
 }
 
 int OrderGate::position(const std::string& account, symbol::SymbolId symbol) const
 {
     std::lock_guard<std::mutex> lock(positions_mutex_);
-    auto iterator = positions_.find(lookup_key(account, symbol));
+    auto iterator = positions_.find(keys_.lookup(account, symbol));
     return (iterator != positions_.end()) ? iterator->second : 0;
 }
 
 int OrderGate::reserved(const std::string& account, const std::string& ticker) const
 {
     std::lock_guard<std::mutex> lock(positions_mutex_);
-    auto iterator = reserved_.find(lookup_key(account, ticker));
+    auto iterator = reserved_.find(keys_.lookup(account, ticker));
     return (iterator != reserved_.end()) ? iterator->second : 0;
 }
 
 int OrderGate::reserved(const std::string& account, symbol::SymbolId symbol) const
 {
     std::lock_guard<std::mutex> lock(positions_mutex_);
-    auto iterator = reserved_.find(lookup_key(account, symbol));
+    auto iterator = reserved_.find(keys_.lookup(account, symbol));
     return (iterator != reserved_.end()) ? iterator->second : 0;
 }
 
 double OrderGate::average_price(const std::string& account, const std::string& ticker) const
 {
     std::lock_guard<std::mutex> lock(positions_mutex_);
-    auto iterator = average_prices_.find(lookup_key(account, ticker));
+    auto iterator = average_prices_.find(keys_.lookup(account, ticker));
     return (iterator != average_prices_.end()) ? iterator->second : 0.0;
 }
 
@@ -2124,7 +2021,7 @@ OrderGate::EntrySnapshot OrderGate::entry_snapshot(const std::string& account, c
     EntrySnapshot snapshot;
     std::lock_guard<std::mutex> lock(positions_mutex_);
 
-    const auto key = lookup_key(account, ticker);
+    const auto key = keys_.lookup(account, ticker);
     auto position_iterator = positions_.find(key);
     snapshot.position = (position_iterator != positions_.end()) ? position_iterator->second : 0;
 
@@ -2188,8 +2085,8 @@ std::vector<OrderGate::HeldPos> OrderGate::snapshot_positions() const
 
         const PosKey& key = entry.first;
         HeldPos held_position;
-        held_position.account = account_of(key);
-        held_position.ticker  = ticker_of(key).string();
+        held_position.account = keys_.account_of(key);
+        held_position.ticker  = keys_.ticker_of(key).string();
         held_position.symbol  = key.symbol;
         held_position.quantity     = entry.second;
         auto average_price_iterator = average_prices_.find(key);
@@ -2257,7 +2154,7 @@ void OrderGate::publish_ledger(ipc::LedgerSnapshot& snapshot) const
         // 이번 판의 계좌 이름. 실린 줄이 하나도 없으면(기동 직후) 0번 = ""을 쓴다 — 단일 계좌에서
         //  원장 키가 쓰는 이름이 그것이고, 이름을 비워 두면 전략 쪽이 강제청산 주문에 계좌를 못 적는다.
         {
-            const std::string& account_name = account_names_[(account == kUnknownAccount) ? 0 : account];
+            const std::string& account_name = keys_.account_name(account);
             const size_t       copied       = (account_name.size() < sizeof(globals.account)) ? account_name.size()
                                                                                               : sizeof(globals.account) - 1;
             std::memcpy(globals.account, account_name.data(), copied);
@@ -2378,7 +2275,7 @@ void OrderGate::set_slot_exempt(const std::vector<std::string>& tickers)
 
     for (const auto& ticker : tickers)
     {
-        const symbol::SymbolId symbol = symbols_->intern(ticker);
+        const symbol::SymbolId symbol = keys_.symbols().intern(ticker);
 
         if (symbol != symbol::kNone)
         {
@@ -2481,14 +2378,6 @@ void OrderGate::set_entry_scale(double entry_scale)
 void OrderGate::set_pnl_stale(bool on)
 {
     pnl_stale_.store(on);
-}
-
-size_t OrderGate::PosKeyHash::operator()(const PosKey& key) const noexcept
-{
-    // 두 32비트를 64비트 하나로 붙여 곱셈으로 섞는다. xor만 하면 (a,b)와 (b,a)가 같은 버킷에 간다.
-    const uint64_t packed = (static_cast<uint64_t>(key.account) << 32) | key.symbol;
-    const uint64_t mixed = packed * 0x9e3779b97f4a7c15ull;
-    return static_cast<size_t>(mixed ^ (mixed >> 29));
 }
 
 size_t OrderGate::StrategyKeyHash::operator()(const StrategyKey& key) const noexcept

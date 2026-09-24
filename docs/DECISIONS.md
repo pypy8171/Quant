@@ -5853,6 +5853,12 @@ PUB(관측 발행)과 REP(운영단말 KILL·잔고 조회)가 한 `ZmqBridge` �
 `Quant/include/strategy/IntradayBreakoutStrategy.h:76`, `Quant/include/strategy/MomentumStrategy.h:30`) —
 그 파일을 다음에 고치는 세션이 같이 내린다.
 
+**예외**(2026-09-24): 신호·체결마다 부르는 함수를 .cpp로 내렸더니 번역 단위를 넘는 호출이 인라인되지 않아 주문 경로가
+느려진 자리는 헤더의 클래스 밖에 `inline`으로 정의한다. 첫 자리는 `Quant/include/risk/LedgerKeys.h`다 — OrderGate에서
+원장 키를 떼자 `bench_order_path_keys`가 SELL 검사 153→160 ns, 체결 반영 73→82 ns가 됐고 헤더 인라인으로 되돌아왔다.
+Release LTO를 켜 보았으나 172 ns로 더 나빠 버렸다. 검사기 규칙 9는 명시적 `inline`을 일부러 둔 자리로 보고 넘긴다.
+잰 수치 없이 `inline`을 쓰지 않는다 — 그 자리의 `[why D-118]` 주석에 전후 수치를 적는다.
+
 ### D-120 KIS API 정보는 MCP 코딩도우미를 첫 경로로 둔다 (2026-09-23)
 **상태**: 채택
 

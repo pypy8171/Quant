@@ -120,7 +120,7 @@
     {
       "from": "risk",
       "to": "core",
-      "weight": 6
+      "weight": 8
     },
     {
       "from": "risk",
@@ -251,6 +251,7 @@
     "risk/DisplacementDesk.h": "risk",
     "risk/GateReasons.h": "risk",
     "risk/LedgerJournal.h": "risk",
+    "risk/LedgerKeys.h": "risk",
     "risk/OrderGate.h": "risk",
     "risk/ProtectiveOrders.h": "risk",
     "risk/ProtectiveRule.h": "risk",
@@ -352,6 +353,7 @@
     "risk/DisplacementDesk.cpp": "risk",
     "risk/GateReasons.cpp": "risk",
     "risk/LedgerJournal.cpp": "risk",
+    "risk/LedgerKeys.cpp": "risk",
     "risk/OrderGate.cpp": "risk",
     "risk/ProtectiveOrders.cpp": "risk",
     "risk/ProtectiveRule.cpp": "risk",
@@ -895,6 +897,13 @@
     "risk/LedgerJournal.cpp": [
       "risk/LedgerJournal.h"
     ],
+    "risk/LedgerKeys.cpp": [
+      "risk/LedgerKeys.h"
+    ],
+    "risk/LedgerKeys.h": [
+      "core/SymbolTable.h",
+      "core/Types.h"
+    ],
     "risk/OrderGate.cpp": [
       "core/KstTime.h",
       "ipc/LedgerSnapshot.h",
@@ -905,7 +914,8 @@
       "core/StrategyTable.h",
       "core/SymbolTable.h",
       "core/Types.h",
-      "risk/LedgerJournal.h"
+      "risk/LedgerJournal.h",
+      "risk/LedgerKeys.h"
     ],
     "risk/ProtectiveOrders.cpp": [
       "risk/ProtectiveOrders.h"
@@ -1353,6 +1363,7 @@
       "exchange/ZmqOrderFeed.h",
       "ipc/LedgerSnapshot.h",
       "ipc/SharedSymbolDictionary.h",
+      "risk/LedgerKeys.h",
       "risk/OrderGate.h",
       "universe/ScoreWeight.h",
       "universe/UniverseScanner.h"
@@ -1402,6 +1413,7 @@
       "main.cpp",
       "modes/Monitors.cpp",
       "risk/DisplacementDesk.h",
+      "risk/LedgerKeys.h",
       "risk/OrderGate.h",
       "risk/ProtectiveRule.h",
       "strategy/DevScaleRules.h",
@@ -1528,6 +1540,10 @@
     ],
     "risk/LedgerJournal.h": [
       "risk/LedgerJournal.cpp",
+      "risk/OrderGate.h"
+    ],
+    "risk/LedgerKeys.h": [
+      "risk/LedgerKeys.cpp",
       "risk/OrderGate.h"
     ],
     "risk/OrderGate.h": [
@@ -1708,7 +1724,7 @@
   "hubs": [
     {
       "header": "core/Types.h",
-      "in_degree": 40
+      "in_degree": 41
     },
     {
       "header": "utils/Logger.h",
@@ -1720,7 +1736,7 @@
     },
     {
       "header": "core/SymbolTable.h",
-      "in_degree": 17
+      "in_degree": 18
     },
     {
       "header": "strategy/StrategyBase.h",
