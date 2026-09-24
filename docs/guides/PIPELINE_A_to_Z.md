@@ -115,7 +115,7 @@ TRADE 모드의 데이터 흐름:
 
 `Engine::data_thread_fn()` (`Engine.cpp::data_thread_fn`):
 
-1. **장중 판정 + 장 시작 감지**: `is_any_market_open()`(`Engine.cpp::is_any_market_open`) = KR(09:00~15:30 KST, `Engine.cpp::is_kr_market_open`) 또는 US(KST 22:30~05:00, `Engine.cpp::is_us_market_open`). 판정은 `kst::to_tm`으로 머신 TZ 무관하게 KST를 계산 (`KstTime.h::to_tm`).
+1. **장중 판정 + 장 시작 감지**: `kst::any_market_open(now)`(`KstTime.cpp`) = KR(평일 09:00~20:00 KST, 정규장·애프터마켓, `kst::kr_market_open`) 또는 US(KST 22:30~05:00, `kst::us_market_open`). 판정은 `kst::to_tm`으로 머신 TZ 무관하게 KST를 계산 (`KstTime.h::to_tm`).
 2. **장 시작 엣지**(`market_now && !was_market_open`): 주문 쪽은 `request_reset_daily()`로 게이트·라우터 일별 카운터를 비우고, 전략 쪽은 마지막 국면 선택을 `apply_regime_selection(..., force_log=true)`로 다시 적용한다 (`Engine.cpp::data_thread_fn`). 코스피 판정기는 D-085로 지웠다.
 3. 장 외 시간이면 60초 슬립 후 continue (`Engine.cpp::data_thread_fn`).
 4. **폴링**: `watch_specifications_`의 각 종목에 대해 KR이면 `kis_->get_daily_ohlcv(spec.ticker, 1)`, US면 `get_us_daily_ohlcv(spec.ticker, 1, exchange)` (`Engine.cpp::data_thread_fn`). 반환 `bars[0]`에 `bar_index = data_count_`를 심고 `market_queue_.push(md)` (`Engine.cpp::data_thread_fn`). 큐가 full이면 1ms 슬립하며 재시도. push 후 `data_count_++`.

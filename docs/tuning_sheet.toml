@@ -532,7 +532,7 @@ file = "Quant/include/core/KstTime.h"
 regex = 'kKrMarketOpenMinute\s*=\s*(\d+ \* 60);'
 unit = "분(0시 기준)"
 group = "엔진 — 스레드 주기·장 시간"
-meaning = "is_kr_market_open 시작 — 피드 감시·사이클 활성 창의 개장(09:00). 주문 창은 OrderGate 가 따로"
+meaning = "kst::kr_market_open 시작 — 피드 감시·사이클 활성 창의 개장(09:00). 주문 창은 OrderGate 가 따로"
 
 [[code_value]]
 id = "engine_kr_close_window_min"
@@ -540,7 +540,7 @@ file = "Quant/include/core/KstTime.h"
 regex = 'kKrAfterMarketCloseMinute\s*=\s*(\d+ \* 60);'
 unit = "분(0시 기준)"
 group = "엔진 — 스레드 주기·장 시간"
-meaning = "is_kr_market_open 끝 — 애프터마켓 마감(20:00, D-097)"
+meaning = "kst::kr_market_open 끝 — 애프터마켓 마감(20:00, D-097)"
 
 [[code_value]]
 id = "session_open_hhmm"

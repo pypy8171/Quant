@@ -73,4 +73,14 @@ std::string datetime(std::time_t now_utc);
 
 // KST 자정부터 흐른 초 [0, 86400). 벽시계 경계(정각·5분)에 맞춘 주기 작업이 쓴다.
 int sec_of_day(std::time_t now_utc);
+
+// 한국장이 열려 있는가 — 평일 09:00~20:00 KST(정규장·장후 종가·애프터마켓). 피드 감시·개장 전이 판단용이고,
+//  실제 주문 창은 OrderGate 세션 창이 따로 자른다. [why D-097]
+bool kr_market_open(std::time_t now_utc);
+
+// 미국 정규장이 열려 있는가 — ET 09:30~16:00 = KST 22:30~익일 05:00. 월~금 밤에 연 장이 화~토 새벽까지 이어진다.
+bool us_market_open(std::time_t now_utc);
+
+// 한국장이나 미국장 중 하나라도 열려 있는가.
+bool any_market_open(std::time_t now_utc);
 } // namespace kst

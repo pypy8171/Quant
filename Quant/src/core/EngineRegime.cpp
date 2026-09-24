@@ -189,7 +189,7 @@ void Engine::poll_regime_file()
 
     const regime_file::Observation observation = observe_regime_file(regime_file_, regime_file_judge_.stale_sec());
     const struct tm kst = ::kst::to_tm(std::time(nullptr));
-    // 09:00 기준 분(is_kr_market_open과 같은 눈금). 개장 전은 음수라 안 걸린다.
+    // 09:00 기준 분(kst::kr_market_open과 같은 눈금). 개장 전은 음수라 안 걸린다.
     const regime_file::KstClock clock{kst.tm_yday, ::kst::minute_of_day(kst) - ::kst::kKrMarketOpenMinute};
     const regime_file::Outcome  out = regime_file_judge_.step(observation, clock);
 

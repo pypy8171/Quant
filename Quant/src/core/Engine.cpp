@@ -1660,42 +1660,6 @@ void Engine::feed_lane_thread_fn(std::stop_token stop_token, uint32_t lane)
     LOG_INFO("[Feed " + std::to_string(lane) + "] 종료");
 }
 
-// ─── 장 시간 체크 (kst::to_tm — 머신 TZ 무관) ───────────────────────────
-bool Engine::is_kr_market_open() const
-{
-    const auto kst = ::kst::to_tm(std::time(nullptr));
-
-    if (kst.tm_wday == 0 || kst.tm_wday == 6)
-    {
-        return false;
-    }
-
-    // 09:00~20:00 KST — 정규장 09:00~15:30, 장후 종가 15:30~16:00, 애프터마켓 16:00~20:00(2026-09-14 개장). 피드 감시·
-    //  개장 전이 판단용이고, 실제 주문 창은 OrderGate 세션 창이 따로 자른다. [why D-097]
-    const int minute = ::kst::minute_of_day(kst);
-    return minute >= ::kst::kKrMarketOpenMinute && minute < ::kst::kKrAfterMarketCloseMinute;
-}
-
-// 미국 정규장: ET 09:30~16:00 = KST 22:30~05:00 (다음날)
-bool Engine::is_us_market_open() const
-{
-    const auto kst = ::kst::to_tm(std::time(nullptr));
-
-    if (kst.tm_wday == 0 || kst.tm_wday == 6)
-    {
-        return false;
-    }
-
-    // 자정을 넘는 창이라 당일 22:30 이후 또는 익일 05:00 이전 — 두 조건을 OR로 잇는다.
-    const int minute = ::kst::minute_of_day(kst);
-    return (minute >= ::kst::kUsMarketOpenMinute) || (minute < ::kst::kUsMarketCloseMinute);
-}
-
-bool Engine::is_any_market_open() const
-{
-    return is_kr_market_open() || is_us_market_open();
-}
-
 void Engine::set_last_active_regimes(const std::vector<Regime>& last_active_regimes)
 {
     if (!strategy_.list.empty())

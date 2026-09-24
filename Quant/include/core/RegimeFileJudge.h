@@ -73,7 +73,7 @@ struct Observation
 struct KstClock
 {
     int yesterday               = 0;    // tm_yday — 만료 상태를 하루 단위로 되돌리는 기준
-    int minutes_after_open = -kst::kKrMarketOpenMinute; // 09:00 기준 분(is_kr_market_open과 같은 눈금). 개장 전은 음수
+    int minutes_after_open = -kst::kKrMarketOpenMinute; // 09:00 기준 분(kst::kr_market_open과 같은 눈금). 개장 전은 음수
 };
 
 // 한 번의 폴링이 바깥에 요구하는 것. 값이 없는 optional은 "그대로 둔다"는 뜻이다 —

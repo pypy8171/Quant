@@ -44,12 +44,27 @@ void check_kst_fixed()
         const struct tm local_time = kst::to_tm(kOpen);
         assert(local_time.tm_year == 126 && local_time.tm_mon == 8 && local_time.tm_mday == 11);
         assert(local_time.tm_hour == 9 && local_time.tm_min == 0 && local_time.tm_sec == 0);
-        assert(local_time.tm_wday == 5);   // 금요일 — is_kr_market_open이 주말 판정에 쓴다
+        assert(local_time.tm_wday == 5);   // 금요일 — kst::kr_market_open이 주말 판정에 쓴다
         assert(local_time.tm_yday == 253); // 1월 1일 = 0 — BarAggregator가 거래일 키에 쓴다
         assert(kst::to_tm(kOpen - 9 * 3600 - 1).tm_yday == 252);
 
         const auto time_of_day = kst::time_of_day(kOpen + 6 * 3600 + 30 * 60 + 5);
         assert(time_of_day.hours().count() == 15 && time_of_day.minutes().count() == 30 && time_of_day.seconds().count() == 5);
+
+        // 장 시간 판정 — 한국장은 평일 09:00~20:00, 미국장은 KST 22:30~익일 05:00(월~금에 열린 장).
+        constexpr std::time_t kMinute = 60;
+        constexpr std::time_t kHour   = 3600;
+        assert(kst::kr_market_open(kOpen) && !kst::us_market_open(kOpen) && kst::any_market_open(kOpen));
+        assert(!kst::kr_market_open(kOpen - 1) && !kst::any_market_open(kOpen - 1));          // 금 08:59:59
+        assert(kst::kr_market_open(kOpen + 11 * kHour - kMinute));                             // 금 19:59
+        assert(!kst::kr_market_open(kOpen + 11 * kHour));                                      // 금 20:00
+        assert(!kst::us_market_open(kOpen + 13 * kHour + 29 * kMinute));                       // 금 22:29
+        assert(kst::us_market_open(kOpen + 13 * kHour + 30 * kMinute));                        // 금 22:30
+        assert(kst::us_market_open(kOpen + 20 * kHour - kMinute));                             // 토 04:59 — 금요일 장
+        assert(!kst::us_market_open(kOpen + 20 * kHour));                                      // 토 05:00
+        assert(!kst::kr_market_open(kOpen + 24 * kHour) && !kst::any_market_open(kOpen + 24 * kHour)); // 토 09:00
+        assert(!kst::us_market_open(kOpen + 3 * 24 * kHour - 5 * kHour));                      // 월 04:00 — 미국 일요일
+        assert(kst::us_market_open(kOpen + 4 * 24 * kHour - 5 * kHour));                       // 화 04:00 — 월요일 장
     }
 
     // 윤년 2월 29일 — 1월 1일부터 59일째.

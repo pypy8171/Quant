@@ -550,6 +550,7 @@
     ],
     "core/EngineDataThread.cpp": [
       "core/Engine.h",
+      "core/KstTime.h",
       "core/LatencyTrace.h",
       "utils/Logger.h",
       "utils/ThreadName.h"
@@ -1298,6 +1299,7 @@
       "core/DataPoller.cpp",
       "core/Engine.cpp",
       "core/EngineControlThread.cpp",
+      "core/EngineDataThread.cpp",
       "core/EngineOpsServer.cpp",
       "core/EngineUniverse.cpp",
       "core/KstTime.cpp",
@@ -1825,7 +1827,7 @@
     },
     {
       "header": "core/KstTime.h",
-      "in_degree": 20
+      "in_degree": 21
     },
     {
       "header": "core/SymbolTable.h",

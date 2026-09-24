@@ -7,6 +7,7 @@
 //  daily_bars_needed() : data_thread_fn() 가 일봉 조회 전에
 
 #include "core/Engine.h"
+#include "core/KstTime.h"
 #include "core/LatencyTrace.h"
 #include "utils/Logger.h"
 #include "utils/ThreadName.h"
@@ -37,7 +38,7 @@ void Engine::data_thread_fn(std::stop_token stop_token)
 
     while (!stop_token.stop_requested())
     {
-        bool market_now = is_any_market_open();
+        bool market_now = ::kst::any_market_open(std::time(nullptr));
 
         // 장 시작 감지 → 일별 카운터 리셋 + 국면 판정
         //  "어느 시장이든 닫힘→열림" 전이라 KR 09:00과 US 22:30(KST) 두 번 발화한다. 22:30 리셋은
@@ -48,7 +49,7 @@ void Engine::data_thread_fn(std::stop_token stop_token)
             if (order_side)
             {
                 request_reset_daily();
-                LOG_INFO(std::string("[DataThread] 장 개장 전이(") + (is_kr_market_open() ? "KR" : "US") +
+                LOG_INFO(std::string("[DataThread] 장 개장 전이(") + (::kst::kr_market_open(std::time(nullptr)) ? "KR" : "US") +
                          ") — OrderGate 일별 카운터 리셋");
             }
 

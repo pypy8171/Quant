@@ -667,10 +667,7 @@ private:
     //  바뀌므로 캐시하지 않고 매번 확인한다(strategies_는 strategy_mutex_ 하에 읽는다).
     bool daily_bars_needed();
 
-    // ── 장 상태·통계·REST 폴백 ──────────────────────────────────────────────
-    bool is_kr_market_open() const;
-    bool is_us_market_open() const;
-    bool is_any_market_open() const;
+    // ── 통계·REST 폴백 ──────────────────────────────────────────────────────
     void print_statistics() const;
     // WS 피드가 죽었을 때 REST 현재가 폴링으로 낮춘다. 폴링이 쓸 시세 소스(실전 도메인)가
     //  없으면 낮춰봐야 틱이 안 나오므로 false를 돌려주고, 호출부는 kill switch로 넘어간다.

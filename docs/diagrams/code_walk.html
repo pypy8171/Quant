@@ -364,7 +364,7 @@ const STAGES = [
       ["kis_websocket::decode_orderbook", "Quant/include/api/KisWsDecode.h:132", "5단계 호가 → OrderBook"],
       ["shard::Matrix::push_to", "Quant/include/core/ShardMatrix.h:87", "행(생산자)×열(소비자) SPSC 칸에 push. consumer_of(종목)가 종목 해시로 열을 고른다(원칙 2)"],
       ["feed::FeedMux", "Quant/include/core/FeedMux.h:36", "소켓 여럿을 한 IFeedSource로. 체결통보는 맡은 소켓 하나만"],
-      ["Engine::data_thread_fn", "Quant/src/core/EngineDataThread.cpp:26", "REST 축 — 봉 폴링·국면 파일·잔고 대조·유니버스 재스캔·하루 경계"],
+      ["Engine::data_thread_fn", "Quant/src/core/EngineDataThread.cpp:27", "REST 축 — 봉 폴링·국면 파일·잔고 대조·유니버스 재스캔·하루 경계"],
       ["DataPoller::poll_universe", "Quant/src/core/DataPoller.cpp:11", "REST 현재가 → 대체 TradeData(received_ns=0). 구독 상한 넘침·틱 끊긴 보유 보충"],
       ["feed::TickCapture::on_trade", "Quant/include/core/TickCapture.h:164", "raw 틱 append-only 캡처(원칙 8). 리플레이 백테스트의 입력"]
     ]

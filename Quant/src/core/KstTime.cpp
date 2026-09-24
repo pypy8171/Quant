@@ -70,4 +70,36 @@ int sec_of_day(std::time_t now_utc)
     return local_time.tm_hour * kSecondsPerHour + local_time.tm_min * 60 + local_time.tm_sec;
 }
 
+bool kr_market_open(std::time_t now_utc)
+{
+    const struct tm local_time = to_tm(now_utc);
+
+    if (local_time.tm_wday == 0 || local_time.tm_wday == 6)
+    {
+        return false;
+    }
+
+    // 09:00~20:00 KST — 정규장 09:00~15:30, 장후 종가 15:30~16:00, 애프터마켓 16:00~20:00(2026-09-14 개장).
+    const int minute = minute_of_day(local_time);
+    return minute >= kKrMarketOpenMinute && minute < kKrAfterMarketCloseMinute;
+}
+
+bool us_market_open(std::time_t now_utc)
+{
+    const struct tm local_time = to_tm(now_utc);
+    const int       minute     = minute_of_day(local_time);
+
+    // 자정을 넘는 창이라 요일을 둘로 나눠 본다 — 22:30 이후는 그날(월~금)이 여는 장이고, 05:00 이전은 전날 연 장의
+    //  뒷부분이라 화~토 새벽이 열려 있다. 요일 하나로 자르면 금요일 장의 토요일 새벽을 닫힘으로, 월요일 새벽(미국 일요일)을
+    //  열림으로 보게 된다.
+    const bool opening_weekday = local_time.tm_wday >= 1 && local_time.tm_wday <= 5; // 월~금
+    const bool closing_weekday = local_time.tm_wday >= 2 && local_time.tm_wday <= 6; // 화~토
+    return (minute >= kUsMarketOpenMinute && opening_weekday) || (minute < kUsMarketCloseMinute && closing_weekday);
+}
+
+bool any_market_open(std::time_t now_utc)
+{
+    return kr_market_open(now_utc) || us_market_open(now_utc);
+}
+
 } // namespace kst

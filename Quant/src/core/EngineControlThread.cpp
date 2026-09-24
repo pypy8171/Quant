@@ -264,7 +264,7 @@ void Engine::control_thread_fn(std::stop_token stop_token)
         rebalance_websocket_slots();
 
         // 장 외 시간에는 stale이 정상 — 장 중에만 묻는다. 전이 판정은 감독기, 소켓·폴백 적용은 여기. [why D-071]
-        const bool market_open = is_any_market_open();
+        const bool market_open = ::kst::any_market_open(std::time(nullptr));
         const bool stale       = market_open && feed_.websocket->is_stale(feed_.feed_sup.config().stale_sec);
         const auto step        = feed_.feed_sup.observe(market_open, stale, std::chrono::steady_clock::now());
 

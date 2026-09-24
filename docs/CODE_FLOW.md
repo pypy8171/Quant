@@ -102,8 +102,8 @@ config를 `AppConfig`로 읽고 `Engine::configure`가 세터에 옮기고 전�
    `Quant/include/core/ShardMatrix.h:87` · `[[nodiscard]] bool push_to(uint32_t producer, uint32_t consumer, const T& value)` · 시험 [test_shard_matrix](../Quant/tests/test_shard_matrix.cpp)
 18. [`feed::FeedMux`](../Quant/include/core/FeedMux.h#L36) — 소켓 여럿을 한 `IFeedSource`로. 직접 호출 모드면 소켓 i 스레드가 행 i로 직접 push(mux 스레드 없음). 체결통보는 맡은 소켓 하나만(`owns_fill_notice`)  
    `Quant/include/core/FeedMux.h:36` · `class FeedMux final : public IFeedSource` · 시험 [test_feed_mux](../Quant/tests/test_feed_mux.cpp)
-19. [`Engine::data_thread_fn`](../Quant/src/core/EngineDataThread.cpp#L26) — REST 축 — 봉 폴링·`poll_regime_file`(국면)·잔고 대조·유니버스 재스캔·하루 경계(`new_trading_day`·`reset_daily`). 폴러의 대체 틱은 `pipeline_.trade_matrix`의 자기 행(`data_row`)으로 간다  
-   `Quant/src/core/EngineDataThread.cpp:26` · `void Engine::data_thread_fn(std::stop_token stop_token)`
+19. [`Engine::data_thread_fn`](../Quant/src/core/EngineDataThread.cpp#L27) — REST 축 — 봉 폴링·`poll_regime_file`(국면)·잔고 대조·유니버스 재스캔·하루 경계(`new_trading_day`·`reset_daily`). 폴러의 대체 틱은 `pipeline_.trade_matrix`의 자기 행(`data_row`)으로 간다  
+   `Quant/src/core/EngineDataThread.cpp:27` · `void Engine::data_thread_fn(std::stop_token stop_token)`
 20. [`DataPoller::poll_universe`](../Quant/src/core/DataPoller.cpp#L11) — REST 현재가 → 대체 `TradeData`(`received_ns`=0). 구독 상한 넘침·틱 끊긴 보유 보충(`top_up`)도 이 클래스  
    `Quant/src/core/DataPoller.cpp:11` · `int DataPoller::poll_universe(const std::vector<WatchSpec>& specifications, std::time_t now_utc)` · 시험 [test_data_poller](../Quant/tests/test_data_poller.cpp)
 21. [`feed::TickCapture::on_trade`](../Quant/include/core/TickCapture.h#L164) — raw 틱 append-only 캡처(원칙 8). 리플레이(`ReplaySource`)의 입력  
