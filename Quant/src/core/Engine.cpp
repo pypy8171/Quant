@@ -2898,8 +2898,7 @@ void Engine::control_thread_fn(std::stop_token stop_token)
 //  중인 한 건은 stop()의 join이 끝까지 기다리고, OrderRateLimiter의 재시도 큐는 세션 창 밖이라 게이트가 어차피 막는다.
 void Engine::step_session_end()
 {
-    const auto kst            = ::kst::to_tm(std::time(nullptr));
-    const int  now_sec_of_day = kst.tm_hour * 3600 + kst.tm_min * 60 + kst.tm_sec;
+    const int  now_sec_of_day = ::kst::sec_of_day(std::time(nullptr));
     // 이 자리는 보내는 쪽도 받는 쪽도 아니다(감시 스레드) — 공유 칸만 보는 in_flight() 로 묻는다.
     //  pending() 은 내가 보낸 수라 여기서는 늘 0이고 큐에 주문이 남았는데도 비었다고 본다. readable() 은
     //  받는 쪽 제 자리 값을 읽어, 주문 스레드가 꺼내는 것과 겹친다(TSAN 확인 2026-09-24). [why D-114]
@@ -2937,9 +2936,7 @@ void Engine::step_session_end()
 //  남긴 마감 표지로 실계좌 감시견이 멈추던 것을 막는다. 감시견도 -Instance 로 같은 이름을 본다. [why D-122]
 void Engine::write_state_marker(std::string_view name, std::string_view body) const
 {
-    const auto kst = ::kst::to_tm(std::time(nullptr));
-    char       date_buffer[32];   // 연도는 int 라 컴파일러가 11자리까지 본다 — 16이면 잘림 경고가 난다
-    std::snprintf(date_buffer, sizeof(date_buffer), "%04d-%02d-%02d", kst.tm_year + 1900, kst.tm_mon + 1, kst.tm_mday);
+    const std::string now_text = ::kst::datetime(std::time(nullptr)); // "YYYY-MM-DD HH:MM:SS"
     std::string file_name(name);
 
     if (!instance_.empty())
@@ -2949,7 +2946,7 @@ void Engine::write_state_marker(std::string_view name, std::string_view body) co
     }
 
     file_name += "_";
-    file_name += date_buffer;
+    file_name += now_text.substr(0, 10);
     const std::filesystem::path path = std::filesystem::path("_private") / "state" / file_name;
 
     std::error_code error;
@@ -2962,7 +2959,7 @@ void Engine::write_state_marker(std::string_view name, std::string_view body) co
         return;
     }
 
-    out << body << " " << std::put_time(&kst, "%H:%M:%S") << '\n';
+    out << body << " " << now_text.substr(11) << '\n';
     LOG_INFO("[Engine] 표지 파일 기록: " + path.string() + " — " + std::string(body));
 }
 
