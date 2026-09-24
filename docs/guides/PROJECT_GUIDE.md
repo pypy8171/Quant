@@ -31,7 +31,8 @@ KIS OpenAPI
           ──▶ pipeline_.requests(SharedSpscRing 1024) ──▶ [주문 스레드] OrderRouter → OrderGate → IOrderExecutor(KisClient)
 
 [제어 스레드]  잔고 대조 · 토큰 선갱신 · WS 단절 판정  (파이프라인 밖)
-ZmqBridge(HAS_ZMQ, 내부 스레드)  PUB :5555 / REP :5556  →  quant-recorder → TimescaleDB  (목표 아키텍처, 3·4절)
+ZmqBridge(HAS_ZMQ, 내부 스레드)  PUB :5555 / REP :5556 (+ 갈라 뜨면 시세 :5557 · 전략 :5558 PUB)
+                                 →  quant-recorder → TimescaleDB  (목표 아키텍처, 3·4절)
 OpsServer(내부 스레드)           운영단말 TCP — 조회·수동주문·KILL (D-043)
 ```
 
@@ -171,7 +172,7 @@ docker compose version
 docker-compose.yml 5개 서비스:
 
 ┌──────────────────────────────────────────────────────────────────┐
-│  quant-engine    C++ 엔진  (포트 5555 PUB, 5556 REP 노출)         │
+│  quant-engine    C++ 엔진  (5555 PUB·5556 REP, 갈라 뜨면 5557·5558) │
 │  quant-python    모니터    (ZMQ SUB → stdout)                      │
 │  quant-recorder  DB 적재기 (ZMQ SUB → TimescaleDB, healthcheck 대기)│
 │  quant-tsdb      TimescaleDB (포트 5432, healthcheck: pg_isready)  │
@@ -552,19 +553,23 @@ cmake --build Quant/build_win --target test_order_router
 
 ```
 PUB tcp://*:5555  멀티파트: [topic bytes][JSON payload bytes]
+                  역할을 갈라 띄우면 TRADE는 :5557(시세), SIGNAL은 :5558(전략)에서 나온다 (D-129).
+                  받는 쪽은 SUB 소켓 하나에 connect를 여럿 걸면 된다 — PYQuant/main.py --feed-port·--strategy-port
 
 topic    payload 예시
 TRADE    {"account":"<계좌>","ts":1716220800000,"ticker":"005930","price":65000,"volume":1234,"direction":1,"market":"KR"}
          account는 주문·체결과 같은 계좌 표식 — 리코더(main.py record --account)가 남의 엔진 틱을 거르는 근거. 계좌 없는 하네스는 ""
 SIGNAL   {"ts":...,"strategy":"VALUE_CONTRARY","ticker":"005930","side":"BUY","qty":1,"price":0,"market":"KR"}
 ORDER    {"ts":...,"ticker":"005930","side":"BUY","qty":1,"price":0,"ok":true,"market":"KR"}
-HEALTH   {"ts":...,"data":123,"signal":5,"order":3,"drop":0,
+HEALTH   {"ts":...,"role":"order","account":"<계좌>","data":123,"signal":5,"order":3,"drop":0,
           "queue_shard_high_water":37,"queue_shard_capacity":4096,"queue_order_high_water":3, ...,
           "dropped_shard":0,"dropped_order":0,"dropped_fill":0,
           "latency_samples":5,"tick_to_signal_p50_us":120,...,"total_p99_us":421000}
          큐 고수위·지연 분위수는 기동 후 누적이라 줄지 않는다 — 구간 값은 읽는 쪽이 직전 행과 뺀다
+         role은 이 다리를 연 프로세스(order·strategy·feed·both). 갈라 뜨면 셋이 각자 내는데 채우는 칸이
+         서로소다 — data는 시세만, signal과 샤드 큐는 전략만, order와 지연은 주문만 올린다 (D-129)
 
-REP tcp://*:5556  요청/응답
+REP tcp://*:5556  요청/응답 — 주문 쪽 프로세스에만 있다 (시세·전략 다리는 PUB만 연다)
   KILL <zmq_control_token> → "OK" (토큰이 없거나 틀리면 "DENIED")
   STATUS → {"running":true,"data":123,"signal":5,"order":3,"kill":false,"entry_halt":false, …}
 ```

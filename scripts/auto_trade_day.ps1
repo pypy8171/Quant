@@ -572,12 +572,25 @@ if (-not $NoRecorder) {
   try { $recorderAccount = (Get-Content $Config -Raw -Encoding UTF8 | ConvertFrom-Json).kis.account_no } catch { }
   if (-not $recorderAccount) { Say "config 에서 kis.account_no 를 못 읽었다 — 리코더 계좌 거르기 없이 띄운다." "WARN" }
   $recorderArgs = if ($recorderAccount) { "--account $recorderAccount" } else { "" }
-  # --port: 엔진이 PUB 을 여는 포트다. 실계좌는 모의 엔진과 bind 가 겹치지 않게 5565 로 옮겨 놓았으므로
+  # --port: 주문 프로세스가 PUB 을 여는 포트다. 실계좌는 모의 엔진과 bind 가 겹치지 않게 5565 로 옮겨 놓았으므로
   #  (config_live.json 의 zmq_pub_port) 5555 를 박아 두면 실계좌 체결·틱이 DB 에 한 건도 안 들어간다.
+  # --feed-port·--strategy-port: 갈라 띄운 날 시세·전략 프로세스가 각자 여는 발행 포트다. config 에 안 적혀
+  #  있으면 리코더가 주문 포트에서 +2·+3 으로 끌어오므로(엔진이 쓰는 규칙과 같다) 대개 안 넘겨도 맞는다 —
+  #  config 가 명시했을 때만 그 값을 그대로 넘긴다.
   $recorderPort = 0
   try { $recorderPort = [int](Get-Content $Config -Raw -Encoding UTF8 | ConvertFrom-Json).zmq_pub_port } catch { }
   if (-not $recorderPort) { $recorderPort = 5555; Say "config 에서 zmq_pub_port 를 못 읽었다 — 기본 $recorderPort 로 띄운다." "WARN" }
-  Start-Window "quant-recorder"  "& '$py' PYQuant\main.py record --host localhost --port $recorderPort --record-ticks $recorderArgs" "main.py record"
+  $recorderFeedPort = 0
+  $recorderStrategyPort = 0
+  try {
+    $zmqConfig = Get-Content $Config -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($zmqConfig.zmq_feed_pub_port)     { $recorderFeedPort     = [int]$zmqConfig.zmq_feed_pub_port }
+    if ($zmqConfig.zmq_strategy_pub_port) { $recorderStrategyPort = [int]$zmqConfig.zmq_strategy_pub_port }
+  } catch { }
+  $recorderPortArgs = ""
+  if ($recorderFeedPort)     { $recorderPortArgs += " --feed-port $recorderFeedPort" }
+  if ($recorderStrategyPort) { $recorderPortArgs += " --strategy-port $recorderStrategyPort" }
+  Start-Window "quant-recorder"  "& '$py' PYQuant\main.py record --host localhost --port $recorderPort$recorderPortArgs --record-ticks $recorderArgs" "main.py record"
   # 엔진 자원(CPU·메모리·스레드별 CPU·perf 함수 핫스팟) → 그라파나 ops. -NoTrader 날은 엔진이 WSL(Ubuntu-24.04)에
   # 있어 /proc를 그 배포판에서 읽고, Windows exe 날은 psutil로 본다.
   $procwatchArgs = if ($NoTrader) { "--wsl-distro Ubuntu-24.04" } else { "" }

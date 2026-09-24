@@ -509,7 +509,7 @@
       "uid": "tsdb"
      },
      "format": "time_series",
-     "rawSql": "SELECT ts AS time, 100.0 * queue_shard_high_water / NULLIF(queue_shard_capacity, 0) AS \"샤드\", 100.0 * queue_order_high_water / NULLIF(queue_order_capacity, 0) AS \"주문\", 100.0 * queue_fill_high_water / NULLIF(queue_fill_capacity, 0) AS \"체결\" FROM health WHERE $__timeFilter(ts) ORDER BY 1;",
+     "rawSql": "SELECT ts AS time, 100.0 * queue_shard_high_water / NULLIF(queue_shard_capacity, 0) AS \"샤드\", 100.0 * queue_order_high_water / NULLIF(queue_order_capacity, 0) AS \"주문\", 100.0 * queue_fill_high_water / NULLIF(queue_fill_capacity, 0) AS \"체결\" FROM health WHERE $__timeFilter(ts) AND role IN ('both','order','strategy') ORDER BY 1;",
      "refId": "A"
     }
    ],
@@ -555,7 +555,7 @@
       "uid": "tsdb"
      },
      "format": "time_series",
-     "rawSql": "SELECT ts AS time, dropped_shard AS \"샤드\", dropped_order AS \"주문\", dropped_fill AS \"체결\", drop_cnt AS \"ZMQ 발행\" FROM health WHERE $__timeFilter(ts) ORDER BY 1;",
+     "rawSql": "SELECT ts AS time, dropped_shard AS \"샤드\", dropped_order AS \"주문\", dropped_fill AS \"체결\", drop_cnt AS \"ZMQ 발행\" FROM health WHERE $__timeFilter(ts) AND role IN ('both','order','strategy') ORDER BY 1;",
      "refId": "A"
     }
    ],

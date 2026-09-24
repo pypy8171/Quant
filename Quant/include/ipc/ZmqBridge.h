@@ -2,6 +2,7 @@
 #ifdef HAS_ZMQ
 
 #include "core/MpscQueue.h"
+#include "core/WakeGate.h"
 #include "core/Types.h"
 #include <array>
 #include <atomic>
@@ -19,6 +20,9 @@
 //  ZMQ(ZeroMQ) 소켓 두 개로 통신한다:
 //  PUB  tcp://127.0.0.1:5555  — 엔진이 발행(publish). 포트는 config `zmq_pub_port`·`zmq_rep_port`(기본 5555·5556). 체결/시그널/주문/헬스를 구독자에게 단방향 송신.
 //  REP  tcp://127.0.0.1:5556  — Python이 명령 전송(KILL / STATUS / PAUSE / RESUME), 엔진이 응답(reply).
+//
+//  프로세스를 셋으로 가르면(D-114) 역할마다 발행 포트를 따로 연다 — 주문 5555·시세 `zmq_feed_pub_port`·
+//  전략 `zmq_strategy_pub_port`. 명령 소켓은 주문 쪽 하나뿐이라 시세·전략은 rep_port 0으로 만든다.
 //  bind 주소는 set_bind_address로 바꾼다. KILL은 "KILL <token>" 형식이어야 하고 token 미설정이면 거부.
 //
 //  ZMQ 소켓은 스레드 세이프하지 않아 전용 zmq_thread_에서만 사용한다.
@@ -29,6 +33,7 @@
 class ZmqBridge
 {
 public:
+    // rep_port가 0 이하면 REP 소켓을 아예 열지 않는다 — PUB만 여는 발행 전용 모드다. [why D-129]
     explicit ZmqBridge(int pub_port = 5555, int rep_port = 5556);
     ~ZmqBridge();
     // 스레드·뮤텍스를 소유한다 — 복사는 원본과 사본이 같은 자원을 두 번 닫는 길이라 막는다.
@@ -45,9 +50,14 @@ public:
     // 이 프로세스가 물린 브로커 계좌번호. 한 프로세스=한 계좌라 FILL/ORDER 페이로드에 고정으로 실어
     // DB 쪽에서 실계좌·모의계좌 원장이 섞이지 않게 한다.
     void set_account_no(std::string account) { account_no_ = std::move(account); }
-    // 현재 선택된 국면 라벨(RISK_ON·NEUTRAL·RISK_OFF). Engine::apply_regime_selection이 국면이
-    // 바뀔 때마다 갱신 — FILL 페이로드에 그때그때 실어 DB의 regime 열을 채운다.
-    void set_regime_label(std::string label) { regime_label_ = std::move(label); }
+    // 현재 선택된 국면(RISK_ON·NEUTRAL·RISK_OFF). Engine::apply_regime_selection이 국면이
+    // 바뀔 때마다 갱신 — SIGNAL·FILL 페이로드에 그때그때 실어 DB의 regime 열을 채운다.
+    //  쓰는 쪽은 데이터 스레드 하나, 읽는 쪽은 전략·주문·체결 스레드 여럿이다. 예전에는 std::string을
+    //  잠금 없이 주고받아 경합이었다 — 정수 하나로 바꿔 원자로 오간다. 라벨 문자열은 읽는 쪽이 만든다.
+    void set_regime(Regime regime) { regime_code_.store(static_cast<int>(regime), std::memory_order_relaxed); }
+    // 이 다리를 연 프로세스의 역할(order·strategy·feed·both). HEALTH 한 건마다 실어, 갈라 띄운 날
+    //  세 프로세스가 같은 표에 넣는 행을 읽는 쪽이 가를 수 있게 한다. [why D-129]
+    void set_role_label(std::string label) { role_label_ = std::move(label); }
 
     // ── 이벤트 publish (스레드-안전: 내부 큐 경유) ──────────────────────────
     void publish_trade(const TradeData& trade);
@@ -150,7 +160,10 @@ private:
     };
 
     void enqueue(Topic topic, std::string payload);
+    // 큐에 넣은 뒤 송신 스레드를 깨운다. queue_mutex_를 놓은 뒤에만 부른다. [lock-order]
+    void mark_work_pending();
     static const char* topic_name(Topic topic);
+    std::string_view   current_regime_label() const;
     void thread_fn();
 
     int pub_port_;
@@ -158,7 +171,9 @@ private:
     std::string bind_address_ = "127.0.0.1";
     std::string control_token_;
     std::string account_no_;
-    std::string regime_label_;
+    std::string role_label_;
+    // 아직 판정이 없으면 -1 — 그때는 예전처럼 빈 라벨을 싣는다. 값이 있으면 Regime::Value다.
+    std::atomic<int> regime_code_{-1};
 
     std::atomic<bool> running_{false};
     std::thread zmq_thread_;
@@ -167,6 +182,12 @@ private:
     std::queue<Message> send_queue_;
     MpscQueue<TradeEnvelope> trade_queue_;
     std::string              trade_payload_; // 송신 스레드 전용 재사용 버퍼 // 생산자 = WS 수신 스레드 수(둘 이상일 수 있다) → MPSC [why D-071 원칙 5]
+
+    // 발행 전용 다리(REP 없음)의 송신 스레드를 생산자가 깨운다 — 폴링할 소켓이 없는데 sleep_for로
+    //  쉬면 윈도우 타이머 격자에 걸려 한 바퀴가 길어진다. 깃발은 "비우기 전에 내리고 넣은 뒤에 세운다"
+    //  순서라 깨우기가 새지 않는다. [why D-129]
+    wake::WakeGate    send_gate_;
+    std::atomic<bool> work_pending_{false};
 
     CmdHandler command_handler_;
     std::atomic<uint64_t> socket_full_drop_count_{0};      // PUB 소켓이 안 받았다(상한·구독자)

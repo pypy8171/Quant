@@ -240,6 +240,20 @@ AppConfig parse_config(const json& document, const std::string& mode_override)
     app.protective_orders_retry_ms    = document.value("protective_orders_retry_ms", app.protective_orders_retry_ms);
     app.zmq_pub_port                  = document.value("zmq_pub_port", app.zmq_pub_port);
     app.zmq_rep_port                  = document.value("zmq_rep_port", app.zmq_rep_port);
+    app.zmq_feed_pub_port             = document.value("zmq_feed_pub_port", app.zmq_feed_pub_port);
+    app.zmq_strategy_pub_port         = document.value("zmq_strategy_pub_port", app.zmq_strategy_pub_port);
+
+    // 안 적었으면 주문 포트에서 끌어온다 — 설정을 안 고쳐도 갈라 뜨고, 계좌를 둘 돌려도 겹치지 않는다.
+    if (app.zmq_feed_pub_port <= 0)
+    {
+        app.zmq_feed_pub_port = app.zmq_pub_port + 2;
+    }
+
+    if (app.zmq_strategy_pub_port <= 0)
+    {
+        app.zmq_strategy_pub_port = app.zmq_pub_port + 3;
+    }
+
     app.ops_bind_address              = document.value("ops_bind_addr", std::string());
     app.ops_port                      = document.value("ops_port", 0);
     app.ops_token                     = document.value("ops_token", std::string());

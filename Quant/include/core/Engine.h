@@ -408,12 +408,18 @@ public:
     //  거부된다(config `zmq_control_token`). 스레드 시작 전에만. HAS_ZMQ가 꺼진 빌드에선 무시.
     void set_zmq_control(const std::string& bind_address, const std::string& token);
 
-    // ZMQ 포트(config `zmq_pub_port`·`zmq_rep_port`). 한 기계에 엔진이 둘이면 뒤에 뜬 쪽이 bind에 실패하므로 설정으로 뺐다.
-    void set_zmq_ports(int pub_port, int rep_port)
+    // ZMQ 포트 넷. 한 기계에 엔진이 둘이면 뒤에 뜬 쪽이 bind에 실패하므로 설정으로 뺐다. 역할마다 발행
+    //  포트가 하나씩이고(주문·시세·전략) 제어(REP)는 주문 쪽에만 있다 — 한 포트로 모으면 그 자리가
+    //  죽을 때 셋이 같이 멎어 프로세스를 가른 뜻이 없어진다. [why D-114]
+    struct ZmqPorts
     {
-        zmq_pub_port_ = pub_port;
-        zmq_rep_port_ = rep_port;
-    }
+        int order_pub    = 5555; // config `zmq_pub_port`
+        int order_rep    = 5556; // config `zmq_rep_port`
+        int feed_pub     = 5557; // config `zmq_feed_pub_port`
+        int strategy_pub = 5558; // config `zmq_strategy_pub_port`
+    };
+
+    void set_zmq_ports(ZmqPorts ports) { zmq_ports_ = ports; }
 
     // 보호 주문 표(config `protective_orders`) — off/shadow/owner. 전략이 멈춰도 주문 쪽이 표만 보고
     //  손절·트레일 청산을 낸다. 스레드 시작 전에만. [why D-114]
@@ -1029,8 +1035,7 @@ private:
     std::atomic<std::chrono::steady_clock::rep> protective_next_ticks_{0};
     // 전략이 죽어 주문 쪽이 마무리에 들어간 국면. 주문 스레드만 쓰고 HEALTH·판정 행이 읽는다. [why D-114]
     std::atomic<bool> strategy_wound_down_{false};
-    int         zmq_pub_port_ = 5555;
-    int         zmq_rep_port_ = 5556;
+    ZmqPorts    zmq_ports_;
 
     // ── 심볼·현재가 캐시 ──────────────────────────────────────────────────────
     struct SymbolCache

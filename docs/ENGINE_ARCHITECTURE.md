@@ -8,7 +8,7 @@
 
 ### 스레드 모델
 
-<!-- sync: Quant/include/core/Engine.h@b82825c Quant/src/core/Engine.cpp@942b120 Quant/include/core/DataPoller.h@196bcf6 Quant/include/core/SignalDispatcher.h@6aec697 Quant/include/core/OrderRateLimiter.h@2650fb2 Quant/include/core/LedgerReconciler.h@77c1a8a Quant/include/core/WakeGate.h@cfe77bc Quant/include/core/BarAggregator.h@f50287c Quant/include/core/LatencyTrace.h@b01b770 Quant/include/core/ReconcilePlan.h@5e8d897 -->
+<!-- sync: Quant/include/core/Engine.h@7dbaeff Quant/src/core/Engine.cpp@0a7f7ed Quant/include/core/DataPoller.h@196bcf6 Quant/include/core/SignalDispatcher.h@6aec697 Quant/include/core/OrderRateLimiter.h@2650fb2 Quant/include/core/LedgerReconciler.h@77c1a8a Quant/include/core/WakeGate.h@cfe77bc Quant/include/core/BarAggregator.h@f50287c Quant/include/core/LatencyTrace.h@b01b770 Quant/include/core/ReconcilePlan.h@5e8d897 -->
 스레드는 다섯 개(데이터·전략·주문·체결·제어)에 전략 샤드 M개(config `strategy_shards`, 기본 1, 상한 64), 소켓마다
 수신 스레드 하나, 프리페치 풀(코어/4, 2~8개)을 더한다. 스레드끼리는 락 없는 큐로만 넘긴다. 각 스레드는 기동 직후
 `thread_name::set_current`(`Quant/include/utils/ThreadName.h`)로 이름을 붙여 procwatch와 디버거에 그 이름으로 보인다.
@@ -182,8 +182,12 @@ flowchart LR
 - 보호 주문(손절·트레일)은 전략이 `on_start`에서 등록하고 전략 스레드가 원장만 보고 판정한다. config `protective_orders`
   (`off`/`shadow`/`owner`, 기본 `shadow`). 전략 박동이 끊기면 주문 스레드가 이어받고, 둘이 같은 차례를 잡지 않게
   `Engine::claim_protective_cycle`이 한쪽만 통과시킨다(D-114 단계 1·2, `test_protective_orders`).
-- ZMQ 포트는 config `zmq_pub_port`·`zmq_rep_port`(기본 5555·5556). 발행 큐에는 `TradeData`를 memcpy로만 넣고 JSON은
-  송신 스레드가 만든다(D-105, `bench_zmq_publish`).
+- ZMQ 포트는 엔진 한 대가 `zmq_pub_port`부터 **4포트 연속 블록**을 갖는다 — 주문 PUB(`zmq_pub_port`) · 제어
+  REP(`zmq_rep_port`) · 시세 PUB(`zmq_feed_pub_port`, 안 적으면 +2) · 전략 PUB(`zmq_strategy_pub_port`, 안 적으면 +3).
+  모의는 5555~5558, 실계좌는 5565~5568이다. 역할마다 발행 다리를 하나씩 열고, 제어(REP)는 주문 쪽에만 둔다 —
+  한 포트로 모으면 그 자리가 죽을 때 셋이 같이 멎어 프로세스를 가른 뜻이 없어진다(D-129). 구독자는 SUB 소켓
+  하나에 connect를 여럿 건다. 발행 큐에는 `TradeData`를 memcpy로만 넣고 JSON은 송신 스레드가 만든다
+  (D-105, `bench_zmq_publish`).
 - `Quant/src/main.cpp`가 `timeBeginPeriod(1)`로 sleep 격자를 15.6ms에서 2ms로 내린다.
 
 ### 남는 것과 가는 곳
@@ -195,7 +199,7 @@ flowchart LR
 | 거래 원장 `logs/trades_YYYYMMDD.csv` | 주문 종착 상태·체결·잔고 대조 | 텍스트(CSV) | 없음 — 늘 켜짐 | 상시 경로 없음. 빠진 체결만 [scripts/backfill_fills_db.py](../scripts/backfill_fills_db.py)로 뒤에 채운다 |
 | 원장 저널 `ledger_YYYYMMDD.bin` | 주문 의도·접수·거부·체결·취소·조정·시드·현금·당일손익 | 바이너리 — 192바이트 고정 레코드, 순번·CRC32 ([LedgerJournal.h](../Quant/include/risk/LedgerJournal.h)) | `ledger_journal_dir` | [PYQuant/tools/ledger_recorder.py](../PYQuant/tools/ledger_recorder.py)가 파일 꼬리를 따라 읽어 `ledger_events` |
 | 시세 캡처 `ticks_<기동시각>.bin` | 체결·호가·일봉·그날 유니버스 | 바이너리 — QTCAP v2 ([TickCapture.h](../Quant/include/core/TickCapture.h)) | `capture_dir` | 안 간다. 리플레이 백테스트 입력이다 |
-| ZMQ 발행 | 체결틱·신호·주문·체결·엔진 상태 | 토픽 한 프레임 + JSON 한 프레임 ([ZmqBridge.cpp](../Quant/src/ipc/ZmqBridge.cpp)) | `zmq_pub_port` (ZeroMQ가 링크돼 있으면 늘 켜짐) | [PYQuant/main.py](../PYQuant/main.py) `record`가 구독해 표 6개에 넣는다 |
+| ZMQ 발행 | 체결틱·신호·주문·체결·엔진 상태 | 토픽 한 프레임 + JSON 한 프레임 ([ZmqBridge.cpp](../Quant/src/ipc/ZmqBridge.cpp)) | `zmq_pub_port` 블록 (ZeroMQ가 링크돼 있으면 늘 켜짐) | [PYQuant/main.py](../PYQuant/main.py) `record`가 구독해 표 6개에 넣는다 |
 
 읽을 때 헷갈리기 쉬운 세 가지.
 

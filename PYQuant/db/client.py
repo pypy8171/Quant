@@ -270,6 +270,14 @@ class DbClient:
                 for name in self._HEALTH_METRIC_COLUMNS:
                     cursor.execute(f"ALTER TABLE health ADD COLUMN IF NOT EXISTS {name} BIGINT")
 
+                # 역할은 숫자가 아니라 글자라 위 목록(BIGINT)에 못 낀다. 기본값 'order'로 두는 것은 이 열이
+                #  없던 시절의 행 — 한 프로세스(both)로 뜨던 날 — 이 기존 쿼리에 그대로 걸리게 하려고다. [why D-129]
+                cursor.execute("ALTER TABLE health ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'order'")
+
+                # 계좌도 글자다. 기본값을 안 두는 것은 이 열이 없던 시절의 행이 모의인지 실계좌인지 알 길이
+                #  없어서다 — 아무 값이나 채우면 없는 사실을 지어내는 것이 된다. [why D-129]
+                cursor.execute("ALTER TABLE health ADD COLUMN IF NOT EXISTS account TEXT")
+
             self._health_columns_ready = True
         except Exception as error:
             logger.error(f"ensure_health_metric_columns 실패: {error}")
@@ -282,14 +290,18 @@ class DbClient:
                 self.ensure_health_metric_columns()
 
             names = ",".join(self._HEALTH_METRIC_COLUMNS)
-            placeholders = ",".join(["%s"] * (4 + len(self._HEALTH_METRIC_COLUMNS)))
+            placeholders = ",".join(["%s"] * (6 + len(self._HEALTH_METRIC_COLUMNS)))
 
             with self._timed_write("health"), self._cursor() as cursor:
                 cursor.execute(
-                    f"INSERT INTO health(ts,data_cnt,signal_cnt,order_cnt,{names})"
+                    f"INSERT INTO health(ts,role,account,data_cnt,signal_cnt,order_cnt,{names})"
                     f" VALUES ({placeholders})",
                     (
                         _ms_to_dt(data["ts"]),
+                        # 역할을 안 싣는 옛 엔진의 HEALTH는 한 프로세스로 뜬 것이라 'order'로 본다 —
+                        #  그래야 역할을 가리는 쿼리가 그 행도 함께 센다. [why D-129]
+                        data.get("role") or "order",
+                        data.get("account") or None,
                         data.get("data", 0),
                         data.get("signal", 0),
                         data.get("order", 0),

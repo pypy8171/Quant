@@ -56,7 +56,10 @@ void configure_channels(Engine& engine, const AppConfig& app)
     engine.set_regime_file(app.regime_file, app.regime_stale_sec);
     engine.set_regime_halt_expire_min(app.regime_halt_expire_min);
     engine.set_zmq_control(app.zmq_bind_address, app.zmq_control_token);
-    engine.set_zmq_ports(app.zmq_pub_port, app.zmq_rep_port);
+    engine.set_zmq_ports({.order_pub    = app.zmq_pub_port,
+                          .order_rep    = app.zmq_rep_port,
+                          .feed_pub     = app.zmq_feed_pub_port,
+                          .strategy_pub = app.zmq_strategy_pub_port});
     engine.set_protective_orders(app.protective_orders, app.protective_orders_interval_ms, app.protective_orders_retry_ms);
     engine.set_instance(app.instance);
     engine.set_ops_control(app.ops_bind_address, app.ops_port, app.ops_token);

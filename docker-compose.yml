@@ -12,8 +12,10 @@ services:
       # KIS 토큰 캐시 공유 볼륨 — 엔진이 발급→balance가 재사용(중복발급/403 방지)
       - token-cache:/app/.tokcache
     ports:
-      - "5555:5555"   # ZMQ PUB  (시장데이터·신호 발행)
-      - "5556:5556"   # ZMQ REP  (엔진 원격 제어)
+      - "5555:5555"   # ZMQ PUB  (주문 프로세스 — 주문·체결·헬스 발행)
+      - "5556:5556"   # ZMQ REP  (엔진 원격 제어 — 주문 프로세스에만 있다)
+      - "5557:5557"   # ZMQ PUB  (시세 프로세스 — 체결 틱 발행, 갈라 띄운 날만 열린다)
+      - "5558:5558"   # ZMQ PUB  (전략 프로세스 — 신호 발행, 갈라 띄운 날만 열린다)
     environment:
       TZ: Asia/Seoul
       KIS_TOKEN_CACHE_DIR: /app/.tokcache

@@ -337,9 +337,11 @@ def feed_ledger_rows(date: str) -> list:
                 " TO_CHAR(MIN(ts AT TIME ZONE 'Asia/Seoul'), 'HH24:MI:SS') FROM ticks"
                 " WHERE (ts AT TIME ZONE 'Asia/Seoul')::date = %s", (date,))
             tick_count, tick_tickers, first_tick_time = cursor.fetchone()
+            # 체결 건수는 시세 프로세스가 채운다 — 갈라 뜬 날은 role='feed' 행에 있다 [why D-129]
             cursor.execute(
                 "SELECT COALESCE(MAX(data_cnt), 0) FROM health"
-                " WHERE (ts AT TIME ZONE 'Asia/Seoul')::date = %s", (date,))
+                " WHERE (ts AT TIME ZONE 'Asia/Seoul')::date = %s"
+                " AND role IN ('both','order','feed')", (date,))
             data_count = cursor.fetchone()[0]
             accounts = {}
 
@@ -426,7 +428,9 @@ def queue_latency_row(date: str) -> tuple:
                 " COALESCE(MAX(100.0 * queue_shard_high_water / NULLIF(queue_shard_capacity, 0)), 0),"
                 " COALESCE(MAX(100.0 * queue_order_high_water / NULLIF(queue_order_capacity, 0)), 0),"
                 " COALESCE(MAX(total_p99_us), -1)"
-                " FROM health WHERE (ts AT TIME ZONE 'Asia/Seoul')::date = %s", (date,))
+                # 샤드 큐는 전략, 주문·체결 큐와 지연은 주문 프로세스가 채운다 [why D-129]
+                " FROM health WHERE (ts AT TIME ZONE 'Asia/Seoul')::date = %s"
+                " AND role IN ('both','order','strategy')", (date,))
             metric_rows, dropped, shard_percent, order_percent, total_p99 = cursor.fetchone()
 
         connection.close()
@@ -442,6 +446,73 @@ def queue_latency_row(date: str) -> tuple:
             f"HEALTH {metric_rows}건, 버린 건수 {dropped} (기대 0), 고수위 샤드 {float(shard_percent):.1f}%"
             f"·주문 큐 {float(order_percent):.1f}%, 전체 지연 p99 "
             + (f"{total_p99 / 1000:.0f}ms" if total_p99 >= 0 else "표본 없음"))
+
+
+def role_publish_row(date: str) -> tuple:
+    """갈라 띄운 날 세 역할이 각자 제 포트로 발행했는지 본다.
+
+    D-114로 프로세스를 셋으로 가른 뒤, 발행 채널이 주문 쪽 하나뿐이라 갈라 띄운 날에는 틱도 신호도
+    아무 데도 안 나갔다. D-129에서 역할마다 PUB 포트를 하나씩 두어 걷었는데, 설정이 어긋나 다시
+    한 쪽만 발행하게 되면 화면은 그냥 조용해서 눈으로는 안 보인다 — 그래서 여기서 판정한다.
+    한 프로세스(both)로 뜬 날은 가를 것이 없으므로 그대로 통과시킨다.
+    """
+    password = tsdb_password()
+
+    if not password:
+        return ("역할별 발행", True, "WARN", ".env에 TSDB_PASSWORD 없음 — 판정 안 함")
+
+    psycopg2 = import_psycopg2()
+
+    if psycopg2 is None:
+        return ("역할별 발행", False, "WARN",
+                "psycopg2 없음 — venv(PYQuant/.venv*)로 부르거나 pip install psycopg2-binary")
+
+    try:
+        connection = psycopg2.connect(host="localhost", port=5432, dbname="quant", user="quant",
+                                      password=password, connect_timeout=3)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT role, COUNT(*), COALESCE(MAX(data_cnt), 0), COALESCE(MAX(signal_cnt), 0),"
+                " COALESCE(MAX(order_cnt), 0) FROM health"
+                " WHERE (ts AT TIME ZONE 'Asia/Seoul')::date = %s GROUP BY role", (date,))
+            by_role = {role: (count, data, signal, order)
+                       for role, count, data, signal, order in cursor.fetchall()}
+
+        connection.close()
+    except psycopg2.errors.UndefinedColumn:   # role 열이 아직 없는 DB — 새 적재기가 첫 HEALTH에서 만든다
+        return ("역할별 발행", True, "WARN", "health 표에 role 열 없음 — 적재기 배포 전")
+    except Exception as error:   # DB가 없거나 잠든 날은 판정을 미룬다
+        return ("역할별 발행", True, "WARN", f"DB 조회 실패 — 판정 안 함 ({str(error).strip()[:80]})")
+
+    if not by_role:
+        return ("역할별 발행", True, "WARN", "그날 HEALTH 행이 없음 — 엔진이 안 떴거나 발행이 꺼졌다")
+
+    if set(by_role) <= {"both"}:
+        count, data, signal, order = by_role["both"]
+        return ("역할별 발행", True, "FAIL",
+                f"한 프로세스(both)로 떴다 — HEALTH {count}건, 체결 {data}·신호 {signal}·주문 {order}")
+
+    missing = [role for role in ("order", "strategy", "feed") if role not in by_role]
+
+    if missing:
+        return ("역할별 발행", False, "FAIL",
+                f"갈라 떴는데 {'·'.join(missing)} 역할이 HEALTH를 한 건도 안 냈다"
+                f" — 그 프로세스의 PUB 포트 설정이나 zmq_enabled를 본다 (있는 역할: {'·'.join(sorted(by_role))})")
+
+    empty = []
+
+    if by_role["feed"][1] == 0:
+        empty.append("시세 프로세스 체결 건수 0")
+
+    if by_role["order"][3] == 0:
+        empty.append("주문 프로세스 주문 건수 0")
+
+    if empty:
+        return ("역할별 발행", False, "FAIL", f"세 역할이 다 HEALTH는 냈으나 {', '.join(empty)}")
+
+    return ("역할별 발행", True, "FAIL",
+            f"세 역할이 각자 발행 — 시세 체결 {by_role['feed'][1]},"
+            f" 전략 신호 {by_role['strategy'][2]}, 주문 {by_role['order'][3]}")
 
 
 def tsan_stale_commits(commit: str) -> int:
@@ -981,7 +1052,9 @@ def order_latency_breakdown_row(date: str) -> tuple:
                 " COALESCE(MAX(pop_to_send_p99_interval_us), -1),"
                 " COALESCE(MAX(bucket_wait_p99_interval_us), -1),"
                 " COALESCE(MAX(transport_p99_interval_us), -1)"
-                " FROM health WHERE (ts AT TIME ZONE 'Asia/Seoul')::date = %s", (date,))
+                # 구간 지연은 전부 주문 프로세스가 채우는 칸이다 [why D-129]
+                " FROM health WHERE (ts AT TIME ZONE 'Asia/Seoul')::date = %s"
+                " AND role IN ('both','order')", (date,))
             samples, gate, journal, rate_limit, bucket_wait, transport = cursor.fetchone()
 
         connection.close()
@@ -1135,6 +1208,7 @@ def global_rows(date: str) -> list:
         *resource_sampling_rows(date),
         *feed_ledger_rows(date),
         queue_latency_row(date),
+        role_publish_row(date),
         order_latency_breakdown_row(date),
         market_open_gate_row(date),
         after_market_order_row(date),

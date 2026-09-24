@@ -65,7 +65,7 @@
     {
       "from": "ipc",
       "to": "core",
-      "weight": 14
+      "weight": 16
     },
     {
       "from": "ipc",
@@ -848,13 +848,15 @@
       "ipc/SharedWriteLock.h"
     ],
     "ipc/ZmqBridge.cpp": [
+      "core/RegimeFileJudge.h",
       "ipc/ZmqBridge.h",
       "utils/Logger.h",
       "utils/ThreadName.h"
     ],
     "ipc/ZmqBridge.h": [
       "core/MpscQueue.h",
-      "core/Types.h"
+      "core/Types.h",
+      "core/WakeGate.h"
     ],
     "main.cpp": [
       "core/AppConfig.h",
@@ -1294,7 +1296,8 @@
     "core/RegimeFileJudge.h": [
       "core/AppConfig.h",
       "core/Engine.h",
-      "core/RegimeFileJudge.cpp"
+      "core/RegimeFileJudge.cpp",
+      "ipc/ZmqBridge.cpp"
     ],
     "core/ReplaySource.h": [
       "core/Engine.h",
@@ -1422,6 +1425,7 @@
       "core/TickCapture.h",
       "core/WakeGate.cpp",
       "ipc/OrderRouter.cpp",
+      "ipc/ZmqBridge.h",
       "strategy/DeviationScaleStrategy.h"
     ],
     "ipc/ControlChannel.h": [
@@ -1727,11 +1731,11 @@
       "in_degree": 13
     },
     {
-      "header": "core/MarketSession.h",
-      "in_degree": 9
+      "header": "core/WakeGate.h",
+      "in_degree": 10
     },
     {
-      "header": "core/WakeGate.h",
+      "header": "core/MarketSession.h",
       "in_degree": 9
     },
     {
@@ -2743,6 +2747,7 @@
         "Quant/src/core/EngineConfigure.cpp",
         "Quant/src/core/EngineRegime.cpp",
         "Quant/src/core/RegimeFileJudge.cpp",
+        "Quant/src/ipc/ZmqBridge.cpp",
         "scripts/dashboard_server.py",
         "scripts/notify_trades.py"
       ]

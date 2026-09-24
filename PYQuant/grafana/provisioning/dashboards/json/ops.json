@@ -114,7 +114,7 @@
             "uid": "tsdb"
           },
           "format": "time_series",
-          "rawSql": "SELECT NOW() AS time, COUNT(*) AS restarts FROM (\n  SELECT data_cnt - LAG(data_cnt) OVER (ORDER BY ts) AS d\n  FROM health WHERE ts::date = CURRENT_DATE) s WHERE d < 0;",
+          "rawSql": "SELECT NOW() AS time, COUNT(*) AS restarts FROM (\n  -- 역할마다 제 카운터를 따로 올린다 — 안 가르면 갈라 뜬 날의 역할 교대가 재기동으로 잡힌다 [why D-129]\n  SELECT data_cnt - LAG(data_cnt) OVER (PARTITION BY role ORDER BY ts) AS counter_delta\n  FROM health WHERE ts::date = CURRENT_DATE) deltas WHERE counter_delta < 0;",
           "refId": "A"
         }
       ],
@@ -163,7 +163,7 @@
             "uid": "tsdb"
           },
           "format": "time_series",
-          "rawSql": "SELECT ts AS time,\n       GREATEST(data_cnt - LAG(data_cnt) OVER (ORDER BY ts), 0) AS \"30초당 체결\",\n       GREATEST(order_cnt - LAG(order_cnt) OVER (ORDER BY ts), 0) AS \"30초당 주문\"\nFROM health WHERE $__timeFilter(ts) ORDER BY ts;",
+          "rawSql": "SELECT ts AS time,\n       -- 체결은 시세, 주문은 주문 프로세스가 채운다. 역할을 안 가르면 0인 칸이 섞여 차이가 튄다 [why D-129]\n       GREATEST(data_cnt - LAG(data_cnt) OVER (PARTITION BY role ORDER BY ts), 0) AS \"30초당 체결\",\n       GREATEST(order_cnt - LAG(order_cnt) OVER (PARTITION BY role ORDER BY ts), 0) AS \"30초당 주문\"\nFROM health WHERE $__timeFilter(ts) AND role IN ('both','order','feed') ORDER BY ts;",
           "refId": "A"
         }
       ],
@@ -895,7 +895,7 @@
             "uid": "tsdb"
           },
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, 100.0 * queue_shard_high_water / NULLIF(queue_shard_capacity, 0) AS \"샤드 셀 고수위\", 100.0 * queue_shard_out_size / NULLIF(queue_shard_out_capacity, 0) AS \"샤드→전략 현재 깊이\", 100.0 * queue_order_high_water / NULLIF(queue_order_capacity, 0) AS \"주문 큐 고수위\", 100.0 * queue_fill_high_water / NULLIF(queue_fill_capacity, 0) AS \"체결 큐 고수위\" FROM health WHERE $__timeFilter(ts) AND queue_shard_capacity IS NOT NULL ORDER BY ts;",
+          "rawSql": "SELECT ts AS time, 100.0 * queue_shard_high_water / NULLIF(queue_shard_capacity, 0) AS \"샤드 셀 고수위\", 100.0 * queue_shard_out_size / NULLIF(queue_shard_out_capacity, 0) AS \"샤드→전략 현재 깊이\", 100.0 * queue_order_high_water / NULLIF(queue_order_capacity, 0) AS \"주문 큐 고수위\", 100.0 * queue_fill_high_water / NULLIF(queue_fill_capacity, 0) AS \"체결 큐 고수위\" FROM health WHERE $__timeFilter(ts) AND role IN ('both','order','strategy') AND queue_shard_capacity IS NOT NULL ORDER BY ts;",
           "refId": "A"
         }
       ],
@@ -932,7 +932,7 @@
             "uid": "tsdb"
           },
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, dropped_shard AS \"샤드→전략\", dropped_order AS \"주문 큐\", dropped_fill AS \"체결 큐\", drop_cnt AS \"ZMQ 발행\" FROM health WHERE $__timeFilter(ts) AND (dropped_shard IS NOT NULL OR drop_cnt IS NOT NULL) ORDER BY ts;",
+          "rawSql": "SELECT ts AS time, dropped_shard AS \"샤드→전략\", dropped_order AS \"주문 큐\", dropped_fill AS \"체결 큐\", drop_cnt AS \"ZMQ 발행\" FROM health WHERE $__timeFilter(ts) AND role IN ('both','order','strategy') AND (dropped_shard IS NOT NULL OR drop_cnt IS NOT NULL) ORDER BY ts;",
           "refId": "A"
         }
       ],
@@ -971,7 +971,7 @@
             "uid": "tsdb"
           },
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, NULLIF(tick_to_signal_p50_us, -1) AS \"틱→신호\", NULLIF(signal_to_pop_p50_us, -1) AS \"신호→주문 큐 pop\", NULLIF(pop_to_done_p50_us, -1) AS \"pop→주문 반환\", NULLIF(total_p50_us, -1) AS \"전체\" FROM health WHERE $__timeFilter(ts) AND latency_samples > 0 ORDER BY ts;",
+          "rawSql": "SELECT ts AS time, NULLIF(tick_to_signal_p50_us, -1) AS \"틱→신호\", NULLIF(signal_to_pop_p50_us, -1) AS \"신호→주문 큐 pop\", NULLIF(pop_to_done_p50_us, -1) AS \"pop→주문 반환\", NULLIF(total_p50_us, -1) AS \"전체\" FROM health WHERE $__timeFilter(ts) AND role IN ('both','order') AND latency_samples > 0 ORDER BY ts;",
           "refId": "A"
         }
       ],
@@ -1008,7 +1008,7 @@
             "uid": "tsdb"
           },
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, NULLIF(tick_to_signal_p99_us, -1) AS \"틱→신호\", NULLIF(signal_to_pop_p99_us, -1) AS \"신호→주문 큐 pop\", NULLIF(pop_to_done_p99_us, -1) AS \"pop→주문 반환\", NULLIF(total_p99_us, -1) AS \"전체\" FROM health WHERE $__timeFilter(ts) AND latency_samples > 0 ORDER BY ts;",
+          "rawSql": "SELECT ts AS time, NULLIF(tick_to_signal_p99_us, -1) AS \"틱→신호\", NULLIF(signal_to_pop_p99_us, -1) AS \"신호→주문 큐 pop\", NULLIF(pop_to_done_p99_us, -1) AS \"pop→주문 반환\", NULLIF(total_p99_us, -1) AS \"전체\" FROM health WHERE $__timeFilter(ts) AND role IN ('both','order') AND latency_samples > 0 ORDER BY ts;",
           "refId": "A"
         }
       ],
@@ -1095,7 +1095,7 @@
             "uid": "tsdb"
           },
           "format": "time_series",
-          "rawSql": "SELECT NOW() AS time, EXTRACT(EPOCH FROM NOW() - MAX(ts)) AS gap_sec FROM health;",
+          "rawSql": "SELECT NOW() AS time, EXTRACT(EPOCH FROM NOW() - MAX(ts)) AS gap_sec FROM health WHERE role IN ('both','order');",
           "refId": "A"
         }
       ],
@@ -1187,7 +1187,7 @@
             "uid": "tsdb"
           },
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, NULLIF(tick_to_signal_p50_interval_us, -1) AS \"틱→신호\", NULLIF(signal_to_pop_p50_interval_us, -1) AS \"신호→주문 큐 pop\", NULLIF(pop_to_send_p50_interval_us, -1) AS \"호출 간격 조절 대기(우리 쪽)\", NULLIF(gate_p50_interval_us, -1) AS \"리스크 점검\", NULLIF(journal_p50_interval_us, -1) AS \"원장 선기록\", NULLIF(bucket_wait_p50_interval_us, -1) AS \"증권사 초당 한도 대기\", NULLIF(transport_p50_interval_us, -1) AS \"증권사 왕복\", NULLIF(total_p50_interval_us, -1) AS \"전체\" FROM health WHERE $__timeFilter(ts) AND latency_interval_samples > 0 ORDER BY ts;",
+          "rawSql": "SELECT ts AS time, NULLIF(tick_to_signal_p50_interval_us, -1) AS \"틱→신호\", NULLIF(signal_to_pop_p50_interval_us, -1) AS \"신호→주문 큐 pop\", NULLIF(pop_to_send_p50_interval_us, -1) AS \"호출 간격 조절 대기(우리 쪽)\", NULLIF(gate_p50_interval_us, -1) AS \"리스크 점검\", NULLIF(journal_p50_interval_us, -1) AS \"원장 선기록\", NULLIF(bucket_wait_p50_interval_us, -1) AS \"증권사 초당 한도 대기\", NULLIF(transport_p50_interval_us, -1) AS \"증권사 왕복\", NULLIF(total_p50_interval_us, -1) AS \"전체\" FROM health WHERE $__timeFilter(ts) AND role IN ('both','order') AND latency_interval_samples > 0 ORDER BY ts;",
           "refId": "A"
         }
       ],
@@ -1224,7 +1224,7 @@
             "uid": "tsdb"
           },
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, NULLIF(tick_to_signal_p99_interval_us, -1) AS \"틱→신호\", NULLIF(signal_to_pop_p99_interval_us, -1) AS \"신호→주문 큐 pop\", NULLIF(pop_to_send_p99_interval_us, -1) AS \"호출 간격 조절 대기(우리 쪽)\", NULLIF(gate_p99_interval_us, -1) AS \"리스크 점검\", NULLIF(journal_p99_interval_us, -1) AS \"원장 선기록\", NULLIF(bucket_wait_p99_interval_us, -1) AS \"증권사 초당 한도 대기\", NULLIF(transport_p99_interval_us, -1) AS \"증권사 왕복\", NULLIF(total_p99_interval_us, -1) AS \"전체\" FROM health WHERE $__timeFilter(ts) AND latency_interval_samples > 0 ORDER BY ts;",
+          "rawSql": "SELECT ts AS time, NULLIF(tick_to_signal_p99_interval_us, -1) AS \"틱→신호\", NULLIF(signal_to_pop_p99_interval_us, -1) AS \"신호→주문 큐 pop\", NULLIF(pop_to_send_p99_interval_us, -1) AS \"호출 간격 조절 대기(우리 쪽)\", NULLIF(gate_p99_interval_us, -1) AS \"리스크 점검\", NULLIF(journal_p99_interval_us, -1) AS \"원장 선기록\", NULLIF(bucket_wait_p99_interval_us, -1) AS \"증권사 초당 한도 대기\", NULLIF(transport_p99_interval_us, -1) AS \"증권사 왕복\", NULLIF(total_p99_interval_us, -1) AS \"전체\" FROM health WHERE $__timeFilter(ts) AND role IN ('both','order') AND latency_interval_samples > 0 ORDER BY ts;",
           "refId": "A"
         }
       ],
@@ -1261,7 +1261,7 @@
             "uid": "tsdb"
           },
           "format": "time_series",
-          "rawSql": "SELECT ts AS time, NULLIF(pop_to_send_p50_interval_us, -1) AS \"호출 간격 조절 대기(우리 쪽)\", NULLIF(gate_p50_interval_us, -1) AS \"리스크 점검\", NULLIF(journal_p50_interval_us, -1) AS \"원장 선기록\", NULLIF(bucket_wait_p50_interval_us, -1) AS \"증권사 초당 한도 대기\", NULLIF(transport_p50_interval_us, -1) AS \"증권사 왕복\" FROM health WHERE $__timeFilter(ts) AND latency_interval_samples > 0 ORDER BY ts;",
+          "rawSql": "SELECT ts AS time, NULLIF(pop_to_send_p50_interval_us, -1) AS \"호출 간격 조절 대기(우리 쪽)\", NULLIF(gate_p50_interval_us, -1) AS \"리스크 점검\", NULLIF(journal_p50_interval_us, -1) AS \"원장 선기록\", NULLIF(bucket_wait_p50_interval_us, -1) AS \"증권사 초당 한도 대기\", NULLIF(transport_p50_interval_us, -1) AS \"증권사 왕복\" FROM health WHERE $__timeFilter(ts) AND role IN ('both','order') AND latency_interval_samples > 0 ORDER BY ts;",
           "refId": "A"
         }
       ],

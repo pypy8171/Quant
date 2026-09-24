@@ -29,7 +29,7 @@ graph LR
   exchange -->|7| core
   exchange -->|2| utils
   ipc -->|2| api
-  ipc -->|14| core
+  ipc -->|16| core
   ipc --> risk
   ipc -->|5| utils
   main -->|4| core
@@ -67,8 +67,8 @@ graph LR
 | `core/SymbolTable.h` | 17 |
 | `strategy/StrategyBase.h` | 15 |
 | `api/KisClient.h` | 13 |
+| `core/WakeGate.h` | 10 |
 | `core/MarketSession.h` | 9 |
-| `core/WakeGate.h` | 9 |
 
 ## 파일 단위 상세
 
@@ -512,11 +512,13 @@ graph LR
   n_ipc_SharedSymbolDictionary_h --> n_core_SymbolTable_h
   n_ipc_SharedSymbolDictionary_h --> n_ipc_SharedSpscRing_h
   n_ipc_SharedWriteLock_cpp --> n_ipc_SharedWriteLock_h
+  n_ipc_ZmqBridge_cpp --> n_core_RegimeFileJudge_h
   n_ipc_ZmqBridge_cpp --> n_ipc_ZmqBridge_h
   n_ipc_ZmqBridge_cpp --> n_utils_Logger_h
   n_ipc_ZmqBridge_cpp --> n_utils_ThreadName_h
   n_ipc_ZmqBridge_h --> n_core_MpscQueue_h
   n_ipc_ZmqBridge_h --> n_core_Types_h
+  n_ipc_ZmqBridge_h --> n_core_WakeGate_h
   n_main_cpp --> n_core_AppConfig_h
   n_main_cpp --> n_core_CommandLine_h
   n_main_cpp --> n_core_Engine_h
@@ -824,7 +826,7 @@ C++ 엔진·Python 보조 프로세스·스크립트가 파일로 주고받는 �
 
 | 파일 | 쓰는 쪽 | 읽는 쪽 | 언급만 |
 |---|---|---|---|
-| `regime.json` | `PYQuant/tools/macro_regime_feed.py`, `Quant/src/core/EngineRegime.cpp` | `PYQuant/tools/macro_regime_feed.py`, `Quant/src/core/AppConfig.cpp`, `Quant/src/core/Engine.cpp`, `Quant/src/core/EngineRegime.cpp`, `Quant/src/core/RegimeFileJudge.cpp`, `scripts/dashboard_server.py`, `scripts/notify_trades.py` | `Quant/include/core/AppConfig.h`, `Quant/include/core/Engine.h`, `Quant/include/core/RegimeFileJudge.h`, `Quant/src/core/EngineConfigure.cpp` |
+| `regime.json` | `PYQuant/tools/macro_regime_feed.py`, `Quant/src/core/EngineRegime.cpp` | `PYQuant/tools/macro_regime_feed.py`, `Quant/src/core/AppConfig.cpp`, `Quant/src/core/Engine.cpp`, `Quant/src/core/EngineRegime.cpp`, `Quant/src/core/RegimeFileJudge.cpp`, `scripts/dashboard_server.py`, `scripts/notify_trades.py` | `Quant/include/core/AppConfig.h`, `Quant/include/core/Engine.h`, `Quant/include/core/RegimeFileJudge.h`, `Quant/src/core/EngineConfigure.cpp`, `Quant/src/ipc/ZmqBridge.cpp` |
 | `prices_live.json` | `scripts/live_prices_feed.py` | `scripts/live_prices_feed.py` |  |
 | `trades_*.csv` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/backfill_fills_db.py`, `scripts/exit_ev_dashboard.py` | `PYQuant/dashboard/backfill_live.py`, `PYQuant/tests/test_stats.py`, `Quant/src/ipc/OrderRouter.cpp`, `Quant/src/strategy/StrategyFactory.cpp`, `scripts/backfill_fills_db.py`, `scripts/check_runtime_health.py`, `scripts/exit_ev.py`, `scripts/exit_ev_dashboard.py`, `scripts/parse_quant_log.py`, `scripts/trade_costs.py` | `scripts/_logdir.py`, `scripts/notify_trades.py` |
 | `universe*.json` | `PYQuant/tools/load_injector.py`, `scripts/make_load_test_config.py` | `PYQuant/main.py`, `PYQuant/tools/full_universe_dump.py`, `PYQuant/tools/load_injector.py`, `PYQuant/tools/nxt_divergence_check.py`, `PYQuant/tools/universe_feed.py`, `Quant/src/universe/UniverseScanner.cpp`, `scripts/exit_ev_dashboard.py`, `scripts/live_prices_feed.py`, `scripts/make_load_test_config.py`, `scripts/market_close_minute_backfill.py`, `scripts/notify_trades.py` | `Quant/include/universe/UniverseScanner.h`, `Quant/src/api/KisUniverse.cpp`, `Quant/src/strategy/StrategyFactory.cpp`, `scripts/dashboard_server.py` |

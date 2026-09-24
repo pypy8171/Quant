@@ -47,6 +47,14 @@ CREATE INDEX IF NOT EXISTS orders_ticker_ts ON orders (ticker, ts DESC);
 -- 지연 열은 표본이 없으면 -1, 옛 엔진이 보낸 행은 NULL(그 필드를 아예 안 싣는다).
 CREATE TABLE IF NOT EXISTS health (
     ts         TIMESTAMPTZ  NOT NULL,
+    -- 발행한 프로세스의 역할(both/order/strategy/feed). 갈라 뜬 날은 세 프로세스가 각각 HEALTH를 보내고
+    -- 채우는 칸이 서로 달라, 가르는 열이 없으면 읽는 쪽이 누적 카운터가 역행했다고 본다.
+    -- 기본값이 'order'인 것은 이 열이 없던 시절의 행(한 프로세스로 뜨던 날)이
+    -- 기존 쿼리에서 그대로 유효하게 하려고다. [why D-129]
+    role       TEXT         NOT NULL DEFAULT 'order',
+    -- 이 엔진이 매매하는 브로커 계좌번호. 모의와 실계좌 엔진이 같은 DB에 적재하므로 역할만으로는 못 가른다
+    -- (다른 표들이 account를 두는 이유와 같다, D-090). 옛 행은 NULL이다. [why D-129]
+    account    TEXT,
     data_cnt   BIGINT       DEFAULT 0,
     signal_cnt BIGINT       DEFAULT 0,
     order_cnt  BIGINT       DEFAULT 0,

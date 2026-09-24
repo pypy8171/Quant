@@ -61,8 +61,12 @@ struct AppConfig
     std::string            zmq_bind_address;
     std::string            zmq_control_token;
     // 한 기계에 엔진이 둘 이상 뜨면 포트가 겹쳐 뒤에 뜬 쪽이 ZMQ 없이 돈다 — 그래서 설정으로 뺀다.
-    int                    zmq_pub_port = 5555; // 시세·주문 발행(PUB)
-    int                    zmq_rep_port = 5556; // 제어 명령(REP)
+    int                    zmq_pub_port = 5555; // 주문 프로세스 발행(PUB)
+    int                    zmq_rep_port = 5556; // 제어 명령(REP) — 주문 프로세스에만 있다
+    // 프로세스를 셋으로 가르면 역할마다 발행 포트를 따로 연다. 0이면 zmq_pub_port에서 +2·+3으로 잡는다 —
+    //  실계좌 config가 5565를 쓰면 5567·5568이 되어 모의계좌(5557·5558)와 겹치지 않는다. [why D-114]
+    int                    zmq_feed_pub_port = 0;     // 시세 프로세스 발행(PUB)
+    int                    zmq_strategy_pub_port = 0; // 전략 프로세스 발행(PUB)
     // 한 기계에서 계좌를 둘 이상 돌릴 때 프로세스를 가르는 이름(예: "live"). 마감 표지 파일과
     //  감시견 상태 파일 이름에 붙는다 — 비어 있으면 예전과 같은 이름을 쓴다. [why D-122]
     std::string            instance;

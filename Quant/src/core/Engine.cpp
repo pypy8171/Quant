@@ -935,10 +935,37 @@ void Engine::rebuild_routes_locked()
 #ifdef HAS_ZMQ
 void Engine::setup_zmq_bridge()
 {
-    zmq_bridge_ = std::make_unique<ZmqBridge>(zmq_pub_port_, zmq_rep_port_);
+    // 역할마다 발행 포트가 하나씩이다 — 주문은 config 포트에 제어(REP)까지 열고, 시세·전략은 발행만 연다.
+    //  셋을 한 포트로 모으려면 중계가 한 자리 생기는데, 그 자리가 죽으면 셋이 같이 멎어 프로세스를 가른
+    //  뜻이 없어진다. 구독자(SUB)는 bind가 아니라 connect라 포트 셋에 한꺼번에 붙을 수 있다. [why D-114]
+    int publish_port = zmq_ports_.order_pub;
+    int reply_port   = zmq_ports_.order_rep;
+
+    if (role_ == ProcessRole::Feed)
+    {
+        publish_port = zmq_ports_.feed_pub;
+        reply_port   = 0;
+    }
+    else if (role_ == ProcessRole::Strategy)
+    {
+        publish_port = zmq_ports_.strategy_pub;
+        reply_port   = 0;
+    }
+
+    zmq_bridge_ = std::make_unique<ZmqBridge>(publish_port, reply_port);
     zmq_bridge_->set_bind_address(zmq_bind_address_);
-    zmq_bridge_->set_control_token(zmq_control_token_);
     zmq_bridge_->set_account_no(kis_config_.account_no); // 실계좌·모의계좌 원장 분리용 [why D-090]
+    zmq_bridge_->set_role_label(role_.to_string());       // HEALTH 를 역할별로 가르는 열 [why D-129]
+
+    // 제어(KILL·STATUS)는 주문 쪽 하나만 받는다 — 시세·전략 프로세스에는 REP 소켓 자체가 없어
+    //  토큰도 핸들러도 걸 자리가 없다.
+    if (reply_port <= 0)
+    {
+        zmq_bridge_->start();
+        return;
+    }
+
+    zmq_bridge_->set_control_token(zmq_control_token_);
     zmq_bridge_->set_command_handler(
         [this](const std::string& command) -> std::string
         {
@@ -1602,10 +1629,6 @@ void Engine::connect_feed()
 #ifdef HAS_ZMQ
                            // 발행은 팬아웃보다 먼저 한다 — 샤드 큐가 차서 돌아가던 예전 순서에서는 정체 때
                            //  그라파나까지 같이 멎었다. [why D-114]
-                           // [한계] 셋으로 가르면 이 포인터가 비어 체결 발행이 멎는다. 발행 소켓(PUB)과 명령
-                           //  소켓(REP)이 한 `ZmqBridge` 에 묶여 있고 명령은 주문 쪽에 있어야 해서, 가르려면
-                           //  포트를 둘로 나누고 대시보드가 보는 자리도 같이 바꿔야 한다 — 별개 결정이라
-                           //  단계 5의 남은 것에 적었다. [why D-114 단계 5]
                            if (zmq_bridge_)
                            {
                                zmq_bridge_->publish_trade(trade);
@@ -1792,8 +1815,9 @@ void Engine::start()
     }
 
 #ifdef HAS_ZMQ
-    // 발행 채널은 주문 쪽에 둔다 — 전략이 멎어도 KILL과 잔고 조회는 살아 있어야 한다. [why D-114]
-    if (zmq_enabled_ && runs_order_side())
+    // 발행 채널은 역할마다 하나씩 둔다 — 시세는 체결을, 전략은 신호를, 주문은 주문·체결통보를 낸다.
+    //  제어(KILL·잔고 조회)는 주문 쪽 포트에만 붙어 전략이 멎어도 살아 있다. [why D-114]
+    if (zmq_enabled_)
     {
         setup_zmq_bridge();
     }

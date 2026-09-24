@@ -212,9 +212,18 @@ def cmd_backtest(args):
         logger.error(f"인증 오류: {e}")
 
 
+# 역할별 발행 포트. 안 주면 주문 포트에서 끌어온다 — 엔진이 config를 읽을 때 쓰는 규칙과 같은 +2·+3이라
+#  설정을 안 고쳐도 갈라 뜬 엔진에 그대로 붙는다. 0 이하는 "그 역할은 안 본다"가 아니라 "끌어와라"다.
+#  [wire] Quant/src/core/AppConfig.cpp — zmq_feed_pub_port·zmq_strategy_pub_port 기본값
+def role_pub_ports(order_port: int, feed_port: int, strategy_port: int) -> tuple[int, int]:
+    return (feed_port if feed_port > 0 else order_port + 2,
+            strategy_port if strategy_port > 0 else order_port + 3)
+
+
 def cmd_monitor(args):
     from datetime import datetime, timezone
-    monitor = EngineMonitor(host=args.host, pub_port=args.port)
+    monitor = EngineMonitor(host=args.host, pub_port=args.port,
+                            extra_pub_ports=role_pub_ports(args.port, args.feed_port, args.strategy_port))
 
     if args.topics:
         monitor._sub.subscribe(*args.topics)
@@ -248,7 +257,8 @@ def cmd_record(args):
     db = DbClient()
     db.ensure_fills_amount_columns()
 
-    monitor = EngineMonitor(host=args.host, pub_port=args.port)
+    monitor = EngineMonitor(host=args.host, pub_port=args.port,
+                            extra_pub_ports=role_pub_ports(args.port, args.feed_port, args.strategy_port))
 
     # 엔진이 아닌 것이 같은 포트를 물 수 있다. Engine 을 그대로 띄우는 테스트·부하 하네스(test_engine·
     #  bench_engine_load)도 setup_zmq_bridge 로 127.0.0.1:5555 에 bind 하는데, 트레이더가 WSL 안에 있으면
@@ -650,15 +660,23 @@ def main():
     # ── monitor ─────────────────────────────────────────────────────────────
     mp = sub.add_parser("monitor", help="C++ 엔진 이벤트 실시간 출력")
     mp.add_argument("--host",   default="localhost")
-    mp.add_argument("--port",   type=int, default=5555)
+    mp.add_argument("--port",   type=int, default=5555, help="주문 프로세스 발행 포트")
+    mp.add_argument("--feed-port", dest="feed_port", type=int, default=0,
+                    help="시세 프로세스 발행 포트 (기본: 주문 포트 + 2)")
+    mp.add_argument("--strategy-port", dest="strategy_port", type=int, default=0,
+                    help="전략 프로세스 발행 포트 (기본: 주문 포트 + 3)")
     mp.add_argument("--topics", nargs="*",
-                    choices=["TRADE", "SIGNAL", "ORDER", "HEALTH"],
+                    choices=["TRADE", "SIGNAL", "ORDER", "HEALTH", "FILL"],
                     help="구독할 토픽 (기본: 전체)")
 
     # ── record ──────────────────────────────────────────────────────────────
     rp = sub.add_parser("record", help="ZMQ 이벤트 → TimescaleDB 적재")
     rp.add_argument("--host",   default="localhost")
-    rp.add_argument("--port",   type=int, default=5555)
+    rp.add_argument("--port",   type=int, default=5555, help="주문 프로세스 발행 포트")
+    rp.add_argument("--feed-port", dest="feed_port", type=int, default=0,
+                    help="시세 프로세스 발행 포트 (기본: 주문 포트 + 2)")
+    rp.add_argument("--strategy-port", dest="strategy_port", type=int, default=0,
+                    help="전략 프로세스 발행 포트 (기본: 주문 포트 + 3)")
     rp.add_argument("--record-ticks", action="store_true",
                     help="체결 틱(TRADE)도 ticks 테이블에 넣는다 (기본: 안 넣음)")
     rp.add_argument("--account", default="",

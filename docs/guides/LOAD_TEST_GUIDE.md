@@ -156,7 +156,7 @@ wsl -d Ubuntu-24.04 -- /usr/lib/linux-tools-6.8.0-139/perf report -i /root/fh.da
 # 1) 캡처 → 유량 프로파일(종목별 몫 + 환산 초당 건수)
 py scripts\stresstest_flow_profile.py PYQuant\data\ticks_raw\ticks_<epoch>.bin --symbols 2700 --out docs\reports\stresstest\data\<날짜>_flow_profile.json
 
-# 2) 실전략 2,700개 + 발행 켬. 라이브가 127.0.0.1:5555를 쓰므로 바인드 주소를 달리한다
+# 2) 실전략 2,700개 + 발행 켬. 라이브가 127.0.0.1의 5555~5558 블록을 쓰므로 바인드 주소를 달리한다
 .\Quant\build_win\bench_engine_load.exe run --tickers 2700 --lanes 4 --shards 4 --seconds 20 --profile docs\reports\stresstest\data\<날짜>_flow_profile.json --profile-rate p99 --strategy itb --channel-min 2 --clock-speed 30 --zmq-bind 127.0.0.2 --out docs\reports\stresstest\data\<날짜>_B_pre_split.csv
 ```
 

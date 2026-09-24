@@ -98,21 +98,48 @@ int main()
         ticks.push_back(trade);
     }
 
-    ZmqBridge bridge(15555, 15556); // 운영 포트(5555/5556)와 겹치지 않게
-    (void)bridge.start();
-
-    const auto start = std::chrono::high_resolution_clock::now();
-
-    for (const auto& trade : ticks)
+    // 부르는 쪽 비용을 잰다. 다리를 두 벌 돌리는 이유는 발행 전용 다리(REP 없음)가 송신 스레드를
+    //  조건변수로 깨우기 때문이다 — 그 깨우기가 수신 스레드에 얼마를 얹는지 같은 자로 봐야 한다.
+    //  [why D-071 원칙 7]
+    const auto measure = [&ticks](const char* label, int pub_port, int rep_port)
     {
-        bridge.publish_trade(trade);
+        ZmqBridge bridge(pub_port, rep_port);
+
+        if (!bridge.start())
+        {
+            std::printf("%s: start 실패\n", label);
+            return false;
+        }
+
+        const auto start = std::chrono::high_resolution_clock::now();
+
+        for (const auto& trade : ticks)
+        {
+            bridge.publish_trade(trade);
+        }
+
+        const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                 std::chrono::high_resolution_clock::now() - start)
+                                 .count();
+        std::printf("%s: publish_trade caller cost %.1f ns/tick over %zu ticks (drops %llu)\n", label,
+                    static_cast<double>(elapsed) / static_cast<double>(kTickCount), kTickCount,
+                    static_cast<unsigned long long>(bridge.drop_count()));
+        bridge.stop();
+        return true;
+    };
+
+    // 운영 포트(5555/5556)와 겹치지 않게 15555 대를 쓴다.
+    if (!measure("PUB+REP", 15555, 15556))
+    {
+        return 1;
     }
 
-    const auto elapsed =
-        std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::high_resolution_clock::now() - start).count();
-    std::printf("publish_trade caller cost: %.1f ns/tick over %zu ticks (drops %llu)\n",
-                static_cast<double>(elapsed) / static_cast<double>(kTickCount), kTickCount,
-                static_cast<unsigned long long>(bridge.drop_count()));
-    bridge.stop();
+    // rep_port 0 = 발행 전용. 시세·전략 프로세스가 여는 모습이다 — REP 소켓을 아예 안 만들고도
+    //  start → publish → stop 이 깨끗한지 본다. [why D-129]
+    if (!measure("PUB only", 15557, 0))
+    {
+        return 1;
+    }
+
     return 0;
 }

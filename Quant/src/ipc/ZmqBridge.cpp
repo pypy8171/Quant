@@ -1,5 +1,6 @@
 #ifdef HAS_ZMQ
 #include "ipc/ZmqBridge.h"
+#include "core/RegimeFileJudge.h"
 #include "utils/Logger.h"
 #include "utils/ThreadName.h"
 
@@ -20,8 +21,9 @@ namespace
 // 구독자 지연에도 최대한 보존하고, 고빈도 TRADE/HEALTH는 작게 잡아 메모리 폭주를 막는다.
 constexpr size_t kCriticalQueueCap = 100000; // FILL/ORDER/SIGNAL 하드캡
 constexpr size_t kNormalQueueCap   = 1000;   // HEALTH 하드캡
-// TRADE 링 용량. 송신 루프가 한 바퀴에 REP 폴링 10 ms를 쉬므로 초당 처리량 상한은 (용량 × 100)건이다 —
-//  1,000이면 10만 건/s로 장 초반 전 시장 피드가 넘친다. 봉투 하나 ~100 B라 8,192칸은 1 MB가 안 된다.
+// TRADE 링 용량. 한 바퀴에 링을 통째로 비우므로 상한은 (용량 × 한 바퀴 수)건이다. 주문 다리는 REP를
+//  10 ms 폴링하니 초당 100바퀴, 발행 전용 다리는 생산자가 깨우니 그보다 훨씬 자주 돈다. 1,000칸이면
+//  주문 다리에서 10만 건/s로 장 초반 전 시장 피드가 넘친다. 봉투 하나 ~100 B라 8,192칸은 1 MB가 안 된다.
 constexpr size_t kTradeQueueCap    = 8192;
 constexpr auto   kReplyPollTimeout = 10ms;   // REP 명령 수신 폴링 1회 대기 시간
 
@@ -66,7 +68,8 @@ bool ZmqBridge::start()
 
     running_.store(true);
     zmq_thread_ = std::thread(&ZmqBridge::thread_fn, this);
-    LOG_INFO("[ZMQ] 브리지 시작 — PUB:" + std::to_string(pub_port_) + " REP:" + std::to_string(rep_port_));
+    LOG_INFO("[ZMQ] 브리지 시작 — PUB:" + std::to_string(pub_port_) +
+             (rep_port_ > 0 ? " REP:" + std::to_string(rep_port_) : std::string(" REP:없음(발행 전용)")));
     return true;
 }
 
@@ -93,12 +96,19 @@ void ZmqBridge::thread_fn()
     thread_name::set_current("ZmqBridge");
     zmq::context_t context{1};
     zmq::socket_t publish_socket{context, zmq::socket_type::pub};
-    zmq::socket_t rep{context, zmq::socket_type::rep};
+    // 명령 소켓은 주문 쪽 프로세스에만 둔다 — rep_port_ 가 0 이하면 빈 소켓으로 두고 bind 도 폴링도 건너뛴다.
+    //  시세·전략 프로세스는 발행만 하고, KILL·STATUS 는 주문 쪽 하나만 받는다. [why D-129]
+    const bool    serves_commands = rep_port_ > 0;
+    zmq::socket_t rep             = serves_commands ? zmq::socket_t{context, zmq::socket_type::rep} : zmq::socket_t{};
 
     try
     {
         publish_socket.bind("tcp://" + bind_address_ + ":" + std::to_string(pub_port_));
-        rep.bind("tcp://" + bind_address_ + ":" + std::to_string(rep_port_));
+
+        if (serves_commands)
+        {
+            rep.bind("tcp://" + bind_address_ + ":" + std::to_string(rep_port_));
+        }
     }
     catch (const zmq::error_t& zmq_error)
     {
@@ -107,11 +117,15 @@ void ZmqBridge::thread_fn()
         return;
     }
 
-    // REP 소켓 폴링 대상 (아래 루프에서 타임아웃 폴링으로 확인)
+    // REP 소켓 폴링 대상 (아래 루프에서 타임아웃 폴링으로 확인). 명령을 안 받는 프로세스에서는 안 쓴다.
     zmq::pollitem_t items[] = {{rep, 0, ZMQ_POLLIN, 0}};
 
     while (running_.load())
     {
+        // 0. "보낼 것 있음" 깃발을 비우기 전에 내린다. 비운 뒤에 내리면 그 사이에 들어온 건이 깃발째
+        //    지워져 다음 깨우기까지 잠든다. 먼저 내리면 헛도는 바퀴가 한 번 더 도는 것으로 끝난다.
+        work_pending_.store(false, std::memory_order_relaxed);
+
         // 1. 송신 큐 소진 — 락 안에서는 스왑만 하고 전송은 락 밖에서(Logger writer와 같은 패턴).
         //    락을 쥔 채 큐 상한(10만 건)까지 밀어내면 그동안 전략·주문·WS 콜백의 enqueue가 전부 선다.
         std::queue<Message> local;
@@ -162,7 +176,18 @@ void ZmqBridge::thread_fn()
             send_frames(Topic::Trade, trade_payload_);
         }
 
-        // 2. 명령 수신 (REP, kReplyPollTimeout 타임아웃)
+        // 2. 명령 수신 (REP, kReplyPollTimeout 타임아웃). 명령을 안 받는 프로세스는 폴링할 소켓이 없으니
+        //    생산자가 깨울 때까지 잔다. sleep_for 로 쉬면 안 된다 — 윈도우 기본 타이머 격자에서 10 ms 를
+        //    재면 실측 p50 15.6 ms 라(Quant/include/core/WakeGate.h 머리말) 한 바퀴가 1.5배로 늘고
+        //    TRADE 링의 처리량 상한(용량 × 바퀴수)이 그만큼 내려간다. 깨우면 격자와 무관하게 돈다.
+        //    kReplyPollTimeout 은 종료 확인 상한이지 깨우는 수단이 아니다. [why D-129]
+        if (!serves_commands)
+        {
+            send_gate_.wait_for(kReplyPollTimeout,
+                                [this] { return !work_pending_.load(std::memory_order_acquire); });
+            continue;
+        }
+
         try
         {
             zmq::poll(items, 1, kReplyPollTimeout);
@@ -243,6 +268,20 @@ const char* ZmqBridge::topic_name(Topic topic)
     return "UNKNOWN";
 }
 
+// 국면 정수를 라벨로 편다. 아직 판정이 없으면(-1) 빈 문자열 — 판정 전 행을 "UNKNOWN"으로 적으면
+//  "판정이 UNKNOWN"과 구분이 안 된다. 리터럴이라 수명은 정적이다. [inv]
+std::string_view ZmqBridge::current_regime_label() const
+{
+    const int code = regime_code_.load(std::memory_order_relaxed);
+
+    if (code < 0)
+    {
+        return {};
+    }
+
+    return regime_file::label_of(Regime(static_cast<Regime::Value>(code)));
+}
+
 uint64_t ZmqBridge::drop_count() const
 {
     return socket_full_drop_count_.load() + socket_error_drop_count_.load()
@@ -251,27 +290,50 @@ uint64_t ZmqBridge::drop_count() const
 
 void ZmqBridge::enqueue(Topic topic, std::string payload)
 {
-    std::lock_guard<std::mutex> lock(queue_mutex_);
-    // (C8) 토픽별 drop 차등 — 원장 정합성에 직결되는 FILL/ORDER/SIGNAL은
-    // HEALTH보다 훨씬 큰 하드캡까지 보존한다. TRADE는 이 큐를 거치지 않는다(trade_queue_).
-    const bool   critical = (topic == Topic::Fill || topic == Topic::Order || topic == Topic::Signal);
-    const size_t capacity = critical ? kCriticalQueueCap : kNormalQueueCap;
-
-    if (send_queue_.size() >= capacity)
     {
-        ++send_queue_full_drop_count_;
+        std::lock_guard<std::mutex> lock(queue_mutex_);
+        // (C8) 토픽별 drop 차등 — 원장 정합성에 직결되는 FILL/ORDER/SIGNAL은
+        // HEALTH보다 훨씬 큰 하드캡까지 보존한다. TRADE는 이 큐를 거치지 않는다(trade_queue_).
+        const bool   critical = (topic == Topic::Fill || topic == Topic::Order || topic == Topic::Signal);
+        const size_t capacity = critical ? kCriticalQueueCap : kNormalQueueCap;
 
-        if (critical)
+        if (send_queue_.size() >= capacity)
         {
-            LOG_ERROR(std::string("[ZMQ] 치명적 메시지 drop! topic=") + topic_name(topic) +
-                      " queue=" + std::to_string(send_queue_.size()) +
-                      " (구독자 다운 의심) — 원장 불일치 위험");
+            ++send_queue_full_drop_count_;
+
+            if (critical)
+            {
+                LOG_ERROR(std::string("[ZMQ] 치명적 메시지 drop! topic=") + topic_name(topic) +
+                          " queue=" + std::to_string(send_queue_.size()) +
+                          " (구독자 다운 의심) — 원장 불일치 위험");
+            }
+
+            return;
         }
 
+        send_queue_.push({topic, std::move(payload)});
+    }
+
+    // 깨우기는 반드시 queue_mutex_ 를 놓은 뒤에 — WakeGate 는 제 뮤텍스를 잡는다. 락을 쥔 채 부르면
+    //  queue_mutex_ → gate 뮤텍스 순서가 생겨, 송신 스레드가 반대 순서로 잡는 날 교착한다. [lock-order]
+    mark_work_pending();
+}
+
+// 보낼 것이 생겼다고 알린다. 깃발을 먼저 세우고 깨운다 — 송신 스레드는 큐를 비우기 전에 깃발을 내리므로
+//  이 순서면 "비운 뒤 들어온 건"이 깃발에 남아 잠들지 않는다. 바쁠 때 비용은 원자 쓰기 하나와
+//  WakeGate 의 원자 읽기 하나뿐이다. [why D-129]
+void ZmqBridge::mark_work_pending()
+{
+    // 주문 다리는 REP 를 폴링하느라 게이트를 보지 않는다. 거기서도 깨우면 폴링이 자는 동안 깨우기마다
+    //  락을 잡아 부르는 쪽이 26.3 → 61.8 ns/틱이 된다(bench_zmq_publish, 2026-09-24). 발행 전용 다리만
+    //  깨운다 — 거기서는 26.8 → 38.0 ns/틱이고, 그 대신 한 바퀴가 타이머 격자에 매이지 않는다.
+    if (rep_port_ > 0)
+    {
         return;
     }
 
-    send_queue_.push({topic, std::move(payload)});
+    work_pending_.store(true, std::memory_order_release);
+    send_gate_.notify();
 }
 
 // ─── 이벤트별 publish 헬퍼 ─────────────────────────────────────────────────
@@ -297,7 +359,10 @@ void ZmqBridge::publish_trade(const TradeData& trade)
     if (!trade_queue_.push(TradeEnvelope{now_ms(), trade}))
     {
         ++trade_ring_full_drop_count_;
+        return;
     }
+
+    mark_work_pending();
 }
 
 // nlohmann dump()와 같은 문자열: 키는 알파벳순, 실수는 최단 표기 + ".0". 티커는 거래소 코드(숫자·영대문자),
@@ -336,7 +401,7 @@ void ZmqBridge::publish_signal(const OrderSignal& signal)
     document["market"] = (signal.market == Market::US ? "US" : "KR");
     document["gated"] = false; // 게이트(OrderGate) 이전 발행 — 거부될 수 있다. 결과는 ORDER 토픽.
     document["account"] = account_no_; // 받는 쪽이 남의 엔진 신호를 거르는 키 — ORDER·FILL과 같은 값
-    document["regime"] = regime_label_; // 그때의 국면 — 신호를 국면별로 되짚을 때 쓴다
+    document["regime"] = current_regime_label(); // 그때의 국면 — 신호를 국면별로 되짚을 때 쓴다
     enqueue(Topic::Signal, document.dump());
 }
 
@@ -360,6 +425,11 @@ void ZmqBridge::publish_health(const HealthSnapshot& snapshot)
 {
     json document;
     document["ts"]     = now_ms();
+    // 역할·계좌를 같이 싣는다 — 갈라 띄운 날에는 세 프로세스가 같은 health 표에 넣는데, 역할마다
+    //  채우는 칸이 서로 다르다(시세는 data, 전략은 signal·샤드 큐, 주문은 order·지연). 가르는 열이
+    //  없으면 읽는 쪽이 누적 카운터가 역행한 것으로 본다. 계좌는 모의·실계좌 원장을 가르던 키와 같다. [why D-129]
+    document["role"]    = role_label_;
+    document["account"] = account_no_;
     document["data"]   = snapshot.data_count;
     document["signal"] = snapshot.signal_count;
     document["order"]  = snapshot.order_count;
@@ -430,7 +500,7 @@ void ZmqBridge::publish_fill(const FillNotification& fill_notification, const st
     document["realized_pnl"] = realized_pnl;
     document["account"]      = account_no_;
     document["strategy"]     = strategy_id;
-    document["regime"]       = regime_label_;
+    document["regime"]       = current_regime_label();
     enqueue(Topic::Fill, document.dump());
 }
 
