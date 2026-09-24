@@ -11,6 +11,15 @@ namespace
 // 국내 주식 체결 비용률 (KIS 실계좌 기준).
 constexpr double kCommissionRate = 0.00015; // 위탁수수료 0.015% (매수·매도 공통)
 constexpr double kSellTaxRate    = 0.0020;  // 증권거래세 0.20% (매도에만 부과. 2026년: 코스피 0.05%+농특세 0.15%, 코스닥 0.20%. 09-21까지 원장은 0.18%)
+
+// 키가 없으면 fallback. count 뒤 []로 두 번 찾던 자리를 한 번 찾기로 모은다(CODE_REVIEW S-1).
+template <typename Map>
+typename Map::mapped_type find_or(const Map& map, const typename Map::key_type& key,
+                                  typename Map::mapped_type fallback)
+{
+    const auto found = map.find(key);
+    return found != map.end() ? found->second : fallback;
+}
 } // namespace
 
 // ─── 주문 의도 — 전송 직전 선점 + INTENT 기록 (실체결 원장 positions_는 불변) ────────
@@ -102,7 +111,7 @@ void PositionLedger::on_reject(const std::string& account, const std::string& ti
 void PositionLedger::apply_reservation_delta(std::string_view account, std::string_view ticker, int delta, double price)
 {
     const PosKey key  = keys_.make(account, ticker);
-    int          next = (reserved_.count(key) ? reserved_[key] : 0) + delta;
+    int          next = find_or(reserved_, key, 0) + delta;
 
     if (next == 0)
     {
@@ -131,7 +140,7 @@ void PositionLedger::release_reservation(const PosKey& key, int delta)
 {
     // 잔고 대조가 reserved_를 비운 뒤 온 통보는 대상이 이미 없으므로 아무 것도 하지 않는다.
     //  (없는 키를 갱신하면 부호가 뒤집힌 선점이 생겨 이후 한도·슬롯 계산이 왜곡됨)
-    int current = reserved_.count(key) ? reserved_[key] : 0;
+    int current = find_or(reserved_, key, 0);
 
     if (current == 0)
     {
@@ -786,8 +795,8 @@ PositionLedger::FillResult PositionLedger::on_fill_confirmed(
     {
         std::lock_guard<std::mutex> lock(positions_mutex_);
         const PosKey key = keys_.make(account, ticker);
-        int pre_quantity    = positions_.count(key) ? positions_[key] : 0; // 체결 전 실보유
-        double current_average = average_prices_.count(key) ? average_prices_[key] : 0.0;
+        int pre_quantity    = find_or(positions_, key, 0); // 체결 전 실보유
+        double current_average = find_or(average_prices_, key, 0.0);
 
         // 전략별 서브원장(D-089) — 위 종목단위 pre_quantity/current_average와 별개로 같은 락에서 갱신.
         //  전략 번호가 없으면(kNone) 건드리지 않는다(계산·판정에 영향 없음, 참고용 집계일 뿐).
@@ -857,7 +866,7 @@ PositionLedger::FillResult PositionLedger::on_fill_confirmed(
             result.net_quantity   = new_quantity;
 
             // 당일 매수분은 당일 매도 가능하다.
-            sellable_[key] = (sellable_.count(key) ? sellable_[key] : pre_quantity) + quantity;
+            sellable_[key] = find_or(sellable_, key, pre_quantity) + quantity;
 
             // 선점 해제 (BUY 선점은 +였으므로 -quantity). on_cancel과 같은 가드를 둔다 —
             //  선점이 없는데 빼면 음수 선점이 생겨 이후 한도·슬롯 계산이 왜곡된다
@@ -899,7 +908,7 @@ PositionLedger::FillResult PositionLedger::on_fill_confirmed(
             else
             {
                 positions_[key] = new_quantity;
-                int sellable_after = (sellable_.count(key) ? sellable_[key] : pre_quantity) - quantity;
+                int sellable_after = find_or(sellable_, key, pre_quantity) - quantity;
                 sellable_[key] = sellable_after > 0 ? sellable_after : 0;
             }
 

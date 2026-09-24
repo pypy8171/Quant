@@ -2504,12 +2504,6 @@ void OrderRouter::on_fill(const FillNotification& fill_notification)
         const int outstanding = managed_order.signal.quantity - managed_order.confirmed_quantity;
         const int apply_quantity   = (fill_notification.filled_quantity > outstanding) ? outstanding : fill_notification.filled_quantity;
 
-        if (apply_quantity < fill_notification.filled_quantity)
-        {
-            LOG_WARN(std::format("[OrderRouter] 주문잔량 초과 체결통보 — 잔량으로 클램프 [{}] ODNO={} 통보={}주 잔량={}주",
-                                 managed_order.order_id, fill_notification.kis_order_no, fill_notification.filled_quantity, outstanding));
-        }
-
         managed_order.confirmed_quantity += apply_quantity;
         managed_order.updated_at     = fill_notification.timestamp;
 
@@ -2517,14 +2511,6 @@ void OrderRouter::on_fill(const FillNotification& fill_notification)
         {
             managed_order.status = OrderStatus::FILLED;
         }
-
-        LOG_INFO("[OrderRouter] 체결 확인 [" + managed_order.order_id + "] ODNO=" + fill_notification.kis_order_no +
-                 " " + fill_notification.ticker +
-                 (fill_notification.side == OrderSide::BUY ? " BUY " : " SELL ") +
-                 std::to_string(apply_quantity) + "주 @" +
-                 std::to_string(static_cast<int>(fill_notification.filled_price)) +
-                 " (누적 " + std::to_string(managed_order.confirmed_quantity) +
-                 "/" + std::to_string(managed_order.signal.quantity) + "주)");
 
 
         // 포지션 원장 갱신 (average_price 재계산 + 실현손익) — 원주문의 계좌로 파티션.
@@ -2541,6 +2527,20 @@ void OrderRouter::on_fill(const FillNotification& fill_notification)
         std::string        open_orders = snapshot_open_orders_locked(); // 잔량이 줄었으니 부속 파일을 다시 쓴다
         const uint64_t     sequence         = ++open_orders_sequence_;
         lock.unlock();
+
+        // 로그 문장은 락을 푼 뒤 사본으로 만든다 — 체결마다 도는 자리라 history_mutex_를 잡은 채 문자열을
+        //  잇지 않는다(CODE_REVIEW S-3).
+        if (apply_quantity < fill_notification.filled_quantity)
+        {
+            LOG_WARN(std::format("[OrderRouter] 주문잔량 초과 체결통보 — 잔량으로 클램프 [{}] ODNO={} 통보={}주 잔량={}주",
+                                 snapshot.order_id, fill_notification.kis_order_no, fill_notification.filled_quantity, outstanding));
+        }
+
+        LOG_INFO(std::format("[OrderRouter] 체결 확인 [{}] ODNO={} {} {} {}주 @{} (누적 {}/{}주)", snapshot.order_id,
+                             fill_notification.kis_order_no, fill_notification.ticker,
+                             fill_notification.side == OrderSide::BUY ? "BUY" : "SELL", apply_quantity,
+                             static_cast<int>(fill_notification.filled_price), snapshot.confirmed_quantity,
+                             snapshot.signal.quantity));
 
         if (result.basis_unknown)
         {
@@ -2645,10 +2645,7 @@ void OrderRouter::on_fill(const FillNotification& fill_notification)
     unlinked_fill.submitted_at       = fill_notification.timestamp;
     unlinked_fill.updated_at         = fill_notification.timestamp;
 
-    LOG_WARN(std::format("[OrderRouter] 미매핑 체결 원장 반영 [{}] ODNO={} {} {} {}주 @{} (주문수량 {}) — 이전 세션 주문으로 추정(재시작 전 접수분)",
-                         unlinked_fill.order_id, fill_notification.kis_order_no, fill_notification.ticker, fill_notification.side == OrderSide::BUY ? "BUY" : "SELL",
-                         unlinked_quantity, static_cast<int>(fill_notification.filled_price),
-                         unlinked_order.order_quantity > 0 ? std::to_string(unlinked_order.order_quantity) + "주" : std::string("미상")));
+    const int unlinked_order_quantity = unlinked_order.order_quantity; // 로그용 — unlinked_orders_ 원소는 락 밖에서 안 읽는다
 
     const OrderGate::OrderRef unlinked_reference{digits_to_number(unlinked_fill.order_id), order_number,
                                                  unlinked_fill.signal.type};
@@ -2659,6 +2656,11 @@ void OrderRouter::on_fill(const FillNotification& fill_notification)
                                           unlinked_quantity, fill_notification.filled_price,
                                           unlinked_fill.signal.strategy_index, unlinked_reference);
     lock.unlock(); // 원장 갱신 끝 — 파일 쓰기는 락 밖에서
+
+    LOG_WARN(std::format("[OrderRouter] 미매핑 체결 원장 반영 [{}] ODNO={} {} {} {}주 @{} (주문수량 {}) — 이전 세션 주문으로 추정(재시작 전 접수분)",
+                         unlinked_fill.order_id, fill_notification.kis_order_no, fill_notification.ticker, fill_notification.side == OrderSide::BUY ? "BUY" : "SELL",
+                         unlinked_quantity, static_cast<int>(fill_notification.filled_price),
+                         unlinked_order_quantity > 0 ? std::to_string(unlinked_order_quantity) + "주" : std::string("미상")));
 
     if (result.basis_unknown)
     {

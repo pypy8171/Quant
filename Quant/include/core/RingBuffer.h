@@ -37,9 +37,9 @@ public:
     RingBuffer& operator=(const RingBuffer&) = delete;
 
     // 생산자 스레드에서 호출. false는 "가득 참"이라 버리면 메시지가 조용히 사라진다.
-    //  T의 복사·이동이 던지지 않을 때만 noexcept — 틱·호가·봉은 트리비얼 복사라 noexcept이고,
-    //  문자열을 품은 T(OrderSignal 등)만 조건부다.
-    [[nodiscard]] bool push(const T& item) noexcept(std::is_nothrow_copy_constructible_v<T>)
+    //  칸에 대입하므로 T의 복사·이동 대입이 던지지 않을 때만 noexcept(CODE_REVIEW S-2) — 틱·호가·봉은
+    //  트리비얼 복사라 noexcept이고, 문자열을 품은 T(OrderSignal 등)만 조건부다.
+    [[nodiscard]] bool push(const T& item) noexcept(std::is_nothrow_copy_assignable_v<T>)
     {
         // [lock-order] head_는 생산자만 쓰므로 relaxed로 읽고, tail_은 소비자의 release와 짝인 acquire.
         //  head - tail은 size_t 모듈러 산술이라 카운터가 넘쳐도 차이는 맞다.
@@ -56,7 +56,7 @@ public:
         return true;
     }
 
-    [[nodiscard]] bool push(T&& item) noexcept(std::is_nothrow_move_constructible_v<T>)
+    [[nodiscard]] bool push(T&& item) noexcept(std::is_nothrow_move_assignable_v<T>)
     {
         const size_t head = head_.load(std::memory_order_relaxed);
 
