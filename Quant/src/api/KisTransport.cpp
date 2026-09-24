@@ -65,8 +65,8 @@ static void emit_header_lines(const std::vector<std::string>& headers, const Hea
 
 // 초당 호출 한도 초과 신호. KIS는 이걸 HTTP 500으로도 돌려줘서 상태코드만으로는 일시 서버
 //  장애와 구분이 안 된다 — 바디의 코드로 가른다. 한도 초과에 즉시 재시도하면 호출량을 1→3배로
-//  늘려 초과를 더 키운다(양의 되먹임). 한도 창이 1초라 한도 초과에는 1100ms를 쉬어
-//  다음 창으로 넘긴다(일반 재시도 백오프 500·1000ms는 같은 창 안에 떨어질 수 있다).
+//  늘려 초과를 더 키운다(양의 되먹임). 그래서 전송 계층은 한도 초과를 되보내지 않고, KisClient::http_get이
+//  버킷을 비운 뒤 버킷이 계산한 만큼 기다려 한 번만 되보낸다(CODE_REVIEW W-3).
 static bool is_rate_limited(const std::string& body)
 {
     return body.find("EGW00201") != std::string::npos ||
@@ -347,11 +347,8 @@ static std::string winhttp_request(const std::string& method, const std::string&
             return response;
         }
 
-        // 한도 초과가 확인되면 한 번만 더 시도하고 그친다. 부하가 원인인 실패에 재시도를
-        //  겹치면 부하를 더 얹는다.
-        const bool rate_limited = is_rate_limited(response);
-
-        if (rate_limited && attempt >= 2)
+        // 한도 초과는 여기서 되보내지 않는다 — 버킷을 쥔 KisClient::http_get이 기다릴 시간을 계산해 되보낸다.
+        if (is_rate_limited(response))
         {
             return response;
         }
@@ -367,11 +364,9 @@ static std::string winhttp_request(const std::string& method, const std::string&
         if (attempt < max_attempts)
         {
             LOG_WARN("[WinHTTP] " + std::string(transport_ok ? "HTTP " + std::to_string(status) : "전송 실패") +
-                     (rate_limited ? " (초당 한도)" : "") +
                      " — 재시도 " + std::to_string(attempt + 1) + "/" + std::to_string(max_attempts) +
                      "  url=" + url);
-            // 한도 창이 1초라 그보다 짧게 자면 같은 창에 다시 떨어진다.
-            Sleep(rate_limited ? 1100u : kRetryBackoffMsBase * attempt);
+            Sleep(kRetryBackoffMsBase * attempt);
         }
     }
 
@@ -530,9 +525,7 @@ static std::string curl_request(const std::string& method, const std::string& ur
             return response;
         }
 
-        const bool rate_limited = is_rate_limited(response); // 한도 초과면 한 번만 더 시도
-
-        if (rate_limited && attempt >= 2)
+        if (is_rate_limited(response)) // WinHTTP 경로와 같은 규약 — 한도 초과는 KisClient::http_get이 되보낸다
         {
             return response;
         }
@@ -546,11 +539,9 @@ static std::string curl_request(const std::string& method, const std::string& ur
         if (attempt < max_attempts)
         {
             LOG_WARN("[CURL] " + std::string(transport_ok ? "HTTP " + std::to_string(status) : "전송 실패") +
-                     (rate_limited ? " (초당 한도)" : "") +
                      " — 재시도 " + std::to_string(attempt + 1) + "/" + std::to_string(max_attempts) +
                      "  url=" + url);
-            std::this_thread::sleep_for(
-                std::chrono::milliseconds(rate_limited ? 1100 : kRetryBackoffMsBase * attempt));
+            std::this_thread::sleep_for(std::chrono::milliseconds(kRetryBackoffMsBase * attempt));
         }
     }
 
@@ -670,9 +661,34 @@ std::string KisClient::http_get(const std::string& url, const std::vector<std::s
     std::string response = curl_request("GET", url, headers, overlay, "");
 #endif
 
+    // 한도 초과면 버킷을 비우고, 버킷이 다시 찰 때까지만 기다려 한 번 되보낸다. 기다리는 시간은
+    //  rate_limit_acquire가 계산한다(실전 약 0.07~0.13초, 모의 약 1초). 예전의 고정 1.1초 대기는
+    //  실전에서 필요한 시간의 8배였고 시스템에서 가장 긴 단일 대기였다. [why CODE_REVIEW W-3]
+    //  HTTP 500으로 오든 200 본문으로 오든 같은 규칙이다. 조회(GET)만 되보낸다 — 여러 번 보내도 서버 상태가 같다.
     if (is_rate_limited(response))
     {
         note_rate_limited();
+
+        if (g_fastfail_depth > 0)
+        {
+            return response;
+        }
+
+        const double wait_ms = 1000.0 * kis_rate::wait_after_rate_limited(
+            config_.is_paper, url.find("/trading/") != std::string::npos);
+        LOG_WARN("[KIS] 조회 (초당 한도) — 재시도 2/2, 버킷이 찰 때까지 약 " +
+                 std::to_string(static_cast<int>(wait_ms)) + "ms 기다린다  url=" + url);
+        rate_limit_acquire(url);
+#ifdef _WIN32
+        response = winhttp_request("GET", url, headers, overlay, "");
+#else
+        response = curl_request("GET", url, headers, overlay, "");
+#endif
+
+        if (is_rate_limited(response))
+        {
+            note_rate_limited();
+        }
     }
 
     return response;

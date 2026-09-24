@@ -55,4 +55,11 @@ constexpr BucketPlan bucket_plan(bool is_paper)
                        bucket_quote_need(is_paper), bucket_trade_need(is_paper) };
 }
 
+// 한도 초과 응답 뒤 되보내기까지 기다리는 초. note_rate_limited가 버킷을 0으로 비우므로 요구 토큰이 다시
+//  찰 때까지다 — 실전 시세 2/15≈0.13초·주문 1/15≈0.07초, 모의 1/1=1초. 예전에는 1.1초를 고정으로 쉬었다(W-3).
+constexpr double wait_after_rate_limited(bool is_paper, bool priority)
+{
+    return (priority ? bucket_trade_need(is_paper) : bucket_quote_need(is_paper)) / bucket_refill(is_paper);
+}
+
 } // namespace kis_rate

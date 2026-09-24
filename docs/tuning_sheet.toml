@@ -231,14 +231,6 @@ group = "KIS REST — 호출 속도·재시도·토큰"
 meaning = "GET 재시도 선형 백오프 기준(attempt 배)"
 
 [[code_value]]
-id = "kis_rest_rate_limited_wait_ms"
-file = "Quant/src/api/KisTransport.cpp"
-regex = 'Sleep\(rate_limited \? (\d+)u'
-unit = "ms"
-group = "KIS REST — 호출 속도·재시도·토큰"
-meaning = "EGW00201(초당 한도) 거부 뒤 대기"
-
-[[code_value]]
 id = "kis_rest_http_timeouts"
 file = "Quant/src/api/KisTransport.cpp"
 regex = 'WinHttpSetTimeouts\([^,]+,\s*(\d+, \d+, \d+, \d+)\);'

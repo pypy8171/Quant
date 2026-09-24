@@ -64,6 +64,12 @@ int main()
     // 실전에서는 주문 예약분이 실제로 서 있어야 한다(시세는 1건을 더 요구해 그만큼 남긴다).
     CHECK(kis_rate::bucket_plan(false).quote_need > kis_rate::bucket_plan(false).trade_need);
 
+    // 한도 초과 뒤 대기는 버킷이 다시 찰 때까지만이다 — 옛 고정 1.1초보다 길면 안 되고, 실전은 0.2초 안이다(W-3).
+    CHECK(kis_rate::wait_after_rate_limited(false, false) < 0.2);
+    CHECK(kis_rate::wait_after_rate_limited(false, true) < kis_rate::wait_after_rate_limited(false, false));
+    CHECK(kis_rate::wait_after_rate_limited(true, false) <= 1.0);
+    CHECK(kis_rate::wait_after_rate_limited(true, true) <= 1.0);
+
     std::cout << "test_kis_rate_bucket OK (" << g_checks << " checks)\n";
     return 0;
 }
