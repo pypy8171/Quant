@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
 #include "core/WakeGate.h"
 #include <ctime>
 #include <filesystem>
@@ -694,6 +695,45 @@ OrderAck OrderRouter::reconcile_blocked_sell(const OrderSignal& signal, const Or
     }
 }
 
+namespace
+{
+// 주문번호 없이 남은 INTENT를 KIS 미체결 한 건과 짝짓는다. KIS 주문 요청에는 우리 주문 id를 실을 칸이 없어
+//  (order-cash 요청 필드, MCP 공식 예제 2026-09-25 확인) 종목·방향·수량·가격으로 맞춘다. 잔량은 죽은 사이
+//  일부 체결됐을 수 있어 INTENT 수량 이하면 받는다. 시장가는 KIS 단가가 주문가와 달라 가격을 보지 않는다.
+//  후보가 여럿이면 번호가 가장 작은 것 — INTENT를 주문 순서로 도니 먼저 낸 주문끼리 짝이 된다.
+//  못 찾으면 nullptr. [why D-113]
+const OpenOrder* match_unnumbered_intent(const OrderGate::OpenIntent& intent, const std::vector<OpenOrder>& open_orders,
+                                         const std::unordered_set<uint64_t>& claimed_numbers)
+{
+    const OpenOrder* best        = nullptr;
+    uint64_t         best_number = 0;
+
+    for (const auto& open : open_orders)
+    {
+        const uint64_t number = digits_to_number(open.kis_order_no);
+
+        if (number == 0 || claimed_numbers.count(number) > 0 || open.ticker != intent.ticker || open.side != intent.side ||
+            open.psbl_qty <= 0 || open.psbl_qty > intent.remaining)
+        {
+            continue;
+        }
+
+        if (intent.type == OrderType::LIMIT && std::abs(open.ord_unpr - intent.price) >= 0.5)
+        {
+            continue;
+        }
+
+        if (best == nullptr || number < best_number)
+        {
+            best        = &open;
+            best_number = number;
+        }
+    }
+
+    return best;
+}
+} // namespace
+
 // ─── 유령 선점 정리 ───────────────────────────────────────────────────────
 //  게이트의 선점(reserved_)은 접수 때만 생기고 체결·취소 통보로만 풀린다. 통보를 한 번
 //  놓치면 그 선점이 슬롯을 물고 남아, 실제 보유가 한도에 못 미치는데 신규 진입이 막힌다
@@ -707,19 +747,18 @@ OrderRouter::AdoptResult OrderRouter::adopt_open_intents(const std::vector<Order
         return result;
     }
 
-    // 살아 있는 주문번호 집합 — 모의는 조회가 없으니 빈 집합이고, 그때는 ACCEPT를 본 주문만 되살린다.
-    std::unordered_set<uint64_t> live_order_numbers;
-    bool                         asked_broker = false;
+    // 주문번호 없는 INTENT = 전송 뒤 접수 응답 전에 죽은 주문일 수 있다. 모의는 그런 주문이 있을 때만 묻는다 —
+    //  모의 미체결조회(VTTC0081R)로 ACCEPT를 본 주문까지 가리면 종전 판단이 바뀌므로 그 몫은 그대로 둔다.
+    const bool has_unnumbered = std::any_of(intents.begin(), intents.end(),
+                                            [](const OrderGate::OpenIntent& intent) { return intent.kis_order_number == 0; });
+    std::vector<OpenOrder> open_orders;
+    bool                   asked_broker = false;
 
-    if (!kis_.is_paper())
+    if (!kis_.is_paper() || has_unnumbered)
     {
         try
         {
-            for (const auto& open : kis_.get_open_orders())
-            {
-                live_order_numbers.insert(digits_to_number(open.kis_order_no));
-            }
-
+            open_orders  = kis_.get_open_orders();
             asked_broker = true;
         }
         catch (const std::exception& exception)
@@ -728,19 +767,65 @@ OrderRouter::AdoptResult OrderRouter::adopt_open_intents(const std::vector<Order
         }
     }
 
+    // 주문번호 → 미체결 한 건. 번호를 아는 INTENT가 먼저 제 몫을 차지해, 번호 없는 INTENT가 남의 주문과 짝지어지지 않게 한다.
+    std::unordered_map<uint64_t, const OpenOrder*> open_by_number;
+    std::unordered_set<uint64_t>                   claimed_numbers;
+
+    for (const auto& open : open_orders)
+    {
+        open_by_number.emplace(digits_to_number(open.kis_order_no), &open);
+    }
+
     for (const auto& intent : intents)
     {
-        // 브로커에 못 물어본 경우(모의·조회 예외)는 ACCEPT를 본 주문을 살아 있는 것으로 본다 — 접수된 주문을
-        //  지레 풀어 같은 수량을 또 내는 쪽이 더 큰 사고다.
-        const bool live = intent.kis_order_number != 0 &&
-                          (asked_broker ? live_order_numbers.count(intent.kis_order_number) > 0 : intent.accepted);
+        if (intent.kis_order_number != 0)
+        {
+            claimed_numbers.insert(intent.kis_order_number);
+        }
+    }
+
+    for (const auto& intent : intents)
+    {
+        uint64_t         kis_order_number = intent.kis_order_number;
+        const OpenOrder* open             = nullptr;
+        bool             live             = false;
+
+        if (kis_order_number == 0)
+        {
+            open = asked_broker ? match_unnumbered_intent(intent, open_orders, claimed_numbers) : nullptr;
+            live = open != nullptr;
+
+            if (live)
+            {
+                kis_order_number = digits_to_number(open->kis_order_no);
+                claimed_numbers.insert(kis_order_number);
+                // 다음 재기동이 같은 짝짓기를 되풀이하지 않게 ACCEPT를 적어 번호를 남긴다.
+                gate_.ledger().on_accepted(intent.account, intent.ticker, intent.side, intent.remaining,
+                                           OrderGate::OrderRef{intent.order_id, kis_order_number, intent.type});
+                LOG_WARN(std::format("[OrderRouter] 재기동 미결 주문 짝 [{}] 접수 응답 전에 끊긴 주문 — KIS 미체결 ODNO={} {} {} {}주로 되살림",
+                                     intent.order_id, kis_order_number, intent.ticker,
+                                     intent.side == OrderSide::BUY ? "BUY" : "SELL", open->psbl_qty));
+            }
+        }
+        else if (asked_broker && !kis_.is_paper())
+        {
+            const auto found = open_by_number.find(kis_order_number);
+            open             = found != open_by_number.end() ? found->second : nullptr;
+            live             = open != nullptr;
+        }
+        else
+        {
+            // 브로커에 못 물어본 경우(모의·조회 예외)는 ACCEPT를 본 주문을 살아 있는 것으로 본다 — 접수된 주문을
+            //  지레 풀어 같은 수량을 또 내는 쪽이 더 큰 사고다.
+            live = intent.accepted;
+        }
 
         if (!live)
         {
-            LOG_WARN(std::format("[OrderRouter] 재기동 미결 주문 선점 해제 [{}] ODNO={} {} {} {}주 — KIS 미체결에 없다",
+            LOG_WARN(std::format("[OrderRouter] 재기동 미결 주문 선점 해제 [{}] ODNO={} {} {} {}주 — {}",
                                  intent.order_id, intent.kis_order_number, intent.ticker,
-                                 intent.side == OrderSide::BUY ? "BUY" : "SELL", intent.remaining));
-            gate_.ledger().on_cancel(intent.account, intent.ticker, intent.side, intent.remaining,
+                                 intent.side == OrderSide::BUY ? "BUY" : "SELL", intent.remaining,
+                                 asked_broker ? "KIS 미체결에 없다" : "미체결 조회를 못 했고 접수 기록도 없다"));            gate_.ledger().on_cancel(intent.account, intent.ticker, intent.side, intent.remaining,
                             OrderGate::OrderRef{intent.order_id, intent.kis_order_number, intent.type});
             ++result.released;
             continue;
@@ -748,8 +833,8 @@ OrderRouter::AdoptResult OrderRouter::adopt_open_intents(const std::vector<Order
 
         ManagedOrder managed_order;
         managed_order.order_id               = std::format("ORD-{:06}", intent.order_id);
-        managed_order.kis_order_no           = std::format("{:010}", intent.kis_order_number);
-        managed_order.kis_order_number       = intent.kis_order_number;
+        managed_order.kis_order_no           = std::format("{:010}", kis_order_number);
+        managed_order.kis_order_number       = kis_order_number;
         managed_order.status                 = OrderStatus::ACCEPTED;
         managed_order.signal.ticker          = intent.ticker;
         managed_order.signal.symbol_id       = gate_.ledger().intern_symbol(intent.ticker);
@@ -763,7 +848,14 @@ OrderRouter::AdoptResult OrderRouter::adopt_open_intents(const std::vector<Order
         managed_order.signal.reason          = "재기동 복원(원장 저널 미결 주문)";
         managed_order.submitted_at           = std::chrono::system_clock::now();
         managed_order.updated_at             = managed_order.submitted_at;
-        // 정정·취소에 필요한 원주문 조직번호는 저널에 없다 — 빈 값이면 라우터가 취소를 미체결조회 결과로 낸다.
+
+        // 정정·취소에 필요한 원주문 조직번호는 저널에 없다 — 미체결조회에서 찾았으면 그 값을, 아니면 빈 값으로 두고
+        //  라우터가 취소를 미체결조회 결과로 낸다.
+        if (open != nullptr)
+        {
+            managed_order.krx_forwarding_org_no = open->krx_forwarding_org_no;
+        }
+
         {
             std::lock_guard<std::mutex> lock(history_mutex_);
             push_history_locked(managed_order);

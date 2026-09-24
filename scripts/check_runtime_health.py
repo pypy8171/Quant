@@ -127,6 +127,7 @@ MAX_EQUITY_FAILS = 3      # 기준자본 조회 실패 — 09-22엔 로그가 �
 MAX_RATE_RETRIES = 10     # 초당 한도로 되보낸 HTTP 요청 — 09-22 37건. 모의 스캔 간격을 600ms로 벌렸으니 줄어야 한다
 # 원장 저널(D-113) — 기동 줄 둘과 장중 기록 실패. 저널에 못 적은 주문은 아예 나가지 않는다.
 LEDGER_REPLAY_RE = re.compile(r"\[Engine\] 원장 저널 리플레이: (\d+)건 \(마지막 seq (\d+)(, 꼬리 잘림)?\)")
+LEDGER_UNNUMBERED_RE = re.compile(r"\[OrderRouter\] 재기동 미결 주문 짝 ")
 LEDGER_RESOLVE_RE = re.compile(r"\[Engine\] 원장 미결 주문 대조: 되살림 (\d+)건 · 선점해제 (\d+)건 · 저널기록실패 (\d+)건")
 LEDGER_WRITE_FAIL_RE = re.compile(r"\[OrderRouter\] 원장 저널 기록 실패")
 # 엔진이 모르는 채 브로커에 살아 있던 주문 — 전송이 타임아웃 나면 KIS에는 접수됐는데 ODNO를 못 받아
@@ -1350,6 +1351,7 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
     ledger_truncated = 0                         # 꼬리 잘린 기동 수 — 쓰다 만 레코드, 곧 비정상 종료 흔적
     ledger_restored = 0                          # 재기동 때 이력에 되살린 미체결 주문
     ledger_released = 0                          # 재기동 때 선점만 푼 주문(KIS가 모르는 주문)
+    ledger_unnumbered = 0                        # 되살림 가운데 접수 응답 전에 끊겨 미체결과 짝지은 주문
     ledger_start_failures = 0                    # 기동 시점 저널 기록 실패 누계(기동마다 한 줄)
     ledger_write_fails = 0                       # 장중 저널 기록 실패로 안 나간 주문
     beat_dead = 0                                # 주문 스레드가 전략을 죽었다고 본 횟수
@@ -1413,6 +1415,8 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
             if found := LEDGER_REPLAY_RE.search(line):
                 ledger_replays.append(int(found.group(1)))
                 ledger_truncated += 1 if found.group(3) else 0
+            if LEDGER_UNNUMBERED_RE.search(line):
+                ledger_unnumbered += 1
             if found := LEDGER_RESOLVE_RE.search(line):
                 ledger_restored += int(found.group(1))
                 ledger_released += int(found.group(2))
@@ -1873,7 +1877,7 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
                    f"저널 기록 실패 {ledger_failures}건 (기대 0 — 못 적은 주문은 보내지 않으니 그만큼 매매가 빈다."
                    f" 기동 {ledger_start_failures}건 · 장중 {ledger_write_fails}건)"),
         ledger_row("원장 재기동 대조", ledger_released == 0 and ledger_truncated == 0, "WARN",
-                   f"되살림 {ledger_restored}건 · 선점해제 {ledger_released}건 · 꼬리 잘림 {ledger_truncated}회"
+                   f"되살림 {ledger_restored}건(접수 응답 전 끊김 짝지음 {ledger_unnumbered}) · 선점해제 {ledger_released}건 · 꼬리 잘림 {ledger_truncated}회"
                    f" (리플레이 최대 {max(ledger_replays, default=0)}건 — 선점해제는 원장에 적고 KIS엔 안 간 주문,"
                    f" 꼬리 잘림은 쓰다 만 레코드)"),
         ("일찍 끝난 세션", not short, "FAIL",
