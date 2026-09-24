@@ -475,6 +475,8 @@ void KisWebSocket::parse_fill_notification(kis_websocket::Fields fields)
         return;
     }
 
+    fill_notification.session_generation = session_generation_;
+
     // 주문수량·거래소는 전문 뒤쪽 칸이라 짧은 전문에서는 안 온다. 실제로 오는지를 로그로 확인할 수 있게
     //  받은 때만 덧붙인다 — 안 오면 미연결 잔량 상한이 종전(키 중복 제거)으로 떨어진다.
     std::string extra;

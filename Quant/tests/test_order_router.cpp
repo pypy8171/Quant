@@ -321,6 +321,53 @@ void test_duplicate_fill_ignored()
     PASS("duplicate_fill_ignored");
 }
 
+// ─── 테스트 7a: 재연결 뒤 재전송은 실체결로 쌓지 않는다 (CODE_REVIEW C-1) ─────
+//   같은 세션 안의 같은 키는 분할체결(테스트 7), 새 세션에서 앞 세션까지 받은 횟수 이하로 다시 온
+//   같은 키는 재전송이다. 잔량 상한만으로는 100주 주문의 10주 재전송이 20주로 기록되고 뒤의 실체결
+//   10주가 "충족 후 통보"로 버려져 체결가 귀속이 틀어진다.
+void test_replayed_fill_after_reconnect_ignored()
+{
+    OrderGate         gate(relaxed_config());
+    StubOrderExecutor stub(true, "0000000078");
+    OrderRouter       router(gate, stub);
+
+    (void)router.submit(make_signal("005930", OrderSide::BUY, 100));
+
+    FillNotification fill_notification;
+    fill_notification.kis_order_no       = "0000000078";
+    fill_notification.ticker             = "005930";
+    fill_notification.side               = OrderSide::BUY;
+    fill_notification.filled_quantity    = 10;
+    fill_notification.filled_price       = 75000.0;
+    fill_notification.fill_time          = "100000";
+    fill_notification.session_generation = 1;
+
+    // (a) 세션 1에서 같은 초·같은 수량·단가 실체결 두 건 → 둘 다 반영
+    router.on_fill(fill_notification);
+    router.on_fill(fill_notification);
+    assert(router.recent(1)[0].confirmed_quantity == 20);
+
+    // (b) 재연결(세션 2) 뒤 같은 통보 두 건이 다시 온다 → 반영 안 함, 센다
+    fill_notification.session_generation = 2;
+    router.on_fill(fill_notification);
+    router.on_fill(fill_notification);
+    assert(router.recent(1)[0].confirmed_quantity == 20);
+    assert(router.replayed_fills() == 2);
+    assert(gate.ledger().position("005930") == 20);
+
+    // 세션 2에서 앞 세션 횟수를 넘은 같은 키는 새 실체결이다
+    router.on_fill(fill_notification);
+    assert(router.recent(1)[0].confirmed_quantity == 30);
+
+    // 키가 다른 체결은 세션과 무관하게 반영된다
+    fill_notification.fill_time = "100007";
+    router.on_fill(fill_notification);
+    assert(router.recent(1)[0].confirmed_quantity == 40);
+    assert(router.replayed_fills() == 2);
+    assert(gate.ledger().position("005930") == 40);
+    PASS("replayed_fill_after_reconnect_ignored");
+}
+
 // ─── 테스트 7b: 미매핑 체결도 원장·포지션에 반영 ────────────────────────
 //   장중 재시작하면 이전 세션의 미체결 주문이 history_에서 사라진다. 거래소 호가창에는
 //   그대로 살아있으므로 나중에 체결통보가 들어오는데, 예전에는 통째로 버려져 원장이
@@ -860,6 +907,7 @@ int main()
     test_history_recent();
     test_order_id_sequence();
     test_duplicate_fill_ignored();
+    test_replayed_fill_after_reconnect_ignored();
     test_unmapped_fill_applied();
     test_unmapped_fill_duplicate_ignored();
     test_unmapped_fill_clamped_by_order_quantity();

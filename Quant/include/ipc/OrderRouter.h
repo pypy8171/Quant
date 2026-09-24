@@ -91,8 +91,14 @@ public:
     //  주기 호출(잔고 대조와 같은 사이클) 전제. 반환값은 푼 종목 수.
     int sweep_stale_reservations();
 
-    // ── 일별 리셋 (장 시작) — 중복방지 키(seen_fills_) 정리 ───────────────────
+    // ── 일별 리셋 (장 시작) — 체결 목격 기록(fill_sightings_) 정리 ─────────────
     void reset_daily();
+
+    // 재연결 뒤 재전송으로 보고 원장에 넣지 않은 체결통보 누적 수.
+    [[nodiscard]] uint64_t replayed_fills() const noexcept
+    {
+        return replayed_fills_.load(std::memory_order_relaxed);
+    }
 
     // ── 통계 조회 ─────────────────────────────────────────────────────────
     struct Stats
@@ -286,10 +292,21 @@ private:
 
     using FillKey     = fill_key::FillKey;     // 정의는 ipc/FillKey.h
     using FillKeyHash = fill_key::FillKeyHash;
-    // 체결통보 키 → 그 키로 들어온 통보 횟수 (history_mutex_로 보호).
-    //  같은 초·같은 수량·단가의 분할체결은 키가 겹치므로 집합이 아니라 횟수로 센다.
-    //  자세한 배경은 on_fill() 주석 참고.
-    std::unordered_map<FillKey, int, FillKeyHash> seen_fills_;
+    // 체결통보 키 하나를 어느 실시간 세션에서 몇 번 봤는가. 같은 세션 안의 같은 키는 분할체결이고,
+    //  새 세션에서 앞 세션까지 받은 횟수 이하로 다시 오면 재연결 뒤 재전송이다(on_fill 주석).
+    struct FillSighting
+    {
+        uint32_t session_generation      = 0; // 마지막으로 이 키를 본 세션
+        int      accepted_before_session = 0; // 그 세션이 시작되기 전까지 실체결로 받은 횟수
+        int      seen_in_session         = 0; // 그 세션에서 본 횟수
+        int      accepted                = 0; // 실체결로 받은 총 횟수
+    };
+    // 체결통보 키 → 목격 기록 (history_mutex_로 보호).
+    std::unordered_map<FillKey, FillSighting, FillKeyHash> fill_sightings_;
+    // 재연결 뒤 재전송으로 보고 원장에 넣지 않은 통보 수. 수량은 주기 잔고 대조가 맞춘다.
+    std::atomic<uint64_t> replayed_fills_{0};
+    // 이 통보가 재연결 뒤 재전송인지 판정하고 목격 기록을 올린다. [inv] history_mutex_를 쥐고 부른다.
+    [[nodiscard]] bool is_replayed_fill_locked(const FillKey& fill_key, uint32_t session_generation);
     // 미매핑(미연결) 체결로 이미 반영한 키 (history_mutex_로 보호). 전문이 주문수량(ODER_QTY)을 주지 않아
     //  잔량 상한을 못 잡는 통보만 여기로 막는다 — 주문수량을 받은 통보는 아래 unlinked_orders_가 맡는다.
     std::unordered_set<FillKey, FillKeyHash> unlinked_fill_keys_;

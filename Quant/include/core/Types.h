@@ -221,6 +221,9 @@ struct FillNotification
     //  미연결 체결의 잔량 상한이 이 값이다(OrderRouter::on_fill).
     int         order_quantity  = 0;
     std::string exchange;                            // 주문거래소 구분 (ORD_EXG_GB, KRX/NXT). 짧은 전문에서는 빈 값
+    // 이 통보를 실어 온 실시간 세션 번호. 소켓이 새로 붙을 때마다 1씩 오른다(0 = 소켓 밖, 모의 체결기).
+    //  라우터가 재연결 뒤 다시 온 같은 체결을 실체결과 가르는 데 쓴다(OrderRouter::on_fill).
+    uint32_t    session_generation = 0;
     std::chrono::system_clock::time_point timestamp;
 };
 

@@ -55,7 +55,7 @@ struct FillNotice
     uint8_t  side            = 0;   // OrderSide::Value
     uint8_t  reserved0       = 0;
     uint16_t reserved1       = 0;
-    uint32_t reserved2       = 0;
+    uint32_t session_generation = 0; // 실어 온 실시간 세션 번호(FillNotification::session_generation)
 
     char kis_order_no[kFillOrderNumberMax]      = {};
     char original_order_no[kFillOrderNumberMax] = {};

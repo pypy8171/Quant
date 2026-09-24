@@ -6,7 +6,7 @@
 //   2) BUY NEW 신규 종목, entry_priority 300종목·보유 20/25 — entry_rank_ find + 표 전체 순회(항목마다 원장 키 조회 2회).
 //   3) on_fill_confirmed BUY, 전략 id 40개 순환 — strategy_positions_/strategy_average_prices_ 각 2회.
 //   4) 체결통보 키 — 옛 방식(날짜·ODNO·시각·수량·단가를 문자열로 이어 붙여 unordered_map<string,int>에 ++)과
-//      새 방식(정수 다섯 개 구조체 FillKey에 ++)을 같은 통보 열로 잰다. 라우터 seen_fills_가 통보마다 하는 일.
+//      새 방식(정수 다섯 개 구조체 FillKey에 ++)을 같은 통보 열로 잰다. 라우터 fill_sightings_가 통보마다 하는 일.
 //  체크섬을 찍어 컴파일러가 루프를 못 지운다. 단일 스레드라 뮤텍스는 경합 없이 잡힌다.
 //  측정(2026-09-21, x64 Release, 같은 기계·같은 하네스, D-112 전 → 후):
 //   1) SELL NEW 161.3 → 148.0 ns   2) BUY NEW 588.8 → 455.6 ns   3) on_fill_confirmed 72.5 → 65.8 ns

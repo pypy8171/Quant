@@ -173,6 +173,8 @@ FILL_CHANNEL_RECEIVED_RE = re.compile(r"fill_channel_received=(\d+)")
 FILL_SESSION_ONE_RE = re.compile(r"\[Engine\] 체결통보 세션: 소켓 (\d+)")
 FILL_SESSION_NONE_RE = re.compile(r"\[Engine\] 체결통보 세션: 없음")
 FILL_SESSION_MANY_RE = re.compile(r"\[Engine\] 체결통보 세션: (\d+)개")
+# 재연결 뒤 같은 체결통보가 다시 와서 원장에 안 넣은 줄(CODE_REVIEW C-1). 수량은 잔고 대조가 맞춘다.
+FILL_REPLAY_RE = re.compile(r"\[OrderRouter\] 재연결 뒤 같은 체결통보")
 # 공유 쪽지 종료 사유(D-114) — 짝이 사유를 적고 나간 것을 보고 따라 내려간 줄에 그 번호가 실린다.
 PEER_EXIT_REASON_RE = re.compile(r"건너편이 종료 사유를 적고 나갔다\(사유 번호 (\d+)\)")
 # Quant/include/ipc/SharedRegion.h 의 SharedShutdownReason 중 기동하다 접은 값. 0 은 적기 전에 죽은 것이고,
@@ -1377,6 +1379,7 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
     fill_session_socket = -1                     # 체결통보를 맡은 소켓 번호. -1이면 그 줄이 없는 구 exe
     fill_session_none = 0                        # 맡은 소켓이 없다고 찍힌 기동 수
     fill_session_many = 0                        # 둘 이상이 맡았다고 찍힌 기동 수
+    fill_replayed = 0                            # 재연결 뒤 다시 온 체결통보로 보고 버린 수
     zmq_bind_fail = 0                            # ZMQ 포트 bind 실패(포트 충돌) 횟수
 
     # 폴더면 갈라 띄운 로그를 시각순으로 합쳐 본다. 파일 하나면 그 파일만 —
@@ -1472,6 +1475,8 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
                 fill_session_none += 1
             elif FILL_SESSION_MANY_RE.search(line):
                 fill_session_many += 1
+            elif FILL_REPLAY_RE.search(line):
+                fill_replayed += 1
             if ZMQ_BIND_FAIL_RE.search(line):
                 zmq_bind_fail += 1
             if GUARD_RE.search(line):
@@ -1837,6 +1842,10 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
         fill_session_row("체결 세션", fill_session_many == 0 and fill_session_none == 0, "FAIL",
                          (f"소켓 {fill_session_socket}번이 맡는다" if fill_session_socket >= 0 else "맡은 소켓 없음")
                          + f" · 맡은 곳 없음 {fill_session_none}회 · 둘 이상 {fill_session_many}회 (둘 다 기대 0)"),
+        # 재연결 직후 KIS가 같은 체결통보를 다시 보내면 원장에 안 넣고 버린다. 같은 초·같은 수량·같은 값의 실체결이
+        #  마침 재연결 순간에 오면 그것도 버려지므로, 0이 아니면 그날 잔고 대조가 수량을 맞췄는지 본다.
+        ("체결 재전송", fill_replayed == 0, "WARN",
+         f"재연결 뒤 다시 온 체결통보 {fill_replayed}건을 원장에 안 넣음 (기대 0 — 있으면 잔고 대조가 수량을 맞춘다)"),
         devscale_v2_row("장 마감 청산(넘김)", not devscale_close_exits, "FAIL",
                         f"DEVSCALE 장 마감 청산 신호 {len(devscale_close_exits)}건 (기대 0 — market_close_exit_hhmm 2400, D-111)"
                         + (f" — {', '.join(f'{hhmm(second)} {ticker}' for second, ticker in devscale_close_exits[:5])}" if devscale_close_exits else "")),

@@ -86,8 +86,8 @@ config를 `AppConfig`로 읽고 `Engine::configure`가 세터에 옮기고 전�
 
 소켓 읽기 스레드는 얇다(원칙 3): 프레임 → 필드 분리 → 구조체 → `received_ns` 스탬프 → 행렬 push. 문자열은 여기서 끝나고 종목은 정수 id가 된다(원칙 6).
 
-11. [`KisWebSocket::recv_loop`](../Quant/src/api/WebSocketClient.cpp#L79) — 소켓 하나 = 스레드 하나(원칙 1). 프레임 읽기 → `parse_message`. 끊김 감지와 재연결 신호  
-   `Quant/src/api/WebSocketClient.cpp:79` · `void KisWebSocket::recv_loop(std::stop_token stop_token)` · 시험 [test_ws_frame](../Quant/tests/test_ws_frame.cpp)
+11. [`KisWebSocket::recv_loop`](../Quant/src/api/WebSocketClient.cpp#L80) — 소켓 하나 = 스레드 하나(원칙 1). 프레임 읽기 → `parse_message`. 끊김 감지와 재연결 신호  
+   `Quant/src/api/WebSocketClient.cpp:80` · `void KisWebSocket::recv_loop(std::stop_token stop_token)` · 시험 [test_ws_frame](../Quant/tests/test_ws_frame.cpp)
 12. [`KisWebSocket::parse_message`](../Quant/src/api/KisWebSocketParse.cpp#L84) — `|`로 헤더 분리 → 암호화 여부(체결통보는 AES) → `dispatch_record`. PINGPONG·구독 응답 처리도 여기  
    `Quant/src/api/KisWebSocketParse.cpp:84` · `void KisWebSocket::parse_message(const std::string& message)`
 13. [`KisWebSocket::dispatch_record`](../Quant/src/api/KisWebSocketParse.cpp#L272) — tr_id로 채널 분기 — H0STCNT0 체결·H0STASP0 호가(KRX), H0UNCNT0/H0UNASP0(KRX+NXT 통합, D-096), H0IFCNT0/H0IFASP0 선물, H0STCNI0/H0STCNI9 체결통보(실/모의)  

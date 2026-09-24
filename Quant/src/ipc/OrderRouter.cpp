@@ -2281,19 +2281,19 @@ void OrderRouter::on_fill(const FillNotification& fill_notification)
     const FillKey  fill_key{trade_date_number(std::chrono::system_clock::to_time_t(fill_notification.timestamp)), order_number,
                            static_cast<uint32_t>(digits_to_number(fill_notification.fill_time)), fill_notification.filled_quantity,
                            static_cast<int64_t>(fill_notification.filled_price * 100)};
-    // 이 키는 유일하지 않다. 같은 초에 같은 수량·단가로 나뉘어 체결되면 서로 다른 실체결이
-    //  같은 키를 갖는다. 2026-09-07 ODNO 0000014893(047050 BUY 91주)이 8건으로 분할체결되며
-    //  6/53/3/2/6/15/4/2주가 같은 초에 들어왔고, 마지막 2주가 앞선 2주와 같은 키라는 이유로
-    //  버려졌다(원장·포지션 2주 누락). 그래서 키를 집합 원소가 아니라 발생 횟수로 세고,
-    //  n번째 발생을 각각 별개 체결로 처리한다.
-    //  과체결 방어는 중복 키가 아니라 아래 "주문 잔량 상한"이 담당한다 — 통보가 재전송돼도
-    //  누적 체결은 주문수량을 넘을 수 없다.
-    const int seen = ++seen_fills_[fill_key];
 
-    if (seen > 1)
+    // 이 키는 유일하지 않다. 같은 초에 같은 수량·단가로 나뉘어 체결되면 서로 다른 실체결이
+    //  같은 키를 갖는다(2026-09-07 ODNO 0000014893, 같은 초 2주 두 건 중 하나가 버려졌다). 그렇다고
+    //  키가 겹치는 통보를 전부 받으면 재연결 뒤 재전송도 실체결로 쌓인다 — 잔량 상한은 총량만 막아
+    //  체결가·시각 귀속이 틀어지고, 잔량이 취소되면 유령 보유가 남는다. 둘은 실어 온 세션으로 가른다.
+    if (is_replayed_fill_locked(fill_key, fill_notification.session_generation))
     {
-        LOG_INFO(std::format("[OrderRouter] 동일키 분할체결 {}회차 ODNO={} time={} {}주", seen, fill_notification.kis_order_no, fill_notification.fill_time,
-                             fill_notification.filled_quantity));
+        lock.unlock();
+        LOG_WARN(std::format("[OrderRouter] 재연결 뒤 같은 체결통보 — 재전송으로 보고 원장에 안 넣음 ODNO={} {} {}주 @{} time={} 세션={} (수량은 잔고 대조가 맞춘다)",
+                             fill_notification.kis_order_no, fill_notification.ticker, fill_notification.filled_quantity,
+                             static_cast<int>(fill_notification.filled_price), fill_notification.fill_time,
+                             fill_notification.session_generation));
+        return;
     }
 
     // 재기동 복원 — 이전 세션이 낸 주문이면 접수 때 남긴 사유 기록에서 되살린다.
@@ -2573,13 +2573,47 @@ void OrderRouter::on_fill(const FillNotification& fill_notification)
 #endif
 }
 
+// 같은 세션 안에서 같은 키가 다시 오면 분할체결로 받는다. 세션이 바뀌면 앞 세션까지 받은 횟수를
+//  기억해 두고, 새 세션에서 그 횟수 이하로 오는 통보는 재전송으로 본다 — 증권사가 재구독 뒤 옛 통보를
+//  다시 보내면 한 건씩 한 번 오므로, 앞에서 받은 수를 넘는 몫만 새 체결이다.
+//  잘못 거른 실체결(재연결과 같은 초에 같은 수량·단가로 난 체결)은 수량만 잔고 대조가 되찾는다.
+bool OrderRouter::is_replayed_fill_locked(const FillKey& fill_key, uint32_t session_generation)
+{
+    FillSighting& sighting = fill_sightings_[fill_key];
+
+    if (sighting.seen_in_session == 0 || sighting.session_generation != session_generation)
+    {
+        sighting.session_generation      = session_generation;
+        sighting.accepted_before_session = sighting.accepted;
+        sighting.seen_in_session         = 0;
+    }
+
+    ++sighting.seen_in_session;
+
+    if (sighting.seen_in_session <= sighting.accepted_before_session)
+    {
+        replayed_fills_.fetch_add(1, std::memory_order_relaxed);
+        return true;
+    }
+
+    ++sighting.accepted;
+
+    if (sighting.accepted > 1)
+    {
+        LOG_INFO(std::format("[OrderRouter] 동일키 분할체결 {}회차 ODNO={} time={} {}주", sighting.accepted,
+                             fill_key.order_number, fill_key.fill_time, fill_key.quantity));
+    }
+
+    return false;
+}
+
 // ─── 일별 리셋 (장 시작 시 Engine이 호출) ─────────────────────────────────
-// 중복방지 키(seen_fills_)의 무한 증가를 해소. 거래일 prefix로 cross-day 충돌은 이미
+// 체결 목격 기록(fill_sightings_)의 무한 증가를 해소. 거래일 prefix로 cross-day 충돌은 이미
 // 차단되므로, 전일 키는 더 이상 필요 없다.
 void OrderRouter::reset_daily()
 {
     std::lock_guard<std::mutex> lock(history_mutex_);
-    seen_fills_.clear();
+    fill_sightings_.clear();
     unlinked_fill_keys_.clear();
     unlinked_orders_.clear();
     // 사유 기록도 거래일이 바뀌면 다시 읽는다(파일이 날짜별이라 어제 것을 들고 있으면 안 된다).

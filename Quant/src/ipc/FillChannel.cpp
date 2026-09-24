@@ -103,6 +103,7 @@ FillNotice to_notice(const FillNotification& fill, uint64_t sequence, int64_t se
     notice.filled_price    = fill.filled_price;
     notice.filled_quantity = fill.filled_quantity;
     notice.order_quantity  = fill.order_quantity;
+    notice.session_generation = fill.session_generation;
     notice.side            = static_cast<uint8_t>(static_cast<OrderSide::Value>(fill.side));
 
     bool cut = copy_text(notice.kis_order_no, kFillOrderNumberMax, fill.kis_order_no);
@@ -129,6 +130,7 @@ FillNotification to_fill(const FillNotice& notice)
     fill.filled_quantity   = notice.filled_quantity;
     fill.filled_price      = notice.filled_price;
     fill.fill_time         = std::string(text_of(notice.fill_time, kFillTimeMax));
+    fill.session_generation = notice.session_generation;
     fill.order_quantity    = notice.order_quantity;
     fill.exchange          = std::string(text_of(notice.exchange, kFillExchangeMax));
     fill.timestamp         = std::chrono::system_clock::time_point(

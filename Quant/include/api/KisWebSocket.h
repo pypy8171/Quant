@@ -118,6 +118,9 @@ private:
     std::vector<std::string_view> fields_;
     // 다건 프레임을 자르지 못해 1건만 처리했을 때의 경고 횟수. 수신 스레드만 만진다.
     int multi_rec_warned_ = 0;
+    // 소켓이 새로 붙은 횟수 — 체결통보에 실어 재연결 뒤 재전송을 라우터가 가르게 한다(FillNotification).
+    //  [inv] socket_과 같은 규칙: connect()가 수신 스레드를 join한 뒤·띄우기 전에, 재연결은 수신 스레드가 올린다.
+    uint32_t session_generation_ = 0;
     void parse_orderbook(kis_websocket::Fields fields);
     void parse_kr_trade(kis_websocket::Fields fields);
     void parse_us_trade(kis_websocket::Fields fields);

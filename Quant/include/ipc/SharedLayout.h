@@ -29,7 +29,9 @@ namespace ipc
 //  판 3 — 구역 머리에 주인 기동 시각·기동 번호·종료 사유가 붙었다(SharedRegionHeader, D-114 단계 4-b).
 //  판 4 — 시세가 제 프로세스로 갈렸다(D-114 단계 5). 면 둘(전략→시세 제어 줄·시세→주문 체결 통로)이 늘고,
 //   박동 칸이 셋이 되고, 구역 머리에 붙은 쪽 자리 둘이 붙었다.
-constexpr uint32_t kSharedLayoutVersion = 4;
+//  판 5 — 체결 레코드의 빈 칸(reserved2)이 실시간 세션 번호가 됐다. 크기는 그대로지만 옛 판이 보낸 0을
+//   "모두 같은 세션"으로 읽으면 재연결 뒤 재전송을 못 가른다(OrderRouter::on_fill).
+constexpr uint32_t kSharedLayoutVersion = 5;
 
 // 칸 수 기본값 — 한 프로세스로 돌던 때 쓰던 값과 같다(Engine::ShardPipeline). 여기서 바꾸면 양쪽이 같이 바뀐다.
 constexpr size_t kLayoutRequestCapacity  = 1024; // 요청 하나에 답 하나라 응답과 같은 수다

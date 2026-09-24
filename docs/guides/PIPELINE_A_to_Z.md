@@ -264,7 +264,7 @@ MACross의 `make_signal` (`MACrossStrategy.h::make_signal`)은 `type=MARKET`, `q
 체결통보 필드 (`WebSocketClient.cpp::parse_fill_notification`): `f[2]`=ODNO, `f[4]`=매도/매수구분(01=매도,02=매수), `f[8]`=종목코드, `f[9]`=체결수량, `f[10]`=체결단가, `f[11]`=체결시각, `f[13]`=CNTG_YN(1=접수통보,2=체결통보). **`f[13]!="2"`면 반환** — 체결(2)만 처리 (`WebSocketClient.cpp::parse_fill_notification`). 결과 `FillNotification`을 `on_fill_(fn)` → Engine 콜백 → `OrderRouter::on_fill(fn)` (`Engine.cpp::start`).
 
 ### 10.2 OrderRouter::on_fill (`OrderRouter.cpp::on_fill`)
-1. **멱등 처리**: 체결고유번호가 없어 `수신일(YYYYMMDD):ODNO:fill_time:quantity:price*100`를 조합 키로 `seen_fills_`에 삽입 시도, 중복이면 무시 (`OrderRouter.cpp::on_fill`). 거래일 prefix로 cross-day ODNO 재사용 충돌 방지(V-4).
+1. **멱등 처리**: 체결고유번호가 없어 `수신일(YYYYMMDD):ODNO:fill_time:quantity:price*100`를 조합 키로 쓴다(`FillKey`, `OrderRouter.cpp::on_fill`). 키가 겹쳐도 같은 실시간 세션 안이면 분할체결로 받고, 재연결 뒤 새 세션에서 앞 세션까지 받은 횟수 이하로 다시 오면 재전송으로 보고 원장에 넣지 않는다(`fill_sightings_`, 세션 번호는 WebSocket이 연결마다 올려 체결통보에 싣는다). 거래일 prefix로 cross-day ODNO 재사용 충돌 방지(V-4).
 2. `history_`에서 `kis_order_no==fn.odno`이고 ACCEPTED/FILLED이며 미체결 잔량이 있는 주문을 찾아 (`OrderRouter.cpp::on_fill`) `confirmed_qty += filled_qty`, 전량이면 status=FILLED (`OrderRouter.cpp::on_fill`).
 3. **원장 갱신**: `gate_.on_fill_confirmed(account, ticker, side, quantity, price)` (`OrderRouter.cpp::on_fill`).
 

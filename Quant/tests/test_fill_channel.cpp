@@ -50,6 +50,7 @@ FillNotification fill_of(const std::string& order_number, int quantity, double p
     fill.filled_price      = price;
     fill.fill_time         = "093001";
     fill.order_quantity    = quantity * 2;
+    fill.session_generation = 3;
     fill.exchange          = "KRX";
     fill.timestamp         = std::chrono::system_clock::time_point(std::chrono::seconds(1'700'000'000));
     return fill;
@@ -84,6 +85,7 @@ void test_round_trip()
     check(restored.filled_quantity == original.filled_quantity, "체결수량이 그대로");
     check(restored.filled_price == original.filled_price, "체결단가가 그대로");
     check(restored.fill_time == original.fill_time, "체결시각이 그대로");
+    check(restored.session_generation == original.session_generation, "세션 번호가 그대로");
     check(restored.order_quantity == original.order_quantity, "주문수량이 그대로");
     check(restored.exchange == original.exchange, "거래소 구분이 그대로");
     check(restored.timestamp == original.timestamp, "받은 시각이 그대로");

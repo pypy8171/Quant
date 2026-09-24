@@ -55,6 +55,7 @@ bool KisWebSocket::connect(const std::vector<WatchSpec>& specifications)
         socket_ = std::move(socket);
     }
 
+    ++session_generation_;
     LOG_INFO(std::string("[WS] WebSocket 연결 성공 (") + (config_.is_paper ? "모의투자" : "실거래") + ")");
     connected_.store(true);
 
@@ -160,6 +161,8 @@ void KisWebSocket::recv_loop(std::stop_token stop_token)
             std::lock_guard<std::mutex> lock(send_mutex_);
             socket_ = std::move(fresh);
         }
+
+        ++session_generation_;
 
         // 재연결: 옛 연결의 체결통보 key/iv는 무효 — 새 구독응답 도착 전까지
         // 암호프레임을 drop해 stale 키 복호를 막는다 (C-3)
