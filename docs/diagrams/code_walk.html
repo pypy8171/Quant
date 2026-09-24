@@ -343,7 +343,7 @@ const STAGES = [
       ["parse_config", "Quant/src/core/AppConfig.cpp:196", "json → AppConfig. 키 누락·값 오류는 네트워크를 타기 전에 여기서 멈춘다"],
       ["run_trade", "Quant/src/main.cpp:260", "Engine 생성 → configure → load_strategies → start() → 대기 → stop(). join은 여기 한 곳"],
       ["Engine::configure", "Quant/src/core/EngineConfigure.cpp:132", "AppConfig 값을 엔진 세터로 — 채널·국면별 전략 집합·시세 전용 KIS·리스크 네 묶음"],
-      ["load_strategies", "Quant/src/strategy/StrategyFactory.cpp:1172", "config strategies[]를 전략 객체로. <b>새 전략을 붙이는 자리</b>"],
+      ["load_strategies", "Quant/src/strategy/StrategyFactory.cpp:1179", "config strategies[]를 전략 객체로. <b>새 전략을 붙이는 자리</b>"],
       ["Engine::add_strategy", "Quant/src/core/Engine.cpp:293", "전략 등록. 심볼 해석기(SymbolTable::intern)가 여기서 주입된다"],
       ["Engine::start", "Quant/src/core/Engine.cpp:1772", "도우미 호출 목록이 곧 기동 순서 — setup_shards → ZMQ → 모의 체결기 → 라우터·폴러 → 원장 시드 → 전략 시작 → 구독 → connect_feed → spawn_threads"],
       ["Engine::connect_feed (WS 콜백)", "Quant/src/core/Engine.cpp:1565", "소켓 수신 스레드 i의 체결·호가 콜백. 종목 id로 열을 고르고 자기 행에 push — 가득 차면 버리고 센다"],

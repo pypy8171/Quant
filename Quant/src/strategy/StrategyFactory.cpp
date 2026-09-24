@@ -32,19 +32,36 @@
 
 using json = nlohmann::json;
 
-// ─── 활성 국면 부착 ─────────────────────────────────────────────────────────
-//  Engine은 직전 전략 하나에만 국면을 붙일 수 있다(set_last_active_regimes). 한 config 항목이
-//  N개를 등록하는 로더(유니버스·보유 전 종목)에서 N-1개가 빠지지 않도록, 추가 지점마다 붙인다.
-//  s_pending_regimes는 load_strategies가 로더를 부르는 동안만 유효하다(그 밖에서는 nullptr).
-static const std::vector<Regime>* s_pending_regimes = nullptr;
+struct EntryPriorityMerger;
 
-// 보유분 청산 관리 부착은 슬리브 하나가 아니라 전 슬리브가 등록된 뒤에 한 번만 한다.
-//  s_scan_covered는 모든 DEVIATION_SCALE 슬리브가 담당하는 종목(id 인덱스 비트)의 합집합이고, 청산 관리 설정은
-//  마지막으로 manage_holdings.enabled를 켠 슬리브의 것을 쓴다(현재 구성은 하나만 켠다).
-static std::vector<bool> s_scan_covered;
-// 바스켓 슬리브(TARGET_BASKET)가 소유한 종목(id 인덱스 비트) — DEVSCALE 초기 유니버스와 청산 관리 부착에서 뺀다.
-//  바스켓 로더가 먼저 돌아 채운다 [why D-109].
-static std::vector<bool> s_basket_owned;
+// ─── 로드 한 번의 공용 상태 ─────────────────────────────────────────────────
+//  로더끼리 넘겨야 하는 값을 파일 전역 대신 여기에 둔다. load_strategies가 만들어 로더에 넘기고,
+//  돌아가면 사라진다 — 재스캔 람다가 나중에 쓰는 것(priority_merger)만 shared_ptr로 따로 산다.
+//  스레드: 메인 스레드(load_strategies 안)만 쓴다.
+struct LoadPass : StrategyLoadCtx
+{
+    explicit LoadPass(const StrategyLoadCtx& base) : StrategyLoadCtx(base) {}
+
+    // 활성 국면 부착 — Engine은 직전 전략 하나에만 국면을 붙일 수 있다(set_last_active_regimes). 한 config 항목이
+    //  N개를 등록하는 로더(유니버스·보유 전 종목)에서 N-1개가 빠지지 않도록, 추가 지점마다 붙인다.
+    //  로더를 부르는 동안만 값이 있다(그 밖에서는 nullptr).
+    const std::vector<Regime>* pending_regimes = nullptr;
+
+    // 보유분 청산 관리 부착은 슬리브 하나가 아니라 전 슬리브가 등록된 뒤에 한 번만 한다.
+    //  scan_covered는 모든 DEVIATION_SCALE 슬리브가 담당하는 종목(id 인덱스 비트)의 합집합이고, 청산 관리 설정은
+    //  마지막으로 manage_holdings.enabled를 켠 슬리브의 것을 쓴다(현재 구성은 하나만 켠다).
+    std::vector<bool>   scan_covered;
+    const json*         pending_exit_managers = nullptr; // config 노드를 가리킨다 — load_strategies 안에서만 유효
+    bool                guard_gated = false;
+    std::vector<Regime> guard_regimes;
+
+    // 바스켓 슬리브(TARGET_BASKET)가 소유한 종목(id 인덱스 비트) — DEVSCALE 초기 유니버스와 청산 관리 부착에서 뺀다.
+    //  바스켓 로더가 먼저 돌아 채운다 [why D-109].
+    std::vector<bool> basket_owned;
+
+    // 전 슬리브의 진입 우선순위 점수표. 재스캔 람다(데이터 스레드)가 들고 가 로드가 끝난 뒤에도 쓴다.
+    std::shared_ptr<EntryPriorityMerger> priority_merger;
+};
 
 // 종목 id 인덱스 비트를 켠다 — 배열은 종목 테이블 용량만큼 한 번만 늘린다.
 static void mark_symbol(std::vector<bool>& bits, symbol::SymbolId symbol, size_t capacity)
@@ -67,30 +84,26 @@ static bool has_symbol(const std::vector<bool>& bits, symbol::SymbolId symbol)
     return symbol != symbol::kNone && symbol < bits.size() && bits[symbol];
 }
 
-static const json*           s_pending_exit_managers = nullptr; // config 노드를 가리킨다 — load_strategies 안에서만 유효
-static bool                  s_guard_gated = false;
-static std::vector<Regime>   s_guard_regimes;
-
-static void add_gated(Engine& engine, std::unique_ptr<StrategyBase> strategy)
+static void add_gated(const LoadPass& context, std::unique_ptr<StrategyBase> strategy)
 {
-    if (s_pending_regimes && strategy)
+    if (context.pending_regimes && strategy)
     {
-        strategy->set_active_regimes(*s_pending_regimes);
+        strategy->set_active_regimes(*context.pending_regimes);
     }
 
-    engine.add_strategy(std::move(strategy));
+    context.engine.add_strategy(std::move(strategy));
 }
 
 // 재스캔처럼 Engine이 나중에 factory를 직접 부르는 경로용 — 국면을 factory 안에 묶는다.
 static std::function<std::unique_ptr<StrategyBase>(symbol::SymbolId)>
-gate_factory(std::function<std::unique_ptr<StrategyBase>(symbol::SymbolId)> factory)
+gate_factory(const LoadPass& context, std::function<std::unique_ptr<StrategyBase>(symbol::SymbolId)> factory)
 {
-    if (!s_pending_regimes)
+    if (!context.pending_regimes)
     {
         return factory;
     }
 
-    std::vector<Regime> active_regimes = *s_pending_regimes; // 람다가 이 스코프보다 오래 살아 사본이 필요하다
+    std::vector<Regime> active_regimes = *context.pending_regimes; // 람다가 이 스코프보다 오래 살아 사본이 필요하다
     return [factory = std::move(factory), active_regimes = std::move(active_regimes)](symbol::SymbolId symbol) {
         auto strategy = factory(symbol);
 
@@ -117,7 +130,7 @@ static bool require_ticker(const json& node, const char* type, std::string& out)
 }
 
 // ─── MA_CROSS ───────────────────────────────────────────────────────────────
-static void load_moving_average_cross(StrategyLoadCtx& context, const json& node)
+static void load_moving_average_cross(LoadPass& context, const json& node)
 {
     Engine& engine = context.engine;
     int quantity = node.value("quantity", 1);
@@ -156,7 +169,7 @@ static void load_moving_average_cross(StrategyLoadCtx& context, const json& node
             {
                 for (const Holding& holding : balance->holdings)
                 {
-                    add_gated(engine, std::make_unique<MACrossStrategy>(
+                    add_gated(context, std::make_unique<MACrossStrategy>(
                         holding.ticker, short_period, long_period, holding.quantity, /*start_in_position=*/true));
                     LOG_INFO("[Main]   + MACross " + holding.ticker + " 보유 " + std::to_string(holding.quantity) + "주 (in_position 시드)");
                     ++added;
@@ -176,12 +189,12 @@ static void load_moving_average_cross(StrategyLoadCtx& context, const json& node
             return;
         }
 
-        add_gated(engine, std::make_unique<MACrossStrategy>(std::move(ticker), short_period, long_period, quantity));
+        add_gated(context, std::make_unique<MACrossStrategy>(std::move(ticker), short_period, long_period, quantity));
     }
 }
 
 // ─── INTRADAY_BREAKOUT ──────────────────────────────────────────────────────
-static void load_intraday_breakout(StrategyLoadCtx& context, const json& node)
+static void load_intraday_breakout(LoadPass& context, const json& node)
 {
     Engine& engine = context.engine;
     // 첫 장중 자동매매 기준(ITB) — WS 체결 틱 기반 채널돌파 + 트레일/하드 스탑.
@@ -238,7 +251,7 @@ static void load_intraday_breakout(StrategyLoadCtx& context, const json& node)
                         /*average_price=*/0.0, average_loss_percent, seed_trail_percent, exit_near_average_percent,
                         no_new_entry_hhmm, notional_per_position, /*day_open_price=*/candidate.day_open);
                     strategy->set_name(std::move(candidate.name));
-                    add_gated(engine, std::move(strategy));
+                    add_gated(context, std::move(strategy));
                 }
             }
         }
@@ -272,7 +285,7 @@ static void load_intraday_breakout(StrategyLoadCtx& context, const json& node)
                         /*notional=*/0.0, /*day_open_price=*/0.0);
                     strategy->set_name(holding.name);
                     engine.register_ticker_name(holding.ticker, holding.name); // 로그 라벨(보유분 종목명)
-                    add_gated(engine, std::move(strategy));
+                    add_gated(context, std::move(strategy));
                     LOG_INFO("[Main]   + ITB " + holding.ticker + " " + holding.name + " 보유 " + std::to_string(holding.quantity) +
                              "주 (in_position 시드, 평단=" + std::to_string(static_cast<long long>(holding.average_price)) + ")");
                     ++added;
@@ -291,7 +304,7 @@ static void load_intraday_breakout(StrategyLoadCtx& context, const json& node)
             return;
         }
 
-        add_gated(engine, std::make_unique<IntradayBreakoutStrategy>(
+        add_gated(context, std::make_unique<IntradayBreakoutStrategy>(
             std::move(ticker), entry_quantity, /*hold_quantity=*/0, /*start_in_position=*/false,
             channel_min, epsilon, trail_percent, hard_percent, market_close_hhmm, cooldown_sec,
             /*average_price=*/0.0, average_loss_percent, seed_trail_percent, exit_near_average_percent,
@@ -300,7 +313,7 @@ static void load_intraday_breakout(StrategyLoadCtx& context, const json& node)
 }
 
 // ─── MOMENTUM ───────────────────────────────────────────────────────────────
-static void load_momentum(StrategyLoadCtx& context, const json& node)
+static void load_momentum(LoadPass& context, const json& node)
 {
     int quantity = node.value("quantity", 1);
     std::string ticker;
@@ -310,11 +323,11 @@ static void load_momentum(StrategyLoadCtx& context, const json& node)
         return;
     }
 
-    add_gated(context.engine, std::make_unique<MomentumStrategy>(std::move(ticker), node.value("period", 20), quantity));
+    add_gated(context, std::make_unique<MomentumStrategy>(std::move(ticker), node.value("period", 20), quantity));
 }
 
 // ─── VALUE_CONTRARY ─────────────────────────────────────────────────────────
-static void load_value_contrary(StrategyLoadCtx& context, const json& node)
+static void load_value_contrary(LoadPass& context, const json& node)
 {
     int quantity = node.value("quantity", 1);
     std::string market_string = node.value("market", "KR");
@@ -322,11 +335,11 @@ static void load_value_contrary(StrategyLoadCtx& context, const json& node)
     std::string exchange = node.value("exchange", "");
     double pbr_max = node.value("pbr_max", 1.0);
     int market_close_hhmm = node.value("market_close_exit_hhmm", 1520);
-    add_gated(context.engine, std::make_unique<ValueContraryStrategy>(market, std::move(exchange), pbr_max, quantity, market_close_hhmm));
+    add_gated(context, std::make_unique<ValueContraryStrategy>(market, std::move(exchange), pbr_max, quantity, market_close_hhmm));
 }
 
 // ─── FIXED_INTERVAL ─────────────────────────────────────────────────────────
-static void load_fixed_interval(StrategyLoadCtx& context, const json& node)
+static void load_fixed_interval(LoadPass& context, const json& node)
 {
     std::string ticker;
 
@@ -338,11 +351,11 @@ static void load_fixed_interval(StrategyLoadCtx& context, const json& node)
     int buy_quantity          = node.value("buy_qty", 1);
     int sell_quantity         = node.value("sell_qty", 1);
     int interval_sec     = node.value("interval_sec", 300);
-    add_gated(context.engine, std::make_unique<FixedIntervalStrategy>(std::move(ticker), buy_quantity, sell_quantity, interval_sec));
+    add_gated(context, std::make_unique<FixedIntervalStrategy>(std::move(ticker), buy_quantity, sell_quantity, interval_sec));
 }
 
 // ─── PRICE_TARGET ───────────────────────────────────────────────────────────
-static void load_price_target(StrategyLoadCtx& context, const json& node)
+static void load_price_target(LoadPass& context, const json& node)
 {
     std::vector<PriceTargetStrategy::PriceTarget> price_targets;
 
@@ -387,12 +400,12 @@ static void load_price_target(StrategyLoadCtx& context, const json& node)
         }
     }
 
-    add_gated(context.engine, std::make_unique<PriceTargetStrategy>(
+    add_gated(context, std::make_unique<PriceTargetStrategy>(
         std::move(price_targets), std::move(limit_orders)));
 }
 
 // ─── SUPPLY_DEMAND_PULLBACK ─────────────────────────────────────────────────
-static void load_supply_demand_pullback(StrategyLoadCtx& context, const json& node)
+static void load_supply_demand_pullback(LoadPass& context, const json& node)
 {
     SupplyDemandPullbackStrategy::Params short_period;
     short_period.market_div        = node.value("market_div",        "J");
@@ -408,11 +421,11 @@ static void load_supply_demand_pullback(StrategyLoadCtx& context, const json& no
     short_period.market_close_exit_hhmm     = node.value("market_close_exit_hhmm",    std::string("1500"));
     short_period.stop_below_moving_average     = node.value("stop_below_ma",    0.0);
     short_period.mode = SupplyDemandPullbackStrategy::EntryMode::from_string(node.value("entry_mode", "DAILY"));
-    add_gated(context.engine, std::make_unique<SupplyDemandPullbackStrategy>(std::move(short_period)));
+    add_gated(context, std::make_unique<SupplyDemandPullbackStrategy>(std::move(short_period)));
 }
 
 // ─── MARKET_MAKING ──────────────────────────────────────────────────────────
-static void load_market_making(StrategyLoadCtx& context, const json& node)
+static void load_market_making(LoadPass& context, const json& node)
 {
     std::string ticker;
 
@@ -425,7 +438,7 @@ static void load_market_making(StrategyLoadCtx& context, const json& node)
     int half_spread_ticks   = node.value("half_spread_ticks", 1);
     int requote_move_ticks  = node.value("requote_move_ticks", 1);
     int min_requote_ms      = node.value("min_requote_ms", 1000); // ≥1000 권장(초당 4건 rate 백스톱)
-    add_gated(context.engine, std::make_unique<MarketMakingStrategy>(
+    add_gated(context, std::make_unique<MarketMakingStrategy>(
         std::move(ticker), market_making_quantity, half_spread_ticks, requote_move_ticks, min_requote_ms));
 }
 
@@ -457,7 +470,7 @@ static std::set<std::string> tickers_bought_recently(const std::string& id_prefi
 //    seed_trail_percent(넓은 기준점 트레일) + exit_near_average_percent(본전근처 반등청산)
 //    + average_loss_percent(평단손절, 0=비활성) + 장 마감(market_close_exit_hhmm, 기본 2100=장중 강제청산 안 함 — 엔진이 20:00까지 도니 1600은 애프터마켓 청산이 된다, D-097).
 //  covered = 이미 스캔 전략이 담당하는 종목(id 인덱스 비트, 중복 부착 방지). rest_price_feed 합성틱으로 on_trade 구동.
-static void attach_holding_exit_managers(StrategyLoadCtx& context, const json& exit_manager_node,
+static void attach_holding_exit_managers(LoadPass& context, const json& exit_manager_node,
                                      const std::vector<bool>& covered)
 {
     Engine& engine = context.engine;
@@ -525,7 +538,7 @@ static void attach_holding_exit_managers(StrategyLoadCtx& context, const json& e
         strategy->set_name(pname);
         engine.register_ticker_name(code, pname); // 로그 라벨(보유분 종목명)
         engine.mark_exit_managed_ticker(code);        // 스캔 슬리브의 신규매수에서 제외
-        add_gated(engine, std::move(strategy));
+        add_gated(context, std::move(strategy));
         LOG_INFO("[Main]   + 청산 관리(ITB) " + code + " " + pname + " 보유 " +
                  std::to_string(hq) + "주 @평단 " + std::to_string(static_cast<long long>(average_value)) +
                  " (trail=" + std::to_string(seed_trail_display) + "% 본전탈출=" +
@@ -584,19 +597,13 @@ struct EntryPriorityMerger
     std::vector<int32_t>                       slot_by_symbol; // 합칠 때 종목 id → merged 위치(-1=아직 없음), 재사용
 };
 
-static EntryPriorityMerger& priority_merger()
-{
-    static EntryPriorityMerger merger;
-    return merger;
-}
-
 // 한 슬리브의 점수를 갱신하고, 전 슬리브를 합친 랭크를 엔진에 넣는다.
 //  scores는 sink — 슬리브 표에 옮겨 넣는다.
-static void publish_entry_priority(Engine& engine, const std::string& sleeve, universe::ScoreList scores)
+static void publish_entry_priority(Engine& engine, EntryPriorityMerger& merger, const std::string& sleeve,
+                                   universe::ScoreList scores)
 {
     universe::ScoreList merged;
     {
-        EntryPriorityMerger&        merger = priority_merger();
         std::lock_guard<std::mutex> lock(merger.mutex);
         merger.by_sleeve[sleeve] = std::move(scores);
 
@@ -648,7 +655,7 @@ static void publish_entry_priority(Engine& engine, const std::string& sleeve, un
     engine.set_entry_priority(entries, static_cast<int>(merged.size()));
 }
 
-static void load_deviation_scale(StrategyLoadCtx& context, const json& node)
+static void load_deviation_scale(LoadPass& context, const json& node)
 {
     Engine& engine = context.engine;
     // 공통 파라미터(티커 제외) — 스캔 유니버스/단일 종목이 함께 쓴다.
@@ -707,7 +714,7 @@ static void load_deviation_scale(StrategyLoadCtx& context, const json& node)
     //  시드/전일 물린 보유분에 DevScale 분할 매수가 겹치면 종목당 명목상한(max_percent)을
     //  초과해 CANCEL 거부·과주문이 난다(073240 사례). 보유분=청산 관리, 신규만=DevScale로 분리.
     //  manage_holdings.enabled일 때만 적용(청산 관리가 있어야 보유분을 인수하므로).
-    std::vector<bool>             held = s_basket_owned; // 바스켓 소유 종목은 처음부터 이 슬리브의 후보가 아니다 [why D-109]
+    std::vector<bool>             held = context.basket_owned; // 바스켓 소유 종목은 처음부터 이 슬리브의 후보가 아니다 [why D-109]
     size_t                        held_count = 0;
     std::vector<symbol::SymbolId> reinstated; // 보유 중인 최근 매수분 — 스캔에 없어도 등록하고 청산 관리는 안 붙인다
     held.resize(std::max(held.size(), symbol_capacity), false);
@@ -743,7 +750,7 @@ static void load_deviation_scale(StrategyLoadCtx& context, const json& node)
                 {
                     const symbol::SymbolId symbol = engine.symbols().intern(ticker); // 원장 CSV의 문자열 티커 — 여기서 id가 된다
 
-                    if (has_symbol(held, symbol) && !has_symbol(s_basket_owned, symbol)) // 바스켓 것은 바스켓이 인수한다 [why D-109]
+                    if (has_symbol(held, symbol) && !has_symbol(context.basket_owned, symbol)) // 바스켓 것은 바스켓이 인수한다 [why D-109]
                     {
                         held[symbol] = false;
                         --held_count;
@@ -890,7 +897,7 @@ static void load_deviation_scale(StrategyLoadCtx& context, const json& node)
                      std::to_string(krw_cap_z));
         }
 
-        auto scan_fn = [scan_config, &engine, score_state, weight_spread, weight_target, weight_base, sleeve_id = base.id_prefix,
+        auto scan_fn = [scan_config, &engine, score_state, merger = context.priority_merger, weight_spread, weight_target, weight_base, sleeve_id = base.id_prefix,
                         krw_on, krw_floor, krw_cap, krw_cap_z](KisClient& kis)
         {
             // 스캐너가 응답의 문자열 티커를 종목 테이블에 한 번 넣고 id·이름·점수를 준다.
@@ -935,7 +942,7 @@ static void load_deviation_scale(StrategyLoadCtx& context, const json& node)
                 }
             }
 
-            publish_entry_priority(engine, sleeve_id, std::move(scan.scores));
+            publish_entry_priority(engine, *merger, sleeve_id, std::move(scan.scores));
             return std::move(scan.symbols);
         };
         auto drop_held = [](std::vector<symbol::SymbolId>& scanned, const std::vector<bool>& parts)
@@ -1004,7 +1011,7 @@ static void load_deviation_scale(StrategyLoadCtx& context, const json& node)
 
                 for (symbol::SymbolId symbol : scanned)
                 {
-                    add_gated(engine, factory(symbol));
+                    add_gated(context, factory(symbol));
                     mark_symbol(covered, symbol, symbol_capacity); // 청산 관리 중복 부착 방지용
                     LOG_INFO("[Main]   + " + base.id_prefix + " 초기 " + engine.symbols().name(symbol).string());
                     seeded.push_back(symbol);
@@ -1020,7 +1027,7 @@ static void load_deviation_scale(StrategyLoadCtx& context, const json& node)
             //  인증 실패해도 재스캔은 엔진 내부 시세 클라이언트로 시도.
             // 등록 총수 상한은 스캔 1회 상한(max_universe)과 같게 둔다 — 해제가 느리게 따라오므로
             //  상한이 없으면 총수가 그 값을 넘어 는다.
-            engine.set_universe_rescan(std::move(universe_rescan), gate_factory(factory), rescan_sec,
+            engine.set_universe_rescan(std::move(universe_rescan), gate_factory(context, factory), rescan_sec,
                                        static_cast<size_t>(scan_config.max_register), drop_after_sec, block_after_sec,
                                        return_confirm);
             engine.seed_universe_rescan(seeded);
@@ -1039,7 +1046,7 @@ static void load_deviation_scale(StrategyLoadCtx& context, const json& node)
         }
 
         const symbol::SymbolId symbol = engine.symbols().intern(ticker); // 설정의 문자열 티커는 여기서 id가 된다
-        add_gated(engine, factory(symbol));
+        add_gated(context, factory(symbol));
         mark_symbol(covered, symbol, symbol_capacity);
     }
 
@@ -1048,29 +1055,29 @@ static void load_deviation_scale(StrategyLoadCtx& context, const json& node)
     //  뒤에 로드되는 슬리브(TRENDX)가 방금 산 종목이 "스캔 밖 보유분"으로 보여 청산 관리가
     //  겹쳐 붙고, 그 청산 관리의 seed-trail 매도가 슬리브의 잔여 매도와 같은 주식을 두고
     //  경합한다(09-11 09:26~ ITB_112610·267250·014530 매도가능수량 0 거부 반복).
-    if (s_scan_covered.size() < covered.size())
+    if (context.scan_covered.size() < covered.size())
     {
-        s_scan_covered.resize(covered.size(), false);
+        context.scan_covered.resize(covered.size(), false);
     }
 
     for (size_t symbol = 0; symbol < covered.size(); ++symbol)
     {
         if (covered[symbol])
         {
-            s_scan_covered[symbol] = true;
+            context.scan_covered[symbol] = true;
         }
     }
 
     if (node.contains("manage_holdings") && node["manage_holdings"].value("enabled", false))
     {
-        s_pending_exit_managers = &node["manage_holdings"];
-        s_guard_gated       = (s_pending_regimes != nullptr);
-        s_guard_regimes     = s_guard_gated ? *s_pending_regimes : std::vector<Regime>{};
+        context.pending_exit_managers = &node["manage_holdings"];
+        context.guard_gated           = (context.pending_regimes != nullptr);
+        context.guard_regimes         = context.guard_gated ? *context.pending_regimes : std::vector<Regime>{};
     }
 }
 
 // ─── THEME ──────────────────────────────────────────────────────────────────
-static void load_theme(StrategyLoadCtx& context, const json& node)
+static void load_theme(LoadPass& context, const json& node)
 {
     int quantity = node.value("quantity", 1);
     std::vector<std::string> sector_codes;
@@ -1084,7 +1091,7 @@ static void load_theme(StrategyLoadCtx& context, const json& node)
     double volume_surge     = node.value("volume_surge_mult", 2.0);
     bool institution_filter     = node.value("inst_filter", true);
     int market_close_hhmm         = node.value("market_close_exit_hhmm", 1520);
-    add_gated(context.engine, std::make_unique<ThemeStrategy>(
+    add_gated(context, std::make_unique<ThemeStrategy>(
         std::move(sector_codes), top_n, volume_surge, institution_filter, quantity, market_close_hhmm));
 }
 
@@ -1126,9 +1133,9 @@ static bool parse_active_regimes(const json& node, const std::string& type, std:
 }
 
 // ─── TARGET_BASKET ──────────────────────────────────────────────────────────
-//  목표 비중표 바스켓. 소유 종목을 OrderGate 슬롯 계산 밖에 두고(set_slot_exempt_tickers) s_basket_owned·s_scan_covered에
+//  목표 비중표 바스켓. 소유 종목을 OrderGate 슬롯 계산 밖에 두고(set_slot_exempt_tickers) context.basket_owned·context.scan_covered에
 //  넣어 DEVSCALE 유니버스와 청산 관리 부착에서 뺀다 — 그래서 load_strategies가 이 타입을 먼저 돈다. [why D-109]
-static void load_target_basket(StrategyLoadCtx& context, const json& node)
+static void load_target_basket(LoadPass& context, const json& node)
 {
     TargetBasketStrategy::Params parameters;
     parameters.label                = node.value("label", std::string("MAIN"));
@@ -1160,12 +1167,12 @@ static void load_target_basket(StrategyLoadCtx& context, const json& node)
     for (const auto& ticker : strategy->owned_tickers()) // 목표 비중표 파일의 문자열 티커 — 여기서 id가 된다
     {
         const symbol::SymbolId symbol = engine.symbols().intern(ticker);
-        mark_symbol(s_basket_owned, symbol, symbol_capacity);
-        mark_symbol(s_scan_covered, symbol, symbol_capacity);
+        mark_symbol(context.basket_owned, symbol, symbol_capacity);
+        mark_symbol(context.scan_covered, symbol, symbol_capacity);
     }
 
     LOG_INFO("[Main] TARGET_BASKET " + strategy->describe() + " 소유 종목 " + std::to_string(strategy->owned_tickers().size()) + "개");
-    add_gated(engine, std::move(strategy));
+    add_gated(context, std::move(strategy));
 }
 
 // ─── 디스패치 ───────────────────────────────────────────────────────────────
@@ -1174,7 +1181,7 @@ void load_strategies(StrategyLoadCtx& context, const json& strategies)
     // 실사용 현황(config_dev_paper.json 기준, 2026-09-22): DEVIATION_SCALE(눌림 DEVSCALE, TRENDX는 D-101로 꺼짐) + TARGET_BASKET(가치·모멘텀 바스켓, D-109).
     // INTRADAY_BREAKOUT은 이 표로 등록되는 게 아니라 attach_holding_exit_managers()가 승계 보유분에만 붙이는 청산 전용 청산 관리.
     // 나머지(MA_CROSS·MOMENTUM·VALUE_CONTRARY·FIXED_INTERVAL·PRICE_TARGET·SUPPLY_DEMAND_PULLBACK·MARKET_MAKING·THEME)는 현재 config 어디에도 안 걸림 — 죽은 코드는 아니고 미사용.
-    static const std::map<StrategyType, void (*)(StrategyLoadCtx&, const json&)> LOADERS = {
+    static const std::map<StrategyType, void (*)(LoadPass&, const json&)> LOADERS = {
         {StrategyType::MA_CROSS, load_moving_average_cross},
         {StrategyType::INTRADAY_BREAKOUT, load_intraday_breakout},
         {StrategyType::MOMENTUM, load_momentum},
@@ -1187,6 +1194,9 @@ void load_strategies(StrategyLoadCtx& context, const json& strategies)
         {StrategyType::THEME, load_theme},
         {StrategyType::TARGET_BASKET, load_target_basket},
     };
+
+    LoadPass pass(context);
+    pass.priority_merger = std::make_shared<EntryPriorityMerger>();
 
     // 바스켓 슬리브를 먼저 — 그 소유 종목을 DEVSCALE 유니버스·청산 관리 부착에서 빼야 하므로 config 순서와 무관하게 앞에 둔다 [why D-109].
     std::vector<const json*> ordered;
@@ -1223,9 +1233,9 @@ void load_strategies(StrategyLoadCtx& context, const json& strategies)
 
         std::vector<Regime> active_regimes;
         const bool gated = parse_active_regimes(strategy, type, active_regimes);
-        s_pending_regimes = gated ? &active_regimes : nullptr;
-        iterator->second(context, strategy);
-        s_pending_regimes = nullptr;
+        pass.pending_regimes = gated ? &active_regimes : nullptr;
+        iterator->second(pass, strategy);
+        pass.pending_regimes = nullptr;
 
         if (gated && context.engine.strategy_count() > n_before)
         {
@@ -1235,11 +1245,9 @@ void load_strategies(StrategyLoadCtx& context, const json& strategies)
     }
 
     // 전 슬리브의 초기 유니버스가 확정된 뒤에야 "스캔 밖 보유분"을 가릴 수 있다.
-    if (s_pending_exit_managers != nullptr)
+    if (pass.pending_exit_managers != nullptr)
     {
-        s_pending_regimes = s_guard_gated ? &s_guard_regimes : nullptr;
-        attach_holding_exit_managers(context, *s_pending_exit_managers, s_scan_covered);
-        s_pending_regimes = nullptr;
-        s_pending_exit_managers = nullptr;
+        pass.pending_regimes = pass.guard_gated ? &pass.guard_regimes : nullptr;
+        attach_holding_exit_managers(pass, *pass.pending_exit_managers, pass.scan_covered);
     }
 }
