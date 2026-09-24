@@ -149,6 +149,7 @@ graph LR
     n_core_UniverseExit_cpp["core/UniverseExit.cpp"]
     n_core_UniverseExit_h["core/UniverseExit.h"]
     n_core_WakeGate_cpp["core/WakeGate.cpp"]
+    n_core_WebSocketSlotPlan_cpp["core/WebSocketSlotPlan.cpp"]
   end
   subgraph exchange
     n_exchange_MatchingEngine_cpp["exchange/MatchingEngine.cpp"]
@@ -347,6 +348,7 @@ graph LR
   n_core_Engine_h --> n_core_TickCapture_h
   n_core_Engine_h --> n_core_Types_h
   n_core_Engine_h --> n_core_WakeGate_h
+  n_core_Engine_h --> n_core_WebSocketSlotPlan_h
   n_core_Engine_h --> n_ipc_ControlChannel_h
   n_core_Engine_h --> n_ipc_Heartbeat_h
   n_core_Engine_h --> n_ipc_LedgerSnapshot_h
@@ -448,6 +450,7 @@ graph LR
   n_core_UniverseExit_cpp --> n_core_UniverseExit_h
   n_core_UniverseExit_h --> n_core_SymbolTable_h
   n_core_WakeGate_cpp --> n_core_WakeGate_h
+  n_core_WebSocketSlotPlan_cpp --> n_core_WebSocketSlotPlan_h
   n_exchange_MatchingEngine_cpp --> n_core_TickSize_h
   n_exchange_MatchingEngine_h --> n_core_SymbolTable_h
   n_exchange_MatchingEngine_h --> n_core_Types_h

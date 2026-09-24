@@ -208,6 +208,44 @@ bool FeedMux::has_specification(const WatchSpec& specification) const
     return index && sources_[*index]->has_specification(specification);
 }
 
+bool FeedMux::unsubscribe_incremental(const WatchSpec& specification)
+{
+    std::optional<size_t> index;
+    {
+        std::lock_guard<std::mutex> lock(assign_mutex_);
+        const auto iterator = assign_.find(key(specification));
+
+        if (iterator == assign_.end())
+        {
+            return false;
+        }
+
+        index = iterator->second;
+        assign_.erase(iterator);
+    }
+
+    return sources_[*index]->unsubscribe_incremental(specification);
+}
+
+int FeedMux::free_slots() const
+{
+    int  total   = 0;
+    bool counted = false;
+
+    for (const auto& source : sources_)
+    {
+        const int free = source->free_slots();
+
+        if (free >= 0)
+        {
+            total  += free;
+            counted = true;
+        }
+    }
+
+    return counted ? total : -1;
+}
+
 std::vector<WatchSpec> FeedMux::take_overflow_specifications()
 {
     std::vector<WatchSpec> out;

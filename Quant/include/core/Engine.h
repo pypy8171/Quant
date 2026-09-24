@@ -22,6 +22,7 @@
 #include "core/RegimeFileJudge.h"
 #include "core/LatencyTrace.h"
 #include "core/Types.h"
+#include "core/WebSocketSlotPlan.h"
 #include "risk/OrderGate.h"
 #include "risk/ProtectiveOrders.h"
 #include "strategy/StrategyBase.h"
@@ -535,10 +536,21 @@ private:
     bool add_watch_specification(const WatchSpec& specification);
 
     // 구독 스펙 하나를 소켓 쥔 쪽에 보낸다. 소켓이 어느 프로세스에 있든 거는 자리는 하나다. [why D-114]
-    void send_watch_request(const WatchSpec& specification);
+    void send_watch_request(const WatchSpec& specification, ipc::ControlKind kind = ipc::ControlKind::kWatchSubscribe,
+                            int32_t priority = 0);
 
     // 쌓인 구독 스펙을 소켓에 건다. [inv] 감시 스레드만 부른다(주문 쪽). [why D-114]
     void drain_pending_subscriptions();
+
+    // 구독 칸 우선순위(보유 → 선점 → 점수 순위)를 매겨 바뀐 것만 시세 쪽에 보내고, 어느 전략도 안 보고 보유·선점도
+    //  없는 종목은 구독 해지를 보낸다. [inv] 재스캔을 도는 data_thread만 부른다. [why D-132]
+    void publish_watch_priorities();
+
+    // 받은 우선순위로 칸을 다시 나눈다 — 내줄 종목은 해제하고 REST 넘침으로, 받을 종목은 구독하고 넘침에서 뺀다.
+    //  [inv] 감시 스레드만 부른다(apply_feed_control_requests·drain_pending_subscriptions와 같은 스레드). [why D-132]
+    void rebalance_websocket_slots();
+    // 시세 쪽이 아는 종목의 칸 우선순위. 모르면 kUnranked. 재연결 때 우선순위 순으로 다시 걸려고 쓴다.
+    int32_t websocket_slot_priority(const WatchSpec& specification) const;
 
     void connect_feed();
     void spawn_threads();
@@ -773,6 +785,7 @@ private:
         int    return_confirm  = 2;
         bool   empty_scan_warned = false; // 빈 스캔 결과 WARN은 연속 구간당 한 번
         std::chrono::steady_clock::time_point last_run{};
+        std::vector<symbol::SymbolId> last_scanned; // 마지막 스캔 결과(점수 순) — 구독 칸 우선순위가 순위로 읽는다 [why D-132]
         // 이 슬리브가 소유한 종목(차단·해제 대상) — 종목 id 인덱스. strategy가 nullptr이면 소유가 아니다.
         struct Owned
         {
@@ -1016,6 +1029,19 @@ private:
     //  비우며 소켓에 건다 — 주문 스레드는 단일 시퀀서라 소켓 쓰기로 막으면 그동안 주문이 안 나간다. [why D-114]
     //  [inv] watch_specifications_mutex_ 로 보호한다(넣는 쪽 주문 스레드, 비우는 쪽 감시 스레드).
     std::vector<WatchSpec> pending_subscriptions_;
+    // 아직 소켓에서 풀지 않은 구독 해지. pending_subscriptions_와 같은 자물쇠·같은 두 스레드. [why D-132]
+    std::vector<WatchSpec> pending_unsubscriptions_;
+    // 시세 쪽 칸 상태 — 종목 id 인덱스. [inv] 감시 스레드만 만진다. [why D-132]
+    struct WebSocketSlotState
+    {
+        int32_t                               priority = websocket_slot::kUnranked;
+        std::chrono::steady_clock::time_point on_since{}; // 칸을 쥔 것을 처음 본 때. 칸 밖이면 0
+        bool                                  warned_off_socket = false; // 보유·선점인데 칸 밖이라고 남겼나
+    };
+    std::vector<WebSocketSlotState> websocket_slots_;
+    // 전략 쪽이 마지막으로 보낸 칸 우선순위 — 종목 id 인덱스, 아직 안 보냈으면 kUnsent. [inv] data_thread만. [why D-132]
+    static constexpr int32_t kUnsent = -1;
+    std::vector<int32_t>     watch_priority_sent_;
     // 구독 상한에 밀린 종목 수. 0이 아니면 그 종목은 WS 틱을 못 받는다 — 판정 행 "구독 상한"이 본다. [why D-114]
     std::atomic<uint64_t> watch_overflow_{0};
     // 시세 통로 버린 건수 둘. 보내는 쪽은 소켓 수신 스레드, 받는 쪽은 줄 스레드가 올린다. [why D-114]

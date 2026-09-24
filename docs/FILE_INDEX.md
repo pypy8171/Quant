@@ -290,6 +290,7 @@
 - [Types.h](../Quant/include/core/Types.h) — 핵심 타입 정의 — MarketData·WatchSpec 등
 - [UniverseExit.h](../Quant/include/core/UniverseExit.h) — 유니버스 이탈·복귀 판정 순수 함수(D-077)
 - [WakeGate.h](../Quant/include/core/WakeGate.h) — 생산자가 소비자를 깨우는 대기 조각(D-071)
+- [WebSocketSlotPlan.h](../Quant/include/core/WebSocketSlotPlan.h) — WebSocket 구독 칸 우선순위(보유→주문 대기→점수)와 교체 계획 순수 함수(D-132)
 
 ### Quant/include/exchange/
 
@@ -423,6 +424,7 @@
 - [Types.cpp](../Quant/src/core/Types.cpp) — Types.h 구현 — 숫자 문자열 → 정수, 주문번호 채번, Regime·StrategyType·Mode 문자열 변환
 - [UniverseExit.cpp](../Quant/src/core/UniverseExit.cpp) — UniverseExit.h 구현 — 유니버스 이탈·복귀 판정 순수 함수(D-077)
 - [WakeGate.cpp](../Quant/src/core/WakeGate.cpp) — WakeGate.h 구현 — 생산자가 소비자를 깨우는 대기 조각(D-071)
+- [WebSocketSlotPlan.cpp](../Quant/src/core/WebSocketSlotPlan.cpp) — WebSocketSlotPlan.h 구현 — 구독 칸 교체 계획(D-132)
 
 ### Quant/src/exchange/
 
@@ -567,6 +569,7 @@
 - [test_tick_capture.cpp](../Quant/tests/test_tick_capture.cpp) — 틱 캡처·리더 왕복·이어쓰기 단위 테스트
 - [test_ticker.cpp](../Quant/tests/test_ticker.cpp) — 티커 조회 방식 7가지(std::map·unordered_map·SymbolTable::intern·정수 id 배열·숫자 파싱 희소 배열·틱당 소비자 4곳 모델)를 2,700종목·1천만 회로 재는 벤치(체크섬 출력으로 데드코드 제거를 막는다)
 - [test_wake_gate.cpp](../Quant/tests/test_wake_gate.cpp) — WakeGate 소비자 깨우기 단위 테스트
+- [test_websocket_slot_plan.cpp](../Quant/tests/test_websocket_slot_plan.cpp) — 구독 칸 배정 단위 테스트 — 우선순위·빈 칸·보유 보호·유지 시간·순위 차·교체 상한(D-132)
 - [test_ws_decode.cpp](../Quant/tests/test_ws_decode.cpp) — KIS 실시간 채널 디코더 단위 테스트(D-037)
 - [test_ws_frame.cpp](../Quant/tests/test_ws_frame.cpp) — WS 다건 프레임 분리·분봉 커서 시각 산술 단위 테스트
 - [test_zmq_order_feed.cpp](../Quant/tests/test_zmq_order_feed.cpp) — 부하시험 수신단 단위 테스트 — 전문 해석·종목 순번·체결 발행

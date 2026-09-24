@@ -138,6 +138,7 @@ set(HEADER_IMPL_SOURCES
   src/core/Types.cpp
   src/core/UniverseExit.cpp
   src/core/WakeGate.cpp
+  src/core/WebSocketSlotPlan.cpp
   src/exchange/MatchingEngine.cpp
   src/exchange/OrderWire.cpp
   src/exchange/ZmqOrderFeed.cpp
@@ -405,6 +406,13 @@ target_include_directories(test_data_poller PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/
 if(UNIX)
     target_link_libraries(test_data_poller PRIVATE pthread)
 endif()
+
+# WebSocket 구독 칸 배정(core/WebSocketSlotPlan) — 순수 함수라 다른 것을 링크하지 않는다 (D-132)
+add_executable(test_websocket_slot_plan
+    tests/test_websocket_slot_plan.cpp
+    src/core/WebSocketSlotPlan.cpp
+)
+target_include_directories(test_websocket_slot_plan PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 # 신호 디스패처(core/SignalDispatcher) — 주문 큐·ZMQ·종목 표기는 std::function 대역, OrderGate·Logger 링크 (D-063)
 add_executable(test_signal_dispatcher
@@ -862,6 +870,7 @@ set(QUANT_ASSERT_TARGETS
     test_reconcile_plan
     test_ledger_reconciler
     test_data_poller
+    test_websocket_slot_plan
     test_signal_dispatcher
     test_order_rate_limiter
     test_kis_rate_bucket

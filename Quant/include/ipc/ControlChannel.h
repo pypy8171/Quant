@@ -48,6 +48,7 @@ enum class ControlKind : uint8_t
     kWatchSubscribe      = 15, // 이 종목 시세를 구독해 달라 — 소켓을 쥔 쪽은 시세 프로세스 하나다
     kRegisterStrategy    = 16, // 전략 이름표에 이름 하나를 넣어 달라 — 넣는 쪽은 주문 프로세스 하나다
     kWatchUnsubscribe    = 17, // 이 종목 시세를 그만 받아 달라 — 구독 자리가 한정되어 있어 놓는 낱말이 있어야 한다
+    kWatchPriority       = 18, // 이 종목의 구독 칸 우선순위(rank 칸, websocket_slot::priority_of) — 칸을 누구에게 줄지 시세 쪽이 고른다
 };
 
 // 이 낱말이 시세 프로세스로 가는가. 제어 줄은 낱말로 가른다 — 구독·해지만 전략 → 시세 줄로 가고 나머지는
@@ -64,7 +65,7 @@ struct ControlRequest
     int64_t                    sent_at_ns        = 0; // steady_clock, 전략 쪽이 보낸 시각
     symbol::SymbolId           symbol_id         = symbol::kNone;
     strategy_table::StrategyId owner_index       = strategy_table::kNone; // kArmProtective 손익 귀속 전략 번호
-    int32_t                    rank              = 0;   // kEntryPriorityEntry 랭크 / kEntryPriorityCommit 표의 전체 종목 수
+    int32_t                    rank              = 0;   // kEntryPriorityEntry 랭크 / kEntryPriorityCommit 표의 전체 종목 수 / kWatchPriority 칸 우선순위
     uint32_t                   row_count         = 0;   // *Commit: 이 표로 보낸 줄 수. 받는 쪽이 셈이 맞는지 본다
     ControlKind                kind              = ControlKind::kNone;
     uint8_t                    toggle_on         = 0;   // kEntryHalt·kKillSwitch·kManualHalt — 켜면 1

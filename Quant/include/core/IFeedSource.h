@@ -55,6 +55,19 @@ public:
     virtual bool                   has_specification(const WatchSpec& specification) const        = 0;
     virtual std::vector<WatchSpec> take_overflow_specifications()                        = 0;
 
+    // 연결을 유지한 채 종목 하나의 구독을 풀어 칸을 돌려받는다. 목록에서도 빼 재연결이 다시 걸지 않는다.
+    //  구독 중이 아니었으면 false. 칸 개념이 없는 소스는 아무것도 하지 않는다. [why D-132]
+    virtual bool unsubscribe_incremental(const WatchSpec& /*specification*/)
+    {
+        return false;
+    }
+
+    // 지금 더 걸 수 있는 구독 칸 수. 칸 개념이 없는 소스는 -1이고, Engine은 그때 칸 배정을 하지 않는다. [why D-132]
+    virtual int free_slots() const
+    {
+        return -1;
+    }
+
     virtual bool is_connected() const = 0;
     // threshold_sec 이상 메시지가 없으면 true. Engine 제어 스레드가 재연결 판단에 쓴다.
     virtual bool is_stale(int threshold_sec) const = 0;

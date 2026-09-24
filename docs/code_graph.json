@@ -200,6 +200,7 @@
     "core/Types.h": "core",
     "core/UniverseExit.h": "core",
     "core/WakeGate.h": "core",
+    "core/WebSocketSlotPlan.h": "core",
     "exchange/MatchingEngine.h": "exchange",
     "exchange/OrderWire.h": "exchange",
     "exchange/ZmqOrderFeed.h": "exchange",
@@ -306,6 +307,7 @@
     "core/Types.cpp": "core",
     "core/UniverseExit.cpp": "core",
     "core/WakeGate.cpp": "core",
+    "core/WebSocketSlotPlan.cpp": "core",
     "exchange/MatchingEngine.cpp": "exchange",
     "exchange/OrderWire.cpp": "exchange",
     "exchange/ZmqOrderFeed.cpp": "exchange",
@@ -510,6 +512,7 @@
       "core/TickCapture.h",
       "core/Types.h",
       "core/WakeGate.h",
+      "core/WebSocketSlotPlan.h",
       "ipc/ControlChannel.h",
       "ipc/Heartbeat.h",
       "ipc/LedgerSnapshot.h",
@@ -705,6 +708,9 @@
     ],
     "core/WakeGate.cpp": [
       "core/WakeGate.h"
+    ],
+    "core/WebSocketSlotPlan.cpp": [
+      "core/WebSocketSlotPlan.h"
     ],
     "exchange/MatchingEngine.cpp": [
       "core/TickSize.h"
@@ -1425,6 +1431,10 @@
       "ipc/OrderRouter.cpp",
       "ipc/ZmqBridge.h",
       "strategy/DeviationScaleStrategy.h"
+    ],
+    "core/WebSocketSlotPlan.h": [
+      "core/Engine.h",
+      "core/WebSocketSlotPlan.cpp"
     ],
     "ipc/ControlChannel.h": [
       "core/Engine.h",

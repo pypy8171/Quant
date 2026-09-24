@@ -126,6 +126,10 @@ int test_overflow()
     CHECK(data_poller.add_overflow(specification("A")) && !data_poller.add_overflow(specification("A")) && data_poller.add_overflow(specification("A", Market::KR, true)));
     CHECK(data_poller.overflow_count() == 2);
 
+    // 빼기: 있던 것만 빠지고, 없는 것은 거짓. 다시 넣어 아래 흐름을 그대로 둔다.
+    CHECK(data_poller.remove_overflow(specification("A")) && !data_poller.remove_overflow(specification("A")));
+    CHECK(data_poller.overflow_count() == 1 && data_poller.add_overflow(specification("A")));
+
     // WS에서 온 넘침도 합친다(중복은 무시). 재구독 전부 실패 → KR 현물만 REST, B는 0이라 틱 없음.
     int resub_calls = 0;
     const auto never = [&](const WatchSpec&)

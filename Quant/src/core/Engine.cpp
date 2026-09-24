@@ -77,6 +77,36 @@ static_assert(symbol::kNone == 0 && strategy_table::kNone == 0, "둘 다 0이어
 //  기동이 몇 초 늦을 수 있다 — 그보다 넉넉히 두되, 아예 안 뜬 경우에는 기다림이 끝나야 한다. [why D-114]
 constexpr auto kSharedRegionAttachTimeout = std::chrono::seconds(30);
 
+// 제어 줄의 구독 낱말(구독·해지·칸 우선순위)에서 구독 스펙을 되살린다. 칸 길이는 부르는 쪽이 먼저 본다.
+WatchSpec watch_specification_of(const ipc::ControlRequest& request)
+{
+    WatchSpec specification;
+    specification.ticker     = std::string(request.ticker.view());
+    specification.market     = request.market == static_cast<uint8_t>(Market::US) ? Market::US : Market::KR;
+    specification.exchange   = std::string(ipc::exchange_of(request));
+    specification.trade_only = request.trade_only != 0;
+    specification.is_future  = request.is_future != 0;
+    return specification;
+}
+
+bool same_watch(const WatchSpec& left, const WatchSpec& right)
+{
+    return left.market == right.market && left.exchange == right.exchange && left.ticker == right.ticker &&
+           left.is_future == right.is_future;
+}
+
+// 칸 배정을 받는 종목인가 — 국내 현물만 나눈다. 선물·미국은 기동 때 건 그대로 둔다. [why D-132]
+bool slot_managed(const WatchSpec& specification)
+{
+    return specification.market == Market::KR && !specification.is_future;
+}
+
+// 이 종목이 쓰는 칸 수 — KisWebSocket::specification_channel_count와 같은 규칙(국내 현물만 온다).
+int slot_channels(const WatchSpec& specification)
+{
+    return specification.trade_only ? 1 : 2;
+}
+
 } // namespace
 
 Engine::Engine(KisConfig kis_config, int fetch_interval_sec)
@@ -522,6 +552,7 @@ void Engine::maybe_rescan_universe()
     }
 
     const auto now_steady = std::chrono::steady_clock::now();
+    bool       ran_any    = false;
 
     for (auto& job : universe_rescan_.jobs)
     {
@@ -557,6 +588,14 @@ void Engine::maybe_rescan_universe()
             LOG_ERROR("[Engine] 유니버스 재스캔 알 수 없는 예외");
             continue;
         }
+
+        // 칸 우선순위는 다음 스캔까지 이 순위표로 매긴다. 빈 결과(조회 실패)는 순위 근거가 아니라 직전 것을 둔다.
+        if (!scanned.empty())
+        {
+            job.last_scanned = scanned;
+        }
+
+        ran_any = true;
 
         // 계측(문항 2): 스캔 함수 자체의 경과와 직전 스캔부터의 실제 간격. 설정 주기보다 간격이 길면
         //  스캔이 느린 것(경과≈간격)인지, 이 스레드의 다른 일(잔고 대조·시세 보충)에 밀린 것인지 여기서 갈린다.
@@ -761,6 +800,81 @@ void Engine::maybe_rescan_universe()
             LOG_INFO("[Engine] 유니버스 재스캔 해제: -" + std::to_string(drop.size()) +
                      "종목 (이 슬리브 " + std::to_string(job.registered) + ", 전체 " +
                      std::to_string(universe_rescan_.registered_count) + "종목)");
+        }
+    }
+
+    if (ran_any)
+    {
+        publish_watch_priorities();
+    }
+}
+
+void Engine::publish_watch_priorities()
+{
+    const size_t extent = symbols_.table.capacity() + 1;
+
+    if (watch_priority_sent_.size() < extent)
+    {
+        watch_priority_sent_.resize(extent, kUnsent);
+    }
+
+    // 점수 순위 — 슬리브가 여럿이면 가장 앞선 순위를 쓴다.
+    std::vector<int32_t> scan_rank(extent, -1);
+
+    for (const auto& job : universe_rescan_.jobs)
+    {
+        for (size_t rank = 0; rank < job.last_scanned.size(); ++rank)
+        {
+            const symbol::SymbolId symbol = job.last_scanned[rank];
+
+            if (symbol < extent && (scan_rank[symbol] < 0 || static_cast<int32_t>(rank) < scan_rank[symbol]))
+            {
+                scan_rank[symbol] = static_cast<int32_t>(rank);
+            }
+        }
+    }
+
+    // 보내는 동안 자물쇠를 쥐지 않으려고 사본을 뜬다(보내기 실패 로그가 끼어 있다).
+    std::vector<WatchSpec> specifications;
+    {
+        std::lock_guard<std::mutex> specifications_lock(watch_specifications_mutex_);
+        specifications = watch_specifications_;
+    }
+
+    for (const auto& specification : specifications)
+    {
+        const symbol::SymbolId symbol = slot_managed(specification) ? symbols_.table.lookup(specification.ticker) : symbol::kNone;
+
+        if (symbol == symbol::kNone || symbol >= extent)
+        {
+            continue;
+        }
+
+        // 보유·선점은 원장 사본에서 본다 — 재스캔 이탈 판정과 같은 자리다. [why D-114]
+        const auto& row      = ledger_snapshot_->row(symbol);
+        const bool  held     = row.position != 0;
+        const bool  reserved = row.reserved != 0;
+
+        // 떼어 낸 전략의 종목이 칸을 쥔 채 남으면 새 점수 상위가 칸을 못 받는다. 보는 전략도 보유·선점도 없으면 푼다.
+        if (!held && !reserved && route_mask(symbol) == 0)
+        {
+            {
+                std::lock_guard<std::mutex> specifications_lock(watch_specifications_mutex_);
+                std::erase_if(watch_specifications_,
+                              [&specification](const WatchSpec& watch) { return same_watch(watch, specification); });
+            }
+
+            send_watch_request(specification, ipc::ControlKind::kWatchUnsubscribe);
+            watch_priority_sent_[symbol] = kUnsent;
+            continue;
+        }
+
+        const int32_t priority = websocket_slot::priority_of(held, reserved, scan_rank[symbol]);
+
+        if (watch_priority_sent_[symbol] != priority)
+        {
+            send_watch_request(specification, ipc::ControlKind::kWatchPriority, priority);
+            watch_priority_sent_[symbol] = priority;
         }
     }
 }
@@ -1302,7 +1416,7 @@ bool Engine::add_watch_specification(const WatchSpec& specification)
     return true;
 }
 
-void Engine::send_watch_request(const WatchSpec& specification)
+void Engine::send_watch_request(const WatchSpec& specification, ipc::ControlKind kind, int32_t priority)
 {
     // 칸을 넘는 종목 코드는 잘라 보내지 않는다 — 잘린 코드로 구독하면 엉뚱한 종목의 틱이 이 종목 것으로 온다.
     if (specification.ticker.size() > symbol::Ticker::kMax || specification.exchange.size() >= ipc::kControlExchangeMax)
@@ -1312,7 +1426,8 @@ void Engine::send_watch_request(const WatchSpec& specification)
     }
 
     ipc::ControlRequest request;
-    request.kind       = ipc::ControlKind::kWatchSubscribe;
+    request.kind       = kind;
+    request.rank       = priority;
     request.ticker     = std::string_view(specification.ticker);
     request.market     = static_cast<uint8_t>(specification.market);
     request.trade_only = specification.trade_only ? 1 : 0;
@@ -1329,14 +1444,44 @@ void Engine::send_watch_request(const WatchSpec& specification)
 void Engine::drain_pending_subscriptions()
 {
     std::vector<WatchSpec> specifications;
+    std::vector<WatchSpec> unsubscriptions;
     {
         std::lock_guard<std::mutex> specifications_lock(watch_specifications_mutex_);
         specifications.swap(pending_subscriptions_); // 소켓 쓰기는 자물쇠 밖에서 한다
+        unsubscriptions.swap(pending_unsubscriptions_);
+
+        // 해지는 목록에서도 뺀다 — 남기면 REST 대체(poll_universe)와 재연결이 다시 건다.
+        for (const auto& specification : unsubscriptions)
+        {
+            std::erase_if(watch_specifications_,
+                          [&specification](const WatchSpec& watch) { return same_watch(watch, specification); });
+        }
     }
 
-    if (specifications.empty() || !feed_.websocket)
+    if ((specifications.empty() && unsubscriptions.empty()) || !feed_.websocket)
     {
         return;
+    }
+
+    // 해지를 먼저 푼다 — 돌려받은 칸을 같은 바퀴의 구독이 쓴다. [why D-132]
+    for (const auto& specification : unsubscriptions)
+    {
+        const bool released = feed_.websocket->unsubscribe_incremental(specification);
+
+        if (poller_)
+        {
+            poller_->remove_overflow(specification);
+        }
+
+        const symbol::SymbolId symbol = symbols_.table.lookup(specification.ticker);
+
+        if (symbol < websocket_slots_.size())
+        {
+            websocket_slots_[symbol] = WebSocketSlotState{};
+        }
+
+        LOG_INFO("[WS칸] 구독 해지 — " + specification.ticker + (released ? " (칸 반납)" : " (REST 대체만 멈춤)") +
+                 ", 보는 전략·보유·선점 없음");
     }
 
     for (const auto& specification : specifications)
@@ -2835,11 +2980,10 @@ void Engine::data_thread_fn(std::stop_token stop_token)
                 }
                 else if (feed_.websocket)
                 {
-                    // WS 상한에 밀린 종목 — 재구독을 먼저 시도하고(드롭으로 슬롯이 비었을 수 있다) 안 되면 REST로.
+                    // WS 상한에 밀린 종목은 REST로 받는다. 칸 복귀는 rebalance_websocket_slots()가 우선순위로 정한다 — 여기서
+                    //  먼저 잡으면 넘침 목록에 먼저 선 종목이 보유 종목보다 칸을 먼저 가져간다. [why D-132]
                     //  REST 폴백이 도는 사이클에는 부르지 않는다(그쪽이 이미 전 종목을 폴링한다).
-                    data_count_ += poller_->poll_overflow(
-                        feed_.websocket->take_overflow_specifications(), [this](const WatchSpec& specification) { return feed_.websocket->subscribe_incremental(specification); },
-                        std::time(nullptr));
+                    data_count_ += poller_->poll_overflow(feed_.websocket->take_overflow_specifications(), {}, std::time(nullptr));
                 }
             }
         }
@@ -3255,6 +3399,170 @@ void Engine::apply_control_requests(ControlInbox& inbox)
     pipeline_.control_discarded.store(discarded, std::memory_order_relaxed);
 }
 
+int32_t Engine::websocket_slot_priority(const WatchSpec& specification) const
+{
+    if (!slot_managed(specification))
+    {
+        return websocket_slot::kHeld; // 칸 배정 밖(선물·미국)은 기동 때처럼 먼저 건다
+    }
+
+    const symbol::SymbolId symbol = symbols_.table.lookup(specification.ticker);
+    return symbol < websocket_slots_.size() ? websocket_slots_[symbol].priority : websocket_slot::kUnranked;
+}
+
+void Engine::rebalance_websocket_slots()
+{
+    // 칸 개념이 없는 소스(리플레이)거나 연결 전이면 하지 않는다 — 연결 전 목록은 connect()가 건다.
+    if (!feed_.websocket || !feed_.websocket->is_connected())
+    {
+        return;
+    }
+
+    const int free_slots = feed_.websocket->free_slots();
+
+    if (free_slots < 0)
+    {
+        return;
+    }
+
+    std::vector<WatchSpec> specifications;
+    {
+        std::lock_guard<std::mutex> specifications_lock(watch_specifications_mutex_);
+        specifications.reserve(watch_specifications_.size());
+
+        for (const auto& specification : watch_specifications_)
+        {
+            if (slot_managed(specification))
+            {
+                specifications.push_back(specification);
+            }
+        }
+    }
+
+    if (websocket_slots_.size() < symbols_.table.capacity() + 1)
+    {
+        websocket_slots_.resize(symbols_.table.capacity() + 1);
+    }
+
+    const auto                    now = std::chrono::steady_clock::now();
+    std::vector<websocket_slot::Entry>   entries;
+    std::vector<symbol::SymbolId> ids;
+    std::vector<size_t>           specification_index;
+    int                           used = 0;
+    entries.reserve(specifications.size());
+
+    for (size_t index = 0; index < specifications.size(); ++index)
+    {
+        const WatchSpec&       specification = specifications[index];
+        const symbol::SymbolId symbol        = symbols_.table.lookup(specification.ticker);
+
+        if (symbol == symbol::kNone || symbol >= websocket_slots_.size())
+        {
+            continue;
+        }
+
+        WebSocketSlotState&   state = websocket_slots_[symbol];
+        websocket_slot::Entry entry;
+        entry.channels  = slot_channels(specification);
+        entry.priority  = state.priority;
+        entry.on_socket = feed_.websocket->has_specification(specification);
+
+        if (entry.on_socket)
+        {
+            // 처음 칸에 오른 것을 본 때 — 재연결로 다시 걸린 종목이 REST로도 겹쳐 받지 않게 넘침에서 뺀다.
+            if (state.on_since == std::chrono::steady_clock::time_point{})
+            {
+                state.on_since = now;
+
+                if (poller_)
+                {
+                    poller_->remove_overflow(specification);
+                }
+            }
+
+            entry.held_sec = std::chrono::duration_cast<std::chrono::seconds>(now - state.on_since).count();
+            used          += entry.channels;
+        }
+        else
+        {
+            state.on_since = {};
+        }
+
+        entries.push_back(entry);
+        ids.push_back(symbol);
+        specification_index.push_back(index);
+    }
+
+    websocket_slot::Rules rules;
+    rules.capacity = used + free_slots;
+    const websocket_slot::Plan plan = websocket_slot::plan(entries, rules);
+
+    for (size_t chosen : plan.release)
+    {
+        const WatchSpec& specification = specifications[specification_index[chosen]];
+
+        if (!feed_.websocket->unsubscribe_incremental(specification))
+        {
+            continue;
+        }
+
+        if (poller_)
+        {
+            poller_->add_overflow(specification);
+        }
+
+        websocket_slots_[ids[chosen]].on_since = {};
+        LOG_INFO("[WS칸] 칸 내줌 — " + specification.ticker + " 우선순위=" + std::to_string(entries[chosen].priority) +
+                 " 쥔 시간=" + std::to_string(entries[chosen].held_sec) + "초, 이제 REST로 받는다");
+    }
+
+    std::vector<bool> taken(entries.size(), false);
+
+    for (size_t chosen : plan.take)
+    {
+        const WatchSpec& specification = specifications[specification_index[chosen]];
+
+        // 상한에 걸려 실패하면 소켓 쪽이 넘침 목록에 다시 올린다 — REST로 계속 받는다.
+        if (!feed_.websocket->subscribe_incremental(specification) || !feed_.websocket->has_specification(specification))
+        {
+            continue;
+        }
+
+        if (poller_)
+        {
+            poller_->remove_overflow(specification);
+        }
+
+        taken[chosen]                   = true;
+        websocket_slots_[ids[chosen]].on_since = now;
+        LOG_INFO("[WS칸] 칸 받음 — " + specification.ticker + " 우선순위=" + std::to_string(entries[chosen].priority));
+    }
+
+    // 보유·선점 종목이 칸 밖에 남는 것은 칸 전부를 보유·선점이 쥔 때뿐이다. 바뀔 때만 한 줄 남긴다 — 판정 행이 센다.
+    for (size_t index = 0; index < entries.size(); ++index)
+    {
+        WebSocketSlotState& state       = websocket_slots_[ids[index]];
+        const bool   off_socket  = !entries[index].on_socket && !taken[index];
+        const bool   must_listen = entries[index].priority <= websocket_slot::kProtected;
+        const bool   warn        = must_listen && off_socket;
+
+        if (warn != state.warned_off_socket)
+        {
+            state.warned_off_socket = warn;
+            const std::string& ticker = specifications[specification_index[index]].ticker;
+
+            if (warn)
+            {
+                LOG_WARN("[WS칸] 보유·선점 종목이 칸 밖 — " + ticker + " 는 REST로만 받는다(칸 전부를 보유·선점이 쥠)");
+            }
+            else
+            {
+                LOG_INFO("[WS칸] 보유·선점 종목 칸 밖 풀림 — " + ticker);
+            }
+        }
+    }
+}
+
 void Engine::apply_feed_control_requests()
 {
     ipc::ControlRequest request;
@@ -3272,12 +3580,7 @@ void Engine::apply_feed_control_requests()
                 break; // 통로 저쪽에서 온 칸은 믿지 않는다 — 길이가 칸을 넘으면 view() 가 칸 밖을 읽는다
             }
 
-            WatchSpec specification;
-            specification.ticker     = std::string(request.ticker.view());
-            specification.market     = request.market == static_cast<uint8_t>(Market::US) ? Market::US : Market::KR;
-            specification.exchange   = std::string(ipc::exchange_of(request));
-            specification.trade_only = request.trade_only != 0;
-            specification.is_future  = request.is_future != 0;
+            WatchSpec specification = watch_specification_of(request);
 
             // 목록에 이미 있어도 구독은 건다 — Both 로 돌면 connect_feed() 가 채운 목록에 그대로 들어 있다.
             add_watch_specification(specification);
@@ -3290,11 +3593,46 @@ void Engine::apply_feed_control_requests()
             break;
         }
 
-        // 해지 낱말은 아직 보내는 쪽이 없다. 줄을 가르는 규칙이 낱말 둘을 한 묶음으로 잡고 있어 자리만
-        //  비워 둔다 — 여기 오면 세션 상한을 되찾는 길이 생기는 것이므로 조용히 버리지 않는다.
+        // 보는 전략이 없어진 종목 — 소켓에서 푸는 것은 drain_pending_subscriptions()가 한다. 같은 바퀴에 앞서 온
+        //  구독이 아직 안 걸렸으면 그것도 거둔다(순서가 뒤집혀 다시 걸리지 않게). [why D-132]
         case ipc::ControlKind::kWatchUnsubscribe:
-            LOG_WARN("[Engine] 구독 해지 요청이 왔지만 아직 거는 자리가 없다 — " + std::string(request.ticker.view()));
+        {
+            if (request.ticker.empty() || request.ticker.size() > symbol::Ticker::kMax)
+            {
+                break;
+            }
+
+            WatchSpec specification = watch_specification_of(request);
+            std::lock_guard<std::mutex> specifications_lock(watch_specifications_mutex_);
+            std::erase_if(pending_subscriptions_,
+                          [&specification](const WatchSpec& watch) { return same_watch(watch, specification); });
+            pending_unsubscriptions_.push_back(std::move(specification));
             break;
+        }
+
+        // 칸 우선순위만 바꾼다. 칸을 실제로 옮기는 것은 이어지는 rebalance_websocket_slots()다. [why D-132]
+        case ipc::ControlKind::kWatchPriority:
+        {
+            if (request.ticker.empty() || request.ticker.size() > symbol::Ticker::kMax)
+            {
+                break;
+            }
+
+            const symbol::SymbolId symbol = symbols_.table.lookup(request.ticker.view());
+
+            if (symbol == symbol::kNone)
+            {
+                break; // 아직 구독 요청이 안 닿은 종목 — 우선순위가 바뀌면 다음 재스캔이 다시 보낸다
+            }
+
+            if (websocket_slots_.size() <= symbol)
+            {
+                websocket_slots_.resize(std::max<size_t>(symbols_.table.capacity() + 1, symbol + 1));
+            }
+
+            websocket_slots_[symbol].priority = request.rank;
+            break;
+        }
 
         default:
             // 이 줄로는 구독·해지만 온다. 다른 낱말이 보이면 가르는 규칙과 보내는 쪽이 어긋난 것이다.
@@ -4569,6 +4907,7 @@ void Engine::control_thread_fn(std::stop_token stop_token)
         //  시세 제어 줄은 받는 쪽이 하나로 선다(SPSC). [why D-114 단계 5]
         apply_feed_control_requests();
         drain_pending_subscriptions();
+        rebalance_websocket_slots();
 
         // 장 외 시간에는 stale이 정상 — 장 중에만 묻는다. 전이 판정은 감독기, 소켓·폴백 적용은 여기. [why D-071]
         const bool market_open = is_any_market_open();
@@ -4593,6 +4932,10 @@ void Engine::control_thread_fn(std::stop_token stop_token)
             std::lock_guard<std::mutex> specifications_lock(watch_specifications_mutex_); // data_thread의 재스캔 push_back과 겹친다
             specifications_copy = watch_specifications_;
         }
+
+        // 다시 걸 때 칸이 모자라면 뒤에 선 종목이 밀린다 — 우선순위 순으로 세워 보유 종목이 먼저 칸을 받게 한다. [why D-132]
+        std::stable_sort(specifications_copy.begin(), specifications_copy.end(),
+                         [this](const WatchSpec& left, const WatchSpec& right) { return websocket_slot_priority(left) < websocket_slot_priority(right); });
 
         // 소켓이 여럿이면 멈춘 것만 다시 잇는다 — 살아 있는 소켓의 종목은 그 사이에도 틱이 흐른다. 하나면 끊고 다시 잇는 것.
         const bool ok    = feed_.websocket->reconnect_stale(specifications_copy, feed_.feed_sup.config().stale_sec);

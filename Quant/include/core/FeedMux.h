@@ -84,6 +84,10 @@ public:
 
     std::vector<WatchSpec> take_overflow_specifications() override;
 
+    // 배정된 소스에서 구독을 풀고 배정을 지운다. 칸 수는 소스마다 따로라 free_slots는 소스 합이다. [why D-132]
+    bool unsubscribe_incremental(const WatchSpec& specification) override;
+    int  free_slots() const override;
+
     bool is_connected() const override;
 
     // 소스 하나라도 끊겼거나 멈췄으면 stale — 어느 것인지는 reconnect_stale이 다시 가려 그것만 잇는다.

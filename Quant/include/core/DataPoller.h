@@ -64,6 +64,8 @@ public:
 
     // WS 상한에 밀린 종목 등록. 이미 있으면 false. 반환 뒤 overflow_count()로 로그 문구를 만든다.
     bool add_overflow(const WatchSpec& specification);
+    // 넘침 목록에서 뺀다(칸을 받았거나 더 볼 필요가 없어졌다). 없었으면 false. [why D-132]
+    bool remove_overflow(const WatchSpec& specification);
     size_t overflow_count() const;
 
     // 넘침 처리 한 사이클: from_websocket(최초 연결·재연결에서 밀린 것)를 합치고, 종목마다 재구독을 먼저 시도해 되면

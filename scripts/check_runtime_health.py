@@ -159,6 +159,11 @@ SYMBOL_LOOKUP_MISS_RE = re.compile(r"symbol_lookup_miss=(\d+)")
 # 전략 이름→번호(D-114 단계 4) — 이름표 등록을 주문 쪽에서 못 받은 수.
 STRATEGY_REGISTER_TIMEOUT_RE = re.compile(r"strategy_register_timeout=(\d+)")
 WATCH_OVERFLOW_RE = re.compile(r"watch_overflow=(\d+)")
+# 구독 칸 우선순위 배정(D-132). 넘침 종목이 REST 대체조차 없으면 틱이 아예 안 온다.
+WATCH_NO_REST_RE = re.compile(r"WS 구독 상한 — \S+ 는 REST 대체가 아직 없어")
+WS_SLOT_RELEASE_RE = re.compile(r"\[WS칸\] 칸 내줌 — ")
+WS_SLOT_PROTECTED_OFF_RE = re.compile(r"\[WS칸\] 보유·선점 종목이 칸 밖 — (\S+)")
+WS_SLOT_RELEASE_LIMIT = 200  # 하루 칸 내줌 횟수 문턱 — 넘으면 교체가 잦다
 # 시세 통로(D-114 단계 4 배선 2') — 큐가 차서 못 넘긴 건수, 꺼낸 값이 말이 안 돼 버린 건수.
 FEED_CHANNEL_OVERFLOW_RE = re.compile(r"feed_channel_overflow=(\d+)")
 FEED_CHANNEL_DISCARD_RE = re.compile(r"feed_channel_discarded=(\d+)")
@@ -1397,6 +1402,9 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
     symbol_lookup_miss = 0                       # 표에 없는 티커로 잦은 자리가 불린 수
     strategy_register_timeout = -1               # 이름표 등록을 못 받은 수. -1이면 그 줄이 없는 구 exe
     watch_overflow = -1                          # 구독 상한에 밀린 종목 수. -1이면 그 줄이 없는 구 exe
+    watch_no_rest = 0                            # 상한에 밀렸는데 REST 대체도 없던 종목 수
+    websocket_slot_releases = 0                         # 칸 우선순위 배정이 칸을 내준 횟수(D-132)
+    websocket_slot_protected_off = []                   # 보유·선점인데 칸 밖으로 밀린 종목(D-132)
     feed_channel_overflow = -1                   # 통로가 차서 못 넘긴 시세 건수. -1이면 그 줄이 없는 구 exe
     feed_channel_discarded = -1                  # 꺼낸 값이 말이 안 돼 버린 건수. -1이면 그 줄이 없는 구 exe
     feed_channel_sent = -1                       # 시세 통로로 보낸 건수. -1이면 그 칸이 없는 구 exe
@@ -1486,6 +1494,12 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
                 strategy_register_timeout = max(strategy_register_timeout, int(found.group(1)))
             if found := WATCH_OVERFLOW_RE.search(line):
                 watch_overflow = max(watch_overflow, int(found.group(1)))
+            if WATCH_NO_REST_RE.search(line):
+                watch_no_rest += 1
+            if WS_SLOT_RELEASE_RE.search(line):
+                websocket_slot_releases += 1
+            if found := WS_SLOT_PROTECTED_OFF_RE.search(line):
+                websocket_slot_protected_off.append(found.group(1))
             if found := FEED_CHANNEL_OVERFLOW_RE.search(line):
                 feed_channel_overflow = max(feed_channel_overflow, int(found.group(1)))
             if found := FEED_CHANNEL_DISCARD_RE.search(line):
@@ -1835,10 +1849,25 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
          "전략 이름→번호 수치 줄 없음(D-114 단계 4 배선 ③ 배포 전 바이너리) — 판정 안 함"
          if strategy_register_timeout < 0
          else f"등록 못 받음 {strategy_register_timeout}건 (기대 0)"),
-        # 구독은 KIS 상한(41건)에 걸리면 조용히 거절된다. 밀린 종목은 WS 틱이 안 와 전략이 그 종목을
-        #  보지 못하고, 갈라 띄우면 시세 폴러가 전략 쪽에 있어 REST 대체도 아직 없다 — 그래서 FAIL이다.
-        watch_row("구독 상한", watch_overflow == 0, "FAIL",
-                  f"소켓에 못 건 종목 {watch_overflow}건 (기대 0 — 밀린 종목은 WS 틱을 못 받는다)"),
+        # 구독은 KIS 상한(41건)에 걸리면 거절된다. 앱키가 계좌당 하나라 칸은 못 늘리고, 밀린 종목은 REST
+        #  현재가로 받는다(D-132) — 그래서 밀린 것 자체는 정상이고, REST 대체조차 없는 종목만 FAIL이다.
+        watch_row("구독 상한", watch_no_rest == 0, "FAIL",
+                  f"소켓에 못 건 종목 {watch_overflow}건(REST로 받음) · REST 대체도 없는 종목 {watch_no_rest}건 (기대 0)"),
+        # 칸은 보유 → 선점 → 점수 순으로 준다. 보유·선점 종목이 칸 밖이면 청산 판단이 REST 주기만큼 늦는다.
+        #  칸 전부를 보유·선점이 쥔 날에만 생긴다(2칸 종목 20개면 찬다) — 보유 한도와 칸 수를 같이 볼 일이라 WARN.
+        ("구독 칸 보유 우선",
+         not websocket_slot_protected_off,
+         "WARN",
+         "칸 밖으로 밀린 보유·선점 종목 0건"
+         if not websocket_slot_protected_off
+         else f"칸 밖으로 밀린 보유·선점 종목 {len(websocket_slot_protected_off)}건 "
+              f"({', '.join(sorted(set(websocket_slot_protected_off))[:5])}) — REST로만 받았다"),
+        # 칸을 바꿀 때마다 해제·등록 프레임이 나가고 그 종목 틱이 잠깐 끊긴다. 유지 60초·순위 차 10·한 번 4종목
+        #  문턱이 있어 하루 수십 번이면 정상이다. 넘으면 문턱(websocket_slot::Rules)을 다시 본다.
+        ("구독 칸 교체",
+         websocket_slot_releases <= WS_SLOT_RELEASE_LIMIT,
+         "WARN",
+         f"칸 내줌 {websocket_slot_releases}회 (기대 {WS_SLOT_RELEASE_LIMIT}회 이하)"),
         # 갈라 띄우면 시세는 주문 쪽 소켓에서 통로를 지나 전략 쪽으로 간다. 통로가 차서 버린 건은 그 종목의
         #  체결·호가가 전략에 아예 안 닿은 것이고, 말이 안 돼 버린 건은 건너편 프로세스를 의심할 일이다.
         feed_channel_row("시세 통로", feed_channel_overflow <= 0 and feed_channel_discarded <= 0, "FAIL",

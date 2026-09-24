@@ -60,6 +60,22 @@ bool DataPoller::add_overflow(const WatchSpec& specification)
     return true;
 }
 
+bool DataPoller::remove_overflow(const WatchSpec& specification)
+{
+    const std::lock_guard lock(overflow_mutex_);
+
+    for (auto iterator = overflow_.begin(); iterator != overflow_.end(); ++iterator)
+    {
+        if (poller::same_specification(*iterator, specification))
+        {
+            overflow_.erase(iterator);
+            return true;
+        }
+    }
+
+    return false;
+}
+
 size_t DataPoller::overflow_count() const
 {
     const std::lock_guard lock(overflow_mutex_);

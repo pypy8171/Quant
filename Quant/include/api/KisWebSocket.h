@@ -65,6 +65,13 @@ public:
     //  Engine이 data_thread 사이클마다 가져가 REST 대체 목록에 합친다.
     std::vector<WatchSpec> take_overflow_specifications() override;
 
+    // 종목 하나의 구독을 푼다(tr_type "2") — 목록에서 빼고 칸 수를 돌려받는다. 연결 전이면 목록에서만 뺀다.
+    //  반환: 목록에 있었으면 true. data_thread에서 부른다. [why D-132]
+    bool unsubscribe_incremental(const WatchSpec& specification) override;
+
+    // 더 걸 수 있는 칸 수(kMaxWsSubs − 쓴 칸). 연결 전이면 0 — 칸 배정은 연결된 뒤에만 한다. [why D-132]
+    int free_slots() const override;
+
     // 다건 프레임 분리는 kis_websocket::split_records(api/KisWsDecode.h). 여기 이름은 테스트·호출부 호환용.
     static kis_websocket::Records split_records(kis_websocket::Fields fields, int count, size_t min_fields) noexcept
     {
@@ -89,13 +96,16 @@ private:
 
     bool get_approval_key();
     void send_text(const std::string& message);
-    void send_subscribe(const std::string& transaction_id, const std::string& tr_key);
+    // [wire] tr_type "1" 등록, "2" 해제 — KIS 공식 샘플 kis_auth.py의 KISWebSocket.subscribe/unsubscribe(2026-09-25 확인).
+    static constexpr std::string_view kRegister = "1";
+    static constexpr std::string_view kRelease  = "2";
+    void send_subscribe(const std::string& transaction_id, const std::string& tr_key, std::string_view tr_type = kRegister);
     // specifications_ 전체를 순회하며 채널을 구독한다(최초 연결·재연결 공통). 거래ID(transaction_id) 하드코딩
     // 블록이 네 곳(플랫폼×최초/재연결)에 중복돼 있던 것을 한 곳으로 모은다.
     // 재연결 시 선물 채널이 빠지는 불일치를 막는다.
     void subscribe_all();
     // specification 하나의 채널을 구독한다(현·선물·미국 분기 한 곳). subscribe_all과 증분 구독이 공유한다.
-    void subscribe_specification(const WatchSpec& specification);
+    void subscribe_specification(const WatchSpec& specification, std::string_view tr_type = kRegister);
     // specification 하나가 소비하는 구독 슬롯 수(호가+체결이면 2, trade_only면 1).
     static int specification_channel_count(const WatchSpec& specification);
     // KIS 세션 구독 상한. 문서상 41건이며, 넘기면 이후 구독이 rt=1 MAX SUBSCRIBE OVER로 잘린다.

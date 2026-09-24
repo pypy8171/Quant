@@ -267,29 +267,29 @@ bool KisWebSocket::get_approval_key()
     }
 }
 
-void KisWebSocket::send_subscribe(const std::string& transaction_id, const std::string& ticker)
+void KisWebSocket::send_subscribe(const std::string& transaction_id, const std::string& ticker, std::string_view tr_type)
 {
     json message = {
-        {"header", {{"approval_key", approval_key_}, {"custtype", "P"}, {"tr_type", "1"}, {"content-type", "utf-8"}}},
+        {"header", {{"approval_key", approval_key_}, {"custtype", "P"}, {"tr_type", std::string(tr_type)}, {"content-type", "utf-8"}}},
         {"body", {{"input", {{"tr_id", transaction_id}, {"tr_key", ticker}}}}}};
     send_text(message.dump());
-    LOG_INFO("[WS] 구독: " + transaction_id + " / " + ticker);
+    LOG_INFO(std::string(tr_type == kRelease ? "[WS] 구독 해제: " : "[WS] 구독: ") + transaction_id + " / " + ticker);
 }
 
 // specifications_ 전체를 순회해 채널을 구독한다. 최초 연결·재연결에서 공통으로 호출한다.
 // 재연결 시 trade_only를 준수해야 등록 한도(약 41)를 갉아먹지 않는다(호가 미필요 종목은
 // 체결만). 선물은 WatchSpec.is_future로 골라 H0IFASP0/H0IFCNT0을 구독한다.
-void KisWebSocket::subscribe_specification(const WatchSpec& specification)
+void KisWebSocket::subscribe_specification(const WatchSpec& specification, std::string_view tr_type)
 {
     if (specification.is_future)
     {
         // 국내 선물: tr_key = 선물 종목코드(예 101W09), 미국과 달리 exchange prefix 없음.
         if (!specification.trade_only)
         {
-            send_subscribe("H0IFASP0", specification.ticker);
+            send_subscribe("H0IFASP0", specification.ticker, tr_type);
         }
 
-        send_subscribe("H0IFCNT0", specification.ticker);
+        send_subscribe("H0IFCNT0", specification.ticker, tr_type);
     }
     else if (specification.market == Market::KR)
     {
@@ -299,10 +299,10 @@ void KisWebSocket::subscribe_specification(const WatchSpec& specification)
 
         if (!specification.trade_only)
         {
-            send_subscribe(unified ? "H0UNASP0" : "H0STASP0", specification.ticker);
+            send_subscribe(unified ? "H0UNASP0" : "H0STASP0", specification.ticker, tr_type);
         }
 
-        send_subscribe(unified ? "H0UNCNT0" : "H0STCNT0", specification.ticker);
+        send_subscribe(unified ? "H0UNCNT0" : "H0STCNT0", specification.ticker, tr_type);
     }
     else
     {
@@ -310,7 +310,7 @@ void KisWebSocket::subscribe_specification(const WatchSpec& specification)
         std::string tr_key(specification.exchange.empty() ? std::string_view("NAS") : std::string_view(specification.exchange));
         tr_key += '|';
         tr_key += specification.ticker;
-        send_subscribe("HDFSCNT0", tr_key);
+        send_subscribe("HDFSCNT0", tr_key, tr_type);
     }
 }
 
@@ -371,6 +371,39 @@ bool KisWebSocket::subscribe_incremental(const WatchSpec& specification)
     subscribe_specification(specification);
     sub_used_.fetch_add(need);
     return true;
+}
+
+bool KisWebSocket::unsubscribe_incremental(const WatchSpec& specification)
+{
+    {
+        std::lock_guard<std::mutex> lock(specifications_mutex_);
+        const auto iterator = std::find_if(specifications_.begin(), specifications_.end(), [&specification](const WatchSpec& watch)
+        {
+            return watch.market == specification.market && watch.exchange == specification.exchange &&
+                   watch.ticker == specification.ticker && watch.is_future == specification.is_future;
+        });
+
+        if (iterator == specifications_.end())
+        {
+            return false;
+        }
+
+        specifications_.erase(iterator);
+    }
+
+    if (!connected_.load())
+    {
+        return true; // 목록에서 빠졌으니 connect()/재연결이 걸지 않는다
+    }
+
+    subscribe_specification(specification, kRelease);
+    sub_used_.fetch_sub(specification_channel_count(specification));
+    return true;
+}
+
+int KisWebSocket::free_slots() const
+{
+    return connected_.load() ? kMaxWsSubs - sub_used_.load() : 0;
 }
 
 bool KisWebSocket::has_specification(const WatchSpec& specification) const
