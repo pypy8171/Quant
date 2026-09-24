@@ -450,7 +450,7 @@ review = [
 
   [[stage.step]]
   sym = "Engine::maybe_rescan_universe"
-  file = "Quant/src/core/Engine.cpp"
+  file = "Quant/src/core/EngineUniverse.cpp"
   what = "유니버스 재스캔 — 빠진 보유 종목은 40초에 신규매수 차단, 600초에 전략 해제(`UniverseExit.h`, D-077). 청산 관리 보유(`exit_managed_tickers`)는 스캔 신규매수에서 뺀다"
   test = "test_signal_dispatcher"
 

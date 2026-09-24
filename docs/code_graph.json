@@ -44,7 +44,7 @@
     {
       "from": "core",
       "to": "utils",
-      "weight": 16
+      "weight": 17
     },
     {
       "from": "exchange",
@@ -283,6 +283,7 @@
     "core/EngineDataThread.cpp": "core",
     "core/EngineOpsServer.cpp": "core",
     "core/EngineRegime.cpp": "core",
+    "core/EngineUniverse.cpp": "core",
     "core/FeedMux.cpp": "core",
     "core/FeedSupervisor.cpp": "core",
     "core/HttpQuoteFeed.cpp": "core",
@@ -481,7 +482,6 @@
       "core/KstTime.h",
       "core/LatencyTrace.h",
       "core/ReconcilePlan.h",
-      "core/UniverseExit.h",
       "risk/DisplacementDesk.h",
       "utils/Logger.h",
       "utils/ThreadName.h",
@@ -544,6 +544,12 @@
     ],
     "core/EngineRegime.cpp": [
       "core/Engine.h",
+      "utils/Logger.h"
+    ],
+    "core/EngineUniverse.cpp": [
+      "core/Engine.h",
+      "core/KstTime.h",
+      "core/UniverseExit.h",
       "utils/Logger.h"
     ],
     "core/FeedMux.cpp": [
@@ -1217,6 +1223,7 @@
       "core/EngineDataThread.cpp",
       "core/EngineOpsServer.cpp",
       "core/EngineRegime.cpp",
+      "core/EngineUniverse.cpp",
       "main.cpp",
       "strategy/StrategyFactory.cpp"
     ],
@@ -1245,6 +1252,7 @@
       "core/DataPoller.cpp",
       "core/Engine.cpp",
       "core/EngineOpsServer.cpp",
+      "core/EngineUniverse.cpp",
       "core/KstTime.cpp",
       "core/LedgerReconciler.h",
       "core/RegimeFileJudge.h",
@@ -1430,7 +1438,7 @@
       "universe/UniverseScanner.cpp"
     ],
     "core/UniverseExit.h": [
-      "core/Engine.cpp",
+      "core/EngineUniverse.cpp",
       "core/UniverseExit.cpp",
       "strategy/StrategyFactory.cpp"
     ],
@@ -1701,6 +1709,7 @@
       "core/EngineDataThread.cpp",
       "core/EngineOpsServer.cpp",
       "core/EngineRegime.cpp",
+      "core/EngineUniverse.cpp",
       "core/HttpQuoteFeed.cpp",
       "core/LedgerReconciler.cpp",
       "core/OrderRateLimiter.cpp",
@@ -1750,7 +1759,7 @@
     },
     {
       "header": "utils/Logger.h",
-      "in_degree": 37
+      "in_degree": 38
     },
     {
       "header": "core/SymbolTable.h",
@@ -1758,7 +1767,7 @@
     },
     {
       "header": "core/KstTime.h",
-      "in_degree": 18
+      "in_degree": 19
     },
     {
       "header": "strategy/StrategyBase.h",
@@ -1773,6 +1782,10 @@
       "in_degree": 10
     },
     {
+      "header": "core/Engine.h",
+      "in_degree": 8
+    },
+    {
       "header": "core/MarketSession.h",
       "in_degree": 8
     },
@@ -1783,10 +1796,6 @@
     {
       "header": "utils/ThreadName.h",
       "in_degree": 8
-    },
-    {
-      "header": "core/Engine.h",
-      "in_degree": 7
     },
     {
       "header": "core/LatencyTrace.h",
