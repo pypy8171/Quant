@@ -33,7 +33,11 @@ try {
         }
     }
 
-    $desktop  = [Environment]::GetFolderPath('Desktop')
+    # 바탕화면은 레지스트리 값을 먼저 쓴다. VS 개발자 셸(Enter-VsDevShell)을 거친 빌드는 USERPROFILE 같은 한글 환경변수가
+    #  깨져 있어 GetFolderPath 가 빈 문자열을 돌려준다(2026-09-25 실측). 레지스트리 'Shell Folders' 값은 이미 펼쳐진 경로라 환경변수를 안 탄다.
+    $desktop = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders' -ErrorAction SilentlyContinue).Desktop
+    if (-not $desktop -or -not (Test-Path $desktop)) { $desktop = [Environment]::GetFolderPath('Desktop') }
+    if (-not $desktop) { Write-Host "[ops_terminal_shortcut] 바탕화면 경로를 못 찾았다 — 건너뜀"; exit 0 }
     $linkPath = Join-Path $desktop '운영단말.lnk'
     $shell    = New-Object -ComObject WScript.Shell
     $link     = $shell.CreateShortcut($linkPath)
