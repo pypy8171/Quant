@@ -711,6 +711,9 @@
     "core/WebSocketSlotPlan.cpp": [
       "core/WebSocketSlotPlan.h"
     ],
+    "core/WebSocketSlotPlan.h": [
+      "core/Types.h"
+    ],
     "exchange/MatchingEngine.cpp": [
       "core/TickSize.h"
     ],
@@ -1396,6 +1399,7 @@
       "core/TickCapture.h",
       "core/TickSize.h",
       "core/Types.cpp",
+      "core/WebSocketSlotPlan.h",
       "exchange/MatchingEngine.h",
       "ipc/ControlChannel.h",
       "ipc/FillChannel.h",
@@ -1731,7 +1735,7 @@
   "hubs": [
     {
       "header": "core/Types.h",
-      "in_degree": 41
+      "in_degree": 42
     },
     {
       "header": "utils/Logger.h",

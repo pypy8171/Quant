@@ -55,7 +55,7 @@ graph LR
 
 | 헤더 | 유입 수 |
 |---|---|
-| `core/Types.h` | 41 |
+| `core/Types.h` | 42 |
 | `utils/Logger.h` | 36 |
 | `core/SymbolTable.h` | 20 |
 | `core/KstTime.h` | 18 |
@@ -150,6 +150,7 @@ graph LR
     n_core_UniverseExit_h["core/UniverseExit.h"]
     n_core_WakeGate_cpp["core/WakeGate.cpp"]
     n_core_WebSocketSlotPlan_cpp["core/WebSocketSlotPlan.cpp"]
+    n_core_WebSocketSlotPlan_h["core/WebSocketSlotPlan.h"]
   end
   subgraph exchange
     n_exchange_MatchingEngine_cpp["exchange/MatchingEngine.cpp"]
@@ -451,6 +452,7 @@ graph LR
   n_core_UniverseExit_h --> n_core_SymbolTable_h
   n_core_WakeGate_cpp --> n_core_WakeGate_h
   n_core_WebSocketSlotPlan_cpp --> n_core_WebSocketSlotPlan_h
+  n_core_WebSocketSlotPlan_h --> n_core_Types_h
   n_exchange_MatchingEngine_cpp --> n_core_TickSize_h
   n_exchange_MatchingEngine_h --> n_core_SymbolTable_h
   n_exchange_MatchingEngine_h --> n_core_Types_h

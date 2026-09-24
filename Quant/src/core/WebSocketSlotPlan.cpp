@@ -6,6 +6,16 @@
 
 namespace websocket_slot
 {
+bool is_managed(const WatchSpec& specification)
+{
+    return specification.market == Market::KR && !specification.is_future;
+}
+
+int channels_of(const WatchSpec& specification)
+{
+    return specification.trade_only ? 1 : 2;
+}
+
 int32_t priority_of(bool held, bool reserved, int32_t scan_rank)
 {
     if (held)

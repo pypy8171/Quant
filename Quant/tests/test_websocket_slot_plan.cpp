@@ -169,13 +169,37 @@ int test_released_not_reused()
     CHECK(result.release.size() == 2 && result.take.size() == 2);
     return 0;
 }
+
+int test_managed_and_channels()
+{
+    // 칸 배정은 국내 현물만 받는다. 칸 수는 체결만이면 1, 호가까지면 2.
+    WatchSpec stock;
+    stock.ticker = "005930";
+    CHECK(websocket_slot::is_managed(stock) && websocket_slot::channels_of(stock) == 2);
+    stock.trade_only = true;
+    CHECK(websocket_slot::channels_of(stock) == 1);
+
+    WatchSpec future = stock;
+    future.is_future = true;
+    CHECK(!websocket_slot::is_managed(future));
+
+    WatchSpec overseas = stock;
+    overseas.market = Market::US;
+    CHECK(!websocket_slot::is_managed(overseas));
+
+    // 같은 구독인가는 체결만 여부를 보지 않는다.
+    WatchSpec both = stock;
+    both.trade_only = false;
+    CHECK(same_watch(stock, both) && !same_watch(stock, future) && !same_watch(stock, overseas));
+    return 0;
+}
 } // namespace
 
 int main()
 {
     if (test_priority_of() || test_fill_free_slots() || test_held_takes_slot_from_low_score() ||
         test_protected_never_released() || test_min_hold() || test_rank_gap() || test_max_swaps() || test_channels() ||
-        test_released_not_reused())
+        test_released_not_reused() || test_managed_and_channels())
     {
         return 1;
     }

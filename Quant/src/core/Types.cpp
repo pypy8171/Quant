@@ -1,5 +1,11 @@
 #include "core/Types.h"
 
+bool same_watch(const WatchSpec& left, const WatchSpec& right)
+{
+    return left.market == right.market && left.exchange == right.exchange && left.ticker == right.ticker &&
+           left.is_future == right.is_future;
+}
+
 uint64_t digits_to_number(std::string_view digits) noexcept
 {
     if (digits.empty())

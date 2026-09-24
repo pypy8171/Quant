@@ -57,6 +57,17 @@ std::string_view exchange_of(const ControlRequest& request) noexcept
     return view_of_field(request.exchange, kControlExchangeMax);
 }
 
+WatchSpec watch_specification_of(const ControlRequest& request)
+{
+    WatchSpec specification;
+    specification.ticker     = std::string(request.ticker.view());
+    specification.market     = request.market == static_cast<uint8_t>(Market::US) ? Market::US : Market::KR;
+    specification.exchange   = std::string(exchange_of(request));
+    specification.trade_only = request.trade_only != 0;
+    specification.is_future  = request.is_future != 0;
+    return specification;
+}
+
 ControlTableBuilder::ControlTableBuilder(size_t capacity) : capacity_(capacity)
 {
     rows_.reserve(std::min<size_t>(capacity_, kTypicalTableRows)); // 흔한 표 크기만 미리 잡는다

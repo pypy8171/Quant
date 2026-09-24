@@ -311,7 +311,7 @@ review = [
 
   [[stage.step]]
   sym = "Engine::take_manual_order"
-  file = "Quant/src/core/Engine.cpp"
+  file = "Quant/src/core/EngineOpsServer.cpp"
   what = "운영단말 수동 주문(`ops_.manual_inbox`)을 이 스레드가 꺼낸다 — 전략이 멎어도 사람이 손으로 낼 수 있게(D-114). 순번 0이라 전략 쪽에 돌려줄 답이 없고, 결과는 단말에 `ORDER_RESULT_NTF`로 간다"
   test = "test_engine"
 
@@ -433,7 +433,7 @@ review = [
 
   [[stage.step]]
   sym = "Engine::poll_regime_file"
-  file = "Quant/src/core/Engine.cpp"
+  file = "Quant/src/core/EngineRegime.cpp"
   what = "데이터 스레드가 부른다. `regime.json` 축 — `entry_halt`(신규매수 차단)·`entry_scale`(매수비율)·`force_liquidate`, 그리고 라벨 전이 때 `apply_regime_selection`(전략 집합 선택, D-084). 상태기계는 `RegimeFileJudge.h`"
   test = "test_regime_file_judge"
 
@@ -445,7 +445,7 @@ review = [
 
   [[stage.step]]
   sym = "Engine::apply_regime_selection"
-  file = "Quant/src/core/Engine.cpp"
+  file = "Quant/src/core/EngineRegime.cpp"
   what = "국면 → `regime_strategies` 집합으로 전략 활성/비활성. 청산은 하지 않는다"
 
   [[stage.step]]

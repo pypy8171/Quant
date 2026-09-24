@@ -77,36 +77,6 @@ static_assert(symbol::kNone == 0 && strategy_table::kNone == 0, "둘 다 0이어
 //  기동이 몇 초 늦을 수 있다 — 그보다 넉넉히 두되, 아예 안 뜬 경우에는 기다림이 끝나야 한다. [why D-114]
 constexpr auto kSharedRegionAttachTimeout = std::chrono::seconds(30);
 
-// 제어 줄의 구독 낱말(구독·해지·칸 우선순위)에서 구독 스펙을 되살린다. 칸 길이는 부르는 쪽이 먼저 본다.
-WatchSpec watch_specification_of(const ipc::ControlRequest& request)
-{
-    WatchSpec specification;
-    specification.ticker     = std::string(request.ticker.view());
-    specification.market     = request.market == static_cast<uint8_t>(Market::US) ? Market::US : Market::KR;
-    specification.exchange   = std::string(ipc::exchange_of(request));
-    specification.trade_only = request.trade_only != 0;
-    specification.is_future  = request.is_future != 0;
-    return specification;
-}
-
-bool same_watch(const WatchSpec& left, const WatchSpec& right)
-{
-    return left.market == right.market && left.exchange == right.exchange && left.ticker == right.ticker &&
-           left.is_future == right.is_future;
-}
-
-// 칸 배정을 받는 종목인가 — 국내 현물만 나눈다. 선물·미국은 기동 때 건 그대로 둔다. [why D-132]
-bool slot_managed(const WatchSpec& specification)
-{
-    return specification.market == Market::KR && !specification.is_future;
-}
-
-// 이 종목이 쓰는 칸 수 — KisWebSocket::specification_channel_count와 같은 규칙(국내 현물만 온다).
-int slot_channels(const WatchSpec& specification)
-{
-    return specification.trade_only ? 1 : 2;
-}
-
 } // namespace
 
 Engine::Engine(KisConfig kis_config, int fetch_interval_sec)
@@ -847,7 +817,7 @@ void Engine::publish_watch_priorities()
 
     for (const auto& specification : specifications)
     {
-        const symbol::SymbolId symbol = slot_managed(specification) ? symbols_.table.lookup(specification.ticker) : symbol::kNone;
+        const symbol::SymbolId symbol = websocket_slot::is_managed(specification) ? symbols_.table.lookup(specification.ticker) : symbol::kNone;
 
         if (symbol == symbol::kNone || symbol >= extent)
         {
@@ -3437,7 +3407,7 @@ void Engine::apply_control_requests(ControlInbox& inbox)
 
 int32_t Engine::websocket_slot_priority(const WatchSpec& specification) const
 {
-    if (!slot_managed(specification))
+    if (!websocket_slot::is_managed(specification))
     {
         return websocket_slot::kHeld; // 칸 배정 밖(선물·미국)은 기동 때처럼 먼저 건다
     }
@@ -3468,7 +3438,7 @@ void Engine::rebalance_websocket_slots()
 
         for (const auto& specification : watch_specifications_)
         {
-            if (slot_managed(specification))
+            if (websocket_slot::is_managed(specification))
             {
                 specifications.push_back(specification);
             }
@@ -3499,7 +3469,7 @@ void Engine::rebalance_websocket_slots()
 
         WebSocketSlotState&   state = websocket_slots_[symbol];
         websocket_slot::Entry entry;
-        entry.channels  = slot_channels(specification);
+        entry.channels  = websocket_slot::channels_of(specification);
         entry.priority  = state.priority;
         entry.on_socket = feed_.websocket->has_specification(specification);
 
@@ -3616,7 +3586,7 @@ void Engine::apply_feed_control_requests()
                 break; // 통로 저쪽에서 온 칸은 믿지 않는다 — 길이가 칸을 넘으면 view() 가 칸 밖을 읽는다
             }
 
-            WatchSpec specification = watch_specification_of(request);
+            WatchSpec specification = ipc::watch_specification_of(request);
 
             // 목록에 이미 있어도 구독은 건다 — Both 로 돌면 connect_feed() 가 채운 목록에 그대로 들어 있다.
             add_watch_specification(specification);
@@ -3638,7 +3608,7 @@ void Engine::apply_feed_control_requests()
                 break;
             }
 
-            WatchSpec specification = watch_specification_of(request);
+            WatchSpec specification = ipc::watch_specification_of(request);
             std::lock_guard<std::mutex> specifications_lock(watch_specifications_mutex_);
             std::erase_if(pending_subscriptions_,
                           [&specification](const WatchSpec& watch) { return same_watch(watch, specification); });

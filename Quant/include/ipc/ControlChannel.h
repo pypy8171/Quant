@@ -97,6 +97,9 @@ void set_exchange(ControlRequest& request, std::string_view exchange) noexcept;
 // 칸에 담긴 거래소 코드. [inv] 돌려주는 조각은 request 가 사는 동안만 유효하다.
 [[nodiscard]] std::string_view exchange_of(const ControlRequest& request) noexcept;
 
+// 제어 줄의 구독 낱말(구독·해지·칸 우선순위)에서 구독 스펙을 되살린다. 칸 길이는 부르는 쪽이 먼저 본다.
+[[nodiscard]] WatchSpec watch_specification_of(const ControlRequest& request);
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 주문 쪽 — 여러 줄로 나뉘어 오는 표 하나를 모은다
 // ─────────────────────────────────────────────────────────────────────────────
