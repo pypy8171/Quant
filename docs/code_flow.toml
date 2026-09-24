@@ -89,7 +89,7 @@ review = [
 
   [[stage.step]]
   sym = "Engine::add_strategy"
-  file = "Quant/src/core/Engine.cpp"
+  file = "Quant/src/core/EngineStrategyThread.cpp"
   what = "전략 등록. 심볼 해석기(`set_symbol_resolver` → `SymbolTable::intern`)가 여기서 주입된다"
 
   [[stage.step]]
@@ -204,7 +204,7 @@ review = [
 
   [[stage.step]]
   sym = "Engine::shard_thread_fn"
-  file = "Quant/src/core/Engine.cpp"
+  file = "Quant/src/core/EngineStrategyThread.cpp"
   what = "전략 집합 버전이 바뀌면 `rebuild`, 아니면 `step`. 비면 `WakeGate`로 잠든다. `emit`은 `pipeline_.shard_out` push + 디스패치 스레드 깨우기"
 
   [[stage.step]]
@@ -270,7 +270,7 @@ review = [
 
   [[stage.step]]
   sym = "Engine::strategy_thread_fn"
-  file = "Quant/src/core/Engine.cpp"
+  file = "Quant/src/core/EngineStrategyThread.cpp"
   what = "루프 한 바퀴: `flush_held` → 강제청산(2초 재발주) → `trim_excess_once`(기동 20초 뒤 1회) → `pipeline_.shard_out` 비우기(`from_strategy`) → 잠(상한 10ms). 국면 파일은 데이터 스레드가 읽는다(6절)"
 
   [[stage.step]]

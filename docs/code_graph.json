@@ -44,7 +44,7 @@
     {
       "from": "core",
       "to": "utils",
-      "weight": 17
+      "weight": 19
     },
     {
       "from": "exchange",
@@ -283,6 +283,7 @@
     "core/EngineDataThread.cpp": "core",
     "core/EngineOpsServer.cpp": "core",
     "core/EngineRegime.cpp": "core",
+    "core/EngineStrategyThread.cpp": "core",
     "core/EngineUniverse.cpp": "core",
     "core/FeedMux.cpp": "core",
     "core/FeedSupervisor.cpp": "core",
@@ -545,6 +546,12 @@
     "core/EngineRegime.cpp": [
       "core/Engine.h",
       "utils/Logger.h"
+    ],
+    "core/EngineStrategyThread.cpp": [
+      "core/Engine.h",
+      "core/LatencyTrace.h",
+      "utils/Logger.h",
+      "utils/ThreadName.h"
     ],
     "core/EngineUniverse.cpp": [
       "core/Engine.h",
@@ -1223,6 +1230,7 @@
       "core/EngineDataThread.cpp",
       "core/EngineOpsServer.cpp",
       "core/EngineRegime.cpp",
+      "core/EngineStrategyThread.cpp",
       "core/EngineUniverse.cpp",
       "main.cpp",
       "strategy/StrategyFactory.cpp"
@@ -1270,6 +1278,7 @@
       "core/Engine.cpp",
       "core/Engine.h",
       "core/EngineDataThread.cpp",
+      "core/EngineStrategyThread.cpp",
       "core/LatencyTrace.cpp",
       "core/SignalDispatcher.cpp",
       "ipc/OrderRouter.cpp"
@@ -1709,6 +1718,7 @@
       "core/EngineDataThread.cpp",
       "core/EngineOpsServer.cpp",
       "core/EngineRegime.cpp",
+      "core/EngineStrategyThread.cpp",
       "core/EngineUniverse.cpp",
       "core/HttpQuoteFeed.cpp",
       "core/LedgerReconciler.cpp",
@@ -1740,6 +1750,7 @@
       "api/WebSocketClient.cpp",
       "core/Engine.cpp",
       "core/EngineDataThread.cpp",
+      "core/EngineStrategyThread.cpp",
       "core/PrefetchPool.h",
       "ipc/OpsServer.cpp",
       "ipc/ZmqBridge.cpp",
@@ -1759,7 +1770,7 @@
     },
     {
       "header": "utils/Logger.h",
-      "in_degree": 38
+      "in_degree": 39
     },
     {
       "header": "core/SymbolTable.h",
@@ -1783,7 +1794,11 @@
     },
     {
       "header": "core/Engine.h",
-      "in_degree": 8
+      "in_degree": 9
+    },
+    {
+      "header": "utils/ThreadName.h",
+      "in_degree": 9
     },
     {
       "header": "core/MarketSession.h",
@@ -1794,12 +1809,8 @@
       "in_degree": 8
     },
     {
-      "header": "utils/ThreadName.h",
-      "in_degree": 8
-    },
-    {
       "header": "core/LatencyTrace.h",
-      "in_degree": 6
+      "in_degree": 7
     },
     {
       "header": "core/StrategyTable.h",

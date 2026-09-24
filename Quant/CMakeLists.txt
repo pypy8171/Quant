@@ -197,6 +197,7 @@ set(ENGINE_SOURCES
   src/core/EngineDataThread.cpp
   src/core/EngineRegime.cpp
   src/core/EngineOpsServer.cpp
+  src/core/EngineStrategyThread.cpp
   src/core/EngineUniverse.cpp
   src/core/LedgerReconciler.cpp
   src/core/DataPoller.cpp
