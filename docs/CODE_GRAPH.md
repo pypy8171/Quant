@@ -24,7 +24,7 @@ graph LR
   core -->|10| ipc
   core -->|7| risk
   core -->|3| strategy
-  core -->|26| utils
+  core -->|27| utils
   exchange -->|7| core
   exchange -->|2| utils
   ipc -->|2| api
@@ -55,12 +55,12 @@ graph LR
 
 | 헤더 | 유입 수 |
 |---|---|
-| `utils/Logger.h` | 43 |
+| `utils/Logger.h` | 44 |
 | `core/Types.h` | 42 |
 | `core/KstTime.h` | 20 |
 | `core/SymbolTable.h` | 20 |
 | `strategy/StrategyBase.h` | 15 |
-| `core/Engine.h` | 13 |
+| `core/Engine.h` | 14 |
 | `utils/ThreadName.h` | 12 |
 | `api/KisClient.h` | 11 |
 
@@ -111,6 +111,7 @@ graph LR
     n_core_EngineOrderThread_cpp["core/EngineOrderThread.cpp"]
     n_core_EngineRegime_cpp["core/EngineRegime.cpp"]
     n_core_EngineStrategyThread_cpp["core/EngineStrategyThread.cpp"]
+    n_core_EngineSymbols_cpp["core/EngineSymbols.cpp"]
     n_core_EngineUniverse_cpp["core/EngineUniverse.cpp"]
     n_core_FeedMux_cpp["core/FeedMux.cpp"]
     n_core_FeedMux_h["core/FeedMux.h"]
@@ -399,6 +400,9 @@ graph LR
   n_core_EngineStrategyThread_cpp --> n_core_LatencyTrace_h
   n_core_EngineStrategyThread_cpp --> n_utils_Logger_h
   n_core_EngineStrategyThread_cpp --> n_utils_ThreadName_h
+  n_core_EngineSymbols_cpp --> n_core_Engine_h
+  n_core_EngineSymbols_cpp --> n_core_LatencyTrace_h
+  n_core_EngineSymbols_cpp --> n_utils_Logger_h
   n_core_EngineUniverse_cpp --> n_core_Engine_h
   n_core_EngineUniverse_cpp --> n_core_KstTime_h
   n_core_EngineUniverse_cpp --> n_core_UniverseExit_h

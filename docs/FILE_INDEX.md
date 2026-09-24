@@ -9,7 +9,7 @@
 - [(루트)](#루트) — 11개
 - [.vscode](#vscode) — 4개
 - [PYQuant](#pyquant) — 118개
-- [Quant](#quant) — 315개
+- [Quant](#quant) — 316개
 - [docs](#docs) — 100개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 245개
@@ -405,6 +405,7 @@
 - [EngineOrderThread.cpp](../Quant/src/core/EngineOrderThread.cpp) — 주문 쪽 — 주문 실행 스레드(`order_thread_fn`), 보호 주문 표 한 주기, 전략 생존 추적
 - [EngineRegime.cpp](../Quant/src/core/EngineRegime.cpp) — 국면 선택 — regime.json 을 읽어 지금 국면을 정하고 그 국면 전략만 켠다(`poll_regime_file`·`apply_regime_selection`)
 - [EngineStrategyThread.cpp](../Quant/src/core/EngineStrategyThread.cpp) — 전략 쪽 — 전략 등록·시작, 전략 처리 스레드와 샤드 스레드(`strategy_thread_fn`·`shard_thread_fn`)
+- [EngineSymbols.cpp](../Quant/src/core/EngineSymbols.cpp) — 종목 쪽 — 티커↔정수 id 풀이·등록(`lookup_symbol`·`register_symbol`), 장중 번호 받아 오기, 종목명 라벨, 최근 가격
 - [EngineUniverse.cpp](../Quant/src/core/EngineUniverse.cpp) — 유니버스 재스캔 — 새 종목 등록, 스캔에서 빠진 소유 종목의 신규매수 차단·떼기(`maybe_rescan_universe`·`reap_retired`)
 - [FeedMux.cpp](../Quant/src/core/FeedMux.cpp) — FeedMux.h 구현 — 피드 소스 여러 개를 한 소스로 묶는 mux(D-071)
 - [FeedSupervisor.cpp](../Quant/src/core/FeedSupervisor.cpp) — FeedSupervisor.h 구현 — WS stale→재연결 백오프→폴백 요구 판정 상태기계(D-071)

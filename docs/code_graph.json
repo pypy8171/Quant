@@ -44,7 +44,7 @@
     {
       "from": "core",
       "to": "utils",
-      "weight": 26
+      "weight": 27
     },
     {
       "from": "exchange",
@@ -288,6 +288,7 @@
     "core/EngineOrderThread.cpp": "core",
     "core/EngineRegime.cpp": "core",
     "core/EngineStrategyThread.cpp": "core",
+    "core/EngineSymbols.cpp": "core",
     "core/EngineUniverse.cpp": "core",
     "core/FeedMux.cpp": "core",
     "core/FeedSupervisor.cpp": "core",
@@ -579,6 +580,11 @@
       "core/LatencyTrace.h",
       "utils/Logger.h",
       "utils/ThreadName.h"
+    ],
+    "core/EngineSymbols.cpp": [
+      "core/Engine.h",
+      "core/LatencyTrace.h",
+      "utils/Logger.h"
     ],
     "core/EngineUniverse.cpp": [
       "core/Engine.h",
@@ -1262,6 +1268,7 @@
       "core/EngineOrderThread.cpp",
       "core/EngineRegime.cpp",
       "core/EngineStrategyThread.cpp",
+      "core/EngineSymbols.cpp",
       "core/EngineUniverse.cpp",
       "main.cpp",
       "strategy/StrategyFactory.cpp"
@@ -1314,6 +1321,7 @@
       "core/EngineDataThread.cpp",
       "core/EngineOrderThread.cpp",
       "core/EngineStrategyThread.cpp",
+      "core/EngineSymbols.cpp",
       "core/LatencyTrace.cpp",
       "core/SignalDispatcher.cpp",
       "ipc/OrderRouter.cpp"
@@ -1758,6 +1766,7 @@
       "core/EngineOrderThread.cpp",
       "core/EngineRegime.cpp",
       "core/EngineStrategyThread.cpp",
+      "core/EngineSymbols.cpp",
       "core/EngineUniverse.cpp",
       "core/HttpQuoteFeed.cpp",
       "core/LedgerReconciler.cpp",
@@ -1808,7 +1817,7 @@
   "hubs": [
     {
       "header": "utils/Logger.h",
-      "in_degree": 43
+      "in_degree": 44
     },
     {
       "header": "core/Types.h",
@@ -1828,7 +1837,7 @@
     },
     {
       "header": "core/Engine.h",
-      "in_degree": 13
+      "in_degree": 14
     },
     {
       "header": "utils/ThreadName.h",
@@ -1840,7 +1849,7 @@
     },
     {
       "header": "core/LatencyTrace.h",
-      "in_degree": 10
+      "in_degree": 11
     },
     {
       "header": "core/WakeGate.h",
