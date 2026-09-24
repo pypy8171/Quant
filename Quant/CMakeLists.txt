@@ -194,6 +194,7 @@ set(ENGINE_SOURCES
   src/core/CommandLine.cpp
   src/core/Engine.cpp
   src/core/EngineConfigure.cpp
+  src/core/EngineControlThread.cpp
   src/core/EngineDataThread.cpp
   src/core/EngineFillThread.cpp
   src/core/EngineOrderThread.cpp

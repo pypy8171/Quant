@@ -428,7 +428,7 @@ review = [
 
   [[stage.step]]
   sym = "Engine::control_thread_fn"
-  file = "Quant/src/core/Engine.cpp"
+  file = "Quant/src/core/EngineControlThread.cpp"
   what = "큐 고수위 1분 로그 → 토큰 선갱신(5분, 만료 30분 전) → 손익 갱신 감시(끊기면 `set_kill_switch` 보수정지) → WS stale·재연결·REST 폴백(`feed::Supervisor` 판정)"
 
   [[stage.step]]
@@ -462,7 +462,7 @@ review = [
 
   [[stage.step]]
   sym = "Engine::activate_rest_fallback"
-  file = "Quant/src/core/Engine.cpp"
+  file = "Quant/src/core/EngineControlThread.cpp"
   what = "WS가 stale이면 REST 현재가 폴링으로 대체 틱(`received_ns`=0). 복귀는 `deactivate_rest_fallback`"
 
 # ───────────────────────────────────────────────────────────────────────────────

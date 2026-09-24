@@ -240,7 +240,7 @@ meaning = "resolve / connect / send / receive 타임아웃"
 
 [[code_value]]
 id = "kis_token_check_every"
-file = "Quant/src/core/Engine.cpp"
+file = "Quant/src/core/EngineControlThread.cpp"
 regex = 'constexpr int kTokenEvery = (\d+);'
 unit = "×5초"
 group = "KIS REST — 호출 속도·재시도·토큰"
@@ -248,7 +248,7 @@ meaning = "control_thread 가 토큰 만료를 점검하는 주기(5초 × 이 �
 
 [[code_value]]
 id = "kis_token_refresh_margin"
-file = "Quant/src/core/Engine.cpp"
+file = "Quant/src/core/EngineControlThread.cpp"
 regex = 'feed_\.kis->refresh_token\(std::chrono::minutes\((\d+)\)\);'
 unit = "분"
 group = "KIS REST — 호출 속도·재시도·토큰"
@@ -504,7 +504,7 @@ config_key = "fetch_interval_sec"
 
 [[code_value]]
 id = "engine_control_interval_sec"
-file = "Quant/src/core/Engine.cpp"
+file = "Quant/src/core/EngineControlThread.cpp"
 regex = 'constexpr int kCheckIntervalSec = (\d+);'
 unit = "초"
 group = "엔진 — 스레드 주기·장 시간"

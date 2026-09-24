@@ -4,6 +4,7 @@
 //
 //  ── 부르는 자리 ──────────────────────────────────────────────────────────
 //  data_thread_fn() : spawn_threads() 가 data 스레드로 띄운다. 맡는 일감은 프로세스 역할(주문·전략·시세)로 갈린다.
+//  daily_bars_needed() : data_thread_fn() 가 일봉 조회 전에
 
 #include "core/Engine.h"
 #include "core/LatencyTrace.h"
@@ -15,6 +16,7 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include <thread>
 #include <nlohmann/json.hpp>
 
@@ -625,4 +627,20 @@ void Engine::data_thread_fn(std::stop_token stop_token)
     }
 
     LOG_INFO("[DataThread] 종료");
+}
+
+// 일봉을 원하는 전략이 하나라도 켜져 있는가 — 없으면 data_thread_fn 이 일봉 조회를 건너뛴다.
+bool Engine::daily_bars_needed()
+{
+    std::lock_guard<std::mutex> lock(strategy_.mutex);
+
+    for (const auto& strategy : strategy_.list)
+    {
+        if (strategy && strategy->is_active() && strategy->wants_daily_bars())
+        {
+            return true;
+        }
+    }
+
+    return false;
 }

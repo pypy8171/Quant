@@ -9,7 +9,7 @@
 - [(루트)](#루트) — 11개
 - [.vscode](#vscode) — 4개
 - [PYQuant](#pyquant) — 118개
-- [Quant](#quant) — 313개
+- [Quant](#quant) — 314개
 - [docs](#docs) — 100개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 245개
@@ -397,6 +397,7 @@
 - [DataPoller.cpp](../Quant/src/core/DataPoller.cpp) — REST 현재가 폴러 구현 — 호출 간격·넘침 목록(D-062)
 - [Engine.cpp](../Quant/src/core/Engine.cpp) — 엔진 본체 구현 — 생성자·전략 등록·파이프라인
 - [EngineConfigure.cpp](../Quant/src/core/EngineConfigure.cpp) — `Engine::configure(const AppConfig&)` — AppConfig 값을 Engine 세터에 옮기는 배선 4단계(채널·국면맵·시세 키·위험 한도)
+- [EngineControlThread.cpp](../Quant/src/core/EngineControlThread.cpp) — 제어 쪽 — 제어 스레드(`control_thread_fn`: 감시·피드 끊김 폴백·마감 자기 종료)와 통계 모으기
 - [EngineDataThread.cpp](../Quant/src/core/EngineDataThread.cpp) — 데이터 수집 스레드 — 장 시작 감지·잔고 대조·일봉·지수·수급 조회를 한 사이클씩 돈다(`data_thread_fn`)
 - [EngineFillThread.cpp](../Quant/src/core/EngineFillThread.cpp) — 체결 쪽 — 체결통보를 원장에 반영하는 스레드(`fill_thread_fn`)
 - [EngineOpsServer.cpp](../Quant/src/core/EngineOpsServer.cpp) — 운영단말 서버 — 단말의 조회·수동 주문을 받아 주문 스레드가 꺼낼 자리에 넣는다(`start_ops_server`·`accept_manual_order`·`take_manual_order`)

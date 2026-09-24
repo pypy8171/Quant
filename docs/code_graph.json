@@ -44,7 +44,7 @@
     {
       "from": "core",
       "to": "utils",
-      "weight": 23
+      "weight": 25
     },
     {
       "from": "exchange",
@@ -280,6 +280,7 @@
     "core/DataPoller.cpp": "core",
     "core/Engine.cpp": "core",
     "core/EngineConfigure.cpp": "core",
+    "core/EngineControlThread.cpp": "core",
     "core/EngineDataThread.cpp": "core",
     "core/EngineFillThread.cpp": "core",
     "core/EngineOpsServer.cpp": "core",
@@ -532,6 +533,13 @@
       "core/AppConfig.h",
       "core/Engine.h",
       "utils/Logger.h"
+    ],
+    "core/EngineControlThread.cpp": [
+      "core/Engine.h",
+      "core/KstTime.h",
+      "core/LatencyTrace.h",
+      "utils/Logger.h",
+      "utils/ThreadName.h"
     ],
     "core/EngineDataThread.cpp": [
       "core/Engine.h",
@@ -1240,6 +1248,7 @@
     "core/Engine.h": [
       "core/Engine.cpp",
       "core/EngineConfigure.cpp",
+      "core/EngineControlThread.cpp",
       "core/EngineDataThread.cpp",
       "core/EngineFillThread.cpp",
       "core/EngineOpsServer.cpp",
@@ -1274,6 +1283,7 @@
       "core/BarAggregator.cpp",
       "core/DataPoller.cpp",
       "core/Engine.cpp",
+      "core/EngineControlThread.cpp",
       "core/EngineOpsServer.cpp",
       "core/EngineUniverse.cpp",
       "core/KstTime.cpp",
@@ -1292,6 +1302,7 @@
     "core/LatencyTrace.h": [
       "core/Engine.cpp",
       "core/Engine.h",
+      "core/EngineControlThread.cpp",
       "core/EngineDataThread.cpp",
       "core/EngineOrderThread.cpp",
       "core/EngineStrategyThread.cpp",
@@ -1731,6 +1742,7 @@
       "core/DataPoller.cpp",
       "core/Engine.cpp",
       "core/EngineConfigure.cpp",
+      "core/EngineControlThread.cpp",
       "core/EngineDataThread.cpp",
       "core/EngineFillThread.cpp",
       "core/EngineOpsServer.cpp",
@@ -1767,6 +1779,7 @@
     "utils/ThreadName.h": [
       "api/WebSocketClient.cpp",
       "core/Engine.cpp",
+      "core/EngineControlThread.cpp",
       "core/EngineDataThread.cpp",
       "core/EngineFillThread.cpp",
       "core/EngineOrderThread.cpp",
@@ -1790,30 +1803,30 @@
     },
     {
       "header": "utils/Logger.h",
-      "in_degree": 41
+      "in_degree": 42
+    },
+    {
+      "header": "core/KstTime.h",
+      "in_degree": 20
     },
     {
       "header": "core/SymbolTable.h",
       "in_degree": 20
     },
     {
-      "header": "core/KstTime.h",
-      "in_degree": 19
-    },
-    {
       "header": "strategy/StrategyBase.h",
       "in_degree": 15
     },
     {
-      "header": "api/KisClient.h",
-      "in_degree": 11
-    },
-    {
       "header": "core/Engine.h",
-      "in_degree": 11
+      "in_degree": 12
     },
     {
       "header": "utils/ThreadName.h",
+      "in_degree": 12
+    },
+    {
+      "header": "api/KisClient.h",
       "in_degree": 11
     },
     {
@@ -1822,7 +1835,7 @@
     },
     {
       "header": "core/LatencyTrace.h",
-      "in_degree": 8
+      "in_degree": 9
     },
     {
       "header": "core/MarketSession.h",

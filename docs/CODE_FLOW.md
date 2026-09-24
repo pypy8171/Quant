@@ -67,12 +67,12 @@ config를 `AppConfig`로 읽고 `Engine::configure`가 세터에 옮기고 전�
    `Quant/src/strategy/StrategyFactory.cpp:1222` · `void load_strategies(StrategyLoadCtx& context, const json& strategies)`
 6. [`Engine::add_strategy`](../Quant/src/core/EngineStrategyThread.cpp#L23) — 전략 등록. 심볼 해석기(`set_symbol_resolver` → `SymbolTable::intern`)가 여기서 주입된다  
    `Quant/src/core/EngineStrategyThread.cpp:23` · `void Engine::add_strategy(std::unique_ptr<StrategyBase> strategy)`
-7. [`Engine::start`](../Quant/src/core/Engine.cpp#L1291) — 도우미 호출 목록이 기동 순서다 — `setup_shards`(행렬 `reshape`, 행=수신 스레드+폴러, 열=샤드) → ZMQ → 모의 체결기 → 라우터·대조기·폴러 → `try_bootstrap_ledger`(원장 시드) → `start_strategies` → 구독 목록 → `connect_feed` → `spawn_threads`  
-   `Quant/src/core/Engine.cpp:1291` · `void Engine::start()`
-8. [`Engine::connect_feed (WS 콜백 설치)`](../Quant/src/core/Engine.cpp#L1064) — 소켓 수신 스레드 i의 호가·체결 콜백. 종목 id로 열을 고르고(`consumer_of`) `pipeline_.trade_matrix`·`order_book_matrix`의 자기 행에 `push_to` — 가득 차면 버리고 센다(블로킹 금지)  
-   `Quant/src/core/Engine.cpp:1064` · `feed_.websocket->set_lane_callbacks([this] (uint32_t lane, const OrderBook& in) …`
-9. [`Engine::spawn_threads`](../Quant/src/core/Engine.cpp#L1257) — data·strategy·order·fill·control 다섯 jthread + 샤드 M. stop_token이 첫 인자라 람다로 감싼다  
-   `Quant/src/core/Engine.cpp:1257` · `data_thread_ = std::jthread([this] (std::stop_token stop_token) { data_thread_fn(stop_token); });`
+7. [`Engine::start`](../Quant/src/core/Engine.cpp#L1264) — 도우미 호출 목록이 기동 순서다 — `setup_shards`(행렬 `reshape`, 행=수신 스레드+폴러, 열=샤드) → ZMQ → 모의 체결기 → 라우터·대조기·폴러 → `try_bootstrap_ledger`(원장 시드) → `start_strategies` → 구독 목록 → `connect_feed` → `spawn_threads`  
+   `Quant/src/core/Engine.cpp:1264` · `void Engine::start()`
+8. [`Engine::connect_feed (WS 콜백 설치)`](../Quant/src/core/Engine.cpp#L1037) — 소켓 수신 스레드 i의 호가·체결 콜백. 종목 id로 열을 고르고(`consumer_of`) `pipeline_.trade_matrix`·`order_book_matrix`의 자기 행에 `push_to` — 가득 차면 버리고 센다(블로킹 금지)  
+   `Quant/src/core/Engine.cpp:1037` · `feed_.websocket->set_lane_callbacks([this] (uint32_t lane, const OrderBook& in) …`
+9. [`Engine::spawn_threads`](../Quant/src/core/Engine.cpp#L1230) — data·strategy·order·fill·control 다섯 jthread + 샤드 M. stop_token이 첫 인자라 람다로 감싼다  
+   `Quant/src/core/Engine.cpp:1230` · `data_thread_ = std::jthread([this] (std::stop_token stop_token) { data_thread_fn(stop_token); });`
 10. [`LedgerReconciler::bootstrap`](../Quant/src/core/LedgerReconciler.cpp#L20) — 기동 잔고 시드 — 브로커 잔고를 원장(`PositionLedger`) 포지션으로. 실패 재시도 횟수와 실패 시 기동 중단 여부  
    `Quant/src/core/LedgerReconciler.cpp:20` · `bool LedgerReconciler::bootstrap(int attempts, std::chrono::milliseconds retry_delay)` · 시험 [test_ledger_reconciler](../Quant/tests/test_ledger_reconciler.cpp)
 
@@ -102,8 +102,8 @@ config를 `AppConfig`로 읽고 `Engine::configure`가 세터에 옮기고 전�
    `Quant/include/core/ShardMatrix.h:87` · `[[nodiscard]] bool push_to(uint32_t producer, uint32_t consumer, const T& value)` · 시험 [test_shard_matrix](../Quant/tests/test_shard_matrix.cpp)
 18. [`feed::FeedMux`](../Quant/include/core/FeedMux.h#L36) — 소켓 여럿을 한 `IFeedSource`로. 직접 호출 모드면 소켓 i 스레드가 행 i로 직접 push(mux 스레드 없음). 체결통보는 맡은 소켓 하나만(`owns_fill_notice`)  
    `Quant/include/core/FeedMux.h:36` · `class FeedMux final : public IFeedSource` · 시험 [test_feed_mux](../Quant/tests/test_feed_mux.cpp)
-19. [`Engine::data_thread_fn`](../Quant/src/core/EngineDataThread.cpp#L24) — REST 축 — 봉 폴링·`poll_regime_file`(국면)·잔고 대조·유니버스 재스캔·하루 경계(`new_trading_day`·`reset_daily`). 폴러의 대체 틱은 `pipeline_.trade_matrix`의 자기 행(`data_row`)으로 간다  
-   `Quant/src/core/EngineDataThread.cpp:24` · `void Engine::data_thread_fn(std::stop_token stop_token)`
+19. [`Engine::data_thread_fn`](../Quant/src/core/EngineDataThread.cpp#L26) — REST 축 — 봉 폴링·`poll_regime_file`(국면)·잔고 대조·유니버스 재스캔·하루 경계(`new_trading_day`·`reset_daily`). 폴러의 대체 틱은 `pipeline_.trade_matrix`의 자기 행(`data_row`)으로 간다  
+   `Quant/src/core/EngineDataThread.cpp:26` · `void Engine::data_thread_fn(std::stop_token stop_token)`
 20. [`DataPoller::poll_universe`](../Quant/src/core/DataPoller.cpp#L11) — REST 현재가 → 대체 `TradeData`(`received_ns`=0). 구독 상한 넘침·틱 끊긴 보유 보충(`top_up`)도 이 클래스  
    `Quant/src/core/DataPoller.cpp:11` · `int DataPoller::poll_universe(const std::vector<WatchSpec>& specifications, std::time_t now_utc)` · 시험 [test_data_poller](../Quant/tests/test_data_poller.cpp)
 21. [`feed::TickCapture::on_trade`](../Quant/include/core/TickCapture.h#L164) — raw 틱 append-only 캡처(원칙 8). 리플레이(`ReplaySource`)의 입력  
@@ -227,8 +227,8 @@ config를 `AppConfig`로 읽고 `Engine::configure`가 세터에 옮기고 전�
 
 국면(전략 집합 선택)·잔고 대조·토큰 갱신·큐 고수위·WS 끊김 복구는 파이프라인 스레드에 걸리지 않게 데이터·제어 스레드가 돈다.
 
-53. [`Engine::control_thread_fn`](../Quant/src/core/Engine.cpp#L2680) — 큐 고수위 1분 로그 → 토큰 선갱신(5분, 만료 30분 전) → 손익 갱신 감시(끊기면 `set_kill_switch` 보수정지) → WS stale·재연결·REST 폴백(`feed::Supervisor` 판정)  
-   `Quant/src/core/Engine.cpp:2680` · `void Engine::control_thread_fn(std::stop_token stop_token)`
+53. [`Engine::control_thread_fn`](../Quant/src/core/EngineControlThread.cpp#L105) — 큐 고수위 1분 로그 → 토큰 선갱신(5분, 만료 30분 전) → 손익 갱신 감시(끊기면 `set_kill_switch` 보수정지) → WS stale·재연결·REST 폴백(`feed::Supervisor` 판정)  
+   `Quant/src/core/EngineControlThread.cpp:105` · `void Engine::control_thread_fn(std::stop_token stop_token)`
 54. [`Engine::poll_regime_file`](../Quant/src/core/EngineRegime.cpp#L183) — 데이터 스레드가 부른다. `regime.json` 축 — `entry_halt`(신규매수 차단)·`entry_scale`(매수비율)·`force_liquidate`, 그리고 라벨 전이 때 `apply_regime_selection`(전략 집합 선택, D-084). 상태기계는 `RegimeFileJudge.h`  
    `Quant/src/core/EngineRegime.cpp:183` · `void Engine::poll_regime_file()` · 시험 [test_regime_file_judge](../Quant/tests/test_regime_file_judge.cpp)
 55. [`OrderGate::set_manual_halt`](../Quant/include/risk/OrderGate.h#L200) — 운영단말 HALT_REQ의 수동 정지 — 신규 매수·전략 매도를 따로 끈다. 국면의 `entry_halt_`와는 다른 플래그고 `is_entry_halted`에서만 OR로 합친다(D-091)  
@@ -239,8 +239,8 @@ config를 `AppConfig`로 읽고 `Engine::configure`가 세터에 옮기고 전�
    `Quant/src/core/EngineUniverse.cpp:132` · `void Engine::maybe_rescan_universe()` · 시험 [test_signal_dispatcher](../Quant/tests/test_signal_dispatcher.cpp)
 58. [`LedgerReconciler::reconcile`](../Quant/src/core/LedgerReconciler.cpp#L308) — 브로커 잔고 ↔ 원장. 어긋난 종목만 `RECONCILE` 행(`ReconcilePlan.h` 순수 함수). 잔고조회 서킷브레이커  
    `Quant/src/core/LedgerReconciler.cpp:308` · `void LedgerReconciler::reconcile(bool resync_positions, std::time_t now_utc)` · 시험 [test_ledger_reconciler](../Quant/tests/test_ledger_reconciler.cpp)
-59. [`Engine::activate_rest_fallback`](../Quant/src/core/Engine.cpp#L2642) — WS가 stale이면 REST 현재가 폴링으로 대체 틱(`received_ns`=0). 복귀는 `deactivate_rest_fallback`  
-   `Quant/src/core/Engine.cpp:2642` · `bool Engine::activate_rest_fallback(const std::string& reason)`
+59. [`Engine::activate_rest_fallback`](../Quant/src/core/EngineControlThread.cpp#L67) — WS가 stale이면 REST 현재가 폴링으로 대체 틱(`received_ns`=0). 복귀는 `deactivate_rest_fallback`  
+   `Quant/src/core/EngineControlThread.cpp:67` · `bool Engine::activate_rest_fallback(const std::string& reason)`
 
 리뷰할 때 볼 것:
 
@@ -252,10 +252,10 @@ config를 `AppConfig`로 읽고 `Engine::configure`가 세터에 옮기고 전�
 
 SIGINT·운영단말 종료 → `request_shutdown` → `stop`. 체결 큐는 비울 때까지 돌고 로거는 `flush`한다.
 
-60. [`Engine::request_shutdown`](../Quant/src/core/Engine.cpp#L1759) — 시그널 핸들러에서 불려도 되는 최소 동작(플래그·깨우기)만  
-   `Quant/src/core/Engine.cpp:1759` · `void Engine::request_shutdown(std::string_view reason, ipc::SharedShutdownReason recorded_reason)`
-61. [`Engine::stop`](../Quant/src/core/Engine.cpp#L1785) — stop_token 요청 → join 순서(control → order → 샤드 → strategy → data → WS 끊기 → fill 마지막, 큐를 비우고 끝난다) → ZMQ·운영단말 서버 정지 → 전략 `on_stop` → 통계 출력. 미체결 예약주문 기억은 여기서 사라진다(재기동 규칙, CLAUDE.md '장중 운영')  
-   `Quant/src/core/Engine.cpp:1785` · `void Engine::stop()`
+60. [`Engine::request_shutdown`](../Quant/src/core/Engine.cpp#L1732) — 시그널 핸들러에서 불려도 되는 최소 동작(플래그·깨우기)만  
+   `Quant/src/core/Engine.cpp:1732` · `void Engine::request_shutdown(std::string_view reason, ipc::SharedShutdownReason recorded_reason)`
+61. [`Engine::stop`](../Quant/src/core/Engine.cpp#L1758) — stop_token 요청 → join 순서(control → order → 샤드 → strategy → data → WS 끊기 → fill 마지막, 큐를 비우고 끝난다) → ZMQ·운영단말 서버 정지 → 전략 `on_stop` → 통계 출력. 미체결 예약주문 기억은 여기서 사라진다(재기동 규칙, CLAUDE.md '장중 운영')  
+   `Quant/src/core/Engine.cpp:1758` · `void Engine::stop()`
 
 ## 부록. 실계좌 없이 같은 경로를 돌리는 것
 
@@ -292,8 +292,9 @@ SIGINT·운영단말 종료 → `request_shutdown` → `stop`. 체결 큐는 비
 | [Quant/src/core/AppConfig.cpp](../Quant/src/core/AppConfig.cpp) | 2 `parse_config` |
 | [Quant/src/core/BarAggregator.cpp](../Quant/src/core/BarAggregator.cpp) | 29 `on_tick` |
 | [Quant/src/core/DataPoller.cpp](../Quant/src/core/DataPoller.cpp) | 20 `poll_universe` |
-| [Quant/src/core/Engine.cpp](../Quant/src/core/Engine.cpp) | 7 `start`, 8 `connect_feed (WS 콜백 설치)`, 9 `spawn_threads`, 53 `control_thread_fn`, 59 `activate_rest_fallback`, 60 `request_shutdown`, 61 `stop` |
+| [Quant/src/core/Engine.cpp](../Quant/src/core/Engine.cpp) | 7 `start`, 8 `connect_feed (WS 콜백 설치)`, 9 `spawn_threads`, 60 `request_shutdown`, 61 `stop` |
 | [Quant/src/core/EngineConfigure.cpp](../Quant/src/core/EngineConfigure.cpp) | 4 `configure` |
+| [Quant/src/core/EngineControlThread.cpp](../Quant/src/core/EngineControlThread.cpp) | 53 `control_thread_fn`, 59 `activate_rest_fallback` |
 | [Quant/src/core/EngineDataThread.cpp](../Quant/src/core/EngineDataThread.cpp) | 19 `data_thread_fn` |
 | [Quant/src/core/EngineFillThread.cpp](../Quant/src/core/EngineFillThread.cpp) | 50 `fill_thread_fn` |
 | [Quant/src/core/EngineOpsServer.cpp](../Quant/src/core/EngineOpsServer.cpp) | 37 `take_manual_order` |
