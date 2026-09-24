@@ -1854,19 +1854,21 @@ void Engine::connect_feed()
 
                                const ProducerTurn producer_turn{pipeline_.fill_producing};
 
+                               // 두 길 모두 문자열 없는 레코드로 옮겨 넣는다 — 큐 칸에 힙 문자열이 있으면 넣고 뺄 때마다
+                               //  할당·해제가 수신 스레드에서 일어난다. 옮기는 일은 여기서 한 번이다. [why CODE_REVIEW W-7]
+                               bool           truncated = false;
+                               const uint64_t sequence  = pipeline_.fill_sequence.fetch_add(1, std::memory_order_relaxed) + 1;
+                               const auto     notice    = ipc::to_notice(fill_notification, sequence, trace::now_ns(), &truncated);
+
+                               if (truncated)
+                               {
+                                   // 잘린 주문번호로는 취소·정정을 증권사에 되돌려 줄 수 없다. 넘기기는 하되 남긴다.
+                                   LOG_ERROR("[Engine] 체결통보 칸이 모자라 글자가 잘렸다 — " + fill_notification.ticker +
+                                             " ODNO=" + fill_notification.kis_order_no);
+                               }
+
                                if (fill_crosses_boundary)
                                {
-                                   bool           truncated = false;
-                                   const uint64_t sequence  = pipeline_.fill_sequence.fetch_add(1, std::memory_order_relaxed) + 1;
-                                   const auto     notice    = ipc::to_notice(fill_notification, sequence, trace::now_ns(), &truncated);
-
-                                   if (truncated)
-                                   {
-                                       // 잘린 주문번호로는 취소·정정을 증권사에 되돌려 줄 수 없다. 넘기기는 하되 남긴다.
-                                       LOG_ERROR("[Engine] 체결통보 칸이 모자라 글자가 잘렸다 — " + fill_notification.ticker +
-                                                 " ODNO=" + fill_notification.kis_order_no);
-                                   }
-
                                    if (!layout_.fills().push(notice))
                                    {
                                        const auto count = pipeline_.fill_dropped.fetch_add(1, std::memory_order_relaxed) + 1;
@@ -1881,7 +1883,7 @@ void Engine::connect_feed()
                                // 수신 스레드는 큐에 넣고 바로 돌아간다. 가득 찼으면(1024건 밀림 = 소비자가 멈춘 것)
                                //  기다리지 않고 버린다 — 여기서 대기하면 전 종목 틱이 같이 선다. 버린 건은
                                //  잔고 대조(control_thread)가 원장에 메운다. [why D-056]
-                               if (!pipeline_.fill_queue.push(fill_notification))
+                               if (!pipeline_.fill_queue.push(notice))
                                {
                                    const auto count = pipeline_.fill_dropped.fetch_add(1, std::memory_order_relaxed) + 1;
                                    LOG_ERROR("[Engine] 체결통보 큐 가득 참 — 드롭 " + fill_notification.ticker + " ODNO=" + fill_notification.kis_order_no +
@@ -4690,9 +4692,9 @@ void Engine::fill_thread_fn(std::stop_token stop_token)
                 option = ipc::to_fill(notice);
             }
         }
-        else
+        else if (const auto notice = pipeline_.fill_queue.pop())
         {
-            option = pipeline_.fill_queue.pop();
+            option = ipc::to_fill(*notice);
         }
 
         if (!option)

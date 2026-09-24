@@ -874,7 +874,9 @@ private:
         std::atomic<uint64_t> order_high_water{0};
         // 체결통보. WS 수신 스레드는 여기 push만 하고 원장 반영(OrderRouter::on_fill)은 fill_thread가 한다 —
         //  체결 하나 처리(history_mutex_·CSV 쓰기) 동안 전 종목 틱 수신이 멈추지 않게. [why D-056]
-        RingBuffer<FillNotification> fill_queue{kFillQueueCapacity};
+        //  칸은 문자열 없는 레코드(ipc::FillNotice)다 — 갈라 띄운 날의 체결 통로와 같은 모양이라 두 길의 옮기는
+        //  코드가 하나다. [why CODE_REVIEW W-7]
+        RingBuffer<ipc::FillNotice> fill_queue{kFillQueueCapacity};
         std::atomic<uint64_t> fill_dropped{0};   // fill_queue 가득 차 버린 체결통보 수. 0이 아니면 잔고 대조가 원장을 메운다
         // 체결통보를 지금 넣고 있는 쪽이 있는지. fill_queue·체결 통로 둘 다 SPSC라 넣는 쪽은 한 번에 하나여야 한다 —
         //  실매매는 체결통보를 맡은 소켓의 수신 스레드 하나, 오프라인은 모의 체결기 하나(전달을 스스로 한 줄로 세운다).
@@ -931,7 +933,7 @@ private:
         //  풀리므로(총노출 이중계상), 이 칸의 공백이 그 사고를 가장 먼저 알리는 자리다. [why D-114 단계 5]
         //  [inv] bind_layout()이 꽂는다.
         ipc::Heartbeat* feed_heartbeat = nullptr;
-        // 시세 → 주문 체결통보 큐에 밀어 넣은 순번 발급기. 0은 안 쓴다 — 받는 쪽이 0을 "안 채워진 칸"으로 본다.
+        // 체결통보 레코드 순번 발급기(프로세스 안 큐·시세 → 주문 통로 공용). 0은 안 쓴다 — 받는 쪽이 0을 "안 채워진 칸"으로 본다.
         std::atomic<uint64_t> fill_sequence{0};
         // 전략 스레드가 본 가장 긴 주문 박동 공백(나노초). 전략 쪽 공백과 달리 여기에는 증권사 왕복이
         //  그대로 들어온다 — 문턱을 실측으로 좁히려고 밖으로 낸다. [why D-114]
