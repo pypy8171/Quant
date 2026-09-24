@@ -44,7 +44,7 @@ flowchart LR
     OQ --> PC[OrderRateLimiter] --> OR[OrderRouter::new_route] --> OG[OrderGate::check] --> KIS[KisClient::submit_order_acknowledgement]
   end
   subgraph fill[5. 체결 스레드]
-    FN[parse_fill_notification] --> FQ[pipeline_.fill_queue SPSC] --> OF[OrderRouter::on_fill] --> OGF[OrderGate::on_fill_confirmed]
+    FN[parse_fill_notification] --> FQ[pipeline_.fill_queue SPSC] --> OF[OrderRouter::on_fill] --> OGF[PositionLedger::on_fill_confirmed]
   end
   KIS -. ODNO .-> OR
   WS -. H0STCNI9 .-> FN
@@ -358,10 +358,10 @@ review = [
   test = "test_order_gate"
 
   [[stage.step]]
-  sym = "OrderGate::on_intent"
-  file = "Quant/src/risk/OrderGate.cpp"
+  sym = "PositionLedger::on_intent"
+  file = "Quant/src/risk/PositionLedger.cpp"
   what = "전송 **전에** 원장 저널에 INTENT를 적고 `reserved_`를 선점한다(슬롯·현금). 기록에 실패하면 선점을 되돌리고 거짓을 준다 — 그 주문은 나가지 않는다(D-113). 접수 뒤 짝은 `on_accepted`, 되돌리는 짝은 `on_fill_confirmed`·`on_cancel`·`on_reject`"
-  test = "test_order_gate"
+  test = "test_position_ledger"
 
   [[stage.step]]
   sym = "KisClient::submit_order_acknowledgement"
@@ -405,14 +405,14 @@ review = [
   [[stage.step]]
   sym = "OrderRouter::on_fill"
   file = "Quant/src/ipc/OrderRouter.cpp"
-  what = "ODNO로 주문 찾기 → 상태 갱신 → `gate_.on_fill_confirmed` → 원장 CSV. 못 찾으면 미연결 체결 경로"
+  what = "ODNO로 주문 찾기 → 상태 갱신 → `gate_.ledger().on_fill_confirmed` → 원장 CSV. 못 찾으면 미연결 체결 경로"
   test = "test_order_router"
 
   [[stage.step]]
-  sym = "OrderGate::on_fill_confirmed"
-  file = "Quant/src/risk/OrderGate.cpp"
+  sym = "PositionLedger::on_fill_confirmed"
+  file = "Quant/src/risk/PositionLedger.cpp"
   what = "포지션·평단·실현손익 갱신, `reserved_` 해제. `FillResult`가 실현 PnL을 돌려준다"
-  test = "test_order_gate"
+  test = "test_position_ledger"
 
 # ───────────────────────────────────────────────────────────────────────────────
 

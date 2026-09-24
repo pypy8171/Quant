@@ -218,7 +218,7 @@ int main(int argc, char** argv)
 
     const std::string& kis_order_no = acknowledgement.kis_order_no;
 
-    gate.on_accept(signal.account_id, ticker, side, quantity, price); // 미체결 선점(원장)
+    gate.ledger().on_accept(signal.account_id, ticker, side, quantity, price); // 미체결 선점(원장)
     std::cout << "[3] 접수 완료 — ODNO=" << kis_order_no << "\n";
 
     // ── [3-1] 접수만 확인하고 거두기(--cancel) ───────────────────────────────

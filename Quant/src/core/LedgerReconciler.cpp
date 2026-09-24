@@ -56,7 +56,7 @@ bool LedgerReconciler::bootstrap(int attempts, std::chrono::milliseconds retry_d
             //  한 주도 못 빠져나온다(09-08 047050 254주·381주 연속 거부). 필드가 없거나
             //  파싱 실패면 -1을 넘겨 "모름"으로 두고 보유수량을 그대로 쓴다.
             const int psbl_q = holding.sellable_quantity.value_or(-1);
-            gate_.seed_position(std::string(), holding.ticker, holding.quantity, holding.average_price, psbl_q);
+            gate_.ledger().seed_position(std::string(), holding.ticker, holding.quantity, holding.average_price, psbl_q);
 
             if (name_sink_)
             {
@@ -85,7 +85,7 @@ void LedgerReconciler::resync_holdings(const AccountBalance& balance, bool resyn
     // 대조 행은 덮어쓰기·정리 "전" 원장 값으로 남긴다 — 덮어쓴 뒤에 재면 항상 일치로 나온다. [why D-038]
     std::vector<reconcile::Held> ledger_before;
 
-    for (const auto& held_position : gate_.snapshot_positions())
+    for (const auto& held_position : gate_.ledger().snapshot_positions())
     {
         ledger_before.push_back(reconcile::Held{held_position.ticker, held_position.quantity, held_position.average_price,
                                                 held_position.symbol});
@@ -100,7 +100,7 @@ void LedgerReconciler::resync_holdings(const AccountBalance& balance, bool resyn
     //  reserved_에는 아직 살아 있는 지정가 주문이 잡혀 있어 비우면 재발주를 부른다.
     if (resync_positions)
     {
-        gate_.reset_reserved();
+        gate_.ledger().reset_reserved();
     }
 
     // 잔고에 있는 종목을 모으면서, 재동기 모드면 원장까지 덮어쓴다.
@@ -112,17 +112,17 @@ void LedgerReconciler::resync_holdings(const AccountBalance& balance, bool resyn
         const int    quantity  = holding.quantity;
         const double average_value = holding.average_price;
         held.push_back(code);
-        broker_now.push_back(reconcile::Held{code, quantity, average_value, gate_.intern_symbol(code)}); // 잔고 응답의 문자열 티커 — 여기서 id가 된다
+        broker_now.push_back(reconcile::Held{code, quantity, average_value, gate_.ledger().intern_symbol(code)}); // 잔고 응답의 문자열 티커 — 여기서 id가 된다
 
         if (resync_positions)
         {
-            gate_.seed_position(std::string(), code, quantity, average_value);
+            gate_.ledger().seed_position(std::string(), code, quantity, average_value);
         }
 
         // 매도가능수량은 재동기 모드와 무관하게 매번 맞춘다(기동 시드 0 고착 해소).
         if (holding.sellable_quantity)
         {
-            gate_.refresh_sellable(std::string(), code, *holding.sellable_quantity);
+            gate_.ledger().refresh_sellable(std::string(), code, *holding.sellable_quantity);
         }
 
         // 체결통보 모드는 원장을 덮어쓰지 않는다. 대신 재연결 사이에 빠진 매도 체결만
@@ -130,7 +130,7 @@ void LedgerReconciler::resync_holdings(const AccountBalance& balance, bool resyn
         //  (09-11 11:00 WS 끊김 4초에 248170 매도 52주 통보 유실 → 18분 유령 보유)
         if (!resync_positions)
         {
-            const int absorbed = gate_.absorb_missed_sell(std::string(), code, quantity);
+            const int absorbed = gate_.ledger().absorb_missed_sell(std::string(), code, quantity);
 
             if (absorbed > 0)
             {
@@ -150,7 +150,7 @@ void LedgerReconciler::resync_holdings(const AccountBalance& balance, bool resyn
     //  수 없어 가드는 남긴다. 빈 응답을 정본으로 믿고 지우면 원장이 통째로 날아가고 엔진은 미보유로
     //  읽어 같은 종목을 다시 산다(09-09 14:04, 재기동 직후 한도 폭주 중에 25종목 전부 정리됨).
     //  진짜로 빈 계좌라면 걷어낼 것도 없으니 건너뛰어 잃는 것이 없다.
-    const auto gone = held.empty() ? std::vector<symbol::SymbolId>{} : gate_.prune_positions(held, prune_age_sec_);
+    const auto gone = held.empty() ? std::vector<symbol::SymbolId>{} : gate_.ledger().prune_positions(held, prune_age_sec_);
 
     if (held.empty())
     {
@@ -168,7 +168,7 @@ void LedgerReconciler::resync_holdings(const AccountBalance& balance, bool resyn
                 list += ',';
             }
 
-            list += gate_.symbols().name(gone_symbol).view();
+            list += gate_.ledger().symbols().name(gone_symbol).view();
         }
 
         LOG_WARN("[Engine] 잔고 대조: 잔고에 없는 원장 보유 " + std::to_string(gone.size()) + "종목 정리 (" + list + ")");
@@ -352,7 +352,7 @@ void LedgerReconciler::reconcile(bool resync_positions, std::time_t now_utc)
             //  묶인 몫이 빠져 있어야 40250000 도배를 막을 수 있다.
             if (balance->available_cash && *balance->available_cash >= 0.0)
             {
-                gate_.set_available_cash(*balance->available_cash);
+                gate_.ledger().set_available_cash(*balance->available_cash);
             }
 
             // 2) 당일 총평가금 델타 → daily_pnl_. 요약 필드의 부재는 optional이 든다.
@@ -366,8 +366,8 @@ void LedgerReconciler::reconcile(bool resync_positions, std::time_t now_utc)
                 }
 
                 const double delta = total_evaluation - baseline_;
-                gate_.set_daily_pnl(delta); // 손실컷용(세션 기준점) — 리스크게이트 동작 유지
-                gate_.set_equity(total_evaluation); // 총노출 게이트(§3d) 분모 — 총평가금 스냅샷 갱신
+                gate_.ledger().set_daily_pnl(delta); // 손실컷용(세션 기준점) — 리스크게이트 동작 유지
+                gate_.ledger().set_equity(total_evaluation); // 총노출 게이트(§3d) 분모 — 총평가금 스냅샷 갱신
                 LOG_INFO("[Engine] 잔고 대조: 당일손익 " + std::to_string(static_cast<long long>(delta)) + "원 (총평가 " +
                          std::to_string(static_cast<long long>(total_evaluation)) + ")");
 

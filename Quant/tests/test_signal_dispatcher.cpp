@@ -71,8 +71,8 @@ struct Rig
 
     explicit Rig(OrderGate::Config config)
         : gate(config), dispatcher(gate, *ledger, [this](const OrderSignal& signal) { out.push_back(signal); }, start_time,
-                                   SignalDispatcher::SystemIds{gate.strategy_index_of("FORCE_LIQ"),
-                                                               gate.strategy_index_of("LIMIT_TRIM")})
+                                   SignalDispatcher::SystemIds{gate.ledger().strategy_index_of("FORCE_LIQ"),
+                                                               gate.ledger().strategy_index_of("LIMIT_TRIM")})
     {
         dispatcher.set_label([](const std::string& ticker) { return "<" + ticker + ">"; });
         publish();
@@ -104,7 +104,7 @@ int test_stamp()
 int test_strategy_gate()
 {
     Rig rig(open_config());
-    const symbol::SymbolId symbol_g = rig.gate.intern_symbol("G");
+    const symbol::SymbolId symbol_g = rig.gate.ledger().intern_symbol("G");
     rig.dispatcher.set_exit_managed_check([symbol_g](symbol::SymbolId symbol) { return symbol == symbol_g; });
 
     // 비활성 전략: 신규 매수만 막고 매도·취소는 통과.
@@ -300,7 +300,7 @@ int test_trim_orders()
 int test_force_liquidation_throttle()
 {
     Rig rig(open_config());
-    rig.gate.seed_position("", "A", 10, 100.0);
+    rig.gate.ledger().seed_position("", "A", 10, 100.0);
     rig.publish();
 
     // 기준 시각 직후에는 안 나가고(간격 미달), 간격이 차야 한 번, 다시 간격이 차야 또 한 번.
@@ -326,7 +326,7 @@ int test_trim_once()
     auto config                    = open_config();
     config.max_notional_per_ticker = 1000.0;
     Rig rig(config);
-    rig.gate.seed_position("", "A", 20, 100.0);
+    rig.gate.ledger().seed_position("", "A", 20, 100.0);
     rig.publish();
 
     rig.dispatcher.trim_excess_once(rig.start_time + std::chrono::seconds(19));
@@ -338,7 +338,7 @@ int test_trim_once()
 
     // 시각을 바꾸면 그때부터. 한도가 0이면 정리 없이 끝난 것으로 표시한다.
     Rig second_rig(open_config());
-    second_rig.gate.seed_position("", "A", 20, 100.0);
+    second_rig.gate.ledger().seed_position("", "A", 20, 100.0);
     second_rig.publish();
     second_rig.dispatcher.set_trim_at(second_rig.start_time + std::chrono::seconds(1));
     second_rig.dispatcher.trim_excess_once(second_rig.start_time + std::chrono::seconds(1));
@@ -352,9 +352,9 @@ int test_sleeve_scan_skips_basket()
     auto config                    = open_config();
     config.max_notional_per_ticker = 1000.0;
     Rig rig(config);
-    rig.gate.set_slot_exempt({"BK"});
-    rig.gate.seed_position("", "BK", 50, 100.0); // 명목 5,000 > 한도 1,000이지만 바스켓 것
-    rig.gate.seed_position("", "A", 20, 100.0);
+    rig.gate.ledger().set_slot_exempt({"BK"});
+    rig.gate.ledger().seed_position("", "BK", 50, 100.0); // 명목 5,000 > 한도 1,000이지만 바스켓 것
+    rig.gate.ledger().seed_position("", "A", 20, 100.0);
     rig.publish();
 
     const auto sleeve = rig.dispatcher.scan_sleeve_positions();

@@ -708,15 +708,15 @@ meaning = "청산 관리 청산 재시도 상한"
 
 [[code_value]]
 id = "commission_rate"
-file = "Quant/src/risk/OrderGate.cpp"
+file = "Quant/src/risk/PositionLedger.cpp"
 regex = 'kCommissionRate = ([\d.]+);'
 unit = "비율"
 group = "주문 — 발주 속도·재시도·청산 백오프"
-meaning = "OrderGate 가 가정하는 위탁수수료(매수·매도)"
+meaning = "PositionLedger 가 가정하는 위탁수수료(매수·매도)"
 
 [[code_value]]
 id = "sell_tax_rate"
-file = "Quant/src/risk/OrderGate.cpp"
+file = "Quant/src/risk/PositionLedger.cpp"
 regex = 'kSellTaxRate\s*=\s*([\d.]+);'
 unit = "비율"
 group = "주문 — 발주 속도·재시도·청산 백오프"

@@ -124,7 +124,7 @@ int test_bootstrap()
         return fail_balance();
     });
     CHECK(!reconciler.bootstrap(5, std::chrono::milliseconds(0)) && calls == 5);
-    CHECK(gate.snapshot_positions().empty());
+    CHECK(gate.ledger().snapshot_positions().empty());
 
     // 두 번 실패 뒤 성공 — 원장·주문가능·종목명이 시드된다.
     calls = 0;
@@ -136,9 +136,9 @@ int test_bootstrap()
     });
     second_reconciler.set_name_sink([&](const std::string& ticker, const std::string& name) { names.emplace_back(ticker, name); });
     CHECK(second_reconciler.bootstrap(5, std::chrono::milliseconds(0)) && calls == 3);
-    CHECK(gate.position("005930") == 10 && gate.average_price("005930") == 70000.0);
-    CHECK(gate.sellable_view(std::string(), "005930").possible_quantity_cap == 7);
-    CHECK(gate.sellable_view(std::string(), "000660").possible_quantity_cap == 3); // 모름(-1) → 보유수량
+    CHECK(gate.ledger().position("005930") == 10 && gate.ledger().average_price("005930") == 70000.0);
+    CHECK(gate.ledger().sellable_view(std::string(), "005930").possible_quantity_cap == 7);
+    CHECK(gate.ledger().sellable_view(std::string(), "000660").possible_quantity_cap == 3); // 모름(-1) → 보유수량
     CHECK(names.size() == 2 && names[0].first == "005930" && names[0].second == "N-005930");
     return 0;
 }
@@ -155,8 +155,8 @@ int test_reconcile_rest()
 
     // 첫 대조: 원장 덮어쓰기, 기준선은 전일 총자산(990000) — 시초 갭 +10000이 당일손익에 든다. 파일 저장.
     reconciler.reconcile(true, kT0);
-    CHECK(gate.position("A") == 10 && gate.average_price("A") == 100.0);
-    CHECK(gate.daily_pnl() == 10000.0 && gate.equity() == 1000000.0 && gate.available_cash() == 500000.0);
+    CHECK(gate.ledger().position("A") == 10 && gate.ledger().average_price("A") == 100.0);
+    CHECK(gate.ledger().daily_pnl() == 10000.0 && gate.ledger().equity() == 1000000.0 && gate.ledger().available_cash() == 500000.0);
     CHECK(reconciler.has_baseline() && reconciler.baseline() == 990000.0);
     {
         std::ifstream file(baseline_directory() / "pnl_baseline_20270115.txt");
@@ -171,7 +171,7 @@ int test_reconcile_rest()
     rows.clear();
     next = ok_balance({hold("A", 10, 100.0, 10)}, 1020000.0);
     reconciler.reconcile(true, kT0 + 60);
-    CHECK(gate.daily_pnl() == 30000.0 && rows.empty());
+    CHECK(gate.ledger().daily_pnl() == 30000.0 && rows.empty());
 
     // 재시작(새 인스턴스, 같은 날): 파일 기준선을 재사용해 손실컷이 이어진다.
     LedgerReconciler second_reconciler(gate, [&] { return next; });
@@ -179,45 +179,45 @@ int test_reconcile_rest()
     second_reconciler.set_reconcile_sink([&](const reconcile::Row& row) { rows.push_back(row); });
     next = ok_balance({hold("A", 10, 100.0, 10)}, 900000.0);
     second_reconciler.reconcile(true, kT0 + 120);
-    CHECK(second_reconciler.baseline() == 990000.0 && gate.daily_pnl() == -90000.0);
+    CHECK(second_reconciler.baseline() == 990000.0 && gate.ledger().daily_pnl() == -90000.0);
 
     // 새 거래일: 다시 캡처(다른 파일). 전일 총자산이 없으면 첫 대조 총평가금으로 떨어진다.
     second_reconciler.new_trading_day();
     second_reconciler.reconcile(true, kT0 + 24 * 3600);
-    CHECK(second_reconciler.baseline() == 900000.0 && gate.daily_pnl() == 0.0);
+    CHECK(second_reconciler.baseline() == 900000.0 && gate.ledger().daily_pnl() == 0.0);
     CHECK(std::filesystem::exists(baseline_directory() / "pnl_baseline_20270116.txt"));
 
     // 유령 정리: 원장에만 있는 B(시드는 24시간 전 열린 것으로 잡힌다)는 걷어내고 PRUNE 행을 남긴다.
-    gate.seed_position(std::string(), "B", 5, 50.0);
+    gate.ledger().seed_position(std::string(), "B", 5, 50.0);
     rows.clear();
     second_reconciler.reconcile(true, kT0 + 24 * 3600 + 60);
-    CHECK(gate.position("B") == 0 && gate.position("A") == 10);
+    CHECK(gate.ledger().position("B") == 0 && gate.ledger().position("A") == 10);
     CHECK(rows.size() == 1 && rows[0].ticker == "B" && rows[0].action == "PRUNE");
 
     // [inv] 빈 output1은 잔고 실패로 보고 한 종목도 걷어내지 않는다 — 대조 행도 없다.
-    gate.seed_position(std::string(), "B", 5, 50.0);
+    gate.ledger().seed_position(std::string(), "B", 5, 50.0);
     rows.clear();
     next = ok_balance({}, 900000.0);
     second_reconciler.reconcile(true, kT0 + 24 * 3600 + 120);
-    CHECK(gate.position("B") == 5 && gate.position("A") == 10 && rows.empty());
+    CHECK(gate.ledger().position("B") == 5 && gate.ledger().position("A") == 10 && rows.empty());
     return 0;
 }
 
 int test_reconcile_websocket()
 {
     OrderGate gate;
-    gate.seed_position(std::string(), "A", 10, 100.0);
+    gate.ledger().seed_position(std::string(), "A", 10, 100.0);
     std::vector<reconcile::Row> rows;
     LedgerReconciler reconciler(gate, [&] { return ok_balance({hold("A", 8, 100.0, 8)}, 1000000.0); });
     reconciler.set_reconcile_sink([&](const reconcile::Row& row) { rows.push_back(row); });
 
     // WS 모드는 원장을 덮어쓰지 않는다(첫 관측만으로는 놓친 매도로도 안 본다). 매도가능은 매번 맞춘다.
     reconciler.reconcile(false, kT0);
-    CHECK(gate.position("A") == 10);
-    CHECK(gate.sellable_view(std::string(), "A").possible_quantity_cap == 8);
+    CHECK(gate.ledger().position("A") == 10);
+    CHECK(gate.ledger().sellable_view(std::string(), "A").possible_quantity_cap == 8);
     CHECK(rows.size() == 1 && rows[0].ticker == "A" && rows[0].action == "KEEP" && rows[0].ledger_quantity == 10 &&
           rows[0].broker_quantity == 8);
-    CHECK(gate.equity() == 1000000.0 && reconciler.has_baseline()); // 기준선 디렉터리 없음 → 파일 없이 캡처
+    CHECK(gate.ledger().equity() == 1000000.0 && reconciler.has_baseline()); // 기준선 디렉터리 없음 → 파일 없이 캡처
     return 0;
 }
 
@@ -283,7 +283,7 @@ int test_reconcile_failure()
 
     good = true;
     reconciler.reconcile(true, kT0); // 복구 — 즉시 해제
-    CHECK(calls == 3 && !gate.is_pnl_stale() && reconciler.breaker().fail_streak() == 0 && gate.position("A") == 1);
+    CHECK(calls == 3 && !gate.is_pnl_stale() && reconciler.breaker().fail_streak() == 0 && gate.ledger().position("A") == 1);
     return 0;
 }
 
@@ -307,14 +307,14 @@ int test_reconcile_slow_fetch()
     reconciler.reconcile(true, kT0);
     const auto first_elapsed = std::chrono::steady_clock::now() - first_call;
     CHECK(first_elapsed < std::chrono::milliseconds(400) && reconciler.fetch_in_flight());
-    CHECK(gate.position("A") == 0 && calls == 1);
+    CHECK(gate.ledger().position("A") == 0 && calls == 1);
 
     reconciler.reconcile(true, kT0); // 아직 응답 전 — 새 조회를 띄우지 않는다
-    CHECK(calls == 1 && reconciler.fetch_in_flight() && gate.position("A") == 0);
+    CHECK(calls == 1 && reconciler.fetch_in_flight() && gate.ledger().position("A") == 0);
 
     std::this_thread::sleep_for(std::chrono::milliseconds(700));
     reconciler.reconcile(true, kT0); // 응답이 와 있다 — 적용하고 future를 비운다
-    CHECK(gate.position("A") == 3 && gate.equity() == 1000000.0 && !reconciler.fetch_in_flight());
+    CHECK(gate.ledger().position("A") == 3 && gate.ledger().equity() == 1000000.0 && !reconciler.fetch_in_flight());
     CHECK(reconciler.breaker().fail_streak() == 0 && calls == 1);
     return 0;
 }

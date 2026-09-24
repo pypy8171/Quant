@@ -1,8 +1,8 @@
-// 원장 저널 — 주문·체결·잔고 대조가 원장(OrderGate)을 바꾸기 전에 먼저 적는 append-only 파일과 그 리플레이.
+// 원장 저널 — 주문·체결·잔고 대조가 원장(PositionLedger)을 바꾸기 전에 먼저 적는 append-only 파일과 그 리플레이.
 //  증권사 원장과 같은 순서를 지킨다: 주문은 INTENT가 적힌 뒤에만 KIS로 나가고, KIS 응답은 ACCEPT/REJECT로,
 //  체결통보는 FILL로 뒤따라 적힌다. 재기동은 오늘 파일을 처음부터 다시 적용해 보유·평단·선점·매도가능·현금을
 //  되살리고, KIS 잔고는 그 뒤 대조에만 쓴다. [why D-113]
-//  [inv] OrderGate가 journal_mutex_를 쥔 채 동기 append한다. positions_mutex_는 기록 종류에 따라 쥐기도 하고
+//  [inv] PositionLedger가 journal_mutex_를 쥔 채 동기 append한다. positions_mutex_는 기록 종류에 따라 쥐기도 하고
 //  안 쥐기도 한다 — 주문 이벤트는 초당 수십 건이라 별도 스레드·큐를
 //  두지 않는다. 매 append 뒤 fflush(프로세스 재기동 방어)까지가 기본이고, config `ledger_journal_fsync`가 참이면
 //  fsync까지 한다(전원 장애 방어, 주문 스레드에 디스크 동기화 지연이 얹힌다).
@@ -179,7 +179,7 @@ public:
     }
 
     // seq·시각·CRC를 채워 한 레코드를 붙인다. 거짓이면 디스크에 남지 않은 것이다 — 호출자는 그 변경을 되돌리고
-    //  주문을 거부한다(적히지 않은 주문은 나가지 않는다). [inv] OrderGate가 journal_mutex_를 쥔 채 동기 append한다.
+    //  주문을 거부한다(적히지 않은 주문은 나가지 않는다). [inv] PositionLedger가 journal_mutex_를 쥔 채 동기 append한다.
     //  positions_mutex_는 기록 종류에 따라 쥐기도 하고 안 쥐기도 한다.
     [[nodiscard]] bool append(Record& record) noexcept;
 

@@ -48,11 +48,11 @@ public:
     OrderRouter(OrderGate& gate, IOrderExecutor& kis,
                 ZmqBridge* zmq = nullptr,
                 OrderRouterConfig config = OrderRouterConfig())
-        : gate_(gate), kis_(kis), config_(config), zmq_(zmq), unlinked_strategy_index_(gate.strategy_index_of("UNLINKED")) {}
+        : gate_(gate), kis_(kis), config_(config), zmq_(zmq), unlinked_strategy_index_(gate.ledger().strategy_index_of("UNLINKED")) {}
 #else
     OrderRouter(OrderGate& gate, IOrderExecutor& kis,
                 OrderRouterConfig config = OrderRouterConfig())
-        : gate_(gate), kis_(kis), config_(config), unlinked_strategy_index_(gate.strategy_index_of("UNLINKED")) {}
+        : gate_(gate), kis_(kis), config_(config), unlinked_strategy_index_(gate.ledger().strategy_index_of("UNLINKED")) {}
 #endif
 
     // ── 주문 제출 — 검증 → KIS 전송 → 상태 기록 ─────────────────────────

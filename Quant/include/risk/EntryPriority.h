@@ -20,7 +20,8 @@
 // 쓰는 스레드는 둘이다 — 표는 스캔을 받는 Engine 스레드(set), 교체 기록은 주문 스레드(check·plan·note).
 //   표와 교체 기록은 락을 따로 든다(priority_mutex_·displace_mutex_). 둘 다 잎 잠금이다 — 이 클래스는 쥔 채 다른
 //   락을 잡지 않는다.
-// [lock-order] OrderGate::check()는 positions_mutex_를 쥔 채 여기의 snapshot·append_decline·admit을 부른다
+// [lock-order] OrderGate::check()는 원장 락(PositionLedger::Reader가 쥔 positions_mutex_)을 쥔 채
+//   여기의 snapshot·append_decline·admit을 부른다
 //   (positions → {priority, displace}). 반대로 여기 락을 쥔 채 원장 락을 잡는 경로는 없다.
 // ─────────────────────────────────────────────────────────────────────────────
 class EntryPriority

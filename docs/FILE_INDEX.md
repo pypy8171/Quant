@@ -329,6 +329,7 @@
 - [LedgerJournal.h](../Quant/include/risk/LedgerJournal.h) — 원장 선기록 저널: 192바이트 고정 레코드·CRC32·seq, 주문을 보내기 전에 적고 재기동 때 리플레이(D-113)
 - [EntryPriority.h](../Quant/include/risk/EntryPriority.h) — 진입 우선순위 표(종목 id 배열 스냅샷)와 교체 진입 기록(쿨다운·슬롯 예약·거절 사유·당일 횟수) — OrderGate에서 뗐다
 - [LedgerKeys.h](../Quant/include/risk/LedgerKeys.h) — 원장 키 (계좌 번호, 종목 id)를 만들고 되찾는 표 — OrderGate에서 뗐다. 신호·체결마다 부르는 함수는 헤더 인라인(D-118 예외, 잰 수치는 파일 안)
+- [PositionLedger.h](../Quant/include/risk/PositionLedger.h) — 원장(보유·선점·평단·매도가능·손익·현금)과 저널·장부 사본 발행 — OrderGate에서 뗐다. 판정은 Reader로 락 쥔 채 읽는다
 - [OrderGate.h](../Quant/include/risk/OrderGate.h) — 주문 전 위험 검증 게이트
 - [ProtectiveOrders.h](../Quant/include/risk/ProtectiveOrders.h) — 보호 주문 표(주문 쪽): 보유·현재가·미체결 매도만으로 손절·트레일 청산 신호를 만든다(D-114 단계 1)
 - [ProtectiveRule.h](../Quant/include/risk/ProtectiveRule.h) — 보호 주문 규칙과 등록 창구 — 전략이 보는 경계(D-114 단계 1)
@@ -462,6 +463,7 @@
 - [LedgerJournal.cpp](../Quant/src/risk/LedgerJournal.cpp) — LedgerJournal.h 구현 — 원장 선기록 저널: 192바이트 고정 레코드·CRC32·seq, 주문을 보내기 전에 적고 재기동 때 리플레이(D-113)
 - [EntryPriority.cpp](../Quant/src/risk/EntryPriority.cpp) — EntryPriority.h 구현 — 표 굳히기, 3c-1 진입 허용 판정, 교체 거절 사유·기록
 - [LedgerKeys.cpp](../Quant/src/risk/LedgerKeys.cpp) — LedgerKeys.h 구현 — 살아 있는 종목 문자열을 종목 id 비트로 바꾸는 live_symbols
+- [PositionLedger.cpp](../Quant/src/risk/PositionLedger.cpp) — PositionLedger.h 구현 — 주문 생명주기(intent·accept·reject·fill·cancel), 시드·대조, 저널 리플레이, 장부 사본 채우기
 - [OrderGate.cpp](../Quant/src/risk/OrderGate.cpp) — 주문 위험 게이트 구현 — 수수료율·우선순위 바
 - [ProtectiveOrders.cpp](../Quant/src/risk/ProtectiveOrders.cpp) — ProtectiveOrders.h 구현 — 보호 주문 표(주문 쪽): 보유·현재가·미체결 매도만으로 손절·트레일 청산 신호를 만든다(D-114 단계 1)
 - [ProtectiveRule.cpp](../Quant/src/risk/ProtectiveRule.cpp) — ProtectiveRule.h 구현 — 보호 주문 규칙과 등록 창구 — 전략이 보는 경계(D-114 단계 1)
@@ -543,6 +545,7 @@
 - [test_ops_server.cpp](../Quant/tests/test_ops_server.cpp) — 운영단말 서버 TCP 왕복 테스트(D-043)
 - [test_order_channel.cpp](../Quant/tests/test_order_channel.cpp) — 전략↔주문 통로 단위 테스트: 요청·응답 레코드, 기다리는 표, 같은 순번 거름, 주문번호 변환(D-114 단계 2)
 - [test_order_gate.cpp](../Quant/tests/test_order_gate.cpp) — OrderGate 한도·거부 사유 단위 테스트
+- [test_position_ledger.cpp](../Quant/tests/test_position_ledger.cpp) — PositionLedger 단위 테스트 — 매도 클램프·부분체결 평단·원장 저널 리플레이
 - [test_order_rate_limiter.cpp](../Quant/tests/test_order_rate_limiter.cpp) — 발주 조절기 단위 테스트(재시도 분류·만기, D-065)
 - [test_order_router.cpp](../Quant/tests/test_order_router.cpp) — OrderRouter 통합 테스트(접수·체결·이력)
 - [test_paper_executor.cpp](../Quant/tests/test_paper_executor.cpp) — 모의 체결기 단위 테스트(다음틱 체결·취소·정정)

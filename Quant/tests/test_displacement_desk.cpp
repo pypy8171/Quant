@@ -54,11 +54,11 @@ struct Rig
     // 슬롯 2개가 다 찬 책을 만든다.
     void seed_full_book()
     {
-        gate.seed_position("", "A", 10, 1000.0);
-        gate.seed_position("", "B", 10, 1000.0);
-        gate.set_entry_priority({{gate.intern_symbol("A"), 1, 0.9},
-                                 {gate.intern_symbol("B"), 2, -0.8},
-                                 {gate.intern_symbol("C"), 3, 1.5}},
+        gate.ledger().seed_position("", "A", 10, 1000.0);
+        gate.ledger().seed_position("", "B", 10, 1000.0);
+        gate.set_entry_priority({{gate.ledger().intern_symbol("A"), 1, 0.9},
+                                 {gate.ledger().intern_symbol("B"), 2, -0.8},
+                                 {gate.ledger().intern_symbol("C"), 3, 1.5}},
                                 3);
     }
 
@@ -67,7 +67,7 @@ struct Rig
     {
         OrderSignal made;
         made.ticker      = ticker;
-        made.symbol_id   = gate.intern_symbol(ticker);
+        made.symbol_id   = gate.ledger().intern_symbol(ticker);
         made.side        = side;
         made.type        = OrderType::LIMIT;
         made.quantity    = quantity;
@@ -89,7 +89,7 @@ int test_hold_and_release()
     CHECK(rig.desk.consider(first, Clock::now()) == risk::DisplacementDesk::Verdict::kSellFirst);
     CHECK(first.ticker == "B" && first.side == OrderSide::SELL && first.type == OrderType::MARKET &&
           first.quantity == 10 && first.reference_price == 1000.0 && first.strategy_id == "DISPLACE");
-    CHECK(rig.desk.held_symbol() == rig.gate.intern_symbol("C") && rig.desk.held_count() == 1);
+    CHECK(rig.desk.held_symbol() == rig.gate.ledger().intern_symbol("C") && rig.desk.held_count() == 1);
 
     // 같은 분할 매수의 다음 분할 단계도 보류에 붙는다. 다른 종목의 매도는 그대로 지나간다.
     OrderSignal second = rig.signal("C", OrderSide::BUY, 2);
@@ -103,14 +103,14 @@ int test_hold_and_release()
     CHECK(!rig.desk.take_ready(taken));
 
     // B 매도 체결 → 자리 → 보류 매수 둘이 차례로 나온다.
-    rig.gate.on_fill_confirmed("", "B", OrderSide::SELL, 10, 1000.0);
+    rig.gate.ledger().on_fill_confirmed("", "B", OrderSide::SELL, 10, 1000.0);
     CHECK(!rig.gate.capacity_full());
     CHECK(rig.desk.take_ready(taken) && taken.ticker == "C" && taken.quantity == 1);
     CHECK(rig.desk.take_ready(taken) && taken.quantity == 2);
     CHECK(!rig.desk.take_ready(taken));
 
     // 시한까지는 예약 종목을 기억한다 — 보류 목록이 비어도 그렇다.
-    CHECK(rig.desk.held_count() == 0 && rig.desk.held_symbol() == rig.gate.intern_symbol("C"));
+    CHECK(rig.desk.held_count() == 0 && rig.desk.held_symbol() == rig.gate.ledger().intern_symbol("C"));
 
     // 자리가 있는 책에서는 매수가 곧장 지나간다.
     OrderSignal third = rig.signal("C", OrderSide::BUY, 3);
@@ -141,7 +141,7 @@ int test_cancel_and_expiry()
         CHECK(rig.desk.consider(buy, Clock::now()) == risk::DisplacementDesk::Verdict::kSellFirst);
 
         // 예약 시한이 지나면 버린다 — 자리가 났어도. 버린 것은 부른 쪽이 받아 그 순번에 답한다.
-        rig.gate.on_fill_confirmed("", "B", OrderSide::SELL, 10, 1000.0);
+        rig.gate.ledger().on_fill_confirmed("", "B", OrderSide::SELL, 10, 1000.0);
         std::vector<OrderSignal> expired;
         rig.desk.expire(Clock::now() + std::chrono::seconds(301), expired);
         CHECK(expired.size() == 1 && expired[0].ticker == "C" && expired[0].quantity == 1);
@@ -172,7 +172,7 @@ int test_cancel_and_expiry()
         // 이미 들고 있거나 선점이 걸린 종목은 교체를 일으키지 않는다 — 분할 매수 2회차가 남을 또 팔면 안 된다.
         Rig rig(displace_config());
         rig.seed_full_book();
-        rig.gate.seed_position("", "C", 5, 1000.0);
+        rig.gate.ledger().seed_position("", "C", 5, 1000.0);
         OrderSignal buy = rig.signal("C", OrderSide::BUY, 1);
         CHECK(rig.desk.consider(buy, Clock::now()) == risk::DisplacementDesk::Verdict::kPass);
         CHECK(buy.ticker == "C" && rig.desk.held_symbol() == symbol::kNone);

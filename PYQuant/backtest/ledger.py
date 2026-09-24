@@ -1,11 +1,11 @@
 """
-평단 원장 — 라이브 `OrderGate::on_fill_confirmed`(Quant/src/risk/OrderGate.cpp 998행~)와 같은 규칙.
+평단 원장 — 라이브 `PositionLedger::on_fill_confirmed`(Quant/src/risk/PositionLedger.cpp 660행~)와 같은 규칙.
 
-- 매수: 평단 = (기존수량 × 기존평단 + 체결수량 × 체결가) / 새수량 (1057-1058행).
-  매수 수수료는 평단에 얹지 않고 발생 즉시 누적 실현손익에서 뺀다(1126-1128행).
-- 매도: 실현손익 = (체결가 − 평단) × 수량 − 매도 수수료 − 거래세 (1096-1097행). 부분 매도는 평단
-  유지(1100행), 전량 매도는 평단·수량 0으로 리셋(1104-1106행). 보유 초과 매도는 0으로 클램프(1082행)
-  하되 손익은 요청 수량 그대로 계산한다(C++와 같다). 평단을 모르면 손익 0 + basis_unknown(1089-1093행).
+- 매수: 평단 = (기존수량 × 기존평단 + 체결수량 × 체결가) / 새수량 (724-725행).
+  매수 수수료는 평단에 얹지 않고 발생 즉시 누적 실현손익에서 뺀다(800-802행).
+- 매도: 실현손익 = (체결가 − 평단) × 수량 − 매도 수수료 − 거래세 (763-764행). 부분 매도는 평단
+  유지(767행), 전량 매도는 평단·수량 0으로 리셋(772-775행). 보유 초과 매도는 0으로 클램프(751행)
+  하되 손익은 요청 수량 그대로 계산한다(C++와 같다). 평단을 모르면 손익 0 + basis_unknown(756-760행).
 
 [formula] 반올림 없음 — costs.py 머리말 참조.
 """
@@ -35,7 +35,7 @@ class LedgerFill:
 @dataclass
 class PositionLedger:
     positions: dict[str, Position] = field(default_factory=dict)
-    realized_pnl: float = 0.0     # 누적. OrderGate의 daily_pnl_ 적립분과 같은 규칙(매수 수수료 즉시 차감)
+    realized_pnl: float = 0.0     # 누적. PositionLedger의 daily_pnl_ 적립분과 같은 규칙(매수 수수료 즉시 차감)
 
     def quantity(self, ticker: str) -> int:
         position = self.positions.get(ticker)
@@ -60,7 +60,7 @@ class PositionLedger:
             new_average = ((pre_quantity * current_average + quantity * fill.price) / new_quantity
                            if new_quantity > 0 else fill.price)
             self.positions[ticker] = Position(new_quantity, new_average)
-            # 매수 비용은 발생 즉시 인식(OrderGate.cpp 1128행). 충격 비용도 같은 자리에서 뺀다(C++는 항상 0).
+            # 매수 비용은 발생 즉시 인식(PositionLedger.cpp 802행). 충격 비용도 같은 자리에서 뺀다(C++는 항상 0).
             self.realized_pnl -= fill.commission + fill.impact
             return LedgerFill(fill, new_average, new_quantity, 0.0)
 

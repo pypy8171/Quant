@@ -317,7 +317,7 @@ void test_duplicate_fill_ignored()
     auto h3 = router.recent(1);
     assert(h3[0].confirmed_quantity == 10);
     assert(h3[0].status == OrderStatus::FILLED);
-    assert(gate.position("005930") == 10);  // 15주로 부풀지 않음
+    assert(gate.ledger().position("005930") == 10);  // 15주로 부풀지 않음
     PASS("duplicate_fill_ignored");
 }
 
@@ -338,8 +338,8 @@ void test_unmapped_fill_applied()
     fill_notification.filled_quantity = 91; fill_notification.filled_price = 54700.0; fill_notification.fill_time = "110707";
     router.on_fill(fill_notification);
 
-    assert(gate.position("047050") == 91);  // 원장에 반영
-    assert(gate.reserved("047050") == 0);   // 없던 선점을 깎아 음수로 만들지 않음
+    assert(gate.ledger().position("047050") == 91);  // 원장에 반영
+    assert(gate.ledger().reserved("047050") == 0);   // 없던 선점을 깎아 음수로 만들지 않음
     PASS("unmapped_fill_applied");
 }
 
@@ -357,12 +357,12 @@ void test_unmapped_fill_duplicate_ignored()
     fill_notification.filled_quantity = 91; fill_notification.filled_price = 54700.0; fill_notification.fill_time = "110707";
     router.on_fill(fill_notification);
     router.on_fill(fill_notification);                    // WS 재구독 재전송
-    assert(gate.position("047050") == 91); // 182로 부풀지 않음
-    assert(gate.reserved("047050") == 0);
+    assert(gate.ledger().position("047050") == 91); // 182로 부풀지 않음
+    assert(gate.ledger().reserved("047050") == 0);
 
     fill_notification.fill_time = "110709"; fill_notification.filled_quantity = 9; // 같은 주문의 다음 분할체결(키 다름)
     router.on_fill(fill_notification);
-    assert(gate.position("047050") == 100);
+    assert(gate.ledger().position("047050") == 100);
 
     // 평단 미상 미연결 SELL — 실현이익을 만들지 않는다(C-1)
     FillNotification unlinked_sell_fill;
@@ -373,7 +373,7 @@ void test_unmapped_fill_duplicate_ignored()
     // 위 BUY 100주(91+9, 평단 54700)의 매수 수수료가 발생 즉시 차감돼 있다.
     //  SELL(316140)은 평단 미상이라 0을 더할 뿐 — 실현이익은 안 생긴다(C-1).
     const double buy_commission = 100 * 54700.0 * 0.00015;
-    assert(std::abs(gate.daily_pnl() - (-buy_commission)) < 0.01); // 분할 누적 부동소수 오차 허용
+    assert(std::abs(gate.ledger().daily_pnl() - (-buy_commission)) < 0.01); // 분할 누적 부동소수 오차 허용
     PASS("unmapped_fill_duplicate_ignored");
 }
 
@@ -394,11 +394,11 @@ void test_unmapped_fill_clamped_by_order_quantity()
     router.on_fill(fill_notification);
     router.on_fill(fill_notification);
     router.on_fill(fill_notification);
-    assert(gate.position("047050") == 6);   // 종전 키 중복 제거로는 2주만 남았다
-    assert(gate.reserved("047050") == 0);   // 없던 선점을 깎아 음수로 만들지 않음
+    assert(gate.ledger().position("047050") == 6);   // 종전 키 중복 제거로는 2주만 남았다
+    assert(gate.ledger().reserved("047050") == 0);   // 없던 선점을 깎아 음수로 만들지 않음
 
     router.on_fill(fill_notification);      // 주문수량을 채운 뒤의 재전송
-    assert(gate.position("047050") == 6);   // 8로 부풀지 않는다
+    assert(gate.ledger().position("047050") == 6);   // 8로 부풀지 않는다
 
     // 통보 수량이 잔량을 넘으면 잔량까지만 반영한다(연결된 주문의 클램프와 같다).
     FillNotification partial;
@@ -408,7 +408,7 @@ void test_unmapped_fill_clamped_by_order_quantity()
     router.on_fill(partial);
     partial.fill_time = "093513";
     router.on_fill(partial);
-    assert(gate.position("005930") == 6);   // 8이 아니라 주문수량에서 멈춘다
+    assert(gate.ledger().position("005930") == 6);   // 8이 아니라 주문수량에서 멈춘다
 
     // 주문수량이 통보 수량보다 작은 전문은 믿지 않는다 — 체결을 깎는 대신 종전 키 중복 제거로 떨어진다.
     FillNotification inconsistent;
@@ -416,9 +416,9 @@ void test_unmapped_fill_clamped_by_order_quantity()
     inconsistent.filled_quantity = 5; inconsistent.filled_price = 20000.0; inconsistent.fill_time = "100000";
     inconsistent.order_quantity = 3;
     router.on_fill(inconsistent);
-    assert(gate.position("000660") == 5);   // 3주로 깎이지 않는다
+    assert(gate.ledger().position("000660") == 5);   // 3주로 깎이지 않는다
     router.on_fill(inconsistent);
-    assert(gate.position("000660") == 5);   // 재전송은 종전대로 키가 막는다
+    assert(gate.ledger().position("000660") == 5);   // 재전송은 종전대로 키가 막는다
     PASS("unmapped_fill_clamped_by_order_quantity");
 }
 
@@ -448,7 +448,7 @@ void test_fill_linked_by_original_order_number()
     assert(recent[0].confirmed_quantity == 10);
     assert(recent[0].status == OrderStatus::FILLED);
     assert(recent[0].signal.strategy_id != "UNLINKED");  // 전략 귀속을 잃지 않았다
-    assert(gate.position("005930") == 10);
+    assert(gate.ledger().position("005930") == 10);
     PASS("fill_linked_by_original_order_number");
 }
 
@@ -498,7 +498,7 @@ void test_cancel_releases_reserved()
     auto managed_order = router.submit(buy);
     assert(managed_order.status == OrderStatus::ACCEPTED);
     assert(managed_order.krx_forwarding_org_no == "ORG000001");       // submit_order_ack가 조직번호 캡처
-    assert(gate.reserved("005930") == 10);
+    assert(gate.ledger().reserved("005930") == 10);
 
     OrderSignal cancel;
     cancel.ticker          = "005930";
@@ -511,7 +511,7 @@ void test_cancel_releases_reserved()
     assert(cancel_acknowledgement.status == OrderStatus::CANCELLED);
     assert(stub.cancel_calls == 1);
     assert(stub.last_cancel_quantity == 10);         // 미체결 전량
-    assert(gate.reserved("005930") == 0);       // 선점 해제
+    assert(gate.ledger().reserved("005930") == 0);       // 선점 해제
     PASS("cancel_releases_reserved");
 }
 
@@ -546,14 +546,14 @@ void test_partial_fill_then_cancel()
     buy.client_order_id     = "MM:B:1";
     buy.client_order_number = 1;
     (void)router.submit(buy);
-    assert(gate.reserved("005930") == 10);
+    assert(gate.ledger().reserved("005930") == 10);
 
     FillNotification fill_notification;
     fill_notification.kis_order_no = "0000000333"; fill_notification.ticker = "005930"; fill_notification.side = OrderSide::BUY;
     fill_notification.filled_quantity = 4; fill_notification.filled_price = 75000.0; fill_notification.fill_time = "100000";
     router.on_fill(fill_notification);
-    assert(gate.reserved("005930") == 6);   // 10 - 4
-    assert(gate.position("005930") == 4);
+    assert(gate.ledger().reserved("005930") == 6);   // 10 - 4
+    assert(gate.ledger().position("005930") == 4);
 
     OrderSignal cancel;
     cancel.ticker          = "005930";
@@ -564,8 +564,8 @@ void test_partial_fill_then_cancel()
 
     assert(cancel_acknowledgement.status == OrderStatus::CANCELLED);
     assert(stub.last_cancel_quantity == 6);      // 미체결 잔량만
-    assert(gate.reserved("005930") == 0);   // 잔량 6 해제
-    assert(gate.position("005930") == 4);   // 체결분은 불변
+    assert(gate.ledger().reserved("005930") == 0);   // 잔량 6 해제
+    assert(gate.ledger().position("005930") == 4);   // 체결분은 불변
     PASS("partial_fill_then_cancel");
 }
 
@@ -585,8 +585,8 @@ void test_cancel_after_full_fill_selfheal()
     fill_notification.kis_order_no = "0000000444"; fill_notification.ticker = "005930"; fill_notification.side = OrderSide::BUY;
     fill_notification.filled_quantity = 10; fill_notification.filled_price = 75000.0; fill_notification.fill_time = "100000";
     router.on_fill(fill_notification);
-    assert(gate.reserved("005930") == 0);
-    assert(gate.position("005930") == 10);
+    assert(gate.ledger().reserved("005930") == 0);
+    assert(gate.ledger().position("005930") == 10);
 
     OrderSignal cancel;
     cancel.ticker          = "005930";
@@ -598,8 +598,8 @@ void test_cancel_after_full_fill_selfheal()
     assert(cancel_acknowledgement.status == OrderStatus::CANCELLED); // 이미 FILLED → 취소 대상 없음(거부가 아니라 끝난 상태)
     assert(cancel_acknowledgement.reject_reason.find("이미 체결") != std::string::npos);
     assert(stub.cancel_calls == 0);
-    assert(gate.reserved("005930") == 0);       // 이중해제 없음
-    assert(gate.position("005930") == 10);
+    assert(gate.ledger().reserved("005930") == 0);       // 이중해제 없음
+    assert(gate.ledger().position("005930") == 10);
     PASS("cancel_after_full_fill_selfheal");
 }
 
@@ -614,7 +614,7 @@ void test_replace_reserves_new_quantity()
     buy.client_order_id     = "MM:B:1";
     buy.client_order_number = 1;
     (void)router.submit(buy);
-    assert(gate.reserved("005930") == 10);
+    assert(gate.ledger().reserved("005930") == 10);
 
     OrderSignal rep;
     rep.ticker          = "005930";
@@ -632,7 +632,7 @@ void test_replace_reserves_new_quantity()
     assert(rm.status == OrderStatus::ACCEPTED);
     assert(rm.kis_order_no == "0000000001");
     assert(stub.revise_calls == 1);
-    assert(gate.reserved("005930") == 8);   // 10 해제 후 8 재선점
+    assert(gate.ledger().reserved("005930") == 8);   // 10 해제 후 8 재선점
     PASS("replace_reserves_new_qty");
 }
 
@@ -653,7 +653,7 @@ void test_reason_journal_restart_recovery()
         OrderRouter       router(gate, stub);
         auto managed_order = router.submit(buy);
         assert(managed_order.status == OrderStatus::ACCEPTED);
-        assert(gate.reserved("047050") == 100);
+        assert(gate.ledger().reserved("047050") == 100);
     }
 
     // 2차 세션 — 메모리 이력이 빈 상태에서 같은 ODNO의 체결이 들어온다.
@@ -666,8 +666,8 @@ void test_reason_journal_restart_recovery()
     fill_notification.filled_quantity = 60; fill_notification.filled_price = 54700.0; fill_notification.fill_time = "110707";
     router.on_fill(fill_notification);
 
-    assert(gate.position("047050") == 60);
-    assert(gate.reserved("047050") == 40);   // 주문수량 100을 되살리고 60만 해제
+    assert(gate.ledger().position("047050") == 60);
+    assert(gate.ledger().reserved("047050") == 40);   // 주문수량 100을 되살리고 60만 해제
 
     // 전략 귀속이 미연결이 아니라 원래 전략으로 남는다.
     auto history = router.recent(5);
@@ -688,7 +688,7 @@ void test_reason_journal_restart_recovery()
     // 잔량 클램프 회복 — 남은 40주보다 많은 통보가 와도 100을 넘지 않는다.
     fill_notification.fill_time = "110709"; fill_notification.filled_quantity = 60;
     router.on_fill(fill_notification);
-    assert(gate.position("047050") == 100);
+    assert(gate.ledger().position("047050") == 100);
 
     PASS("reason_journal_restart_recovery");
 }
@@ -784,7 +784,7 @@ void test_blocked_sell_releases_reservation()
     reserved.client_order_id  = "RESV:1";
     auto acknowledgement_a          = router.submit(reserved);
     assert(acknowledgement_a.status == OrderStatus::ACCEPTED);
-    assert(gate.reserved("005930") == -8);       // 매도 선점(부호는 게이트 규약)
+    assert(gate.ledger().reserved("005930") == -8);       // 매도 선점(부호는 게이트 규약)
 
     // 시장가 청산이 40240000으로 막힘 → 예약매도 취소 → 재매도 접수
     stub.kis_order_no      = "0000000302";
@@ -811,7 +811,7 @@ void test_blocked_sell_releases_reservation()
     }
 
     assert(original_cancelled);
-    assert(gate.reserved("005930") == -8);
+    assert(gate.ledger().reserved("005930") == -8);
 
     // 원장에 CANCELLED 행이 남는다(재매도 ACCEPTED 행 앞).
     router.flush_file_writes();

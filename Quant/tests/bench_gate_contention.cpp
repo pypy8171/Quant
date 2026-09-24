@@ -85,8 +85,8 @@ Result run_reader(const OrderGate& gate, const std::string& account, double dura
     {
         const std::string ticker = ticker_of(index % kSlots);
         const auto start_time = steady_clock::now();
-        sink = sink + gate.position(account, ticker);
-        sink = sink + gate.sellable_view(account, ticker).possible_quantity_cap;
+        sink = sink + gate.ledger().position(account, ticker);
+        sink = sink + gate.ledger().sellable_view(account, ticker).possible_quantity_cap;
         const auto end_time = steady_clock::now();
         result.latencies_ns.push_back(std::chrono::duration_cast<nanoseconds>(end_time - start_time).count());
         ++result.reads;
@@ -113,8 +113,8 @@ void run_filler(OrderGate& gate, const std::string& account, int rate, std::atom
     {
         const std::string ticker = ticker_of(index % kSlots);
         const OrderSide side = (index / kSlots) % 2 == 0 ? OrderSide::BUY : OrderSide::SELL;
-        gate.on_accept(account, ticker, side, 1, 10000.0);
-        gate.on_fill_confirmed(account, ticker, side, 1, 10000.0);
+        gate.ledger().on_accept(account, ticker, side, 1, 10000.0);
+        gate.ledger().on_fill_confirmed(account, ticker, side, 1, 10000.0);
         ++index;
         next += period;
         spin_until(next);
@@ -142,12 +142,12 @@ void run_reconciler(OrderGate& gate, const std::string& account, int every_ms, s
     {
         next += std::chrono::milliseconds(every_ms);
         spin_until(next);
-        (void)gate.snapshot_positions();
-        (void)gate.prune_positions(live, 0);
+        (void)gate.ledger().snapshot_positions();
+        (void)gate.ledger().prune_positions(live, 0);
 
         for (int slot_index = 0; slot_index < kSlots; ++slot_index)
         {
-            gate.seed_position(account, ticker_of(slot_index), 10, 10000.0, 10);
+            gate.ledger().seed_position(account, ticker_of(slot_index), 10, 10000.0, 10);
         }
     }
 }
@@ -166,7 +166,7 @@ void run_ops(const OrderGate& gate, int every_ms, std::atomic<bool>& stop)
     {
         next += std::chrono::milliseconds(every_ms);
         spin_until(next);
-        (void)gate.snapshot_positions();
+        (void)gate.ledger().snapshot_positions();
     }
 }
 
@@ -186,7 +186,7 @@ void run_case(const char* label, double duration_sec, int fill_rate, int reconci
 
     for (int slot_index = 0; slot_index < kSlots; ++slot_index)
     {
-        gate.seed_position(account, ticker_of(slot_index), 10, 10000.0, 10);
+        gate.ledger().seed_position(account, ticker_of(slot_index), 10, 10000.0, 10);
     }
 
     std::atomic<bool> stop{false};

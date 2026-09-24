@@ -11,7 +11,7 @@ namespace
 constexpr int kDefaultHoldSeconds = 120;
 } // namespace
 
-DisplacementDesk::DisplacementDesk(OrderGate& gate) : gate_(gate), displace_index_(gate.strategy_index_of("DISPLACE"))
+DisplacementDesk::DisplacementDesk(OrderGate& gate) : gate_(gate), displace_index_(gate.ledger().strategy_index_of("DISPLACE"))
 {
 }
 
@@ -113,7 +113,7 @@ void DisplacementDesk::expire(Clock::time_point now, std::vector<OrderSignal>& e
     // 시한이 지나면 버린다 — 그 뒤엔 게이트 예약도 풀려 있어 전략의 다음 재구성이 보통 경로로 들어온다.
     if (!held_.empty())
     {
-        LOG_WARN("[Displace] 보류 매수 만료 " + label(gate_.symbols().name(held_symbol_).string()) + " " +
+        LOG_WARN("[Displace] 보류 매수 만료 " + label(gate_.ledger().symbols().name(held_symbol_).string()) + " " +
                  std::to_string(held_.size()) + "건 — 자리가 안 나 버린다");
 
         for (OrderSignal& held_signal : held_)
@@ -139,7 +139,7 @@ bool DisplacementDesk::take_ready(OrderSignal& out)
     {
         drain_logged_ = true;
         LOG_INFO("[Displace] 자리가 나 보류 매수 " + std::to_string(held_.size()) + "건 발주 " +
-                 label(gate_.symbols().name(held_symbol_).string()));
+                 label(gate_.ledger().symbols().name(held_symbol_).string()));
     }
 
     out = std::move(held_.front());

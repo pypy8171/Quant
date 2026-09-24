@@ -12,11 +12,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // LedgerKeys — 원장 키 (계좌 번호, 종목 id) 를 만들고 되찾는 표
 //
-//  OrderGate 원장의 모든 맵이 이 키를 쓴다. 종목은 SymbolTable(Engine이 넘긴 것, 없으면 자체 테이블),
+//  PositionLedger 원장의 모든 맵이 이 키를 쓴다. 종목은 SymbolTable(Engine이 넘긴 것, 없으면 자체 테이블),
 //  계좌는 account_names_ 인덱스라 키가 정수 두 개다. 문자열은 로그·계획·스냅샷에서 ticker_of()·account_of()로
 //  되찾는다. OrderGate에서 떼어 냈다 — 키 규칙이 원장 계산과 섞여 있으면 둘 중 하나를 고칠 때 다른 쪽을 같이 읽어야 했다.
 //
-// [thread] 종목 테이블은 자체 락을 든다. account_names_는 락이 없다 — 소유자(OrderGate)가 positions_mutex_를 잡고
+// [thread] 종목 테이블은 자체 락을 든다. account_names_는 락이 없다 — 소유자(PositionLedger)가 positions_mutex_를 잡고
 //   부른다. 계좌를 등록하는 make·register_signal·account_index(create)만이 아니라 읽는 lookup·account_of도 같다.
 // [why D-057] 두 필드를 따로 들어 "A"+"B:C"와 "A:B"+"C"가 섞이지 않고, 키에서 (계좌, 종목)을 되찾는 파싱이 없다.
 // [why D-105] 문자열 두 개이던 때는 조회 한 번이 34~40 ns였고 대부분이 문자열 해시였다.

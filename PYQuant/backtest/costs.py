@@ -1,13 +1,13 @@
 """
 체결 비용 정의 — 라이브 원장과 한 소스.
 
-라이브 원장 `Quant/src/risk/OrderGate.cpp`의 상수(14-15행)와 `on_fill_confirmed`(998행~)의
+라이브 원장 `Quant/src/risk/PositionLedger.cpp`의 상수(12-13행)와 `on_fill_confirmed`(660행~)의
 수식을 그대로 옮긴 파이썬 판이다. 백테스트·스터디·비용 집계 스크립트는 여기서 `LIVE`를 가져다 쓰고,
 자기 상수를 따로 두지 않는다. 골든 테스트 `PYQuant/tests/test_costs_golden.py`가 이 파일의
 상수를 C++ 소스에서 다시 읽어 대조한다 — 어느 한쪽만 고치면 테스트가 잡는다.
 
 [formula] 원 단위 반올림은 하지 않는다. C++ 원장이 `price * quantity * kCommissionRate`를
-double 그대로 들고 가고(OrderGate.cpp 1003-1004행) 어디에서도 내림·반올림을 하지 않으므로
+double 그대로 들고 가고(PositionLedger.cpp 665-666행) 어디에서도 내림·반올림을 하지 않으므로
 여기서도 같은 순서의 부동소수 곱을 그대로 둔다. 곱셈 순서(가격 × 수량 × 요율)까지 맞춰야
 비트 단위로 같은 값이 나온다.
 
@@ -98,7 +98,7 @@ def slipped_price(side: str, price: float, slippage_ticks: int) -> float:
 
 
 def fill_result(side: str, price: float, quantity: int, specification: CostSpec) -> FillResult:
-    """체결 금액 분해. 수수료·세금 수식은 OrderGate.cpp 1003-1004행과 곱셈 순서까지 같다."""
+    """체결 금액 분해. 수수료·세금 수식은 PositionLedger.cpp 665-666행과 곱셈 순서까지 같다."""
     if side not in ("BUY", "SELL"):
         raise ValueError(f"side는 BUY|SELL: {side!r}")
 
@@ -116,7 +116,7 @@ def fill_result(side: str, price: float, quantity: int, specification: CostSpec)
     return FillResult(side, fill_price, quantity, gross, commission, tax, impact, net)
 
 
-# 라이브 원장 값(OrderGate.cpp 14-15행). 매도세 0.20%는 2026년 증권거래세(코스피 거래세 0.05%+농어촌특별세 0.15%,
+# 라이브 원장 값(PositionLedger.cpp 12-13행). 매도세 0.20%는 2026년 증권거래세(코스피 거래세 0.05%+농어촌특별세 0.15%,
 #  코스닥 0.20%). 2026-09-21까지 엔진은 2024년 값 0.18%로 원장을 썼다(원장 CSV `realized_pnl` 역산 334쌍 중앙값
 #  0.1957%로 확인) — 그 원장 행을 다시 계산할 때만 LEDGER_UNTIL_2026_09_21을 쓴다.
 LIVE = CostSpec(commission_percent=0.015, sell_tax_percent=0.20, slippage_ticks=0, impact_percent=0.0)

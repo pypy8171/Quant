@@ -1,13 +1,13 @@
 """
-비용·평단 골든 테스트 — 파이썬 `backtest.costs`·`backtest.ledger`가 C++ `OrderGate::on_fill_confirmed`와
+비용·평단 골든 테스트 — 파이썬 `backtest.costs`·`backtest.ledger`가 C++ `PositionLedger::on_fill_confirmed`와
 같은 원을 내는지 본다. 오차 허용 0원(부동소수 잔차 1e-9 이하).
 
 기대값 근거:
-  - 케이스 1·2 평단 1000 → 1050: `Quant/tests/test_order_gate.cpp` 224-247행(test_partial_fill_average_price).
-  - 나머지: `Quant/src/risk/OrderGate.cpp` 수식을 손으로 푼 값. 수수료 = 가격×수량×0.00015(1003행),
-    거래세 = 매도 가격×수량×0.0020(1004행), 매수 평단 (1057-1058행), 매도 실현손익 (1096-1097행),
-    부분 매도 평단 불변(1100행), 전량 매도 리셋(1104-1106행), 초과 매도 0 클램프(1082행),
-    평단 미상 손익 0(1089-1093행), 매수 수수료 즉시 차감(1128행).
+  - 케이스 1·2 평단 1000 → 1050: `Quant/tests/test_position_ledger.cpp` 49-68행(test_partial_fill_average_price).
+  - 나머지: `Quant/src/risk/PositionLedger.cpp` 수식을 손으로 푼 값. 수수료 = 가격×수량×0.00015(665행),
+    거래세 = 매도 가격×수량×0.0020(666행), 매수 평단 (724-725행), 매도 실현손익 (763-764행),
+    부분 매도 평단 불변(767행), 전량 매도 리셋(772-775행), 초과 매도 0 클램프(751행),
+    평단 미상 손익 0(756-760행), 매수 수수료 즉시 차감(802행).
   - 케이스 11: 원장 CSV `Quant/build_win/logs/trades_20260910.csv` ORD-000033(ITB_441270) 실제 행 — 그날 엔진 세율 0.18%(LEDGER_UNTIL_2026_09_21).
     8200원 1주 → realized_pnl 319.13, 8190원 1주 → 309.15. 두 행에서 평단 7864.88이 나온다.
 
@@ -25,7 +25,7 @@ from backtest.costs import LEDGER_UNTIL_2026_09_21, LIVE, CostSpec, fill_result,
 from backtest.ledger import PositionLedger  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
-ORDER_GATE_SOURCE = REPO / "Quant" / "src" / "risk" / "OrderGate.cpp"
+ORDER_GATE_SOURCE = REPO / "Quant" / "src" / "risk" / "PositionLedger.cpp"
 ZERO_WON = 1e-9
 
 

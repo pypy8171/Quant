@@ -120,12 +120,12 @@
     {
       "from": "risk",
       "to": "core",
-      "weight": 9
+      "weight": 12
     },
     {
       "from": "risk",
       "to": "ipc",
-      "weight": 1
+      "weight": 2
     },
     {
       "from": "risk",
@@ -254,6 +254,7 @@
     "risk/LedgerJournal.h": "risk",
     "risk/LedgerKeys.h": "risk",
     "risk/OrderGate.h": "risk",
+    "risk/PositionLedger.h": "risk",
     "risk/ProtectiveOrders.h": "risk",
     "risk/ProtectiveRule.h": "risk",
     "strategy/DeviationScaleStrategy.h": "strategy",
@@ -357,6 +358,7 @@
     "risk/LedgerJournal.cpp": "risk",
     "risk/LedgerKeys.cpp": "risk",
     "risk/OrderGate.cpp": "risk",
+    "risk/PositionLedger.cpp": "risk",
     "risk/ProtectiveOrders.cpp": "risk",
     "risk/ProtectiveRule.cpp": "risk",
     "strategy/DeviationScaleStrategy.cpp": "strategy",
@@ -923,6 +925,17 @@
       "core/SymbolTable.h",
       "core/Types.h",
       "risk/EntryPriority.h",
+      "risk/LedgerKeys.h",
+      "risk/PositionLedger.h"
+    ],
+    "risk/PositionLedger.cpp": [
+      "ipc/LedgerSnapshot.h",
+      "risk/PositionLedger.h"
+    ],
+    "risk/PositionLedger.h": [
+      "core/StrategyTable.h",
+      "core/SymbolTable.h",
+      "core/Types.h",
       "risk/LedgerJournal.h",
       "risk/LedgerKeys.h"
     ],
@@ -1355,6 +1368,7 @@
       "core/Types.h",
       "ipc/SharedStrategyDictionary.h",
       "risk/OrderGate.h",
+      "risk/PositionLedger.h",
       "strategy/StrategyBase.h"
     ],
     "core/SymbolTable.h": [
@@ -1375,6 +1389,7 @@
       "risk/EntryPriority.h",
       "risk/LedgerKeys.h",
       "risk/OrderGate.h",
+      "risk/PositionLedger.h",
       "universe/ScoreWeight.h",
       "universe/UniverseScanner.h"
     ],
@@ -1425,6 +1440,7 @@
       "risk/DisplacementDesk.h",
       "risk/LedgerKeys.h",
       "risk/OrderGate.h",
+      "risk/PositionLedger.h",
       "risk/ProtectiveRule.h",
       "strategy/DevScaleRules.h",
       "strategy/StrategyBase.h",
@@ -1473,7 +1489,8 @@
       "core/SignalDispatcher.h",
       "ipc/LedgerSnapshot.cpp",
       "ipc/SharedLayout.h",
-      "risk/OrderGate.cpp"
+      "risk/OrderGate.cpp",
+      "risk/PositionLedger.cpp"
     ],
     "ipc/MarketFeedChannel.h": [
       "ipc/MarketFeedChannel.cpp",
@@ -1554,11 +1571,12 @@
     ],
     "risk/LedgerJournal.h": [
       "risk/LedgerJournal.cpp",
-      "risk/OrderGate.h"
+      "risk/PositionLedger.h"
     ],
     "risk/LedgerKeys.h": [
       "risk/LedgerKeys.cpp",
-      "risk/OrderGate.h"
+      "risk/OrderGate.h",
+      "risk/PositionLedger.h"
     ],
     "risk/OrderGate.h": [
       "core/AppConfig.h",
@@ -1569,6 +1587,10 @@
       "risk/DisplacementDesk.h",
       "risk/OrderGate.cpp",
       "risk/ProtectiveOrders.h"
+    ],
+    "risk/PositionLedger.h": [
+      "risk/OrderGate.h",
+      "risk/PositionLedger.cpp"
     ],
     "risk/ProtectiveOrders.h": [
       "core/Engine.h",
@@ -1738,18 +1760,18 @@
   "hubs": [
     {
       "header": "core/Types.h",
-      "in_degree": 41
+      "in_degree": 42
     },
     {
       "header": "utils/Logger.h",
       "in_degree": 34
     },
     {
-      "header": "core/KstTime.h",
-      "in_degree": 19
+      "header": "core/SymbolTable.h",
+      "in_degree": 20
     },
     {
-      "header": "core/SymbolTable.h",
+      "header": "core/KstTime.h",
       "in_degree": 19
     },
     {
@@ -1781,6 +1803,14 @@
       "in_degree": 6
     },
     {
+      "header": "core/StrategyTable.h",
+      "in_degree": 6
+    },
+    {
+      "header": "ipc/LedgerSnapshot.h",
+      "in_degree": 6
+    },
+    {
       "header": "core/IFeedSource.h",
       "in_degree": 5
     },
@@ -1793,15 +1823,7 @@
       "in_degree": 5
     },
     {
-      "header": "core/StrategyTable.h",
-      "in_degree": 5
-    },
-    {
       "header": "core/TickSize.h",
-      "in_degree": 5
-    },
-    {
-      "header": "ipc/LedgerSnapshot.h",
       "in_degree": 5
     },
     {

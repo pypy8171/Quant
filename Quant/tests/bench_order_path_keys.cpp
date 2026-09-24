@@ -72,7 +72,7 @@ int main()
     for (int index = 0; index < kUniverse; ++index)
     {
         tickers.push_back(ticker_of(index));
-        priority.push_back({gate.intern_symbol(tickers.back()), index + 1, 1.0 - index * 0.01});
+        priority.push_back({gate.ledger().intern_symbol(tickers.back()), index + 1, 1.0 - index * 0.01});
     }
 
     gate.set_entry_priority(priority, kUniverse);
@@ -80,7 +80,7 @@ int main()
     // 슬롯 20/25 — BUY NEW 신규 종목이 동시보유 단을 지나 우선순위 표를 끝까지 돌게 된다.
     for (int index = 0; index < kHeld; ++index)
     {
-        gate.seed_position(std::string(), tickers[static_cast<size_t>(index)], 10, 10000.0);
+        gate.ledger().seed_position(std::string(), tickers[static_cast<size_t>(index)], 10, 10000.0);
     }
 
     std::string reject_reason;
@@ -92,14 +92,14 @@ int main()
     sell.type        = OrderType::MARKET;
     sell.quantity    = 1;
     sell.strategy_id    = "DEVSCALE_A";
-    sell.strategy_index = gate.strategy_index_of(sell.strategy_id);
+    sell.strategy_index = gate.ledger().strategy_index_of(sell.strategy_id);
     sell.symbol_id      = symbol::kNone;
 
     const double sell_ns = measure_ns(kRounds, [&] {
         for (size_t round = 0; round < kRounds; ++round)
         {
             sell.ticker    = tickers[round % kHeld];
-            sell.symbol_id = gate.symbol_id_of(sell.ticker);
+            sell.symbol_id = gate.ledger().symbol_id_of(sell.ticker);
             checksum += gate.check(sell, reject_reason) ? 1 : 0;
         }
     });
@@ -111,13 +111,13 @@ int main()
     buy.quantity    = 1;
     buy.price       = 10000.0;
     buy.strategy_id    = "DEVSCALE_A";
-    buy.strategy_index = gate.strategy_index_of(buy.strategy_id);
+    buy.strategy_index = gate.ledger().strategy_index_of(buy.strategy_id);
 
     const double buy_ns = measure_ns(kRounds, [&] {
         for (size_t round = 0; round < kRounds; ++round)
         {
             buy.ticker    = tickers[kHeld + round % (kUniverse - kHeld)];
-            buy.symbol_id = gate.symbol_id_of(buy.ticker);
+            buy.symbol_id = gate.ledger().symbol_id_of(buy.ticker);
             checksum += gate.check(buy, reject_reason) ? 1 : 0;
         }
     });
@@ -127,13 +127,13 @@ int main()
 
     for (int index = 0; index < kStrategies; ++index)
     {
-        strategies.push_back(gate.strategy_index_of("DEVSCALE_" + ticker_of(index)));
+        strategies.push_back(gate.ledger().strategy_index_of("DEVSCALE_" + ticker_of(index)));
     }
 
     const double fill_ns = measure_ns(kRounds, [&] {
         for (size_t round = 0; round < kRounds; ++round)
         {
-            const auto result = gate.on_fill_confirmed(std::string(), tickers[round % kHeld], OrderSide::BUY, 1, 10000.0,
+            const auto result = gate.ledger().on_fill_confirmed(std::string(), tickers[round % kHeld], OrderSide::BUY, 1, 10000.0,
                                                        strategies[round % kStrategies]);
             checksum += result.net_quantity;
         }

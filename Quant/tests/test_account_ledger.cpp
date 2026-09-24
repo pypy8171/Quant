@@ -46,12 +46,12 @@ static void PASS(const std::string& name) { std::cout << "[PASS] " << name << "\
 void test_independent_holdings()
 {
     OrderGate gate(relaxed_config());
-    gate.on_fill_confirmed("ACC1", "005930", OrderSide::BUY, 40, 1000.0);
-    gate.on_fill_confirmed("ACC2", "005930", OrderSide::BUY, 70, 1000.0);
+    gate.ledger().on_fill_confirmed("ACC1", "005930", OrderSide::BUY, 40, 1000.0);
+    gate.ledger().on_fill_confirmed("ACC2", "005930", OrderSide::BUY, 70, 1000.0);
 
-    assert(gate.position("ACC1", "005930") == 40);
-    assert(gate.position("ACC2", "005930") == 70); // 같은 종목, 독립 보유
-    assert(gate.position("", "005930") == 0);       // 기본(빈) 계좌엔 없음
+    assert(gate.ledger().position("ACC1", "005930") == 40);
+    assert(gate.ledger().position("ACC2", "005930") == 70); // 같은 종목, 독립 보유
+    assert(gate.ledger().position("", "005930") == 0);       // 기본(빈) 계좌엔 없음
     PASS("independent_holdings");
 }
 
@@ -65,10 +65,10 @@ void test_limit_isolation()
     {
         std::string raw;
         assert(gate.check(signal("ACC1", "005930", OrderSide::BUY, 1), raw));
-        gate.on_accept("ACC1", "005930", OrderSide::BUY, 1, 1000.0);
+        gate.ledger().on_accept("ACC1", "005930", OrderSide::BUY, 1, 1000.0);
     }
 
-    assert(gate.reserved("ACC1", "005930") == 100);
+    assert(gate.ledger().reserved("ACC1", "005930") == 100);
 
     // ACC1의 101번째 → 한도 초과 거부
     std::string row_a;
@@ -78,7 +78,7 @@ void test_limit_isolation()
     // ACC2의 같은 종목 주문 → ACC1 한도와 무관하게 통과 (격리 증명)
     std::string row_b;
     assert(gate.check(signal("ACC2", "005930", OrderSide::BUY, 1), row_b));
-    assert(gate.reserved("ACC2", "005930") == 0); // ACC2는 아직 선점 0
+    assert(gate.ledger().reserved("ACC2", "005930") == 0); // ACC2는 아직 선점 0
     PASS("limit_isolation");
 }
 
@@ -87,15 +87,15 @@ void test_fill_and_close_isolation()
 {
     OrderGate gate(relaxed_config());
     // 두 계좌가 같은 종목 매수 후, ACC1만 전량 매도(청산)
-    gate.on_fill_confirmed("ACC1", "005930", OrderSide::BUY, 10, 1000.0);
-    gate.on_fill_confirmed("ACC2", "005930", OrderSide::BUY, 10, 2000.0);
-    assert(gate.average_price("ACC1", "005930") == 1000.0);
-    assert(gate.average_price("ACC2", "005930") == 2000.0); // 평단도 계좌별 독립
+    gate.ledger().on_fill_confirmed("ACC1", "005930", OrderSide::BUY, 10, 1000.0);
+    gate.ledger().on_fill_confirmed("ACC2", "005930", OrderSide::BUY, 10, 2000.0);
+    assert(gate.ledger().average_price("ACC1", "005930") == 1000.0);
+    assert(gate.ledger().average_price("ACC2", "005930") == 2000.0); // 평단도 계좌별 독립
 
-    gate.on_fill_confirmed("ACC1", "005930", OrderSide::SELL, 10, 1500.0); // ACC1 청산
-    assert(gate.position("ACC1", "005930") == 0);
-    assert(gate.position("ACC2", "005930") == 10);      // ACC2는 영향 없음
-    assert(gate.average_price("ACC2", "005930") == 2000.0);
+    gate.ledger().on_fill_confirmed("ACC1", "005930", OrderSide::SELL, 10, 1500.0); // ACC1 청산
+    assert(gate.ledger().position("ACC1", "005930") == 0);
+    assert(gate.ledger().position("ACC2", "005930") == 10);      // ACC2는 영향 없음
+    assert(gate.ledger().average_price("ACC2", "005930") == 2000.0);
     PASS("fill_and_close_isolation");
 }
 
@@ -103,10 +103,10 @@ void test_fill_and_close_isolation()
 void test_default_account_backcompat()
 {
     OrderGate gate(relaxed_config());
-    gate.on_fill_confirmed("005930", OrderSide::BUY, 10, 1000.0); // 4-argument → account=""
-    assert(gate.position("005930") == 10);        // 하위호환 조회
-    assert(gate.position("", "005930") == 10);    // 명시적 빈 계좌 == 하위호환
-    assert(gate.position("ACC1", "005930") == 0); // 다른 계좌엔 안 섞임
+    gate.ledger().on_fill_confirmed("005930", OrderSide::BUY, 10, 1000.0); // 4-argument → account=""
+    assert(gate.ledger().position("005930") == 10);        // 하위호환 조회
+    assert(gate.ledger().position("", "005930") == 10);    // 명시적 빈 계좌 == 하위호환
+    assert(gate.ledger().position("ACC1", "005930") == 0); // 다른 계좌엔 안 섞임
     PASS("default_account_backcompat");
 }
 
@@ -130,21 +130,21 @@ void test_deduplicate_account_isolation()
 void test_reset_daily_isolation()
 {
     OrderGate gate(relaxed_config());
-    gate.on_fill_confirmed("ACC1", "005930", OrderSide::BUY, 10, 1000.0);
-    gate.on_fill_confirmed("ACC2", "005930", OrderSide::BUY, 20, 2000.0);
-    gate.on_accept("ACC1", "005930", OrderSide::BUY, 5, 1000.0); // 미체결 선점
-    gate.on_accept("ACC2", "005930", OrderSide::BUY, 7, 2000.0);
-    assert(gate.reserved("ACC1", "005930") == 5);
-    assert(gate.reserved("ACC2", "005930") == 7);
+    gate.ledger().on_fill_confirmed("ACC1", "005930", OrderSide::BUY, 10, 1000.0);
+    gate.ledger().on_fill_confirmed("ACC2", "005930", OrderSide::BUY, 20, 2000.0);
+    gate.ledger().on_accept("ACC1", "005930", OrderSide::BUY, 5, 1000.0); // 미체결 선점
+    gate.ledger().on_accept("ACC2", "005930", OrderSide::BUY, 7, 2000.0);
+    assert(gate.ledger().reserved("ACC1", "005930") == 5);
+    assert(gate.ledger().reserved("ACC2", "005930") == 7);
 
     gate.reset_daily(); // 미체결 선점 만료, 포지션/평단은 영속
 
-    assert(gate.reserved("ACC1", "005930") == 0);
-    assert(gate.reserved("ACC2", "005930") == 0);
-    assert(gate.position("ACC1", "005930") == 10); // 양쪽 포지션 보존
-    assert(gate.position("ACC2", "005930") == 20);
-    assert(gate.average_price("ACC1", "005930") == 1000.0);
-    assert(gate.average_price("ACC2", "005930") == 2000.0);
+    assert(gate.ledger().reserved("ACC1", "005930") == 0);
+    assert(gate.ledger().reserved("ACC2", "005930") == 0);
+    assert(gate.ledger().position("ACC1", "005930") == 10); // 양쪽 포지션 보존
+    assert(gate.ledger().position("ACC2", "005930") == 20);
+    assert(gate.ledger().average_price("ACC1", "005930") == 1000.0);
+    assert(gate.ledger().average_price("ACC2", "005930") == 2000.0);
     PASS("reset_daily_isolation");
 }
 
@@ -154,10 +154,10 @@ void test_reset_daily_isolation()
 void test_key_collision_safety()
 {
     OrderGate gate(relaxed_config());
-    gate.on_fill_confirmed("A", "B:C", OrderSide::BUY, 3, 1000.0);
-    gate.on_fill_confirmed("A:B", "C", OrderSide::BUY, 5, 1000.0);
-    assert(gate.position("A", "B:C") == 3); // 충돌 없이 각각 독립
-    assert(gate.position("A:B", "C") == 5);
+    gate.ledger().on_fill_confirmed("A", "B:C", OrderSide::BUY, 3, 1000.0);
+    gate.ledger().on_fill_confirmed("A:B", "C", OrderSide::BUY, 5, 1000.0);
+    assert(gate.ledger().position("A", "B:C") == 3); // 충돌 없이 각각 독립
+    assert(gate.ledger().position("A:B", "C") == 5);
     PASS("key_collision_safety");
 }
 
@@ -167,21 +167,21 @@ void test_key_collision_safety()
 void test_sell_unknown_basis_no_fake_profit()
 {
     OrderGate gate(relaxed_config());
-    auto on_fill_confirmed = gate.on_fill_confirmed("ACC1", "047050", OrderSide::SELL, 91, 54700.0);
+    auto on_fill_confirmed = gate.ledger().on_fill_confirmed("ACC1", "047050", OrderSide::SELL, 91, 54700.0);
     assert(on_fill_confirmed.basis_unknown);
     assert(on_fill_confirmed.realized_pnl == 0.0);
-    assert(gate.daily_pnl() == 0.0);             // 4,977,700원이 이익으로 적립되지 않음
-    assert(gate.position("ACC1", "047050") == 0); // 보유 초과 매도는 0으로 클램프(기존 동작)
+    assert(gate.ledger().daily_pnl() == 0.0);             // 4,977,700원이 이익으로 적립되지 않음
+    assert(gate.ledger().position("ACC1", "047050") == 0); // 보유 초과 매도는 0으로 클램프(기존 동작)
 
     // 평단을 아는 계좌는 그대로 계산된다 — 격리 확인
-    gate.on_fill_confirmed("ACC2", "047050", OrderSide::BUY, 10, 50000.0);
-    auto row_b = gate.on_fill_confirmed("ACC2", "047050", OrderSide::SELL, 10, 54700.0);
+    gate.ledger().on_fill_confirmed("ACC2", "047050", OrderSide::BUY, 10, 50000.0);
+    auto row_b = gate.ledger().on_fill_confirmed("ACC2", "047050", OrderSide::SELL, 10, 54700.0);
     assert(!row_b.basis_unknown);
     assert(row_b.realized_pnl > 0.0 && row_b.realized_pnl < 47000.0); // 47,000원에서 수수료·세금 차감
 
     // 매수 수수료(10*50000*0.00015=75원)도 발생 즉시 daily_pnl_에서 빠진다.
     const double buy_commission = 10 * 50000.0 * 0.00015;
-    assert(gate.daily_pnl() == row_b.realized_pnl - buy_commission);
+    assert(gate.ledger().daily_pnl() == row_b.realized_pnl - buy_commission);
     PASS("sell_unknown_basis_no_fake_profit");
 }
 

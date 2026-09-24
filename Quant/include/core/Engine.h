@@ -358,7 +358,7 @@ public:
     void set_entry_priority(const std::vector<OrderGate::PriorityEntry>& entries, int total);
     // 현재 보유(롱) 원장 스냅샷 — 유니버스 재스캔의 "보유분 제외"가 매회 최신 잔고를 보게 한다.
     //  기동 시 1회 조회한 잔고를 계속 쓰면 청산된 종목이 세션 내내 후보에서 빠진다.
-    std::vector<OrderGate::HeldPos> held_positions() const { return order_gate_.snapshot_positions(); }
+    std::vector<OrderGate::HeldPos> held_positions() const { return order_gate_.ledger().snapshot_positions(); }
     // 종목 테이블 — 문자열 티커는 경계(설정·잔고·스캔 응답)에서 여기로 한 번 번호가 되고 그 뒤로는 id로 다닌다. [why D-112]
     symbol::SymbolTable&       symbols() noexcept { return symbols_.table; }
     const symbol::SymbolTable& symbols() const noexcept { return symbols_.table; }
@@ -368,7 +368,7 @@ public:
     //  전략 쪽에서 부르는 자리라 게이트를 바로 고치지 않고 제어 요청으로 보낸다 — 표를 고치는 것은
     //  주문 스레드 하나다(원칙 4). 건 결과는 장부 사본의 slot_exempt 비트로 돌아온다. [why D-114]
     void set_slot_exempt_tickers(const std::vector<std::string>& tickers);
-    std::vector<symbol::SymbolId> slot_exempt_symbols() const { return order_gate_.slot_exempt_symbols(); }
+    std::vector<symbol::SymbolId> slot_exempt_symbols() const { return order_gate_.ledger().slot_exempt_symbols(); }
 
     // ── 유니버스 재스캔 ─────────────────────────────────────────────────────
     // 주기적 유니버스 재스캔(동적 등록). universe_fn: 시세 클라이언트로 유니버스 티커 목록 산출.
@@ -997,9 +997,9 @@ private:
     //  전략 쪽의 표 쓰기가 된다 — 디스패처가 자기 생성자에서 받던 것을 여기로 올렸다. [why D-114]
     //  갈라 띄우면 표가 공유 쪽지 위 것으로 바뀌므로(adopt_shared_dictionaries) 그 자리에서 다시 받는다 —
     //  그래서 const 가 아니다. 바꾸는 자리는 거기 하나이고 스레드 전이다. [why D-114]
-    strategy_table::StrategyId manual_strategy_index_   = order_gate_.strategy_index_of("MANUAL");
-    strategy_table::StrategyId force_liquidation_index_ = order_gate_.strategy_index_of("FORCE_LIQ");
-    strategy_table::StrategyId limit_trim_index_        = order_gate_.strategy_index_of("LIMIT_TRIM");
+    strategy_table::StrategyId manual_strategy_index_   = order_gate_.ledger().strategy_index_of("MANUAL");
+    strategy_table::StrategyId force_liquidation_index_ = order_gate_.ledger().strategy_index_of("FORCE_LIQ");
+    strategy_table::StrategyId limit_trim_index_        = order_gate_.ledger().strategy_index_of("LIMIT_TRIM");
     std::unique_ptr<OrderRouter> order_router_; // 주문 전처리·중계 레이어(증권업계 용어로 FEP, Front-End Processor). start() 이후 유효
     // 전략 쪽이 읽을 장부 사본. 장부가 바뀔 때마다 order_gate_가 여기에 한 판을 낸다. 자리표의 마지막
     //  면이라 Engine 안에 실체가 없다 — 여기 있는 것은 그 자리를 가리키는 포인터다. [why D-114]

@@ -8,7 +8,7 @@
 
 ### 스레드 모델
 
-<!-- sync: Quant/include/core/Engine.h@7dbaeff Quant/src/core/Engine.cpp@7ba2ba4 Quant/include/core/DataPoller.h@196bcf6 Quant/include/core/SignalDispatcher.h@6aec697 Quant/include/core/OrderRateLimiter.h@2650fb2 Quant/include/core/LedgerReconciler.h@77c1a8a Quant/include/core/WakeGate.h@cfe77bc Quant/include/core/BarAggregator.h@f50287c Quant/include/core/LatencyTrace.h@b01b770 Quant/include/core/ReconcilePlan.h@5e8d897 -->
+<!-- sync: Quant/include/core/Engine.h@3bc8f37 Quant/src/core/Engine.cpp@db3f154 Quant/include/core/DataPoller.h@196bcf6 Quant/include/core/SignalDispatcher.h@63c6f95 Quant/include/core/OrderRateLimiter.h@2650fb2 Quant/include/core/LedgerReconciler.h@77c1a8a Quant/include/core/WakeGate.h@cfe77bc Quant/include/core/BarAggregator.h@f50287c Quant/include/core/LatencyTrace.h@b01b770 Quant/include/core/ReconcilePlan.h@5e8d897 -->
 스레드는 다섯 개(데이터·전략·주문·체결·제어)에 전략 샤드 M개(config `strategy_shards`, 기본 1, 상한 64), 소켓마다
 수신 스레드 하나, 프리페치 풀(코어/4, 2~8개)을 더한다. 스레드끼리는 락 없는 큐로만 넘긴다. 각 스레드는 기동 직후
 `thread_name::set_current`(`Quant/include/utils/ThreadName.h`)로 이름을 붙여 procwatch와 디버거에 그 이름으로 보인다.
@@ -77,7 +77,7 @@ flowchart LR
    거른 뒤 순번 `seq`를 찍어 문자열 없는 고정 레코드 `ipc::OrderRequest`로 요청 면에 넣는다.
 4. 주문 스레드가 꺼내 `ipc::is_plausible`로 값을 보고 `ipc::to_signal`로 되살린다. 1초 넘게 기다린 신규 매수는
    보내지 않는다 — 초당 주문 한도가 꺼내는 속도를 정하므로 낡은 판단이 새 판단의 자리를 먹는다. 취소·정정·매도는 나이를 안 본다(D-127).
-5. `OrderRouter`가 `OrderGate::check()` → 저널에 INTENT 선기록 → 초당 한도 대기 → KIS 발주를 한다.
+5. `OrderRouter`가 `OrderGate::check()` → 저널에 INTENT 선기록(`PositionLedger::on_intent`) → 초당 한도 대기 → KIS 발주를 한다.
    재시도 분류와 최소 간격은 `OrderRateLimiter`(D-065). 구간별 소요는 `logs/latency_trace.csv`에 한 줄씩(D-117).
 6. 종착 상태는 `ipc::OrderResponse`로 응답 면에 돌아가고, 체결통보는 수신 → `fill_queue` → 체결 스레드가 원장에 반영한다.
 

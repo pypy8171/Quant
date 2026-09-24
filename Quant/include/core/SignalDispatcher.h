@@ -89,7 +89,7 @@ private:
     // 순번 stamp → 로그 → 싱크. 큐에 넣는 유일한 길. 값으로 받아 그 자리에서 순번을 찍는다(sink).
     void        emit(OrderSignal signal);
     std::string label(const std::string& ticker) const { return label_ ? label_(ticker) : ticker; }
-    std::string label(symbol::SymbolId symbol) const { return label(gate_.symbols().name(symbol).string()); }
+    std::string label(symbol::SymbolId symbol) const { return label(gate_.ledger().symbols().name(symbol).string()); }
 
     // 신호의 종목 id — 전략 경로는 이미 찍혀 온다. 안 찍힌 신호(테스트·운영단말)는 모르는 종목이면 kNone이고,
     //  번호를 주는 것은 주문 쪽이다(주문 스레드가 받는 자리에서 등록한다). [why D-114]

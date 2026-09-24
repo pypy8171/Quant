@@ -206,6 +206,7 @@ set(ENGINE_SOURCES
   src/risk/OrderGate.cpp
   src/risk/LedgerKeys.cpp
   src/risk/EntryPriority.cpp
+  src/risk/PositionLedger.cpp
   src/utils/Logger.cpp
   src/utils/Timer.cpp
 )
@@ -301,6 +302,13 @@ add_executable(test_order_gate tests/test_order_gate.cpp src/risk/OrderGate.cpp 
 target_include_directories(test_order_gate PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 if(UNIX)
     target_link_libraries(test_order_gate PRIVATE pthread)
+endif()
+
+# ─── 테스트 타겟: PositionLedger 단위 테스트(원장·저널만) ─────────────────────
+add_executable(test_position_ledger tests/test_position_ledger.cpp src/risk/PositionLedger.cpp src/ipc/LedgerSnapshot.cpp)
+target_include_directories(test_position_ledger PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+if(UNIX)
+    target_link_libraries(test_position_ledger PRIVATE pthread)
 endif()
 
 # ─── 벤치: OrderGate 원장 조회 — 문자열 키 대 정수 키 (D-105 결정 3) ──────────
@@ -846,6 +854,7 @@ endif()
 #  나중에 처리하므로, 구성 플래그보다 뒤에 붙는 이 옵션이 이긴다.
 set(QUANT_ASSERT_TARGETS
     test_order_gate
+    test_position_ledger
     test_order_router
     test_ws_frame
     test_ws_decode

@@ -42,7 +42,7 @@ int main()
         char buffer[8];
         std::snprintf(buffer, sizeof(buffer), "%06zu", 5930 + index * 1010);
         tickers.emplace_back(buffer);
-        gate.seed_position(account, tickers.back(), static_cast<int>(index + 1), 10000.0);
+        gate.ledger().seed_position(account, tickers.back(), static_cast<int>(index + 1), 10000.0);
     }
 
     std::mt19937                          random_engine(7);
@@ -59,7 +59,7 @@ int main()
     const double string_ns = measure_ns(kQueryCount, [&] {
         for (const size_t index : order)
         {
-            checksum += gate.position(account, tickers[index]);
+            checksum += gate.ledger().position(account, tickers[index]);
         }
     });
     std::printf("position(account, ticker)   : %.1f ns/조회 (checksum %lld)\n", string_ns, checksum);
@@ -68,14 +68,14 @@ int main()
 
     for (const auto& ticker : tickers)
     {
-        ids.push_back(gate.symbol_id_of(ticker));
+        ids.push_back(gate.ledger().symbol_id_of(ticker));
     }
 
     checksum = 0;
     const double id_ns = measure_ns(kQueryCount, [&] {
         for (const size_t index : order)
         {
-            checksum += gate.position(account, ids[index]);
+            checksum += gate.ledger().position(account, ids[index]);
         }
     });
     std::printf("position(account, symbol_id): %.1f ns/조회 (checksum %lld)\n", id_ns, checksum);

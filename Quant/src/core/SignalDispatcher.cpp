@@ -118,7 +118,7 @@ SignalDispatcher::SignalDispatcher(OrderGate& gate, const ipc::LedgerSnapshot& l
                                    SystemIds system_ids)
     : gate_(gate), ledger_(ledger), sink_(std::move(sink)), force_liquidation_index_(system_ids.force_liquidation),
       limit_trim_index_(system_ids.limit_trim),
-      guard_logged_(gate.symbols().capacity(), false), sell_halt_logged_(gate.symbols().capacity(), false),
+      guard_logged_(gate.ledger().symbols().capacity(), false), sell_halt_logged_(gate.ledger().symbols().capacity(), false),
       last_liquidation_(now), trim_at_(now + std::chrono::seconds(20))
 {
 }
@@ -128,7 +128,7 @@ symbol::SymbolId SignalDispatcher::symbol_of(const OrderSignal& signal) const
     // 찾기만 한다 — 종목 표에 줄을 더하는 것은 주문 쪽이다. 처음 보는 종목은 여기서 kNone이고,
     //  주문 스레드가 받는 자리에서 번호를 준다. 그 사이 종목당 한 번 로그(mark_once)가 한 줄 덜 나가는 것이
     //  유일한 차이다 — 기동·시드·피드를 한 번이라도 지난 종목은 이미 번호가 있다. [why D-114]
-    return signal.symbol_id != symbol::kNone ? signal.symbol_id : gate_.symbol_id_of(signal.ticker);
+    return signal.symbol_id != symbol::kNone ? signal.symbol_id : gate_.ledger().symbol_id_of(signal.ticker);
 }
 
 bool SignalDispatcher::mark_once(std::vector<bool>& flags, symbol::SymbolId symbol)
@@ -239,7 +239,7 @@ std::vector<OrderGate::HeldPos> SignalDispatcher::scan_sleeve_positions() const
         OrderGate::HeldPos held_position;
         held_position.account       = globals.account;
         held_position.symbol        = snapshot_ids_[index];
-        held_position.ticker        = gate_.symbols().name(held_position.symbol).string();
+        held_position.ticker        = gate_.ledger().symbols().name(held_position.symbol).string();
         held_position.quantity      = row.position;
         held_position.average_price = row.average_price;
         held_position.slot_exempt   = false;

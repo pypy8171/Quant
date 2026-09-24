@@ -35,7 +35,7 @@ BOOTSTRAP_ROUNDS = 2000
 BOOTSTRAP_SEED = 20260919
 MIN_DAYS_FOR_VERDICT = 3
 
-# realized_pnl은 엔진이 매도 수수료 + 거래세를 뺀 값(OrderGate.cpp realized_pnl 계산). 매수 수수료는 안 뺐다.
+# realized_pnl은 엔진이 매도 수수료 + 거래세를 뺀 값(PositionLedger.cpp realized_pnl 계산). 매수 수수료는 안 뺐다.
 #  요율은 backtest/costs.py LIVE(원장과 한 소스, 0.015% + 0.20% = 0.215%).
 SELL_COST_RATE_IN_LEDGER = LIVE.sell_cost_rate
 # 비용 감도는 원장 값에 **추가로** 빼는 비율 — 0(원장 그대로), 매수 수수료, 슬리피지 근사, 보수적.
