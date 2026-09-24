@@ -379,11 +379,11 @@ const STAGES = [
       ["strategy::Router::for_each", "Quant/include/core/StrategyRouter.h:78", "종목 id → 그 종목을 구독한 전략 목록. 구독을 안 밝힌 전략은 전부 받는다"],
       ["strategy::Emitted", "Quant/include/core/StrategyShard.h:27", "샤드 → 디스패치 봉투: 신호 + 전략 id + 활성 여부. <b>두 스레드의 계약</b>"],
       ["StrategyBase::on_trade_batch", "Quant/include/strategy/StrategyBase.h:77", "전략 훅의 계약(가상 함수 다섯). symbol_of·same_symbol도 이 헤더"],
-      ["DeviationScaleStrategy::on_start", "Quant/include/strategy/DeviationScaleStrategy.h:204", "종목 id 받기·REST 봉 시드·프리페치"],
-      ["DeviationScaleStrategy::on_trade_batch", "Quant/include/strategy/DeviationScaleStrategy.h:208", "틱 → 봉 집계 → close_stale·resample → 진입/청산 판단 → out. <b>매매 로직의 본체</b>"],
+      ["DeviationScaleStrategy::on_start", "Quant/include/strategy/DeviationScaleStrategy.h:205", "종목 id 받기·REST 봉 시드·프리페치"],
+      ["DeviationScaleStrategy::on_trade_batch", "Quant/include/strategy/DeviationScaleStrategy.h:209", "틱 → 봉 집계 → close_stale·resample → 진입/청산 판단 → out. <b>매매 로직의 본체</b>"],
       ["bars::BarAggregator::on_tick", "Quant/src/core/BarAggregator.cpp:199", "체결 틱을 1분봉으로. close_stale은 틱이 없어도 시계로 지난 분을 닫는다"],
       ["bars::resample", "Quant/include/core/BarAggregator.h:44", "1분봉 → interval_min 봉. 판단은 언제나 이 봉으로"],
-      ["DeviationScaleStrategy::emit_liquidation", "Quant/include/strategy/DeviationScaleStrategy.h:282", "청산 신호 조립 — 시장가면 reference_price 스탬프, 매도 가능 수량은 원장 접근자로(동기 잔고조회 금지)"]
+      ["DeviationScaleStrategy::emit_liquidation", "Quant/include/strategy/DeviationScaleStrategy.h:345", "청산 신호 조립 — 시장가면 reference_price 스탬프, 매도 가능 수량은 원장 접근자로(동기 잔고조회 금지)"]
     ]
   },
   {
@@ -411,7 +411,7 @@ const STAGES = [
       ["OrderGate::check", "Quant/src/risk/OrderGate.cpp:254", "거부 검사 사슬. <b>순서가 곧 우선순위</b>"],
       ["OrderGate::clamp_buy_quantity", "Quant/src/risk/OrderGate.cpp:85", "매수 수량을 현금·명목 한도로 깎는다. 0이 되면 거부"],
       ["OrderGate::plan_displacement", "Quant/src/risk/OrderGate.cpp:834", "슬롯이 찼을 때 어느 보유를 내보낼지"],
-      ["PositionLedger::on_intent", "Quant/src/risk/PositionLedger.cpp:33", "전송 <b>전에</b> 저널에 INTENT를 적고 슬롯·현금을 선점한다. 기록에 실패하면 주문은 나가지 않는다"],
+      ["PositionLedger::on_intent", "Quant/src/risk/PositionLedger.cpp:42", "전송 <b>전에</b> 저널에 INTENT를 적고 슬롯·현금을 선점한다. 기록에 실패하면 주문은 나가지 않는다"],
       ["KisClient::submit_order_acknowledgement", "Quant/src/api/KisOrder.cpp:258", "현금 주문 REST. <b>여기서만 KIS에 주문이 닿는다</b> — 응답에서 주문번호(ODNO)"],
       ["trace::LatencyTrace::record", "Quant/include/core/LatencyTrace.h:132", "틱 수신 → 신호 → pop → 라우터 반환 네 시각을 csv 한 줄로"]
     ]
@@ -425,7 +425,7 @@ const STAGES = [
       ["kis_websocket::decode_fill", "Quant/include/api/KisWsDecode.h:165", "체결통보 필드 → FillNotification(주문번호·체결/거부·수량·가격). 거부 통보도 같은 채널"],
       ["Engine::fill_thread_fn", "Quant/src/core/EngineFillThread.cpp:23", "fill_queue pop → on_fill → 원장 note_fill(대조 5초 유예) → 운영단말 방송"],
       ["OrderRouter::on_fill", "Quant/src/ipc/OrderRouter.cpp:2377", "주문번호로 주문 찾기 → 상태 갱신 → on_fill_confirmed → 원장 CSV"],
-      ["PositionLedger::on_fill_confirmed", "Quant/src/risk/PositionLedger.cpp:778", "포지션·평단·실현손익 갱신, 선점 해제"]
+      ["PositionLedger::on_fill_confirmed", "Quant/src/risk/PositionLedger.cpp:787", "포지션·평단·실현손익 갱신, 선점 해제"]
     ]
   },
   {

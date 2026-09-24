@@ -20,6 +20,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <stop_token>
 #include <string>
 #include <thread>
@@ -208,6 +209,68 @@ public:
     void on_trade_batch(const TradeData& trade, std::vector<OrderSignal>& out) override;
 
 private:
+    // ── on_trade_batch 단계 — 틱 하나의 평가를 순서대로 나눈 것이다. bool을 돌려주는 단계는 true면 이 틱의
+    //    평가를 거기서 끝낸다(주문을 이미 냈거나 더 볼 것이 없다). 순서와 조기 종료 조건은 on_trade_batch가 쥔다.
+    struct DecisionBars
+    {
+        std::vector<MarketData> bars;         // 판단 봉(bars[0]=진행 중 봉)
+        bool                    local = false; // 체결로 모은 봉이면 true, REST 봉이면 false
+    };
+
+    struct ZoneJudgement
+    {
+        double previous_average_20 = 0.0; // 전일 확정 SMA20(하루 진입 필터가 쓴다)
+        double average_20 = 0.0;          // 오늘 현재가를 접은 SMA20
+        double deviation20_percent = 0.0; // 방향성 이격(+면 SMA20 위)
+        bool   zone = false;              // 진입 게이트
+        bool   hold_zone = false;         // 유지 게이트 — false면 보유 청산
+    };
+
+    struct SplitStep
+    {
+        OrderSide side;
+        double    price;
+        int       quantity;
+    };
+
+    struct SplitPlan
+    {
+        std::vector<SplitStep> steps;
+        double base_line = 0.0;         // 분할 매수 기준점(base_on_price면 현재가, 아니면 SMA)
+        double base_notional = 0.0;     // 베이스 명목(원)
+        double split_step_budget = 0.0; // 물타기 총예산(원)
+        double entry_scale_ratio = 1.0; // 국면 매수비율(0.1 단위)
+    };
+
+    struct Baseline
+    {
+        double value;   // 분할 매수 기준선
+        bool   warming; // 3분봉이 모자라 일봉 SMA20으로 대신했으면 true
+    };
+
+    void feed_bar_aggregator(const TradeData& trade);
+    bool close_at_market_end(int hhmm, std::vector<OrderSignal>& out);
+    // 일봉 스냅샷이 아직 없으면 nullopt — 프리페치를 기다린다.
+    std::optional<DecisionBars> load_decision_bars(const TradeData& trade, double current_price);
+    ZoneJudgement judge_zone(double current_price, std::chrono::steady_clock::time_point now);
+    bool exit_on_zone_loss(std::vector<OrderSignal>& out, std::chrono::steady_clock::time_point now);
+    bool exit_on_protective_rules(double current_price, std::vector<OrderSignal>& out,
+                                  std::chrono::steady_clock::time_point now);
+    // 기준선을 못 정했거나(봉 부족·SMA 0) 기준선 이탈로 청산했으면 nullopt.
+    std::optional<Baseline> resolve_baseline(const std::vector<MarketData>& bars, double d_s20, double current_price,
+                                             std::vector<OrderSignal>& out, std::chrono::steady_clock::time_point now);
+    // 발주 전 계획. peak_position_·base_target_quantity_·reentry_cooldown_until_을 갱신한다.
+    SplitPlan plan_split_steps(int position, double current_price, double simple_moving_average, bool warming,
+                               std::chrono::steady_clock::time_point now);
+    static std::string plan_signature(const SplitPlan& split_plan, bool entry_on);
+    bool clear_dust(const SplitPlan& split_plan, bool entry_on, int position, double current_price,
+                    std::vector<OrderSignal>& out, std::chrono::steady_clock::time_point now);
+    // 직전 재구성과 같은 계획이거나 데드밴드·최소 간격 안이면 true — 기존 분할 주문을 둔다.
+    bool rebuild_suppressed(const std::string& signal, int position, double split_buy_reference);
+    std::string entry_context_text(const TradeData& trade, double current_price) const;
+    void place_split_steps(const SplitPlan& split_plan, bool entry_on, const std::string& buy_context,
+                           std::vector<OrderSignal>& out);
+
     // ── 지표 (indicators.py 이식, bars[0]=최신) ──────────────────────────────
     // 하루 단위 진입 필터 판정 — 그날 첫 평가(개장 봉이 닫힌 09:03 이후)에서 한 번 정하고 하루 동안 고정한다.
     //  개장 이격은 그 첫 평가의 현재가로 잰다(재기동이 늦으면 그 시각 가격 — 갭 회피가 목적이라 근사로 충분).
