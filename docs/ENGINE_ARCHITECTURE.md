@@ -8,7 +8,7 @@
 
 ### 스레드 모델
 
-<!-- sync: Quant/include/core/Engine.h@7dbaeff Quant/src/core/Engine.cpp@0a7f7ed Quant/include/core/DataPoller.h@196bcf6 Quant/include/core/SignalDispatcher.h@6aec697 Quant/include/core/OrderRateLimiter.h@2650fb2 Quant/include/core/LedgerReconciler.h@77c1a8a Quant/include/core/WakeGate.h@cfe77bc Quant/include/core/BarAggregator.h@f50287c Quant/include/core/LatencyTrace.h@b01b770 Quant/include/core/ReconcilePlan.h@5e8d897 -->
+<!-- sync: Quant/include/core/Engine.h@7dbaeff Quant/src/core/Engine.cpp@7ba2ba4 Quant/include/core/DataPoller.h@196bcf6 Quant/include/core/SignalDispatcher.h@6aec697 Quant/include/core/OrderRateLimiter.h@2650fb2 Quant/include/core/LedgerReconciler.h@77c1a8a Quant/include/core/WakeGate.h@cfe77bc Quant/include/core/BarAggregator.h@f50287c Quant/include/core/LatencyTrace.h@b01b770 Quant/include/core/ReconcilePlan.h@5e8d897 -->
 스레드는 다섯 개(데이터·전략·주문·체결·제어)에 전략 샤드 M개(config `strategy_shards`, 기본 1, 상한 64), 소켓마다
 수신 스레드 하나, 프리페치 풀(코어/4, 2~8개)을 더한다. 스레드끼리는 락 없는 큐로만 넘긴다. 각 스레드는 기동 직후
 `thread_name::set_current`(`Quant/include/utils/ThreadName.h`)로 이름을 붙여 procwatch와 디버거에 그 이름으로 보인다.
@@ -144,7 +144,8 @@ flowchart LR
 | 시세 통로 | 줄 = 소켓, 마지막 한 줄은 REST로 대신 받는 종목. 꺼내는 쪽이 `ipc::MarketLimits`로 값을 보고 어긋나면 버린다(`feed_channel_discarded`) | `Quant/include/ipc/MarketFeedChannel.h` · `test_market_feed_channel` |
 
 스레드도 역할대로 갈린다 — 시세 역할은 수신, 주문 역할은 주문·체결, 전략 역할은 줄·샤드·전략을 띄우고,
-데이터·제어 스레드는 역할마다 하나씩 두되 맡는 일이 다르다. 스위치 중 매크로 국면이 내는 둘(신규진입 정지·매수 비율)은 전략 쪽 일이라
+데이터·제어 스레드는 역할마다 하나씩 두되 맡는 일이 다르다. 샤드는 스레드뿐 아니라 객체와 그 앞 큐 행렬까지
+전략 역할에서만 만든다 — `Engine::setup_shards`가 줄 수만 정하고 다른 역할에서는 거기서 나간다. 스위치 중 매크로 국면이 내는 둘(신규진입 정지·매수 비율)은 전략 쪽 일이라
 `Both`에서도 제어 면을 타고, 나머지 셋은 주문 쪽에서 그 자리에서 고친다.
 같은 계좌에 엔진이 둘 뜨는 것은 공유 메모리 이름이 이미 있으면 만들지 않는 것으로 막는다. 붙는 쪽(전략·시세)은 이름이 없으면
 30초까지 기다리고 그래도 없으면 뜨지 않는다. 쪽지 머리에는 주인 표(번호 + 기동 시각)·기동 번호·종료 사유가 있다

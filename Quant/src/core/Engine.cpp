@@ -836,6 +836,24 @@ void Engine::setup_shards()
     //  stop() 뒤 다시 start()하면 옛 샤드(스레드는 join 뒤)를 버리고 새로 만든다.
     pipeline_.shard_threads.clear();
     pipeline_.shards.clear();
+
+    // [inv] WS 수신 스레드 수 = 소켓 수 — 아래 feed_.websocket 생성과 같은 조건(리플레이·소켓 하나면 1, feed_keys가 있으면 1+N)이라
+    //  feed_.websocket->lanes()와 같다. 소켓을 만들기 전에 행 수가 필요해 config로 센다. 줄 수는 역할과 무관하게
+    //  정한다 — 시세 역할도 공유 통로에 넣을 때 줄 번호를 쓴다(Engine::push_feed_trade). [why D-114]
+    pipeline_.websocket_lanes = websocket_lane_count();
+    pipeline_.data_row        = pipeline_.websocket_lanes;
+
+    // 샤드와 그 앞 큐 행렬·라우팅 표는 전략 역할만 읽는다. 갈라 띄우면 시세 쪽 수신부는 공유 통로에 넣고
+    //  바로 돌아가고(Engine::push_feed_trade), 주문 쪽에는 전략이 아예 없다(load_strategies가 전략 역할에서만
+    //  돈다, Quant/src/main.cpp). 그래서 여기서 만들면 아무도 안 읽는 셀 (줄+1)×샤드×4096개를 들고 있게 된다.
+    //  단계 4에서 "주문 역할에서는 샤드를 아예 안 만든다"로 미뤄 둔 몫이다. [why D-114]
+    if (!runs_strategy_side())
+    {
+        LOG_INFO("[Engine] 전략 샤드 없음 — 이 역할은 샤드를 쓰지 않는다 (줄 " +
+                 std::to_string(pipeline_.websocket_lanes) + ")");
+        return;
+    }
+
     // 샤드 수는 config 그대로(상한은 마스크 폭). 전략은 등록 순 라운드로빈으로 샤드 하나씩 갖는다 — 종목이 몇 개든
     //  객체는 스레드 하나만 만지므로 걸침 검사·1 폴백이 없다. [why D-110]
     uint32_t shard_count = pipeline_.strategy_shards;
@@ -854,10 +872,6 @@ void Engine::setup_shards()
         pipeline_.next_shard = (pipeline_.next_shard + 1) % shard_count;
     }
 
-    // [inv] WS 수신 스레드 수 = 소켓 수 — 아래 feed_.websocket 생성과 같은 조건(리플레이·소켓 하나면 1, feed_keys가 있으면 1+N)이라
-    //  feed_.websocket->lanes()와 같다. 소켓을 만들기 전에 행 수가 필요해 config로 센다.
-    pipeline_.websocket_lanes = websocket_lane_count();
-    pipeline_.data_row = pipeline_.websocket_lanes;
     pipeline_.order_book_matrix.reshape(pipeline_.websocket_lanes, shard_count, ShardPipeline::kTickCellCapacity);
     pipeline_.trade_matrix.reshape(pipeline_.websocket_lanes + 1, shard_count, ShardPipeline::kTickCellCapacity);
     pipeline_.bars_matrix.reshape(1, shard_count, ShardPipeline::kBarCellCapacity);
@@ -2489,7 +2503,12 @@ void Engine::data_thread_fn(std::stop_token stop_token)
                 top_up_ms = ms_between(top_up_start, cycle_clock::now());
             }
 
-            // 시세를 받아 흘리는 자리는 전부 전략 쪽이다 — 폴링·일봉·수급 관측 적재. [why D-114]
+            // 시세를 받아 흘리는 자리는 전부 전략 쪽이다 — 현재가 폴링과 일봉이 그렇다. 수급·섹터·매크로
+            //  관측 적재는 흘리는 일이 아니라 REST로 떠서 로그로만 남기는 것인데, 이것도 전략 쪽에 둔다:
+            //  게이트로 승격하면(D-014·D-044) 읽는 쪽이 전략이라 경계를 한 번 더 넘지 않아도 되고,
+            //  주문 쪽에 두면 관측 REST가 주문 전송과 같은 프로세스에서 KIS 호출을 다툰다. 관측은 게이트가
+            //  아니라 로그라 전략이 내려간 동안 비어도 매매에는 영향이 없고, 감시견이 셋을 같이 다시
+            //  띄우므로 끊김은 재기동으로 메워진다. [why D-114]
             if (rest_now && strategy_side)
             {
 
