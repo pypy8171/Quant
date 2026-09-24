@@ -223,7 +223,7 @@ function Start-Window([string]$title, [string]$cmd, [string]$marker = "") {
   $script:Windows[$title] = @{ cmd = $cmd; marker = $marker; proc = $proc; started = Get-Date }
 }
 
-# TimescaleDB는 Docker Desktop이 아니라 WSL2(Ubuntu-22.04) 안의 Docker가 낸다. .wslconfig에
+# TimescaleDB는 Docker Desktop이 아니라 WSL2(Ubuntu-24.04, 기본 배포판) 안의 Docker가 낸다. .wslconfig에
 # vmIdleTimeout=-1(무제한)을 걸어 놔도 `wsl -e <명령>`처럼 한 번 실행하고 끝나는 호출은 명령이
 # 끝나자마자 그 배포판 인스턴스가 곧바로 내려간다(09-16 실측: postgres가 정상 shutdown 로그를
 # 남기며 1~2분 간격으로 뜨고 죽길 반복, docker events·crontab·systemd 타이머 어디에도 이걸

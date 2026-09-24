@@ -12,7 +12,7 @@
 #   bash scripts/tsan_round.sh --clean           # 빌드 폴더를 지우고 처음부터
 #   bash scripts/tsan_round.sh --jobs 4          # 동시 컴파일 수(기본 nproc)
 #
-# 배포판을 골라야 한다 — 기본(Ubuntu-22.04)은 g++ 11 이라 C++23 <format>·<expected> 가 없어 못 짓는다.
+# g++ 13 이상이 있는 배포판(Ubuntu-24.04)에서 돌린다 — g++ 11 로는 C++23 <format>·<expected> 가 없어 못 짓는다.
 # 윈도우에서 부를 때: wsl.exe -d Ubuntu-24.04 -e bash -c "cd '/mnt/c/.../Quant' && bash scripts/tsan_round.sh"
 # 잘못 고르면 아래 컴파일러 검사가 먼저 막는다.
 #
