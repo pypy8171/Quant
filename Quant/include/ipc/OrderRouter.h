@@ -23,17 +23,23 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // OrderRouter  —  주문 전처리·중계(FEP, Front-End Processor) 역할의 주문 라우팅 레이어
 //
-//  흐름:
+//  흐름(신규 주문, submit → new_route. 취소·정정은 cancel_route·replace_route가 따로 맡는다):
 //    OrderSignal
 //       │
 //       ▼
-//    OrderGate::check()   — Kill switch / Rate / 포지션 / 중복 검증
+//    한도 클램프·이력 가드 — 취소 빗나감 뒤 매수 보류, 같은 시장가 매도 중복 생략
+//       │
+//       ▼
+//    OrderGate::check()   — 검사 항목과 순서의 정본은 Quant/src/risk/OrderGate.cpp의 check
 //       │ PASS
 //       ▼
-//    KisClient::submit_order_acknowledgement() — KIS API 전송 → ODNO·조직번호 수신(실패면 error_code)
+//    take_intent()        — 원장에 INTENT를 먼저 적고 선점을 잡는다. 못 적으면 보내지 않는다 [why D-113]
 //       │
-//       ├─ 성공 → ACCEPTED,  ZMQ publish_order(ok=true)
-//       └─ 실패 → REJECTED,  ZMQ publish_order(ok=false)
+//       ▼
+//    IOrderExecutor::submit_order_acknowledgement() — KIS 전송 → ODNO·조직번호 수신(실패면 error_code)
+//       │
+//       ├─ 성공 → ACCEPTED, 원장 ACCEPT, ZMQ publish_order(ok=true)
+//       └─ 실패 → REJECTED, 원장 REJECT, ZMQ publish_order(ok=false). 전송 타임아웃이면 되묻기 스레드를 띄운다
 // ─────────────────────────────────────────────────────────────────────────────
 
 struct OrderRouterConfig
@@ -111,9 +117,10 @@ public:
     };
     Stats statistics() const;
 
-    // KIS 주문 API(신규·취소·정정)를 실제로 부른 누적 횟수. 주문 스레드가 submit 전후 값을 비교해
-    //  발주 간격(order_min_interval_ms)을 실제 호출 뒤에만 건다 — 게이트·ENTRY_HALT의 로컬 거부는
-    //  KIS에 안 나가는데도 같은 간격을 먹어 재기동 직후 거부 62건이 31초를 삼켰다(09-10 12:58).
+    // KIS 주문 API(신규·취소·정정)와 전송 타임아웃 되묻기의 미체결조회를 부른 누적 횟수. 주문 스레드가
+    //  submit 전후 값을 비교해 발주 간격(order_min_interval_ms)을 실제 호출 뒤에만 건다 — 게이트·ENTRY_HALT의
+    //  로컬 거부는 KIS에 안 나가는데도 같은 간격을 먹어 재기동 직후 거부 62건이 31초를 삼켰다(09-10 12:58). [why D-035]
+    //  기동 취소 스레드·되묻기 스레드도 이 값을 올리므로, 그 사이에 걸린 로컬 거부도 간격을 먹을 수 있다.
     uint64_t kis_calls() const
     {
         return kis_calls_.load(std::memory_order_relaxed);
@@ -123,16 +130,16 @@ public:
     std::vector<ManagedOrder> recent(int count = 20) const;
 
     // ── 이전 세션이 남긴 미체결 주문 취소 (기동 시 1회) ─────────────────
-    //  재기동하면 history_가 비어 이전 세션 주문의 ODNO를 잊는다. 모의투자는
-    //  정정취소가능조회 TR이 없어 브로커에 미체결을 물어볼 수도 없다. 그래서
-    //  접수 때마다 살아있는 주문을 부속 파일에 적어 두고 여기서 읽어 취소한다.
+    //  재기동하면 history_가 비어 이전 세션 주문의 ODNO를 잊는다. 그래서 접수 때마다
+    //  살아있는 주문을 부속 파일(open_orders.txt)에 적어 두고 여기서 읽어 취소한다. 파일에 없는
+    //  미체결(ODNO를 못 받은 주문)은 브로커 미체결조회로 채운다 — 모의도 VTTC0081R로 답한다.
     //  방치하면 오전 분할 매수 지정가가 하루 종일 걸려 있으면서 (1) 주문가능현금을
     //  묶고(40250000 도배) (2) 청산 관리가 청산한 직후 되사서 원치 않는 재진입을 만든다
     //  (2026-09-08 047050: 13:07 청산 → 오전 ODNO 22814가 13:11 체결).
     //  네트워크 왕복이 건당 3~5초라 85건이면 5분이다. 기동을 그만큼 막으면 장중
-    //  재기동이 사실상 불가능해지므로 취소는 별도 스레드로 돌린다. 부속 파일을
-    //  비우는 것만 동기로 끝낸다 — 스레드가 나중에 비우면 그 사이 현재 세션이 적어 둔
-    //  미체결 기록까지 같이 지워진다(그러면 다음 재기동이 오늘 주문을 잊는다).
+    //  재기동이 사실상 불가능해지므로 취소는 별도 스레드로 돌린다. 부속 파일은 비우지
+    //  않는다 — 읽은 줄을 carry_rows_에 들고 스냅샷마다 이번 세션 줄과 합쳐 쓰고, 취소가
+    //  접수되거나 이미 끝난 것으로 확인된 줄만 뺀다. 한도 거부·전송 실패로 남긴 줄은 다음 재기동에 넘어간다. [why D-035]
     //  KisClient는 토큰·레이트리밋을 뮤텍스로 직렬화해 스레드 공유를 전제로 한다.
     void cancel_stale_orders_async();
     // 전송이 타임아웃 난 주문을 브로커에 되물어 맞춘다. 응답을 못 받았을 뿐 접수됐을 수 있고,
@@ -157,17 +164,17 @@ private:
     int64_t     record(const ManagedOrder& managed_order,
                        int64_t* open_orders_us = nullptr); // 쓴 시간(us) 반환 — 구간 계측용, 버려도 된다
     // 살아있는(ACCEPTED·미체결 잔량>0) 주문 목록을 부속 파일 본문 문자열로 만든다.
-    //  호출자는 hist_mtx_를 보유해야 한다. 파일 쓰기는 write_open_orders_file이 락 밖에서 한다.
+    //  호출자는 history_mutex_를 보유해야 한다. 파일 쓰기는 쓰기 스레드가 write_open_orders_file로 락 밖에서 한다.
     std::string snapshot_open_orders_locked() const;
     // 부속 파일 덮어쓰기(io_mutex_). sequence가 이미 쓴 것보다 오래됐으면 건너뛴다 —
     //  락 밖에서 쓰므로 스냅샷 순서와 쓰기 순서가 뒤집힐 수 있다. 실패는 매매를 막지 않는다.
     void        write_open_orders_file(const std::string& body, uint64_t sequence);
-    // 스냅샷을 새로 떠서 부속 파일을 다시 쓴다(hist_mtx_를 잠깐 잡고, 쓰기는 밖에서).
-    //  이전 세션 줄(carry_rows_)이 정리될 때마다 취소 스레드가 부른다.
+    // 스냅샷을 새로 떠서 대기함에 넘긴다(history_mutex_를 잠깐 잡고, 쓰기는 쓰기 스레드가).
+    //  이전 세션 줄(carry_rows_)이 빠질 때마다 부른다 — 기동 취소 스레드와 주문 스레드의 청산차단 해소.
     void        rewrite_open_orders();
     // 부속 파일 쓰기를 전담 스레드에 넘기고 곧바로 돌아온다. 대기함은 한 칸이고 최신이 이긴다 —
     //  중간 스냅샷을 읽는 쪽이 없어서다(다음 기동이 보는 것은 마지막 하나뿐). 주문 스레드가
-    //  여기서 디스크를 기다리면 시퀀서 전체가 같이 선다. [why D-071]
+    //  여기서 디스크를 기다리면 시퀀서 전체가 같이 선다. [why D-123]
     void        queue_open_orders_file(std::string body, uint64_t sequence);
     // 대기 중인 스냅샷을 부르는 스레드에서 끝까지 쓴다. 쓸 것이 없으면 아무것도 안 한다.
     void        flush_open_orders_file();
@@ -204,7 +211,7 @@ private:
     void        append_writer_loop(std::stop_token stop_token);
     // 거래 원장 CSV 적재 — 주문/체결을 logs/trades_YYYYMMDD.csv 에 한 줄씩 영속화.
     //   event가 빈 문자열이면 managed_order.status를 event로 사용(접수/거부/취소). 체결은 "FILL".
-    //   파일 쓰기는 io_mtx_로 직렬화한다(history_mutex_ 밖에서 호출 — 디스크가 원장 락을 잡지 않게).
+    //   줄을 만들어 덧붙이기 큐에 넣을 뿐 파일은 쓰기 스레드가 쓴다(history_mutex_ 밖에서 호출). [why D-124]
     //   realized_pnl은 매도 체결의 실현손익(수수료·세금 차감 후). 그 외 행은 빈 칸으로 남긴다.
     //   strategy_realized_pnl은 같은 매도 체결의 strategy_id 기준 실현손익(D-089, 열 맨 끝 추가분).
     void        write_trade_row(const std::string& event, const ManagedOrder& managed_order,
@@ -255,8 +262,8 @@ private:
     //  history_는 메모리에만 있어 재기동하면 이전 세션 주문의 ODNO를 잊는다. 그 주문이
     //  나중에 체결되면 전략도 사유도 모르는 미매핑 체결로 들어가고, 주문수량을 모르니
     //  잔량 클램프도 걸 수 없다. 접수 시점에 한 줄씩 파일로 남겨 재기동 뒤에도 같은
-    //  정보를 복원한다. 파일은 거래일별 append 전용이다 — open_orders.txt는 기동 때
-    //  통째로 지워지므로 거기에 얹으면 안 된다.
+    //  정보를 복원한다. 파일은 거래일별 append 전용이다 — open_orders.txt는 스냅샷마다
+    //  통째로 덮어쓰고 살아 있는 주문만 담으므로 거기에 얹으면 안 된다.
     struct OrderReason
     {
         std::string ticker;
@@ -267,11 +274,11 @@ private:
         double      price     = 0.0;
         double      reference_price = 0.0;
     };
-    // 접수된 주문 한 건을 기록 파일에 덧붙인다(io_mutex_). 상주 핸들 order_reason_file_이
-    //  오늘 날짜와 맞지 않으면 다시 연다. record()가 락 밖에서 부른다. [why D-094]
+    // 접수된 주문 한 건을 덧붙이기 큐에 넣는다. 파일은 쓰기 스레드가 상주 핸들 order_reason_file_로
+    //  쓰고, 날짜가 바뀌면 다시 연다. record()가 락 밖에서 부른다. [why D-094] [why D-124]
     void append_order_reason(const ManagedOrder& managed_order);
     // 오늘자 기록 파일을 읽어 order_reasons_를 채운다. 첫 체결통보 때 1회.
-    //  호출자는 hist_mtx_를 보유해야 한다.
+    //  호출자는 history_mutex_를 보유해야 한다.
     void load_order_reasons_locked();
 
 
@@ -337,13 +344,14 @@ private:
     // 이전 세션에서 넘어온 미체결 줄(kis_order_no|orgno|ticker|side|remaining). 취소 스레드가 한 건씩 정리한다.
     //  스냅샷이 history_만 보면 취소를 못 마친 줄(한도 거부·종료 중단·크래시)이 이번 세션 첫 기록에서
     //  파일에서 사라지고 다음 재기동은 그 주문을 모른다. 정리될 때까지 스냅샷에 같이 실린다.
-    //  [lock-order] history_mutex_ → carry_mutex_. 취소 스레드는 carry_mtx_를 단독으로만 잡는다.
+    //  [lock-order] history_mutex_ → carry_mutex_. 기동 취소 스레드는 carry_mutex_를 단독으로만 잡는다.
     std::vector<std::array<std::string, 5>> carry_rows_;
     mutable std::mutex                      carry_mutex_;
     std::mutex io_mutex_;                       // 원장 CSV·부속 파일 쓰기 직렬화
     uint64_t open_orders_written_sequence_ = 0;    // io_mutex_ 보호
     // 부속 파일 쓰기 대기함 — 한 칸짜리, 최신이 이긴다. sequence 0은 "대기 중인 것 없음"(스냅샷 번호는 1부터).
-    //  [lock-order] history_mutex_ → open_orders_outbox_mutex_ → io_mutex_. 쓰기 스레드는 뒤 둘만 잡는다.
+    //  [lock-order] history_mutex_·open_orders_outbox_mutex_·io_mutex_ 셋은 겹쳐 잡지 않는다 — 스냅샷은
+    //   history_mutex_ 안에서 뜨고 대기함에는 그 락을 푼 뒤 넣으며, 쓰기 스레드는 대기함 락을 푼 뒤 io_mutex_를 잡는다.
     std::mutex                  open_orders_outbox_mutex_;
     std::condition_variable_any open_orders_outbox_signal_;
     std::string                 open_orders_pending_body_;
@@ -357,6 +365,7 @@ private:
 
     // 원장 CSV·사유 덧붙이기 큐 — 줄을 세운다(미결주문 파일과 달리 중간 것도 다 남아야 한다).
     //  [lock-order] io_mutex_ → append_outbox_mutex_. 넣는 쪽은 append_outbox_mutex_만 잡는다.
+    //   on_fill은 세션 첫 체결 때 history_mutex_를 쥔 채 큐를 비운다(history_mutex_ → io_mutex_ → append_outbox_mutex_).
     std::mutex                  append_outbox_mutex_;
     std::condition_variable_any append_outbox_signal_;
     std::deque<PendingLine>     append_outbox_;
@@ -386,5 +395,5 @@ private:
     std::atomic<uint64_t> total_count_{0};
     std::atomic<uint64_t> accepted_count_{0};
     std::atomic<uint64_t> rejected_count_{0};
-    std::atomic<uint64_t> kis_calls_{0};      // [inv] 6곳의 kis_ 주문 호출 직전에만 올린다
+    std::atomic<uint64_t> kis_calls_{0};      // [inv] kis_ 주문 호출 7곳(신규 2·취소 4·정정 1)과 되묻기 미체결조회 1곳, 호출 직전에만 올린다
 };

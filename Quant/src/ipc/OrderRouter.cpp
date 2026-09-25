@@ -49,9 +49,6 @@ std::string OrderRouter::kis_error_suffix(const OrderAck& acknowledgement)
     return acknowledgement.error_code.empty() ? std::string() : (" [" + acknowledgement.error_code + "]");
 }
 
-// ─── 주문 제출 — action에 따라 라우팅 (MM-1) ─────────────────────────────
-//  전 경로가 단일 order_thread에서만 실행된다(Engine::order_thread_fn) — OrderGate C6의
-//  단일생산자·단일소비자(SPSC) 불변 보존. 전략 스레드는 여기 진입하지 않는다.
 // 취소가 "취소 대상 없음"으로 되돌아온 뒤 그 종목의 신규 매수를 막아 두는 시간(초).
 //  전략의 재구성 주기(min_action_ms 3초 + 재조회)보다 길고, 존 이탈 청산을 늦출 만큼
 //  길지는 않은 값. 이 창 안에 들어온 매수는 원주문 체결분과 겹칠 수 있다.
@@ -63,7 +60,7 @@ static constexpr int kDupMarketSellGuardSec = 120;
 // 기동 직후 유령 지정가를 하나씩 취소할 때 취소 사이에 두는 간격(ms). 초당 거래건수 상한(EGW00201)을 피할 만큼만.
 static constexpr int kStaleCancelGapMs = 400;
 
-// 게이트까지의 두 구간을 한 번에 찍는다 — 이력 가드 몫을 게이트에서 빼 둘이 겹치지 않게 한다. [why D-071]
+// 게이트까지의 두 구간을 한 번에 찍는다 — 이력 가드 몫을 게이트에서 빼 둘이 겹치지 않게 한다. [why D-117]
 static void stamp_gate_stages(ManagedOrder& managed_order, int64_t route_entered_ns, int64_t history_guard_ns,
                               int64_t history_lock_wait_ns)
 {
@@ -72,6 +69,9 @@ static void stamp_gate_stages(ManagedOrder& managed_order, int64_t route_entered
     managed_order.stages.history_lock_wait_us = history_lock_wait_ns / 1000;
 }
 
+// ─── 주문 제출 — action에 따라 라우팅 (MM-1) ─────────────────────────────
+//  전 경로가 주문 스레드 하나(Engine::order_thread_fn)에서만 실행된다 — OrderGate C6의
+//  단일생산자·단일소비자(SPSC) 불변 보존. 전략 스레드는 여기 진입하지 않는다.
 ManagedOrder OrderRouter::submit(const OrderSignal& signal)
 {
     switch (signal.action)
@@ -89,10 +89,10 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
     auto& ledger = gate_.ledger();
 
     auto now = std::chrono::system_clock::now();
-    // 구간 계측 시작. 여기부터 게이트 판정 끝까지가 gate_us — 주문 스레드가 HEALTH 분포에 넣는다. [why D-071]
+    // 구간 계측 시작. 여기부터 게이트 판정 끝까지가 gate_us — 주문 스레드가 HEALTH 분포에 넣는다. [why D-117]
     const int64_t route_entered_ns = trace::now_ns();
     // 이력 잠금·중복 가드에 쓴 시간 합. 아래 두 가드 블록이 더하고, gate_us에서 뺀다 — 둘을 한 칸에 두면
-    //  선형 탐색 탓인지 한도 판정 탓인지 못 가른다(처방이 종목별 색인 대 분리로 서로 다르다). [why D-071]
+    //  선형 탐색 탓인지 한도 판정 탓인지 못 가른다(처방이 종목별 색인 대 분리로 서로 다르다). [why D-117]
     int64_t history_guard_ns = 0;
     // 그중 잠금을 기다린 몫. 나머지가 잠금을 쥐고 훑은 몫이다 — 처방이 서로 다르다(기다림은 잠금을 쪼개거나
     //  들고 있는 시간을 줄이는 쪽, 훑기는 종목별 색인 쪽). [why D-126]
@@ -297,10 +297,10 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
         return managed_order;
     }
 
-    // 2. KIS 주문 전송 (submit_order_ack로 ODNO + KRX 조직번호 캡처 — 정정/취소 준비)
+    // 2. KIS 주문 전송 (submit_order_acknowledgement로 ODNO + KRX 조직번호 캡처 — 정정/취소 준비)
     //    접수 왕복지연(RTT)을 재서 접수 로그에 남긴다 → log_report.py가 중앙값(p50)·상위 1%(p99) 집계.
     //    RTT 안에는 초당 한도 버킷 대기(rate_limit_acquire)가 섞여 있어 그 몫을 따로 적는다 — 09-14~18 RTT p50 2초가
-    //    망 지연인지 버킷 줄서기인지 이 숫자 없이는 못 가른다. 전송 스레드 분리(T-13-2)는 이 값을 보고 정한다. [why D-071]
+    //    망 지연인지 버킷 줄서기인지 이 숫자 없이는 못 가른다. 전송 스레드 분리(T-13-2)는 이 값을 보고 정한다. [why D-117]
     managed_order.status = OrderStatus::SUBMITTED;
     stamp_gate_stages(managed_order, route_entered_ns, history_guard_ns, history_lock_wait_ns);
     const auto send_thread = std::chrono::steady_clock::now();
@@ -380,8 +380,8 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
         return managed_order;
     }
 
-    // 3. 전송 뒤 마무리 — 접수 확정(원장 ACCEPT 기록)·발행·이력 저장·파일 쓰기. 여기부터가 record_us다.
-    //    왕복만 재고 끝내면 남은 시간이 어디로 갔는지 말할 수 없다 — 건당 파일 쓰기가 후보 중 하나다. [why D-071]
+    // 3. 전송 뒤 마무리 — 접수 확정(원장 ACCEPT 기록)·발행·이력 저장·파일 넘기기. 여기부터가 record_us다.
+    //    왕복만 재고 끝내면 남은 시간이 어디로 갔는지 말할 수 없다 — 파일 쓰기가 여기서 드러나 쓰기 스레드로 옮겼다(D-123·D-124). [why D-117]
     const int64_t record_started_ns = trace::now_ns();
 
     managed_order.updated_at = std::chrono::system_clock::now();
@@ -496,9 +496,9 @@ bool OrderRouter::take_intent(const OrderSignal& signal, const OrderGate::OrderR
 //  전제: SELL이 40240000(주문가능분 없음)으로 막힌 직후 호출. 그 종목의 미체결 예약매도가
 //  보유수량을 묶어 ord_psbl_qty=0이 된 상황을 KIS 미체결 조회로 규명하고, 예약을 취소해
 //  수량을 풀어준 뒤 시장가 매도를 1회 재시도한다. 취소한 예약이 이번 세션 주문(history_에
-//  ODNO가 있음)이면 CANCELLED로 닫고 게이트 선점(reserved_)을 풀어 원장 행을 남긴다 — 그러지
+//  ODNO가 있음)이면 CANCELLED로 닫고 원장(PositionLedger) 선점(reserved_)을 풀어 원장 행을 남긴다 — 그러지
 //  않으면 선점이 스윕 때까지 남아 한도 계산을 조인다(C-2). 이전 세션·수동 예약은 history_에
-//  없으므로 gate_를 건드리지 않는다(포지션 정합은 체결통보로).
+//  없으므로 선점은 건드리지 않고 매도가능수량만 되돌린다(포지션 정합은 체결통보로).
 OrderAck OrderRouter::reconcile_blocked_sell(const OrderSignal& signal, const OrderGate::OrderRef& reference, bool& intent_taken)
 {
     auto& ledger = gate_.ledger();
@@ -511,6 +511,7 @@ OrderAck OrderRouter::reconcile_blocked_sell(const OrderSignal& signal, const Or
     //  접수됐는데 아직 다 안 채워진 이 종목의 매도가 곧 수량을 묶고 있는 예약매도다.
     //  한계는 분명하다: 이번 세션이 낸 주문만 보인다. 이전 세션·수동 예약은 여전히 안 보이므로
     //  그때는 아래 "취소할 예약매도 없음"으로 떨어진다. 그래도 통째로 단락하는 것보다 낫다.
+    //  지금은 get_open_orders가 모의에서도 VTTC0081R로 답하지만, 이 경로는 아직 이력을 쓴다.
     if (kis_.is_paper())
     {
         std::lock_guard<std::mutex> lock(history_mutex_);
@@ -605,7 +606,7 @@ OrderAck OrderRouter::reconcile_blocked_sell(const OrderSignal& signal, const Or
 
         ++cancelled;
 
-        // 이번 세션 주문이면 이력·선점을 같이 정리한다. 잠금 순서 history_→gate는 cancel_route와 같다.
+        // 이번 세션 주문이면 이력·선점을 같이 정리한다. 잠금 순서 history_mutex_ → 원장 positions_mutex_는 cancel_route와 같다.
         //  closed는 락 안에서 뜬 사본 — 락 밖의 원장 기록에 쓰고, history_ 원소는 축출로 참조가 죽을 수 있다.
         ManagedOrder closed;
         bool         found   = false;
@@ -648,7 +649,7 @@ OrderAck OrderRouter::reconcile_blocked_sell(const OrderSignal& signal, const Or
         }
         else
         {
-            // 이전 세션 줄 — 부속 파일에서 빼고, 취소로 풀린 수량을 게이트에 되돌린다(스윕과 같은 처리).
+            // 이전 세션 줄 — 부속 파일에서 빼고, 취소로 풀린 수량을 원장 매도가능수량에 되돌린다(기동 취소와 같은 처리).
             bool carried = false;
             {
                 std::lock_guard<std::mutex> ck(carry_mutex_);
@@ -738,10 +739,8 @@ const OpenOrder* match_unnumbered_intent(const OrderGate::OpenIntent& intent, co
 }
 } // namespace
 
-// ─── 유령 선점 정리 ───────────────────────────────────────────────────────
-//  게이트의 선점(reserved_)은 접수 때만 생기고 체결·취소 통보로만 풀린다. 통보를 한 번
-//  놓치면 그 선점이 슬롯을 물고 남아, 실제 보유가 한도에 못 미치는데 신규 진입이 막힌다
-//  (09-09: 보유 20인데 "25 >= 25" 거부). 라우터 이력에 살아있는 주문이 없으면 푼다.
+// ─── 재기동 미결 주문 대조 ─────────────────────────────────────────────────
+//  원장 저널의 미결 INTENT를 KIS 미체결과 맞춰 되살리거나 선점을 푼다. 세 갈래는 헤더 선언 주석에 있다. [why D-113]
 OrderRouter::AdoptResult OrderRouter::adopt_open_intents(const std::vector<OrderGate::OpenIntent>& intents)
 {
     auto& ledger = gate_.ledger();
@@ -883,6 +882,10 @@ OrderRouter::AdoptResult OrderRouter::adopt_open_intents(const std::vector<Order
     return result;
 }
 
+// ─── 유령 선점 정리 ───────────────────────────────────────────────────────
+//  원장(PositionLedger)의 선점(reserved_)은 전송 직전 INTENT 때 생기고 체결·취소·거부로만 풀린다. 통보를 한 번
+//  놓치면 그 선점이 슬롯을 물고 남아, 실제 보유가 한도에 못 미치는데 신규 진입이 막힌다
+//  (09-09: 보유 20인데 "25 >= 25" 거부). 살아 있는 주문이 없는 종목의 선점을 푼다.
 int OrderRouter::sweep_stale_reservations()
 {
     auto& ledger = gate_.ledger();
@@ -891,9 +894,8 @@ int OrderRouter::sweep_stale_reservations()
     {
         std::lock_guard<std::mutex> lock(history_mutex_);
 
-        // [inv] 이력이 비면 아무 것도 풀지 않는다. 선점은 접수 때만 생기고 접수는 이력에도
-        //  남으므로 정상적으로는 둘이 같이 비어 있다. 이력만 비는 경우(재기동 직후, 상한 초과로
-        //  잘려 나간 뒤)에 정본으로 믿으면 살아 있는 선점을 통째로 푼다.
+        // [inv] 이력이 비면 아무 것도 풀지 않는다. 이력만 비는 경우(재기동 직후, 상한 초과로 잘려 나간 뒤)에
+        //  정본으로 믿으면 살아 있는 선점을 통째로 푼다.
         if (history_.empty())
         {
             return 0;
@@ -934,7 +936,7 @@ int OrderRouter::sweep_stale_reservations()
 // ─── 이력 저장 (max_history 초과 시 체결 완료/거부된 것만 삭제) ───────────
 //  쓴 시간(us)을 돌려준다 — 전송 전에 끝난 주문은 이 몫이 곧 record_us다. 값을 안 쓰는 호출자는 그냥 버린다.
 //  open_orders_us를 주면 미결주문 파일 몫을 거기 따로 담는다. 지금은 대기함에 넘기는 시간이라 0에 가깝다 —
-//  건당 전체 다시쓰기였을 때 이 값이 record_us의 절반(1,589us)이었고, 그래서 쓰기를 스레드로 뺐다. [why D-071]
+//  건당 전체 다시쓰기였을 때 이 값이 record_us의 절반(1,589us)이었고, 그래서 쓰기를 스레드로 뺐다. [why D-123]
 int64_t OrderRouter::record(const ManagedOrder& managed_order, int64_t* open_orders_us)
 {
     const int64_t started_ns = trace::now_ns();
@@ -1090,11 +1092,11 @@ void OrderRouter::load_order_reasons_locked()
 
 // ─── 미체결 주문 부속 파일 ─────────────────────────────────────────────────
 //  형식: odno|orgno|ticker|side|remaining  (한 줄 한 주문, 헤더 없음)
-//  history_는 프로세스 메모리라 재기동으로 사라진다. 모의투자는 정정취소가능조회
-//  TR을 지원하지 않아 브로커에도 물어볼 수 없다. 그래서 살아있는 주문을 파일에
-//  남겨 두고 다음 기동이 그것을 취소한다. 매 상태변화마다 통째로 덮어쓰되, 쓰기는 전담 스레드가 한다.
+//  history_는 프로세스 메모리라 재기동으로 사라진다. 그래서 살아있는 주문을 파일에
+//  남겨 두고 다음 기동이 그것을 취소한다 — 기동 취소는 이 파일을 먼저 읽고, 빠진 주문은
+//  브로커 미체결 조회로 채운다(모의투자도 VTTC0081R로 답한다). 매 상태변화마다 통째로 덮어쓰되, 쓰기는 전담 스레드가 한다.
 //  주문 스레드에서 바로 쓰던 때는 건당 1,589us로 record_us의 절반을 먹었다 — 살아있는 주문이 수십 건이라
-//  비용이 무시할 만하다고 본 것은 라이브 기준이었고, 951줄이 쌓이면 그렇지 않았다(2026-09-23 회차 E). [why D-071]
+//  비용이 무시할 만하다고 본 것은 라이브 기준이었고, 951줄이 쌓이면 그렇지 않았다(2026-09-23 회차 E). [why D-123]
 std::string OrderRouter::snapshot_open_orders_locked() const
 {
     std::string buffer;
@@ -1357,7 +1359,7 @@ void OrderRouter::flush_file_writes()
     flush_append_outbox();
 }
 
-// ─── 이전 세션이 남긴 미체결 주문 취소 (기동 시 1회) ──────────────────────
+// ─── 소멸 — 스레드 회수 ───────────────────────────────────────────────────
 OrderRouter::~OrderRouter()
 {
     // jthread 소멸자가 같은 일을 하지만 그건 멤버 소멸 순서 안에서다 — 스레드가 쓰는 멤버가 먼저 죽지 않게 여기서 회수한다.
@@ -1470,6 +1472,7 @@ void OrderRouter::reconcile_unknown_order_async(std::string ticker)
     });
 }
 
+// ─── 이전 세션이 남긴 미체결 주문 취소 (기동 시 1회) ──────────────────────
 void OrderRouter::cancel_stale_orders_async()
 {
     namespace fs = std::filesystem;
@@ -1679,7 +1682,7 @@ void OrderRouter::cancel_stale_orders_async()
                 LOG_INFO("[OrderRouter] 유령주문 취소 " + row[2] + " " + row[3] + " " +
                          std::to_string(quantity) + "주 ODNO=" + row[0]);
 
-                // 취소로 브로커에서는 수량이 풀렸지만 게이트의 sellable_은 잔고 시드값
+                // 취소로 브로커에서는 수량이 풀렸지만 원장(PositionLedger)의 sellable_은 잔고 시드값
                 //  (ord_psbl_qty, 취소 전 스냅샷) 그대로다. 되돌리지 않으면 미체결이 없는데도
                 //  자기 청산이 막힌다 — 09-09 000215은 13:45 취소 뒤 16분간 "매도가능수량 0"으로
                 //  교체 진입이 네 번 무산됐다. 매도 취소만 해당한다(매수는 현금을 풀 뿐이다).
@@ -1715,7 +1718,7 @@ void OrderRouter::cancel_stale_orders_async()
 // ─── 거래 원장 CSV 적재 ───────────────────────────────────────────────────
 //  실행 로그(quant_trader.log)와 별개로 매수·매도·거부·체결·잔고 대조를 구조적으로 남긴다.
 //  logs/trades_YYYYMMDD.csv 에 한 줄씩 append(날짜별 파일). record()·on_fill()·record_reconcile()
-//  이 줄을 만들고 append_trade_line이 io_mtx_로 직렬화해 쓴다(history_mutex_ 밖 — 동시쓰기 없음).
+//  이 줄을 만들어 줄 대기열에 넣고, 쓰기 스레드 하나가 파일에 쓴다(동시쓰기 없음). [why D-124]
 //  원장 쓰기 실패는 매매를 막지 않는다(best-effort — 조용히 반환).
 //  열 정본은 kTradeHeader 하나다. 열을 더할 때는 끝에 붙인다 — 스키마 승격이 옛 파일 행 끝에 빈 칸을
 //  덧붙이는 방식이라 중간 삽입은 기존 행의 값을 엉뚱한 열로 밀어낸다. Python 판독기는 열 이름으로 읽는다.
@@ -2037,10 +2040,10 @@ symbol::SymbolId OrderRouter::symbol_of(const OrderSignal& signal)
 }
 
 // ─── 취소 라우팅 (action=CANCEL) ──────────────────────────────────────────
-//  1) orig_client_oid로 live 주문 조회 → 원 ODNO/조직번호/미체결 잔량 스냅샷
+//  1) original_client_order_number로 live 주문 조회 → 원 ODNO/조직번호/미체결 잔량 스냅샷
 //  2) lock 밖에서 KIS 취소 호출(네트워크)
 //  3) 성공 시에만 lock 재획득 → 미체결 잔량을 '그 시점 confirmed_quantity로 재계산'해 reserved 해제
-//     (2)와 (3) 사이 WS 스레드의 on_fill이 confirmed_quantity를 올릴 수 있으므로 재계산이 이중해제를 막는다.
+//     (2)와 (3) 사이 체결 스레드의 on_fill이 confirmed_quantity를 올릴 수 있으므로 재계산이 이중해제를 막는다.
 ManagedOrder OrderRouter::cancel_route(const OrderSignal& signal)
 {
     auto& ledger = gate_.ledger();
@@ -2054,15 +2057,15 @@ ManagedOrder OrderRouter::cancel_route(const OrderSignal& signal)
     managed_order.status       = OrderStatus::PENDING;
     ++total_count_;
 
-    // 1) 원주문 스냅샷 (record()는 hist_mtx_를 재획득하므로 lock 스코프 밖에서만 호출)
+    // 1) 원주문 스냅샷 (record()는 history_mutex_를 재획득하므로 lock 스코프 밖에서만 호출)
     std::string ticker, kis_order_no, krx_forwarding_org_no, account;
     OrderSide side = OrderSide::NONE;
     int outstanding = 0;
     bool found = false;
     // 취소가 빗나갔을 때 "원주문이 이미 체결됐을 수 있나"를 같은 락 안에서 답해 둔다.
-    //  find_live_by_oid는 살아있는 주문만 보므로 !found는 세 경우를 뭉뚱그린다 —
+    //  find_live_by_client_number는 살아있는 주문만 보므로 !found는 세 경우를 뭉뚱그린다 —
     //  체결됨 / 이미 취소됨 / 애초에 접수된 적 없음(REJECTED·이력 없음).
-    //  중복 매수 위험은 첫째에만 있다. [why D-033]
+    //  중복 매수 위험은 첫째에만 있다. [why D-035]
     bool original_may_have_filled = false;
     const char* gone_why = "이력 없음(재기동·이력초과)";
     {
@@ -2121,7 +2124,7 @@ ManagedOrder OrderRouter::cancel_route(const OrderSignal& signal)
         //  live로 들고 있는 경우)에도 잠그면 매 재구성 주기마다 취소 빗나감 → 매수 거부 →
         //  거부된 oid가 다시 live로 → 다음 주기에 또 취소 빗나감으로 되돌아, 창이 계속
         //  갱신되며 그 종목 매수가 영구히 막힌다. 2026-09-10 006910이 이 모양으로
-        //  보유 0인 채 57분간 한 주도 못 샀다(대체 주문 보류 176건). [why D-033]
+        //  보유 0인 채 57분간 한 주도 못 샀다(대체 주문 보류 176건). [why D-035]
         //  이미 무장돼 있으면 시각을 갱신하지 않는다 — 창은 연장되지 않는다.
         if (original_may_have_filled)
         {
@@ -2202,7 +2205,7 @@ ManagedOrder OrderRouter::cancel_route(const OrderSignal& signal)
             original->updated_at = std::chrono::system_clock::now();
         }
 
-        // gate 뮤텍스는 hist_mtx_와 독립. 잠금 순서 history_→positions_는 on_fill과 동일(데드락 없음).
+        // 원장 positions_mutex_는 history_mutex_와 별개다. 잠금 순서 history_mutex_ → positions_mutex_는 on_fill과 같다(데드락 없음).
         if (release > 0)
         {
             ledger.on_cancel(account, ticker, side, release,
@@ -2224,7 +2227,7 @@ ManagedOrder OrderRouter::cancel_route(const OrderSignal& signal)
 
 // ─── 정정 라우팅 (action=REPLACE) ─────────────────────────────────────────
 //  KIS 정정 1콜 = cancel-replace. 성공 시 새 ODNO 발급.
-//  reserved 조정: 원 미체결 잔량 해제 후 new_quantity 재선점(같은 side). 원주문은 CANCELLED,
+//  reserved 조정: new_quantity는 전송 전 INTENT에서 선점하고, 접수되면 원주문 미체결 잔량을 해제한다(같은 side). 원주문은 CANCELLED,
 //  정정 결과를 새 ManagedOrder(ACCEPTED)로 추적(새 ODNO/새 client_order_id).
 //  ⚠ 첫 컷 한계: 부분체결 상태 정정은 수량 정합이 복잡 → MM은 REPLACE 미사용(CANCEL+NEW 사용).
 //     본 경로는 미체결 전량 대상 정정만 안전. 부분체결분 정정은 Phase 2에서 정밀화.
@@ -2327,7 +2330,7 @@ ManagedOrder OrderRouter::replace_route(const OrderSignal& signal)
         return managed_order;
     }
 
-    // 성공 — 원 미체결 잔량 해제 후 new_quantity 재선점, 원주문 CANCELLED, 정정본 ACCEPTED 추적
+    // 성공 — 원 미체결 잔량 해제, 원주문 CANCELLED, 정정본 ACCEPTED 추적(선점은 INTENT에서 이미 잡혔다)
     {
         std::lock_guard<std::mutex> lock(history_mutex_);
         ManagedOrder* original = find_live_by_client_number(signal.original_client_order_number);
