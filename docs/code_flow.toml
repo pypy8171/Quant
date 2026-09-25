@@ -99,7 +99,7 @@ review = [
 
   [[stage.step]]
   sym = "Engine::connect_feed (WS 콜백 설치)"
-  file = "Quant/src/core/Engine.cpp"
+  file = "Quant/src/core/EngineFeed.cpp"
   match = "set_lane_callbacks\\("
   what = "소켓 수신 스레드 i의 호가·체결 콜백. 종목 id로 열을 고르고(`consumer_of`) `pipeline_.trade_matrix`·`order_book_matrix`의 자기 행에 `push_to` — 가득 차면 버리고 센다(블로킹 금지)"
 

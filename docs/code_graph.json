@@ -44,7 +44,7 @@
     {
       "from": "core",
       "to": "utils",
-      "weight": 28
+      "weight": 31
     },
     {
       "from": "exchange",
@@ -283,6 +283,7 @@
     "core/EngineControlPlane.cpp": "core",
     "core/EngineControlThread.cpp": "core",
     "core/EngineDataThread.cpp": "core",
+    "core/EngineFeed.cpp": "core",
     "core/EngineFillThread.cpp": "core",
     "core/EngineLayout.cpp": "core",
     "core/EngineOpsServer.cpp": "core",
@@ -562,6 +563,15 @@
       "core/LatencyTrace.h",
       "utils/Logger.h",
       "utils/ThreadName.h"
+    ],
+    "core/EngineFeed.cpp": [
+      "core/Engine.h",
+      "core/KstTime.h",
+      "core/LatencyTrace.h",
+      "core/ReconcilePlan.h",
+      "utils/Logger.h",
+      "utils/ThreadName.h",
+      "utils/Utf8.h"
     ],
     "core/EngineFillThread.cpp": [
       "core/Engine.h",
@@ -1327,6 +1337,7 @@
       "core/EngineControlPlane.cpp",
       "core/EngineControlThread.cpp",
       "core/EngineDataThread.cpp",
+      "core/EngineFeed.cpp",
       "core/EngineFillThread.cpp",
       "core/EngineLayout.cpp",
       "core/EngineOpsServer.cpp",
@@ -1364,6 +1375,7 @@
       "core/Engine.cpp",
       "core/EngineControlThread.cpp",
       "core/EngineDataThread.cpp",
+      "core/EngineFeed.cpp",
       "core/EngineOpsServer.cpp",
       "core/EngineUniverse.cpp",
       "core/KstTime.cpp",
@@ -1391,6 +1403,7 @@
       "core/EngineControlPlane.cpp",
       "core/EngineControlThread.cpp",
       "core/EngineDataThread.cpp",
+      "core/EngineFeed.cpp",
       "core/EngineOrderThread.cpp",
       "core/EngineStrategyThread.cpp",
       "core/EngineSymbols.cpp",
@@ -1433,6 +1446,7 @@
     ],
     "core/ReconcilePlan.h": [
       "core/Engine.cpp",
+      "core/EngineFeed.cpp",
       "core/LedgerReconciler.h",
       "core/ReconcilePlan.cpp",
       "ipc/OrderRouter.h"
@@ -1858,6 +1872,7 @@
       "core/EngineControlPlane.cpp",
       "core/EngineControlThread.cpp",
       "core/EngineDataThread.cpp",
+      "core/EngineFeed.cpp",
       "core/EngineFillThread.cpp",
       "core/EngineLayout.cpp",
       "core/EngineOpsServer.cpp",
@@ -1903,6 +1918,7 @@
       "core/Engine.cpp",
       "core/EngineControlThread.cpp",
       "core/EngineDataThread.cpp",
+      "core/EngineFeed.cpp",
       "core/EngineFillThread.cpp",
       "core/EngineOrderThread.cpp",
       "core/EngineStrategyThread.cpp",
@@ -1914,6 +1930,7 @@
     ],
     "utils/Utf8.h": [
       "core/Engine.cpp",
+      "core/EngineFeed.cpp",
       "exchange/ZmqOrderFeed.cpp",
       "utils/Utf8.cpp"
     ]
@@ -1921,7 +1938,7 @@
   "hubs": [
     {
       "header": "utils/Logger.h",
-      "in_degree": 51
+      "in_degree": 52
     },
     {
       "header": "core/Types.h",
@@ -1929,7 +1946,7 @@
     },
     {
       "header": "core/KstTime.h",
-      "in_degree": 27
+      "in_degree": 28
     },
     {
       "header": "core/SymbolTable.h",
@@ -1937,7 +1954,7 @@
     },
     {
       "header": "core/Engine.h",
-      "in_degree": 15
+      "in_degree": 16
     },
     {
       "header": "strategy/StrategyBase.h",
@@ -1945,14 +1962,14 @@
     },
     {
       "header": "utils/ThreadName.h",
+      "in_degree": 13
+    },
+    {
+      "header": "core/LatencyTrace.h",
       "in_degree": 12
     },
     {
       "header": "api/KisClient.h",
-      "in_degree": 11
-    },
-    {
-      "header": "core/LatencyTrace.h",
       "in_degree": 11
     },
     {
@@ -1996,7 +2013,7 @@
       "in_degree": 5
     },
     {
-      "header": "core/TickSize.h",
+      "header": "core/ReconcilePlan.h",
       "in_degree": 5
     }
   ],

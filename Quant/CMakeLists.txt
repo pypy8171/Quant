@@ -203,6 +203,7 @@ set(ENGINE_SOURCES
   src/core/EngineControlPlane.cpp
   src/core/EngineControlThread.cpp
   src/core/EngineDataThread.cpp
+  src/core/EngineFeed.cpp
   src/core/EngineFillThread.cpp
   src/core/EngineLayout.cpp
   src/core/EngineOrderThread.cpp

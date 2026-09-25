@@ -24,7 +24,7 @@ graph LR
   core -->|10| ipc
   core -->|7| risk
   core -->|3| strategy
-  core -->|28| utils
+  core -->|31| utils
   exchange -->|7| core
   exchange -->|2| utils
   ipc -->|2| api
@@ -55,14 +55,14 @@ graph LR
 
 | 헤더 | 유입 수 |
 |---|---|
-| `utils/Logger.h` | 51 |
+| `utils/Logger.h` | 52 |
 | `core/Types.h` | 48 |
-| `core/KstTime.h` | 27 |
+| `core/KstTime.h` | 28 |
 | `core/SymbolTable.h` | 20 |
-| `core/Engine.h` | 15 |
+| `core/Engine.h` | 16 |
 | `strategy/StrategyBase.h` | 15 |
-| `utils/ThreadName.h` | 12 |
-| `api/KisClient.h` | 11 |
+| `utils/ThreadName.h` | 13 |
+| `core/LatencyTrace.h` | 12 |
 
 ## 파일 단위 상세
 
@@ -106,6 +106,7 @@ graph LR
     n_core_EngineControlPlane_cpp["core/EngineControlPlane.cpp"]
     n_core_EngineControlThread_cpp["core/EngineControlThread.cpp"]
     n_core_EngineDataThread_cpp["core/EngineDataThread.cpp"]
+    n_core_EngineFeed_cpp["core/EngineFeed.cpp"]
     n_core_EngineFillThread_cpp["core/EngineFillThread.cpp"]
     n_core_EngineLayout_cpp["core/EngineLayout.cpp"]
     n_core_EngineOpsServer_cpp["core/EngineOpsServer.cpp"]
@@ -392,6 +393,13 @@ graph LR
   n_core_EngineDataThread_cpp --> n_core_LatencyTrace_h
   n_core_EngineDataThread_cpp --> n_utils_Logger_h
   n_core_EngineDataThread_cpp --> n_utils_ThreadName_h
+  n_core_EngineFeed_cpp --> n_core_Engine_h
+  n_core_EngineFeed_cpp --> n_core_KstTime_h
+  n_core_EngineFeed_cpp --> n_core_LatencyTrace_h
+  n_core_EngineFeed_cpp --> n_core_ReconcilePlan_h
+  n_core_EngineFeed_cpp --> n_utils_Logger_h
+  n_core_EngineFeed_cpp --> n_utils_ThreadName_h
+  n_core_EngineFeed_cpp --> n_utils_Utf8_h
   n_core_EngineFillThread_cpp --> n_core_Engine_h
   n_core_EngineFillThread_cpp --> n_utils_Logger_h
   n_core_EngineFillThread_cpp --> n_utils_ThreadName_h
