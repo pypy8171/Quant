@@ -250,6 +250,13 @@ void Engine::order_thread_fn(std::stop_token stop_token)
         return OrderRateLimiter::Pending{std::move(signal), 0};
     };
 
+    // 할 일이 없을 때 자는 상한. 갈라 띄우면 건너편 프로세스가 이 스레드를 깨울 방법이 없다 — WakeGate는
+    //  이 프로세스 안의 condvar라 notify가 경계를 못 넘는다. 그래서 이 상한이 곧 등록 한 건의 지연이 된다:
+    //  100ms면 종목·전략 2,700쌍에 9분이 걸리고, 시세 쪽이 5분 시한에 먼저 걸려 종목 순번표를 아예 못 적는다
+    //  (2026-09-25 부하시험 실측 249/2700). 한 프로세스판은 같은 프로세스의 전략 스레드가 notify로 깨우므로
+    //  줄일 까닭이 없다 — 깨어나는 횟수만 늘어난다. [why D-114]
+    const auto idle_capture = (runs_order_side() && !runs_strategy_side()) ? 2ms : 100ms;
+
     while (!stop_token.stop_requested())
     {
         // 살아 있다고 찍는다 — 전략 쪽이 이 값의 공백만 보고 판정한다. 아래 KIS 왕복이 이 자리를 몇 초
@@ -364,9 +371,9 @@ void Engine::order_thread_fn(std::stop_token stop_token)
 
         if (!next)
         {
-            // 재시도 만기가 있으면 그 시각까지, 없으면 100ms 상한(종료 확인). 신규 신호는 전략 스레드의
-            //  notify가, 수동주문은 운영단말 서버 스레드의 notify가 깨운다.
-            const auto deadline = rate_limiter.next_retry_at().value_or(steady_clock::now() + 100ms);
+            // 재시도 만기가 있으면 그 시각까지, 없으면 idle_capture 상한(종료 확인). 신규 신호는 전략
+            //  스레드의 notify가, 수동주문은 운영단말 서버 스레드의 notify가 깨운다.
+            const auto deadline = rate_limiter.next_retry_at().value_or(steady_clock::now() + idle_capture);
             // 제어 요청·수동주문도 이 스레드가 처리하므로 잠드는 조건에 같이 넣는다 — 안 넣으면 표 고치기와
             //  사람이 누른 주문이 다음 주문이나 100ms 만기까지 밀린다. [why D-114]
             pipeline_.order_wake.wait_until(deadline, stop_token, [this] {

@@ -495,7 +495,7 @@ void test_head_guards()
     ipc::SharedLayoutHead* head = reinterpret_cast<ipc::SharedLayoutHead*>(g_storage);
     check(head->magic == ipc::kSharedLayoutMagic, "놓는 쪽이 표식을 적는다");
     check(head->layout_version == ipc::kSharedLayoutVersion, "놓는 쪽이 판 번호를 적는다");
-    check(ipc::kSharedLayoutVersion == 6, "이 단계의 판 번호는 6이다 — 올릴 때 이 줄도 같이 본다");
+    check(ipc::kSharedLayoutVersion == 7, "이 단계의 판 번호는 7이다 — 올릴 때 이 줄도 같이 본다");
     check(head->symbol_capacity == config.symbol_capacity, "놓는 쪽이 종목 수를 적는다");
     check(head->feed_control_capacity == config.feed_control_capacity, "놓는 쪽이 구독 칸 수를 적는다");
     check(head->fill_capacity == config.fill_capacity, "놓는 쪽이 체결통보 칸 수를 적는다");

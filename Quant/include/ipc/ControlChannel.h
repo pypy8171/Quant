@@ -24,8 +24,12 @@ constexpr size_t kControlAccountMax = 32;
 constexpr size_t kControlExchangeMax = 8;
 
 // 표 한 장이 담을 수 있는 줄 수. 슬롯 면제는 바스켓 소유 종목 수, 우선순위는 전 슬리브를 합친 수다.
-//  넘으면 그 표는 버린다 — 반만 거는 것보다 낫다(아래 ControlTableBuilder 주석).
-constexpr size_t kControlTableMax = 2048;
+//  넘으면 그 표는 버린다 — 반만 거는 것보다 낫다(아래 ControlTableBuilder 주석). 그래서 종목 표
+//  (kDefaultSymbolCapacity)와 같은 수로 잡는다: 우선순위 표는 슬리브에 든 종목마다 한 줄이라,
+//  2,048이면 종목이 그 수를 넘는 날 표가 통째로 버려진다 — 전 종목이 우선순위 없이 장을 연다.
+//  받는 쪽 벡터 자리라 안 쓰면 값이 커도 드는 것이 없다. 이 줄을 나르는 제어 줄
+//  (ipc::kLayoutControlCapacity)은 이 수의 두 배로 둔다 — 표 한 장이 줄을 다 쓰면 남은 제어가 밀린다.
+constexpr size_t kControlTableMax = 8192;
 
 // 무엇을 고치라는 요청인가. 값은 로그·시험이 물고 가므로 끝에만 더한다.
 enum class ControlKind : uint8_t

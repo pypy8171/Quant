@@ -23,18 +23,39 @@ using namespace std::chrono_literals;
 void Engine::add_strategy(std::unique_ptr<StrategyBase> strategy)
 {
     LOG_INFO("[Engine] 전략 등록: " + strategy->describe());
-    assign_strategy_identity(*strategy);
+
+    if (!assign_strategy_identity(*strategy))
+    {
+        return;
+    }
+
     strategy_.list.push_back(std::move(strategy));
 }
 
-void Engine::assign_strategy_identity(StrategyBase& strategy)
+bool Engine::assign_strategy_identity(StrategyBase& strategy)
 {
     // 이름은 여기서만 본다 — 접두 "ITB_"가 청산 관리 전략(청산 관리 보유 종목 차단 면제)이다.
     // [inv] 기동 등록은 스레드 전이고, 장중 재스캔 등록은 데이터 스레드다. 표 쓰기는 StrategyTable이
     //  뮤텍스로 막아 지금은 안전하다. 프로세스를 가르면 번호가 갈리는 자리라 단계 4에서 이름↔번호
     //  사전을 공유 쪽지에 올린다 — 여기서 답을 기다리게 만들면 재스캔이 주문 한 바퀴에 묶인다. [why D-114]
-    strategy.set_strategy_index(order_gate_.ledger().strategy_index_of(strategy.id()));
+    const strategy_table::StrategyId index = order_gate_.ledger().strategy_index_of(strategy.id());
+
+    // 번호가 0이면 이름표가 찼거나 건너편이 답을 안 준 것이다. 그대로 등록하면 이 전략이 내는 주문은
+    //  주문 스레드의 is_plausible 이 전량 버린다 — 신호는 나는데 주문만 안 나가는, 로그로 알기
+    //  어려운 고장이다. 상한을 올린 것은 문턱을 민 것뿐이라 그 수를 넘는 날 같은 일이 난다.
+    //  막는 자리는 여기 하나다. [why D-114]
+    if (index == strategy_table::kNone)
+    {
+        LOG_ERROR("[Engine] 전략 번호를 못 받아 등록하지 않는다 — 이름표가 찼거나 건너편이 답을 안 줬다 전략=" +
+                  strategy.id());
+
+        return false;
+    }
+
+    strategy.set_strategy_index(index);
     strategy.set_exit_manager(strategy.id().starts_with("ITB_"));
+
+    return true;
 }
 
 // 런타임(장중) 전략 등록. start()의 초기화 루프와 동일한 준비를 하되, strategy_.list
@@ -66,7 +87,11 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
     });
     strategy->set_symbol_resolver([this](std::string_view ticker) { return register_symbol(ticker); });
     strategy->set_protective_registry(&control_plane_.protective_registry());
-    assign_strategy_identity(*strategy);
+
+    if (!assign_strategy_identity(*strategy))
+    {
+        return;
+    }
 
     try
     {

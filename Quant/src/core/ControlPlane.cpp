@@ -170,13 +170,30 @@ void ControlPlane::apply()
             break;
 
         // 종목 표에 넣는 자리는 여기 하나다 — 전략 쪽은 이 요청을 보내고 번호는 같은 표에서 읽어 간다.
+        //  표가 차면 intern이 0을 돌려주고 표에는 아무것도 안 남는다. 묻는 쪽은 번호가 뜨기를 5분 기다리다
+        //  빈손으로 돌아가므로(EngineSymbols.cpp의 wait_for_shared_id) 여기서 말하지 않으면 왜 멎었는지가
+        //  로그 어디에도 없다 — 2026-09-25 부하시험에서 이 침묵으로 원인을 찾는 데 시간을 썼다.
         case ipc::ControlKind::kRegisterSymbol:
-            (void)table_.intern(request.ticker.view());
+            if (table_.intern(request.ticker.view()) == symbol::kNone)
+            {
+                LOG_ERROR("[ControlPlane] 종목 표에 못 넣었다 — 표가 찼거나 코드가 칸을 넘는다 종목=" +
+                          std::string(request.ticker.view()) + " 든 것=" + std::to_string(table_.size()) +
+                          " 상한=" + std::to_string(table_.capacity()));
+            }
+
             break;
 
         // 전략 이름표에 넣는 자리도 여기 하나다 — 이름과 번호가 갈리면 서브원장 귀속이 남의 전략에 붙는다.
+        //  못 넣으면 위와 같은 까닭으로 말한다.
         case ipc::ControlKind::kRegisterStrategy:
-            (void)ledger.strategy_index_of(request.strategy_name.view());
+            if (ledger.strategy_index_of(request.strategy_name.view()) == strategy_table::kNone)
+            {
+                LOG_ERROR("[ControlPlane] 전략 이름표에 못 넣었다 — 표가 찼거나 이름이 칸을 넘는다 전략=" +
+                          std::string(request.strategy_name.view()) + " 든 것=" +
+                          std::to_string(ledger.strategy_table().size()) + " 상한=" +
+                          std::to_string(ledger.strategy_table().capacity()));
+            }
+
             break;
 
         // 주문 쪽 스위치를 고치는 자리도 여기 하나다 — 전략 쪽은 요청만 보낸다.

@@ -636,7 +636,9 @@ private:
     // 매크로 레짐 파일 읽기 → RegimeFileJudge 판정 → OrderGate entry_halt·force_liquidate_ 적용 (data_thread 전용)
     void poll_regime_file();
     // 전략 번호·청산 관리 여부를 등록 때 한 번 정한다 — 신호 봉투가 이 값을 싣는다. [why D-112]
-    void assign_strategy_identity(StrategyBase& strategy);
+    // 참이면 번호를 받았다. 거짓이면 이름표가 찼거나 건너편이 답을 안 준 것이라 등록하지 않는다 —
+    //  번호 0으로 등록하면 그 전략의 주문이 전량 버려진다(2026-09-25 부하시험 52,916건). [why D-114]
+    [[nodiscard]] bool assign_strategy_identity(StrategyBase& strategy);
     void maybe_rescan_universe();  // 주기적 유니버스 재스캔 → 신규 티커 런타임 등록·이탈 티커 해제 (data_thread 전용)
     // 전략 해제는 두 단계다. 뗄 때는 strategy_.list에서 빼고 strategy_.retired로 옮기며 버전을 올린다 —
     //  strategy_thread의 옛 스냅샷이 아직 그 포인터를 들고 있을 수 있어서 바로 지우지 않는다.
@@ -1020,6 +1022,18 @@ private:
     // 이 프로세스가 맡는 자리. 기동 때 한 번 정해지고 그 뒤로 안 바뀐다.
     ProcessRole           role_ = ProcessRole::Both;
     std::atomic<uint64_t> symbol_register_timeouts_{0};
+    // 기동 중 등록 기다림을 한 번이라도 빈손으로 접었으면 선다. 그 뒤로는 기다리지 않는다 —
+    //  건너편이 답을 못 주는 까닭(이름표가 찼다·프로세스가 죽었다)은 다음 종목에서도 그대로라,
+    //  종목마다 5분씩 다시 기다리면 2,700종목에 225시간이 된다. [why D-114]
+    std::atomic<bool>     register_wait_abandoned_{false};
+
+    // 건너편(주문 쪽) 박동 시각. 볼 자리가 없으면 0을 준다 — 한 프로세스로 돌 때가 그렇고,
+    //  그때는 기다림도 이 프로세스 안에서 끝나 볼 까닭이 없다.
+    [[nodiscard]] int64_t peer_order_beat_ns() const
+    {
+        return pipeline_.order_heartbeat ? pipeline_.order_heartbeat->last_ns() : int64_t{0};
+    }
+
     std::atomic<uint64_t> symbol_lookup_misses_{0};
     std::atomic<uint64_t> strategy_register_timeouts_{0};
 

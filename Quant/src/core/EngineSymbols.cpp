@@ -36,12 +36,26 @@ constexpr auto kRegisterWaitStartup = std::chrono::minutes(5);
 constexpr auto kRegisterPollStartup = std::chrono::milliseconds(5);
 constexpr auto kRegisterNoticeEvery = std::chrono::seconds(10);
 
+// 건너편 박동이 이만큼 끊겼으면 답을 줄 쪽이 없다고 보고 그 자리에서 접는다. 사망 문턱(1초)보다 훨씬
+//  길게 잡는다 — 기동 중 주문 스레드는 잔고 대조로 한참 붙들려 있을 수 있어, 살아 있는 쪽을 죽었다고
+//  읽으면 그 종목이 통째로 빠진 채 장을 연다. 5분을 기다리는 것보다 낫기만 하면 된다. [why D-114]
+constexpr auto kRegisterPeerSilent = std::chrono::seconds(30);
+
 static_assert(symbol::kNone == 0 && strategy_table::kNone == 0, "둘 다 0이어야 한 함수로 기다린다");
 
 // 번호가 표에 뜰 때까지 본다. 뜨면 그 번호, 시간이 다하면 0.
-[[nodiscard]] uint32_t wait_for_shared_id(const std::function<uint32_t()>& lookup, bool running, const std::string& what)
+//  abandoned 는 기동 중 한 번 빈손으로 접었는지를 들고 있는 래치, peer_beat_ns 는 건너편 박동 시각이다
+//  (0이면 아직 한 번도 안 뛰었거나 볼 자리가 없다 — 그때는 살아 있는 것으로 본다).
+[[nodiscard]] uint32_t wait_for_shared_id(const std::function<uint32_t()>& lookup, bool running, const std::string& what,
+                                          std::atomic<bool>& abandoned, const std::function<int64_t()>& peer_beat_ns)
 {
     using Duration = std::chrono::steady_clock::duration;
+
+    // 이미 한 번 접었으면 한 번만 보고 만다. 기다려도 같은 답이 온다.
+    if (!running && abandoned.load(std::memory_order_acquire))
+    {
+        return lookup();
+    }
 
     const auto start    = std::chrono::steady_clock::now();
     const auto deadline = start + (running ? std::chrono::duration_cast<Duration>(kRegisterWaitRunning)
@@ -61,9 +75,30 @@ static_assert(symbol::kNone == 0 && strategy_table::kNone == 0, "둘 다 0이어
         {
             LOG_WARN("[Engine] " + what + " 번호를 주문 쪽에서 아직 못 받았다 — 계속 기다린다");
             notice = std::chrono::steady_clock::now() + kRegisterNoticeEvery;
+
+            // 박동은 10초에 한 번만 본다 — 여기서 도는 값이라 자주 볼 까닭이 없다.
+            if (const int64_t beat = peer_beat_ns ? peer_beat_ns() : 0; beat != 0)
+            {
+                const int64_t now_ns = trace::now_ns();
+
+                if (now_ns - beat > std::chrono::duration_cast<std::chrono::nanoseconds>(kRegisterPeerSilent).count())
+                {
+                    LOG_ERROR("[Engine] " + what + " 번호를 기다리다 접는다 — 주문 쪽 박동이 " +
+                              std::to_string((now_ns - beat) / 1000000) + "ms 끊겼다");
+                    abandoned.store(true, std::memory_order_release);
+
+                    return 0;
+                }
+            }
         }
 
         std::this_thread::sleep_for(poll);
+    }
+
+    // 기동 중에 시한을 다 썼다. 까닭은 다음 종목에서도 같으므로 래치를 세운다.
+    if (!running)
+    {
+        abandoned.store(true, std::memory_order_release);
     }
 
     return 0;
@@ -181,7 +216,8 @@ symbol::SymbolId Engine::request_symbol_registration(std::string_view ticker)
         // 답을 따로 받지 않는다 — 주문 쪽이 넣으면 같은 공유 표에 뜬다. 그것을 본다.
         const symbol::SymbolId id = wait_for_shared_id([this, ticker] { return symbols_.table.lookup(ticker); },
                                                        start_was_called_.load(std::memory_order_acquire),
-                                                       "종목 " + std::string(ticker));
+                                                       "종목 " + std::string(ticker), register_wait_abandoned_,
+                                                       [this] { return peer_order_beat_ns(); });
 
         if (id != symbol::kNone)
         {
@@ -206,7 +242,8 @@ strategy_table::StrategyId Engine::request_strategy_registration(std::string_vie
 
         const strategy_table::StrategyId id =
             wait_for_shared_id([this, name] { return order_gate_.ledger().strategy_table().lookup(name); },
-                               start_was_called_.load(std::memory_order_acquire), "전략 " + std::string(name));
+                               start_was_called_.load(std::memory_order_acquire), "전략 " + std::string(name),
+                               register_wait_abandoned_, [this] { return peer_order_beat_ns(); });
 
         if (id != strategy_table::kNone)
         {

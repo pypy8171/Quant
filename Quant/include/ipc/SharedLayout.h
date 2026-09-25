@@ -33,19 +33,23 @@ namespace ipc
 //  판 5 — 체결 레코드의 빈 칸(reserved2)이 실시간 세션 번호가 됐다. 크기는 그대로지만 옛 판이 보낸 0을
 //   "모두 같은 세션"으로 읽으면 재연결 뒤 재전송을 못 가른다(OrderRouter::on_fill).
 //  판 6 — 국면 칸이 박동 뒤에 붙었다(D-129). 전략이 고른 국면을 주문 쪽이 읽어 체결의 regime 열을 채운다.
-constexpr uint32_t kSharedLayoutVersion = 6;
+//  판 7 — 칸 수 기본값이 바뀌었다(2026-09-25). 전략 이름표·시세 제어 줄이 1024에서 8192로, 주문 제어
+//   줄이 8192에서 16384로 늘었다. 구역 바이트가 달라져 옛 판으로 놓은 자리에는 붙지 못한다.
+constexpr uint32_t kSharedLayoutVersion = 7;
 
 // 칸 수 기본값 — 한 프로세스로 돌던 때 쓰던 값과 같다(Engine::ShardPipeline). 여기서 바꾸면 양쪽이 같이 바뀐다.
 constexpr size_t kLayoutRequestCapacity  = 1024; // 요청 하나에 답 하나라 응답과 같은 수다
 constexpr size_t kLayoutResponseCapacity = 1024;
-constexpr size_t kLayoutControlCapacity  = 8192; // 표 한 장이 줄 2,048개까지라 그 네 배를 둔다
+constexpr size_t kLayoutControlCapacity  = 16384; // 표 한 장(ipc::kControlTableMax)이 다 차도 그 두 배가 남는다
 // 전략 이름표 칸 수 — 힙 표(strategy_table::kDefaultCapacity)와 같은 수여야 한다. 갈라 띄우면 엔진이
 //  힙 표 대신 이 표를 꽂는데, 칸 수가 다르면 상한을 보는 자리(ipc::RequestLimits)가 역할마다 달라진다.
 constexpr size_t kLayoutStrategyCapacity = strategy_table::kDefaultCapacity;
 
-// 전략 → 시세 제어 줄 칸 수. 여기에는 구독·해지만 실린다 — 세션 하나가 쥘 수 있는 종목이 마흔이라
-//  주문 쪽 제어 줄(표 한 장이 줄 2,048개)만큼 잡을 까닭이 없다. 하루치 구독 갈이를 다 받고도 남는다.
-constexpr size_t kLayoutFeedControlCapacity = 1024;
+// 전략 → 시세 제어 줄 칸 수. 여기에는 구독·해지만 실린다. 마흔 칸짜리 세션 하나만 보면 1024로 넉넉해
+//  보이지만, 실을지 말지를 거르는 자리가 여기 앞에 없다 — 유니버스에 든 종목마다 한 건씩 들어온다.
+//  2,700종목 부하시험에서 기동 1초 만에 1,676건(2,700 − 1,024)이 통째로 떨어졌다(2026-09-25 실측).
+//  그래서 종목 표(kDefaultSymbolCapacity)와 같은 수로 잡는다 — 유니버스 전체가 한 번에 들어와도 받는다.
+constexpr size_t kLayoutFeedControlCapacity = 8192;
 
 // 시세 → 주문 체결 통로 칸 수. FillChannel 이 정한 수를 그대로 쓴다(kFillCapacity).
 constexpr size_t kLayoutFillCapacity = kFillCapacity;

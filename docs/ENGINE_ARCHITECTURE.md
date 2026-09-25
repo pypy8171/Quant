@@ -56,7 +56,8 @@ flowchart LR
 | `shard_out` | MPSC | 샤드 여럿 → 전략 | 4,096 | 버리고 센다 (`shard_dropped`) |
 | 요청 면 `requests` | SPSC, 자리표 위 | 전략 → 주문 | 1,024 | 버리고 센다 (`order_dropped`, D-073) |
 | 응답 면 `order_responses` | SPSC, 자리표 위 | 주문 → 전략 | 1,024 | — |
-| 제어 면 | SPSC, 자리표 위 | 전략 → 주문 | 8,192 | 버리고 `LOG_ERROR` (`control_relay_dropped`) |
+| 제어 면 | SPSC, 자리표 위 | 전략 → 주문 | 16,384 | 버리고 `LOG_ERROR` (`control_relay_dropped`) |
+| 시세 제어 면 (갈라 띄울 때) | SPSC, 자리표 위 | 전략 → 시세 | 8,192 | 버리고 `LOG_ERROR` (`control_relay_dropped`) |
 | `ControlPlane::outbox_` | MPSC | 전략 프로세스의 여러 스레드 → 전략 | 8,192 | 전략 스레드가 제어 면으로 옮긴다 |
 | `fill_queue` | SPSC | 수신 → 체결 | 1,024 | 칸은 문자열 없는 `ipc::FillNotice`(128바이트, 체결 통로와 같은 모양, W-7). 버리고 `LOG_ERROR` (`fill_dropped`). 넣는 쪽이 둘 겹치면 한 줄로 세우고 `fill_producer_overlap`에 센다(W-6) |
 | `manual_inbox` | MPSC | 운영단말 서버 → 주문 | 256 | 단말에 거부로 답한다 |
