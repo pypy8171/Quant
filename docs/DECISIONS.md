@@ -6603,3 +6603,35 @@ Windows는 `VirtualLock`), 2MB 대형 페이지로 TLB 적중을 늘리기다.
 **연결**: D-071(전 시장 피드) · 원칙 7(성능 수정은 먼저 잰다) · CODE_REVIEW S-4.
 
 ---
+
+### D-135 Engine에서 재스캔 장부와 제어 요청 통로를 클래스로 떼고, 운영 창구는 떼지 않는다 (2026-09-25)
+
+**상태**: 적용.
+
+**문제**: 파일 분할(D-118 뒤 1단계)로 Engine.cpp는 역할별 파일로 나뉘었지만 `Quant/include/core/Engine.h`는
+1,111줄 그대로였다. 멤버 함수 본체만 옮겼기 때문에 상태와 선언은 전부 Engine 하나에 남아 있고, 재스캔 교체
+판정이나 제어 요청 적용은 Engine을 통째로 띄워야만 시험할 수 있었다. 2단계로 세 덩어리를 클래스로 떼는 안을 봤다.
+
+**결정**:
+
+- 유니버스 재스캔 장부 → `UniverseRescan`(`Quant/include/core/UniverseRescan.h`). 전략 목록·라우팅은 Engine
+  몫이라 등록·떼기 콜백 둘로만 닿는다. 교체·차단·해제·복귀 확인을 `test_universe_rescan`이 KIS 없이 시험한다.
+- 제어 요청 통로 → `ControlPlane`(`Quant/include/core/ControlPlane.h`). 앞 토막 큐·뒤 토막 두 줄·순번·카운터·
+  표 모으는 자리·보호 주문 창구를 한 클래스로 모았다. 스위치 다섯의 역할 판정(그 자리에서 고칠지 싣을지)은
+  Engine의 `role_`을 봐야 해서 Engine에 남긴다. `test_control_plane`이 시험한다.
+- 시세 구독 칸 함수 셋(`rebalance_websocket_slots` 등)은 제어 통로 파일에 섞여 있어 `Quant/src/core/EngineFeed.cpp`로 옮겼다.
+- Engine.h는 1,111줄 → 1,025줄. 로그 문구·적용 순서·깨우는 자리는 바꾸지 않았다.
+
+**버린 대안**:
+- 운영 창구(`EngineOps.cpp`·`EngineOpsServer.cpp`)를 `OpsFacade`로 떼기 — 운영 요청 하나하나가 Engine 상태 약
+  20가지(원장·게이트·전략 목록·종목 표·가격·시세 연결·세션 판정 등)를 읽는다. 떼려면 참조·콜백 약 15개를
+  생성자로 넘겨야 하고, Engine.h에서 줄어드는 것은 15줄 남짓이다. `OpsServer`의 설정 함수들이 이미 창구
+  노릇을 하고 있어 한 겹을 더 두는 셈이다. 수동 주문 접수만 떼는 작은 안도 10줄 남짓이고 이미
+  `Quant/tests/test_engine.cpp`가 시험하고 있어 미룬다.
+
+**다시 여는 조건**: 운영 요청이 Engine 상태를 덜 읽게 되거나(예: 원장 스냅샷만 읽기), 운영 창구를 다른 프로세스로
+옮길 때 `OpsFacade`를 다시 본다.
+
+**연결**: D-071 원칙 7(구조 리팩터는 동작 불변과 ctest로) · D-077·D-087(재스캔) · D-114(제어 면) · D-118(헤더에는 선언만).
+
+---

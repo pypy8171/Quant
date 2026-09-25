@@ -135,7 +135,7 @@
   (지금은 CSV 리플레이로 취소분과 생존 주문을 구분할 수 없다).
 
 ### D-14. DEVSCALE 주기적 재스캔이 결과를 계산만 하고 엔진에 반영하지 않는다
-- 위치: [Quant/src/core/EngineUniverse.cpp](../Quant/src/core/EngineUniverse.cpp#L132)의 `Engine::maybe_rescan_universe()`(data_thread 루프에서 주기 호출)
+- 위치: [Quant/src/core/EngineUniverse.cpp](../Quant/src/core/EngineUniverse.cpp#L76)의 `Engine::maybe_rescan_universe()`(data_thread 루프에서 주기 호출)
 - 현상: `rescan_interval_sec`(600) 주기로 스캔이 실제로 돈다. 2026-09-07 12:16:57 / 12:27:08 /
   12:37:16 세 번 모두 `후보=134 검사=134 정배열=13 과확장컷=22 등록=13`을 남겼다. 그런데 그 뒤에
   `전략 등록`도 `RegimeSelect` 재평가도 따라오지 않고, 존 판정을 내는 전략은 12:06 기동 때
