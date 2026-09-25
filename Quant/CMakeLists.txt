@@ -143,6 +143,7 @@ set(HEADER_IMPL_SOURCES
   src/core/TickSize.cpp
   src/core/Types.cpp
   src/core/UniverseExit.cpp
+  src/core/UniverseRescan.cpp
   src/core/WakeGate.cpp
   src/core/WebSocketSlotPlan.cpp
   src/exchange/MatchingEngine.cpp
@@ -648,6 +649,10 @@ target_link_libraries(test_app_config PRIVATE quant_engine)
 add_executable(test_universe_scoring tests/test_universe_scoring.cpp)
 target_link_libraries(test_universe_scoring PRIVATE quant_engine)
 
+# ─── 테스트 타깃: 유니버스 재스캔 장부 — 신규 등록·주기·상한 교체·빈 스캔 무시·차단→해제·복귀 확인 (가짜 스캔·전략, D-077·D-087) ──
+add_executable(test_universe_rescan tests/test_universe_rescan.cpp)
+target_link_libraries(test_universe_rescan PRIVATE quant_engine)
+
 # ─── 테스트 타깃: WS 피드 감독기 — stale→재연결 백오프(step×n, 상한)→폴백 요구 한 번·복귀 재무장 (헤더 전용, D-071) ──
 add_executable(test_feed_supervisor tests/test_feed_supervisor.cpp)
 target_include_directories(test_feed_supervisor PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -944,6 +949,7 @@ set(QUANT_ASSERT_TARGETS
     test_heartbeat
     test_ledger_snapshot
     test_universe_scoring
+    test_universe_rescan
 )
 foreach(_qt IN LISTS QUANT_ASSERT_TARGETS)
     if(MSVC)

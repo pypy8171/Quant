@@ -29,7 +29,7 @@
     {
       "from": "core",
       "to": "ipc",
-      "weight": 10
+      "weight": 11
     },
     {
       "from": "core",
@@ -39,12 +39,12 @@
     {
       "from": "core",
       "to": "strategy",
-      "weight": 3
+      "weight": 4
     },
     {
       "from": "core",
       "to": "utils",
-      "weight": 31
+      "weight": 32
     },
     {
       "from": "exchange",
@@ -199,6 +199,7 @@
     "core/TickSize.h": "core",
     "core/Types.h": "core",
     "core/UniverseExit.h": "core",
+    "core/UniverseRescan.h": "core",
     "core/WakeGate.h": "core",
     "core/WebSocketSlotPlan.h": "core",
     "exchange/MatchingEngine.h": "exchange",
@@ -315,6 +316,7 @@
     "core/TickSize.cpp": "core",
     "core/Types.cpp": "core",
     "core/UniverseExit.cpp": "core",
+    "core/UniverseRescan.cpp": "core",
     "core/WakeGate.cpp": "core",
     "core/WebSocketSlotPlan.cpp": "core",
     "exchange/MatchingEngine.cpp": "exchange",
@@ -525,6 +527,7 @@
       "core/SymbolTable.h",
       "core/TickCapture.h",
       "core/Types.h",
+      "core/UniverseRescan.h",
       "core/WakeGate.h",
       "core/WebSocketSlotPlan.h",
       "ipc/ControlChannel.h",
@@ -612,7 +615,6 @@
     "core/EngineUniverse.cpp": [
       "core/Engine.h",
       "core/KstTime.h",
-      "core/UniverseExit.h",
       "utils/Logger.h"
     ],
     "core/FeedMux.cpp": [
@@ -779,6 +781,16 @@
       "core/UniverseExit.h"
     ],
     "core/UniverseExit.h": [
+      "core/SymbolTable.h"
+    ],
+    "core/UniverseRescan.cpp": [
+      "core/UniverseExit.h",
+      "core/UniverseRescan.h",
+      "ipc/LedgerSnapshot.h",
+      "strategy/StrategyBase.h",
+      "utils/Logger.h"
+    ],
+    "core/UniverseRescan.h": [
       "core/SymbolTable.h"
     ],
     "core/WakeGate.cpp": [
@@ -1508,6 +1520,7 @@
       "core/SymbolTable.cpp",
       "core/Types.h",
       "core/UniverseExit.h",
+      "core/UniverseRescan.h",
       "exchange/MatchingEngine.h",
       "exchange/ZmqOrderFeed.h",
       "ipc/LedgerSnapshot.h",
@@ -1582,9 +1595,13 @@
       "universe/UniverseScoring.cpp"
     ],
     "core/UniverseExit.h": [
-      "core/EngineUniverse.cpp",
       "core/UniverseExit.cpp",
+      "core/UniverseRescan.cpp",
       "strategy/StrategyFactory.cpp"
+    ],
+    "core/UniverseRescan.h": [
+      "core/Engine.h",
+      "core/UniverseRescan.cpp"
     ],
     "core/WakeGate.h": [
       "api/WebSocketClient.cpp",
@@ -1623,6 +1640,7 @@
     "ipc/LedgerSnapshot.h": [
       "core/Engine.h",
       "core/SignalDispatcher.h",
+      "core/UniverseRescan.cpp",
       "ipc/LedgerSnapshot.cpp",
       "ipc/SharedLayout.h",
       "risk/OrderGate.cpp",
@@ -1777,6 +1795,7 @@
       "core/Engine.h",
       "core/StrategyRouter.h",
       "core/StrategyShard.h",
+      "core/UniverseRescan.cpp",
       "strategy/DeviationScaleStrategy.h",
       "strategy/FixedIntervalStrategy.h",
       "strategy/IntradayBreakoutStrategy.h",
@@ -1885,6 +1904,7 @@
       "core/LedgerReconciler.cpp",
       "core/OrderRateLimiter.cpp",
       "core/SignalDispatcher.cpp",
+      "core/UniverseRescan.cpp",
       "exchange/ZmqOrderFeed.cpp",
       "ipc/OpsServer.cpp",
       "ipc/OrderRouter.cpp",
@@ -1938,7 +1958,7 @@
   "hubs": [
     {
       "header": "utils/Logger.h",
-      "in_degree": 52
+      "in_degree": 53
     },
     {
       "header": "core/Types.h",
@@ -1950,7 +1970,7 @@
     },
     {
       "header": "core/SymbolTable.h",
-      "in_degree": 20
+      "in_degree": 21
     },
     {
       "header": "core/Engine.h",
@@ -1958,7 +1978,7 @@
     },
     {
       "header": "strategy/StrategyBase.h",
-      "in_degree": 15
+      "in_degree": 16
     },
     {
       "header": "utils/ThreadName.h",
@@ -1997,11 +2017,11 @@
       "in_degree": 8
     },
     {
-      "header": "core/StrategyTable.h",
-      "in_degree": 6
+      "header": "ipc/LedgerSnapshot.h",
+      "in_degree": 7
     },
     {
-      "header": "ipc/LedgerSnapshot.h",
+      "header": "core/StrategyTable.h",
       "in_degree": 6
     },
     {

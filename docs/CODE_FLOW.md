@@ -69,8 +69,8 @@ config를 `AppConfig`로 읽고 `Engine::configure`가 세터에 옮기고 전�
    `Quant/src/core/EngineStrategyThread.cpp:23` · `void Engine::add_strategy(std::unique_ptr<StrategyBase> strategy)`
 7. [`Engine::start`](../Quant/src/core/Engine.cpp#L475) — 도우미 호출 목록이 기동 순서다 — `setup_shards`(행렬 `reshape`, 행=수신 스레드+폴러, 열=샤드) → ZMQ → 모의 체결기 → 라우터·대조기·폴러 → `try_bootstrap_ledger`(원장 시드) → `start_strategies` → 구독 목록 → `connect_feed` → `spawn_threads`  
    `Quant/src/core/Engine.cpp:475` · `void Engine::start()`
-8. [`Engine::connect_feed (WS 콜백 설치)`](../Quant/src/core/EngineFeed.cpp#L400) — 소켓 수신 스레드 i의 호가·체결 콜백. 종목 id로 열을 고르고(`consumer_of`) `pipeline_.trade_matrix`·`order_book_matrix`의 자기 행에 `push_to` — 가득 차면 버리고 센다(블로킹 금지)  
-   `Quant/src/core/EngineFeed.cpp:400` · `feed_.websocket->set_lane_callbacks([this] (uint32_t lane, const OrderBook& in) …`
+8. [`Engine::connect_feed (WS 콜백 설치)`](../Quant/src/core/EngineFeed.cpp#L399) — 소켓 수신 스레드 i의 호가·체결 콜백. 종목 id로 열을 고르고(`consumer_of`) `pipeline_.trade_matrix`·`order_book_matrix`의 자기 행에 `push_to` — 가득 차면 버리고 센다(블로킹 금지)  
+   `Quant/src/core/EngineFeed.cpp:399` · `feed_.websocket->set_lane_callbacks([this] (uint32_t lane, const OrderBook& in) …`
 9. [`Engine::spawn_threads`](../Quant/src/core/Engine.cpp#L441) — data·strategy·order·fill·control 다섯 jthread + 샤드 M. stop_token이 첫 인자라 람다로 감싼다  
    `Quant/src/core/Engine.cpp:441` · `data_thread_ = std::jthread([this] (std::stop_token stop_token) { data_thread_fn(stop_token); });`
 10. [`LedgerReconciler::bootstrap`](../Quant/src/core/LedgerReconciler.cpp#L20) — 기동 잔고 시드 — 브로커 잔고를 원장(`PositionLedger`) 포지션으로. 실패 재시도 횟수와 실패 시 기동 중단 여부  
@@ -235,8 +235,8 @@ config를 `AppConfig`로 읽고 `Engine::configure`가 세터에 옮기고 전�
    `Quant/include/risk/OrderGate.h:200` · `void set_manual_halt(OrderSide side, bool on);` · 시험 [test_order_gate](../Quant/tests/test_order_gate.cpp)
 56. [`Engine::apply_regime_selection`](../Quant/src/core/EngineRegime.cpp#L28) — 국면 → `regime_strategies` 집합으로 전략 활성/비활성. 청산은 하지 않는다  
    `Quant/src/core/EngineRegime.cpp:28` · `void Engine::apply_regime_selection(Regime regime, bool force_log)`
-57. [`Engine::maybe_rescan_universe`](../Quant/src/core/EngineUniverse.cpp#L132) — 유니버스 재스캔 — 빠진 보유 종목은 40초에 신규매수 차단, 600초에 전략 해제(`UniverseExit.h`, D-077). 청산 관리 보유(`exit_managed_tickers`)는 스캔 신규매수에서 뺀다  
-   `Quant/src/core/EngineUniverse.cpp:132` · `void Engine::maybe_rescan_universe()` · 시험 [test_signal_dispatcher](../Quant/tests/test_signal_dispatcher.cpp)
+57. [`Engine::maybe_rescan_universe`](../Quant/src/core/EngineUniverse.cpp#L76) — 유니버스 재스캔 — 빠진 보유 종목은 40초에 신규매수 차단, 600초에 전략 해제(`UniverseExit.h`, D-077). 청산 관리 보유(`exit_managed_tickers`)는 스캔 신규매수에서 뺀다  
+   `Quant/src/core/EngineUniverse.cpp:76` · `void Engine::maybe_rescan_universe()` · 시험 [test_signal_dispatcher](../Quant/tests/test_signal_dispatcher.cpp)
 58. [`LedgerReconciler::reconcile`](../Quant/src/core/LedgerReconciler.cpp#L308) — 브로커 잔고 ↔ 원장. 어긋난 종목만 `RECONCILE` 행(`ReconcilePlan.h` 순수 함수). 잔고조회 서킷브레이커  
    `Quant/src/core/LedgerReconciler.cpp:308` · `void LedgerReconciler::reconcile(bool resync_positions, std::time_t now_utc)` · 시험 [test_ledger_reconciler](../Quant/tests/test_ledger_reconciler.cpp)
 59. [`Engine::activate_rest_fallback`](../Quant/src/core/EngineControlThread.cpp#L67) — WS가 stale이면 REST 현재가 폴링으로 대체 틱(`received_ns`=0). 복귀는 `deactivate_rest_fallback`  

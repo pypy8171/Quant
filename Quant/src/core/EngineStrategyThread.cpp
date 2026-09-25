@@ -95,7 +95,7 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
     {
         if (specification.market == Market::KR)
         {
-            rescan_set_registered(register_symbol(specification.ticker), true);
+            universe_rescan_.set_registered(register_symbol(specification.ticker), true);
         }
 
         if (add_watch_specification(specification))

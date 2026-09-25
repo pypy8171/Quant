@@ -289,6 +289,7 @@
 - [TickSize.h](../Quant/include/core/TickSize.h) — KRX 호가단위 표
 - [Types.h](../Quant/include/core/Types.h) — 핵심 타입 정의 — MarketData·WatchSpec 등
 - [UniverseExit.h](../Quant/include/core/UniverseExit.h) — 유니버스 이탈·복귀 판정 순수 함수(D-077)
+- [UniverseRescan.h](../Quant/include/core/UniverseRescan.h) — 유니버스 재스캔 장부 — 슬리브별 스캔 주기·신규 등록·상한 교체·이탈 차단/해제·복귀 확인(D-077·D-087)
 - [WakeGate.h](../Quant/include/core/WakeGate.h) — 생산자가 소비자를 깨우는 대기 조각(D-071)
 - [WebSocketSlotPlan.h](../Quant/include/core/WebSocketSlotPlan.h) — WebSocket 구독 칸 우선순위(보유→주문 대기→점수)와 교체 계획 순수 함수(D-132)
 
@@ -408,7 +409,7 @@
 - [EngineRegime.cpp](../Quant/src/core/EngineRegime.cpp) — 국면 선택 — regime.json 을 읽어 지금 국면을 정하고 그 국면 전략만 켠다(`poll_regime_file`·`apply_regime_selection`)
 - [EngineStrategyThread.cpp](../Quant/src/core/EngineStrategyThread.cpp) — 전략 쪽 — 전략 등록·시작, 전략 처리 스레드와 샤드 스레드(`strategy_thread_fn`·`shard_thread_fn`)
 - [EngineSymbols.cpp](../Quant/src/core/EngineSymbols.cpp) — 종목 쪽 — 티커↔정수 id 풀이·등록(`lookup_symbol`·`register_symbol`), 장중 번호 받아 오기, 종목명 라벨, 최근 가격
-- [EngineUniverse.cpp](../Quant/src/core/EngineUniverse.cpp) — 유니버스 재스캔 — 새 종목 등록, 스캔에서 빠진 소유 종목의 신규매수 차단·떼기(`maybe_rescan_universe`·`reap_retired`)
+- [EngineUniverse.cpp](../Quant/src/core/EngineUniverse.cpp) — 유니버스 재스캔의 Engine 쪽 — 재스캔 장부와 전략 목록·구독 칸 잇기(`maybe_rescan_universe`·`retire_strategy`·`publish_watch_priorities`·`reap_retired`)
 - [FeedMux.cpp](../Quant/src/core/FeedMux.cpp) — FeedMux.h 구현 — 피드 소스 여러 개를 한 소스로 묶는 mux(D-071)
 - [FeedSupervisor.cpp](../Quant/src/core/FeedSupervisor.cpp) — FeedSupervisor.h 구현 — WS stale→재연결 백오프→폴백 요구 판정 상태기계(D-071)
 - [HttpQuoteFeed.cpp](../Quant/src/core/HttpQuoteFeed.cpp) — 위 피드의 구현. 수신 스레드마다 자기 몲의 종목을 한 번에 받아 파싱해 엔진 큐로 밀고, 한 바퀴 시간·실패 수를 센다
@@ -432,6 +433,7 @@
 - [TickSize.cpp](../Quant/src/core/TickSize.cpp) — TickSize.h 구현 — KRX 호가단위 표
 - [Types.cpp](../Quant/src/core/Types.cpp) — Types.h 구현 — 숫자 문자열 → 정수, 주문번호 채번, Regime·StrategyType·Mode 문자열 변환
 - [UniverseExit.cpp](../Quant/src/core/UniverseExit.cpp) — UniverseExit.h 구현 — 유니버스 이탈·복귀 판정 순수 함수(D-077)
+- [UniverseRescan.cpp](../Quant/src/core/UniverseRescan.cpp) — UniverseRescan.h 구현 — 유니버스 재스캔 장부(D-077·D-087)
 - [WakeGate.cpp](../Quant/src/core/WakeGate.cpp) — WakeGate.h 구현 — 생산자가 소비자를 깨우는 대기 조각(D-071)
 - [WebSocketSlotPlan.cpp](../Quant/src/core/WebSocketSlotPlan.cpp) — WebSocketSlotPlan.h 구현 — 구독 칸 교체 계획(D-132)
 
@@ -585,6 +587,7 @@
 - [test_tick_capture.cpp](../Quant/tests/test_tick_capture.cpp) — 틱 캡처·리더 왕복·이어쓰기 단위 테스트
 - [test_ticker.cpp](../Quant/tests/test_ticker.cpp) — 티커 조회 방식 7가지(std::map·unordered_map·SymbolTable::intern·정수 id 배열·숫자 파싱 희소 배열·틱당 소비자 4곳 모델)를 2,700종목·1천만 회로 재는 벤치(체크섬 출력으로 데드코드 제거를 막는다)
 - [test_universe_scoring.cpp](../Quant/tests/test_universe_scoring.cpp) — 유니버스 횡단면 점수 단위 테스트: z-score·±2 절단·눌림 부호 반전·거래대금 결측 중앙값·가중합(D-018)
+- [test_universe_rescan.cpp](../Quant/tests/test_universe_rescan.cpp) — 유니버스 재스캔 장부 단위 테스트: 신규 등록·주기 대기·상한 교체·빈 스캔 무시·차단→해제·복귀 확인(D-077·D-087)
 - [test_wake_gate.cpp](../Quant/tests/test_wake_gate.cpp) — WakeGate 소비자 깨우기 단위 테스트
 - [test_websocket_slot_plan.cpp](../Quant/tests/test_websocket_slot_plan.cpp) — 구독 칸 배정 단위 테스트 — 우선순위·빈 칸·보유 보호·유지 시간·순위 차·교체 상한(D-132)
 - [test_ws_decode.cpp](../Quant/tests/test_ws_decode.cpp) — KIS 실시간 채널 디코더 단위 테스트(D-037)

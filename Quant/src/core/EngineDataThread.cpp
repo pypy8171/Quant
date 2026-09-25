@@ -88,7 +88,7 @@ void Engine::data_thread_fn(std::stop_token stop_token)
             }
 
             // 주기적 유니버스 재스캔(동적 등록) — 슬리브별 주기는 각 job이 자체 판단한다.
-            if (strategy_side && !universe_rescan_.jobs.empty())
+            if (strategy_side && !universe_rescan_.empty())
             {
                 {
                     const auto rescan_start = cycle_clock::now();
@@ -533,15 +533,7 @@ void Engine::data_thread_fn(std::stop_token stop_token)
         //  일봉 캐시와 시세 파일만 보는 재스캔만 앞당긴다.
         {
             const int cycle = fetch_interval_sec_ > 0 ? fetch_interval_sec_ : 1;
-            int slice = cycle;
-
-            for (const auto& job : universe_rescan_.jobs)
-            {
-                if (job.interval_sec > 0 && job.interval_sec < slice)
-                {
-                    slice = job.interval_sec;
-                }
-            }
+            int slice = universe_rescan_.shortest_interval_sec(cycle);
 
             if (slice < 1)
             {

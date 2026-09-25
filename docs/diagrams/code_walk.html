@@ -449,7 +449,7 @@ const STAGES = [
       ["Engine::poll_regime_file", "Quant/src/core/EngineRegime.cpp:183", "regime.json 축 — 신규매수 차단·매수비율·강제청산, 라벨이 바뀌면 전략 집합 선택"],
       ["OrderGate::set_manual_halt", "Quant/include/risk/OrderGate.h:200", "운영단말 수동 정지. 국면의 자동 차단과는 다른 플래그고 판정할 때만 합쳐 본다"],
       ["Engine::apply_regime_selection", "Quant/src/core/EngineRegime.cpp:28", "국면 → 전략 활성/비활성. 청산은 하지 않는다"],
-      ["Engine::maybe_rescan_universe", "Quant/src/core/EngineUniverse.cpp:132", "유니버스 재스캔 — 빠진 보유 종목은 40초에 신규매수 차단, 600초에 전략 해제"],
+      ["Engine::maybe_rescan_universe", "Quant/src/core/EngineUniverse.cpp:76", "유니버스 재스캔 — 빠진 보유 종목은 40초에 신규매수 차단, 600초에 전략 해제"],
       ["LedgerReconciler::reconcile", "Quant/src/core/LedgerReconciler.cpp:308", "브로커 잔고 ↔ 원장. 어긋난 종목만 RECONCILE 행"],
       ["Engine::activate_rest_fallback", "Quant/src/core/EngineControlThread.cpp:67", "시세가 끊기면 REST 현재가 폴링으로 대체 틱"]
     ]

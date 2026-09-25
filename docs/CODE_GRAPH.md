@@ -21,10 +21,10 @@ graph LR
   api -->|12| core
   api -->|8| utils
   core -->|11| api
-  core -->|10| ipc
+  core -->|11| ipc
   core -->|7| risk
-  core -->|3| strategy
-  core -->|31| utils
+  core -->|4| strategy
+  core -->|32| utils
   exchange -->|7| core
   exchange -->|2| utils
   ipc -->|2| api
@@ -55,12 +55,12 @@ graph LR
 
 | 헤더 | 유입 수 |
 |---|---|
-| `utils/Logger.h` | 52 |
+| `utils/Logger.h` | 53 |
 | `core/Types.h` | 48 |
 | `core/KstTime.h` | 28 |
-| `core/SymbolTable.h` | 20 |
+| `core/SymbolTable.h` | 21 |
 | `core/Engine.h` | 16 |
-| `strategy/StrategyBase.h` | 15 |
+| `strategy/StrategyBase.h` | 16 |
 | `utils/ThreadName.h` | 13 |
 | `core/LatencyTrace.h` | 12 |
 
@@ -158,6 +158,8 @@ graph LR
     n_core_Types_h["core/Types.h"]
     n_core_UniverseExit_cpp["core/UniverseExit.cpp"]
     n_core_UniverseExit_h["core/UniverseExit.h"]
+    n_core_UniverseRescan_cpp["core/UniverseRescan.cpp"]
+    n_core_UniverseRescan_h["core/UniverseRescan.h"]
     n_core_WakeGate_cpp["core/WakeGate.cpp"]
     n_core_WebSocketSlotPlan_cpp["core/WebSocketSlotPlan.cpp"]
     n_core_WebSocketSlotPlan_h["core/WebSocketSlotPlan.h"]
@@ -363,6 +365,7 @@ graph LR
   n_core_Engine_h --> n_core_SymbolTable_h
   n_core_Engine_h --> n_core_TickCapture_h
   n_core_Engine_h --> n_core_Types_h
+  n_core_Engine_h --> n_core_UniverseRescan_h
   n_core_Engine_h --> n_core_WakeGate_h
   n_core_Engine_h --> n_core_WebSocketSlotPlan_h
   n_core_Engine_h --> n_ipc_ControlChannel_h
@@ -424,7 +427,6 @@ graph LR
   n_core_EngineSymbols_cpp --> n_utils_Logger_h
   n_core_EngineUniverse_cpp --> n_core_Engine_h
   n_core_EngineUniverse_cpp --> n_core_KstTime_h
-  n_core_EngineUniverse_cpp --> n_core_UniverseExit_h
   n_core_EngineUniverse_cpp --> n_utils_Logger_h
   n_core_FeedMux_cpp --> n_core_FeedMux_h
   n_core_FeedMux_h --> n_core_IFeedSource_h
@@ -506,6 +508,12 @@ graph LR
   n_core_Types_h --> n_core_SymbolTable_h
   n_core_UniverseExit_cpp --> n_core_UniverseExit_h
   n_core_UniverseExit_h --> n_core_SymbolTable_h
+  n_core_UniverseRescan_cpp --> n_core_UniverseExit_h
+  n_core_UniverseRescan_cpp --> n_core_UniverseRescan_h
+  n_core_UniverseRescan_cpp --> n_ipc_LedgerSnapshot_h
+  n_core_UniverseRescan_cpp --> n_strategy_StrategyBase_h
+  n_core_UniverseRescan_cpp --> n_utils_Logger_h
+  n_core_UniverseRescan_h --> n_core_SymbolTable_h
   n_core_WakeGate_cpp --> n_core_WakeGate_h
   n_core_WebSocketSlotPlan_cpp --> n_core_WebSocketSlotPlan_h
   n_core_WebSocketSlotPlan_h --> n_core_Types_h

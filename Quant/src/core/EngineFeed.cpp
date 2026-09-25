@@ -73,14 +73,13 @@ void Engine::collect_watch_specifications()
     LOG_INFO("[Engine] WS 구독 종목: " + std::to_string(watch_specifications_.size()) + "개");
 
     // 재스캔 중복 방지 시드 — 기동 유니버스에 이미 등록된 KR 종목 기록(스펙의 문자열 티커는 여기서 id가 된다).
-    universe_rescan_.registered.assign(symbols_.table.capacity(), false);
-    universe_rescan_.registered_count = 0;
+    universe_rescan_.reset_registered();
 
     for (auto& specification : watch_specifications_)
     {
         if (specification.market == Market::KR)
         {
-            rescan_set_registered(register_symbol(specification.ticker), true);
+            universe_rescan_.set_registered(register_symbol(specification.ticker), true);
         }
 
         // 거는 자리는 소켓을 쥔 주문 쪽 하나다. Both 로 돌면 connect_feed() 가 이미 이 목록을 통째로

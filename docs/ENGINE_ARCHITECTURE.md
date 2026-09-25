@@ -8,7 +8,7 @@
 
 ### 스레드 모델
 
-<!-- sync: Quant/include/core/Engine.h@e260e72 Quant/src/core/Engine.cpp@797b973 Quant/include/core/DataPoller.h@5ed346c Quant/include/core/SignalDispatcher.h@63c6f95 Quant/include/core/OrderRateLimiter.h@2650fb2 Quant/include/core/LedgerReconciler.h@77c1a8a Quant/include/core/WakeGate.h@cfe77bc Quant/include/core/BarAggregator.h@f50287c Quant/include/core/LatencyTrace.h@b01b770 Quant/include/core/ReconcilePlan.h@5e8d897 -->
+<!-- sync: Quant/include/core/Engine.h@59f3bcf Quant/src/core/Engine.cpp@377ac67 Quant/include/core/DataPoller.h@5ed346c Quant/include/core/SignalDispatcher.h@63c6f95 Quant/include/core/OrderRateLimiter.h@2650fb2 Quant/include/core/LedgerReconciler.h@77c1a8a Quant/include/core/WakeGate.h@cfe77bc Quant/include/core/BarAggregator.h@f50287c Quant/include/core/LatencyTrace.h@b01b770 Quant/include/core/ReconcilePlan.h@5e8d897 -->
 스레드는 다섯 개(데이터·전략·주문·체결·제어)에 전략 샤드 M개(config `strategy_shards`, 기본 1, 상한 64), 소켓마다
 수신 스레드 하나, 프리페치 풀(코어/4, 2~8개)을 더한다. 스레드끼리는 락 없는 큐로만 넘긴다. 각 스레드는 기동 직후
 `thread_name::set_current`(`Quant/include/utils/ThreadName.h`)로 이름을 붙여 procwatch와 디버거에 그 이름으로 보인다.
@@ -38,7 +38,7 @@ flowchart LR
 | 스레드 | 하는 일 | 받는 것 → 내보내는 것 | 코드 · 테스트 |
 |---|---|---|---|
 | 수신 ×소켓 | 소켓 읽기·디코드·수신 시각 `received_ns` 찍기·push만 | KIS WS → 행렬 행 i, `fill_queue`, 캡처 큐, ZMQ TRADE 큐 | `Quant/include/core/FeedMux.h` · `test_feed_mux` |
-| 데이터 | `fetch_interval_sec`마다 REST 봉 폴링, WS가 못 받는 종목의 현재가 폴링, 유니버스 재스캔(`rescan_interval_sec`), 주문 쪽이면 잔고 대조와 손익 갱신 감시 | KIS REST → `bars_matrix`, `trade_matrix` 데이터 행, 원장 | `Quant/include/core/DataPoller.h`·`Quant/include/core/UniverseExit.h`·`Quant/include/core/LedgerReconciler.h` · `test_data_poller` |
+| 데이터 | `fetch_interval_sec`마다 REST 봉 폴링, WS가 못 받는 종목의 현재가 폴링, 유니버스 재스캔(`rescan_interval_sec`), 주문 쪽이면 잔고 대조와 손익 갱신 감시 | KIS REST → `bars_matrix`, `trade_matrix` 데이터 행, 원장 | `Quant/include/core/DataPoller.h`·`Quant/include/core/UniverseRescan.h`·`Quant/include/core/UniverseExit.h`·`Quant/include/core/LedgerReconciler.h` · `test_data_poller`·`test_universe_rescan` |
 | 샤드 ×M | 자기 열을 비우고, 틱의 종목 id를 보는 전략만 부른다. 1분봉 집계는 이렇게 불린 전략 안에서 한다 | 행렬 열 m → `shard_out` | `Quant/include/core/StrategyShard.h`·`Quant/include/core/StrategyRouter.h` · `test_strategy_shard`·`test_strategy_router` |
 | 전략(디스패치) | 신호를 주문 요청으로 바꾸기 전 판단, 보호 주문 판정, 강제청산·초과분 정리, 제어 요청 중계, 주문 쪽 응답 수거, 상대 박동 감시와 답 없는 요청 세기 | `shard_out` → 요청 면 / 응답 면을 비운다 | `Quant/include/core/SignalDispatcher.h`·`Quant/include/risk/ProtectiveOrders.h` · `test_signal_dispatcher` |
 | 주문 | 게이트·발주·재시도, 수동주문, 제어 요청 적용, 슬롯 교체, 상대 박동 감시, 장부 사본 발행 | 요청 면·`manual_inbox`·제어 면 → KIS 주문 API, 응답 면, 장부 사본 | `Quant/include/core/OrderRateLimiter.h`·`Quant/include/risk/DisplacementDesk.h` · `test_order_rate_limiter`·`test_engine` |
