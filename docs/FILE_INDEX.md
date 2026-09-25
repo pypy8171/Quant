@@ -401,7 +401,7 @@
 - [EngineControlPlane.cpp](../Quant/src/core/EngineControlPlane.cpp) — 제어 요청 통로 — 주문 쪽(OrderGate·원장)에 부탁하는 요청을 보내고(`send_control`) 옮기고(`relay_control_requests`) 적용한다(`apply_control_requests`), 주문 쪽 스위치 다섯
 - [EngineControlThread.cpp](../Quant/src/core/EngineControlThread.cpp) — 제어 쪽 — 제어 스레드(`control_thread_fn`: 감시·피드 끊김 폴백·마감 자기 종료)와 통계 모으기
 - [EngineDataThread.cpp](../Quant/src/core/EngineDataThread.cpp) — 데이터 수집 스레드 — 장 시작 감지·잔고 대조·일봉·지수·수급 조회를 한 사이클씩 돈다(`data_thread_fn`)
-- [EngineFeed.cpp](../Quant/src/core/EngineFeed.cpp) — 시세 입력 — WebSocket 구독 목록 만들기·소켓 연결(`connect_feed`)·받은 체결과 호가를 전략 샤드 큐나 시세 통로로 보내기·전략 쪽 시세 줄 스레드(`feed_lane_thread_fn`)
+- [EngineFeed.cpp](../Quant/src/core/EngineFeed.cpp) — 시세 입력 — WebSocket 구독 목록 만들기·소켓 연결(`connect_feed`)·받은 체결과 호가를 전략 샤드 큐나 시세 통로로 보내기·구독 칸 재배정(`rebalance_websocket_slots`)과 시세 쪽 제어 요청 적용(`apply_feed_control_requests`)·전략 쪽 시세 줄 스레드(`feed_lane_thread_fn`)
 - [EngineFillThread.cpp](../Quant/src/core/EngineFillThread.cpp) — 체결 쪽 — 체결통보를 원장에 반영하는 스레드(`fill_thread_fn`)
 - [EngineLayout.cpp](../Quant/src/core/EngineLayout.cpp) — `Engine::bind_layout` 등 — 자리표(큐·장부 사본·박동)를 힙이나 공유 쪽지에 깔고 종목·전략 이름표를 그 위 한 벌로 바꾼다
 - [EngineOpsServer.cpp](../Quant/src/core/EngineOpsServer.cpp) — 운영단말 서버 — 단말의 조회·수동 주문을 받아 주문 스레드가 꺼낼 자리에 넣는다(`start_ops_server`·`accept_manual_order`·`take_manual_order`)

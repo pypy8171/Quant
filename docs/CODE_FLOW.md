@@ -69,8 +69,8 @@ config를 `AppConfig`로 읽고 `Engine::configure`가 세터에 옮기고 전�
    `Quant/src/core/EngineStrategyThread.cpp:23` · `void Engine::add_strategy(std::unique_ptr<StrategyBase> strategy)`
 7. [`Engine::start`](../Quant/src/core/Engine.cpp#L475) — 도우미 호출 목록이 기동 순서다 — `setup_shards`(행렬 `reshape`, 행=수신 스레드+폴러, 열=샤드) → ZMQ → 모의 체결기 → 라우터·대조기·폴러 → `try_bootstrap_ledger`(원장 시드) → `start_strategies` → 구독 목록 → `connect_feed` → `spawn_threads`  
    `Quant/src/core/Engine.cpp:475` · `void Engine::start()`
-8. [`Engine::connect_feed (WS 콜백 설치)`](../Quant/src/core/EngineFeed.cpp#L399) — 소켓 수신 스레드 i의 호가·체결 콜백. 종목 id로 열을 고르고(`consumer_of`) `pipeline_.trade_matrix`·`order_book_matrix`의 자기 행에 `push_to` — 가득 차면 버리고 센다(블로킹 금지)  
-   `Quant/src/core/EngineFeed.cpp:399` · `feed_.websocket->set_lane_callbacks([this] (uint32_t lane, const OrderBook& in) …`
+8. [`Engine::connect_feed (WS 콜백 설치)`](../Quant/src/core/EngineFeed.cpp#L401) — 소켓 수신 스레드 i의 호가·체결 콜백. 종목 id로 열을 고르고(`consumer_of`) `pipeline_.trade_matrix`·`order_book_matrix`의 자기 행에 `push_to` — 가득 차면 버리고 센다(블로킹 금지)  
+   `Quant/src/core/EngineFeed.cpp:401` · `feed_.websocket->set_lane_callbacks([this] (uint32_t lane, const OrderBook& in) …`
 9. [`Engine::spawn_threads`](../Quant/src/core/Engine.cpp#L441) — data·strategy·order·fill·control 다섯 jthread + 샤드 M. stop_token이 첫 인자라 람다로 감싼다  
    `Quant/src/core/Engine.cpp:441` · `data_thread_ = std::jthread([this] (std::stop_token stop_token) { data_thread_fn(stop_token); });`
 10. [`LedgerReconciler::bootstrap`](../Quant/src/core/LedgerReconciler.cpp#L20) — 기동 잔고 시드 — 브로커 잔고를 원장(`PositionLedger`) 포지션으로. 실패 재시도 횟수와 실패 시 기동 중단 여부  
