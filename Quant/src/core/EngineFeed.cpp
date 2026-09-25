@@ -1,17 +1,19 @@
 // 시세 입력 — WebSocket 구독 목록을 만들고 소켓에 걸고, 받은 체결·호가를 전략 샤드 큐나 시세 통로로 보낸다.
-//  Engine 클래스는 그대로다. Engine.cpp 가 1,500줄을 넘겨 열기 어려워 이 갈래만 따로 낸 것이다
+//  Engine 클래스는 그대로다. Engine.cpp 가 길어 열기 어려워 이 갈래만 따로 낸 것이다
 //  (헤더는 한 줄도 안 바뀐다 — 같은 Engine 의 멤버 함수 본체가 여기 있을 뿐이다).
 //
 //  ── 부르는 자리 ──────────────────────────────────────────────────────────
 //  websocket_lane_count()             : setup_shards()·start()·configure() 가 소켓 수를 셀 때
 //  collect_watch_specifications()      : start() — 전략들이 보는 종목을 구독 목록으로 모은다
-//  add_watch_specification()·send_watch_request() : 전략 등록(샤드 스레드)·제어 요청·유니버스 재스캔
+//  add_watch_specification()·send_watch_request() : start()·유니버스 재스캔의 전략 등록·떼기(데이터 스레드)·
+//                                    apply_feed_control_requests()(감시 스레드)
 //  drain_pending_subscriptions()       : 제어 스레드가 주기마다 — 쌓인 구독·해제 요청을 소켓에 건다
 //  connect_feed()                      : start() — 소켓을 열고 수신 콜백을 건다. 콜백은 소켓의 수신 스레드에서 돈다
-//  push_feed_*()·fan_out_*()           : 수신 콜백(소켓을 쥔 쪽)·feed_lane_thread_fn()(전략 쪽)
+//  push_feed_*()                       : 갈라 띄운 시세 프로세스의 수신 콜백. push_feed_trade()는 넘침 폴러(데이터 스레드)도
+//  fan_out_*()                         : 한 프로세스면 수신 콜백, 갈라 띄우면 전략 쪽 feed_lane_thread_fn()
 //  feed_lane_thread_fn()               : spawn_threads() 가 전략 역할에서 시세 줄마다 띄운다. [why D-071·D-114]
 //  websocket_slot_priority()·rebalance_websocket_slots() : 구독 칸 우선순위 계산과 칸 재배정 [why D-132]
-//  apply_feed_control_requests()       : control_thread_fn() 가 — 시세 쪽 요청(구독·칸 우선순위)을 적용한다
+//  apply_feed_control_requests()       : control_thread_fn() 가 — 시세 쪽 요청(구독·해지·칸 우선순위)을 적용한다
 
 #include "core/Engine.h"
 #include "core/KstTime.h"
@@ -102,7 +104,7 @@ void Engine::collect_watch_specifications()
             universe_rescan_.set_registered(register_symbol(specification.ticker), true);
         }
 
-        // 거는 자리는 소켓을 쥔 주문 쪽 하나다. Both 로 돌면 connect_feed() 가 이미 이 목록을 통째로
+        // 거는 자리는 소켓을 쥔 시세 쪽 하나다. Both 로 돌면 connect_feed() 가 이미 이 목록을 통째로
         //  걸어 둔 뒤라 이 요청은 "이미 구독 중"으로 끝난다 — 갈라 띄운 날 처음 도는 코드를 안 만들려고
         //  양쪽이 같은 길을 쓴다. [why D-114]
         send_watch_request(specification);
@@ -212,7 +214,7 @@ void Engine::drain_pending_subscriptions()
 
         watch_overflow_.fetch_add(1, std::memory_order_relaxed);
 
-        // 넘침 목록에 넣어 데이터 스레드가 REST 로 대신 흘린다. 폴러는 양쪽에 있고, 갈라 띄우면 주문 쪽
+        // 넘침 목록에 넣어 데이터 스레드가 REST 로 대신 흘린다. 폴러는 양쪽에 있고, 갈라 띄우면 시세 쪽
         //  폴러가 받아 시세 통로의 마지막 줄로 보낸다(구독을 거는 쪽과 같은 프로세스다). [why D-114]
         if (poller_ && poller_->add_overflow(specification))
         {
@@ -227,7 +229,8 @@ void Engine::drain_pending_subscriptions()
 }
 
 // 소켓을 쥔 시세 프로세스가 디코드한 체결을 전략 프로세스로 넘긴다. 기다리지 않는다 — 큐가 차면 버리고 센다(원칙 3).
-//  [inv] 한 줄의 보내는 쪽은 그 소켓의 수신 스레드 하나다. 여기를 다른 스레드가 부르면 SPSC가 깨진다. [why D-114]
+//  [inv] 한 줄의 보내는 쪽은 스레드 하나다 — 소켓 줄은 그 수신 스레드, 마지막 줄(pipeline_.data_row)은 넘침 폴러를
+//  돌리는 데이터 스레드. 한 줄을 두 스레드가 부르면 SPSC가 깨진다. [why D-114]
 void Engine::push_feed_trade(uint32_t lane, const TradeData& trade)
 {
     if (!layout_.feed().push_trade(lane, trade) &&
@@ -378,7 +381,7 @@ void Engine::push_fill_notification(const FillNotification& fill_notification)
 
     // 수신 스레드는 큐에 넣고 바로 돌아간다. 가득 찼으면(1024건 밀림 = 소비자가 멈춘 것)
     //  기다리지 않고 버린다 — 여기서 대기하면 전 종목 틱이 같이 선다. 버린 건은
-    //  잔고 대조(control_thread)가 원장에 메운다. [why D-056]
+    //  잔고 대조(data_thread)가 원장에 메운다. [why D-056]
     if (!pipeline_.fill_queue.push(notice))
     {
         const auto count = pipeline_.fill_dropped.fetch_add(1, std::memory_order_relaxed) + 1;
@@ -788,7 +791,7 @@ void Engine::apply_feed_control_requests()
 
             WatchSpec specification = ipc::watch_specification_of(request);
 
-            // 목록에 이미 있어도 구독은 건다 — Both 로 돌면 connect_feed() 가 채운 목록에 그대로 들어 있다.
+            // 목록에 이미 있어도 구독은 건다 — Both 로 돌면 collect_watch_specifications() 가 채운 목록에 그대로 들어 있다.
             add_watch_specification(specification);
 
             {
@@ -841,7 +844,7 @@ void Engine::apply_feed_control_requests()
         }
 
         default:
-            // 이 줄로는 구독·해지만 온다. 다른 낱말이 보이면 가르는 규칙과 보내는 쪽이 어긋난 것이다.
+            // 이 줄로는 구독·해지·칸 우선순위만 온다. 다른 낱말이 보이면 가르는 규칙과 보내는 쪽이 어긋난 것이다.
             LOG_ERROR("[Engine] 시세 제어 줄에 엉뚱한 낱말이 왔다 — " +
                       std::to_string(static_cast<int>(request.kind)));
             break;

@@ -3,7 +3,7 @@
 //  안에서 여럿이 모이는 앞 토막(MPSC)과, 공유 자리표 위에서 경계를 넘는 뒤 토막(SPSC 둘: 주문 쪽·시세 쪽).
 //  Engine이 쥐던 통로 필드·보내기·옮기기·적용을 한 클래스로 모아 Engine 없이 시험하려고 뗐다. [why D-114]
 //
-//  스레드: send는 여러 스레드(샤드·데이터·운영단말·번호를 기다리는 쪽), relay는 전략 스레드 또는 번호를
+//  스레드: send는 여러 스레드(기동 main·샤드·데이터·감시·운영단말·ZMQ 명령·번호를 기다리는 쪽), relay는 전략 스레드 또는 번호를
 //  기다리는 쪽(자물쇠로 한 줄), apply는 주문 스레드, pop_feed는 시세 쪽 감시 스레드.
 //  [inv] bind()는 스레드를 띄우기 전에 한 번 부른다 — 그 전에 relay·apply·pop_feed를 부르면 안 된다.
 #pragma once
@@ -33,7 +33,7 @@ class ControlPlane
 {
 public:
     // 표 하나가 여러 줄로 오므로 용량은 표 상한의 몇 배로 둔다 — 한 줄만 잃어도 그 표는 통째로 버려진다.
-    //  뒤 토막(자리표 제어 면)의 용량도 이 값으로 잡는다(EngineLayout).
+    //  뒤 토막(자리표 제어 면)의 용량도 이 값으로 잡는다(Quant/src/core/EngineLayout.cpp).
     static constexpr size_t kQueueCapacity = 8192;
 
     using Lane = ipc::SharedSpscRing<ipc::ControlRequest>;
@@ -76,8 +76,9 @@ public:
     risk::ProtectiveOrderRegistry& protective_registry() { return protective_registry_; }
 
 private:
-    // 켜고 끄기는 요청으로 주문 스레드에 넘기고, 읽기 둘은 표를 그대로 본다 — 표를 고치는 것은 단일
-    //  시퀀서다(원칙 4). 프로세스를 가르면 읽기 둘도 응답 통로로 바뀐다. [why D-114]
+    // 켜고 끄기는 요청으로 주문 스레드에 넘기고, 읽기 둘은 이 프로세스의 표를 그대로 본다 — 표를 고치는 것은
+    //  단일 시퀀서다(원칙 4). 읽기가 맞는 것은 한 프로세스(Both)일 때뿐이다. 갈라 띄우면 전략 프로세스의 표는
+    //  apply()가 돌지 않아 늘 비어 있고 둘 다 거짓을 돌려준다(응답 통로는 아직 없다). [why D-114]
     class ProtectiveRegistry : public risk::ProtectiveOrderRegistry
     {
     public:
@@ -100,7 +101,7 @@ private:
     wake::WakeGate&            order_wake_;    // 옮긴 뒤 깨울 주문 스레드
     std::function<void()>      reset_daily_;
 
-    // 앞 토막. 생산자가 샤드 스레드·데이터 스레드로 여럿이라 MPSC(원칙 5). 자물쇠를 둔 것은 번호를 기다리는
+    // 앞 토막. 생산자가 여럿이라(머리 주석의 send 쪽) MPSC(원칙 5). 자물쇠를 둔 것은 번호를 기다리는
     //  쪽이 제 손으로 옮겨야 하기 때문이다(전략 스레드가 on_start 안에서 막히면 아무도 안 옮긴다). [why D-114]
     MpscQueue<ipc::ControlRequest> outbox_{kQueueCapacity};
     std::mutex                     relay_mutex_;

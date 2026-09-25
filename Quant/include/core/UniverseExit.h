@@ -6,8 +6,8 @@
 #include <vector>
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 유니버스 이탈·복귀 판정의 순수 부분. Engine::maybe_rescan_universe(data_thread)가 시계·스캔 결과를 넣어
-//  부르고, test_signal_dispatcher가 KIS 없이 시험한다 [why D-077].
+// 유니버스 이탈·복귀 판정의 순수 부분. UniverseRescan::run_job(data_thread)이 시계·스캔 결과를 넣어
+//  부르고(clamp_block만 전략 적재 때 Quant/src/strategy/StrategyFactory.cpp가), test_signal_dispatcher가 KIS 없이 시험한다 [why D-077].
 //
 //  시계는 하나(연속 부재 초), 임계값은 둘이다 — block_after_sec에 신규매수를 막고, drop_after_sec에 전략을 뗀다.
 //  복귀는 present 스캔이 return_confirm회 연속일 때만 — 한 번 보이자마자 풀면 경계 종목이 사고팔기를 반복한다.

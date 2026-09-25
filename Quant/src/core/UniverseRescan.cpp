@@ -1,5 +1,6 @@
 // 유니버스 재스캔 장부 — 선언과 스레드 약속은 Quant/include/core/UniverseRescan.h.
-//  로그 문구는 Engine 안에 있던 때와 한 글자도 같다(마감 리뷰·판정 스크립트가 "[Engine] 재스캔 …"을 읽는다).
+//  로그 문구("[Engine] … 재스캔 …")는 바꾸지 않는다 — 장 마감 스크립트(scripts/summarize_trading_day.py·
+//  scripts/market_close_collect.py)가 이 문구로 줄을 찾는다.
 
 #include "core/UniverseRescan.h"
 #include "core/UniverseExit.h"

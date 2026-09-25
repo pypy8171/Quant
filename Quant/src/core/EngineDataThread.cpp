@@ -1,5 +1,5 @@
 // 데이터 수집 스레드 — 장 시작 감지·잔고 대조·일봉·지수·수급 조회를 한 사이클씩 돈다.
-//  Engine 클래스는 그대로다. Engine.cpp 가 4,700줄을 넘겨 열기 어려워 이 스레드 본체만 따로 낸 것이다
+//  Engine 클래스는 그대로다. Engine.cpp 가 길어 열기 어려워 이 스레드 본체만 따로 낸 것이다
 //  (헤더는 한 줄도 안 바뀐다 — 같은 Engine 의 멤버 함수 본체가 여기 있을 뿐이다).
 //
 //  ── 부르는 자리 ──────────────────────────────────────────────────────────
@@ -129,13 +129,13 @@ void Engine::data_thread_fn(std::stop_token stop_token)
 
             // 틱이 끊긴 보유 종목은 REST 현재가로 보충한다 — 운영단말 현재가가 비어 있던 원인(09-11)은
             //  둘이었다: 유니버스 밖 보유(구독 자체가 없음)와 WS 구독 상한에 밀린 종목. 구독 여부를 따지지
-            //  않고 "최근 틱이 없다"로만 고르면 둘 다 잡힌다. 전략이 볼 일은 없으니 td_queue_에는 넣지 않는다.
+            //  않고 "최근 틱이 없다"로만 고르면 둘 다 잡힌다. 전략이 볼 일은 없으니 pipeline_.trade_matrix에는 넣지 않는다.
             //  모의 도메인 초당 한도가 낮아 300ms 간격. 시세를 채우는 일이라 전략 쪽이 한다. [why D-114]
             if (strategy_side)
             {
                 std::vector<std::string> held;
 
-                // 사본을 본다 — 단계 5에서 시세가 딴 프로세스로 가면 여기서 주문 쪽 장부를 못 부른다. [why D-114]
+                // 사본을 본다 — 장부는 주문 프로세스 것이라 갈라 띄우면 여기서 부를 수 없다. [why D-114]
                 std::vector<symbol::SymbolId> ledger_ids;
                 std::vector<ipc::LedgerRow>   ledger_rows;
                 ipc::collect_all_rows(*ledger_snapshot_, ledger_ids, ledger_rows);
@@ -168,7 +168,7 @@ void Engine::data_thread_fn(std::stop_token stop_token)
                 top_up_ms = ms_between(top_up_start, cycle_clock::now());
             }
 
-            // 시세를 받아 흘리는 자리는 전부 전략 쪽이다 — 현재가 폴링과 일봉이 그렇다. 수급·섹터·매크로
+            // 일봉을 받아 흘리는 자리는 전략 쪽이다(현재가·넘침 폴링은 소켓을 쥔 시세 쪽, 아래). 수급·섹터·매크로
             //  관측 적재는 흘리는 일이 아니라 REST로 떠서 로그로만 남기는 것인데, 이것도 전략 쪽에 둔다:
             //  게이트로 승격하면(D-014·D-044) 읽는 쪽이 전략이라 경계를 한 번 더 넘지 않아도 되고,
             //  주문 쪽에 두면 관측 REST가 주문 전송과 같은 프로세스에서 KIS 호출을 다툰다. 관측은 게이트가
@@ -180,7 +180,7 @@ void Engine::data_thread_fn(std::stop_token stop_token)
                 // ── 당일 외국인·기관 추정 순매수 "관측 적재"(게이트 아님) ──────────────
                 //  data-sourcer 판정: FHPTJ04400000는 추정/가집계 → 부호·상대크기만 신뢰.
                 //  게이트로 승격 전, 매 사이클 스냅샷을 로그로 남겨 장중추정 vs 장후확정을
-                //  나중에 대조한다(지금 안 남기면 영구 소실). 레이트 절약 위해 5분마다만.
+                //  나중에 대조한다(지금 안 남기면 영구 소실). 레이트 절약 위해 10사이클마다만(아래 kEstFlowLogEveryNTicks).
                 //  ⚠️ 스키마 미확정 — 첫 성공 응답의 원문 로그로 필드명 확정할 것.
                 {
                     static int est_flow_tick = 0;
@@ -257,13 +257,13 @@ void Engine::data_thread_fn(std::stop_token stop_token)
 
                 // ── 섹터(업종) 강약 모니터(관측용) ─────────────────────────────────
                 //  업종 지수 등락률을 강→약으로 로깅해 "오늘 어느 섹터가 주도하나"를 눈으로 본다.
-                //  코드는 ThemeStrategy.h KOSPI_SECTORS와 동일(실전 시세키로 조회, 5분 주기).
+                //  코드는 Quant/include/strategy/ThemeStrategy.h KOSPI_SECTORS와 동일(실전 시세키로 조회, 10사이클 주기).
                 //  get_index_price(업종코드): inquire-index-price(FID_MRKT_DIV=U) → 등락률.
                 {
                     static int sector_tick = 0;
                     KisClient* sqc = feed_.quote_kis ? feed_.quote_kis.get() : feed_.kis.get();
 
-                    if (sqc && (sector_tick % 10) == 0) // 30s×10 ≈ 5분
+                    if (sqc && (sector_tick % 10) == 0) // 10사이클 — fetch_interval_sec 30초면 약 5분
                     {
                         // KRX 정본 업종코드. 2026-09-08 구성종목으로 확증했다 — 직전 표는 이름이
                         //  통째로 밀려 있어(0017을 "통신업"으로 불렀는데 실제 구성은 한국전력·
@@ -338,7 +338,7 @@ void Engine::data_thread_fn(std::stop_token stop_token)
                 }
 
                 // ── 매크로 지표 모니터(관측용) ─────────────────────────────────────
-                //  환율·미국지수·미국채10Y금리는 도메스틱 KIS 밖 → 보조 프로세스(macro_regime_feed.py)가
+                //  환율·미국지수·미국채10Y금리는 도메스틱 KIS 밖 → 보조 프로세스(PYQuant/tools/macro_regime_feed.py)가
                 //  FinanceDataReader로 계산해 regime.json에 쓴 components를 그대로 로깅한다.
                 //  키 이름은 NQ_F·ES_F지만 실제 소스는 현물지수 일봉(IXIC·US500)이다. 이 환경에서
                 //  yfinance가 전 심볼 실패해 2026-09-04에 FDR로 갈아탄 결과다. 그래서 5개 중 4개는
@@ -347,7 +347,7 @@ void Engine::data_thread_fn(std::stop_token stop_token)
                 {
                     static int macro_tick = 0;
 
-                    if (!regime_file_.empty() && (macro_tick % 10) == 0) // 30s×10 ≈ 5분
+                    if (!regime_file_.empty() && (macro_tick % 10) == 0) // 10사이클 — fetch_interval_sec 30초면 약 5분
                     {
                         std::error_code mec;
 

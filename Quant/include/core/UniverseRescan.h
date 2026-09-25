@@ -70,7 +70,8 @@ public:
     void seed(const std::vector<std::pair<symbol::SymbolId, StrategyBase*>>& started,
               const std::vector<symbol::SymbolId>& symbols);
 
-    // 등록 표시(슬리브 공유, 중복 등록 방지). reset_registered는 기동 때 구독 목록을 채우기 직전에 한 번.
+    // 등록 표시(슬리브 공유, 중복 등록 방지). reset_registered는 기동 때 한 번 — Engine::collect_watch_specifications()가
+    //  구독 목록을 모은 뒤, 그 목록의 KR 종목을 set_registered로 표시하기 직전에 부른다.
     void reset_registered();
     void set_registered(symbol::SymbolId symbol, bool on);
     bool is_registered(symbol::SymbolId symbol) const

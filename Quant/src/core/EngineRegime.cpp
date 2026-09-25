@@ -1,10 +1,10 @@
 // 국면 선택 — regime.json 을 읽어 지금 국면을 정하고, 그 국면에 맞는 전략만 켠다.
-//  Engine 클래스는 그대로다. Engine.cpp 가 4,600줄을 넘겨 열기 어려워져 이 갈래만 따로 낸 것이다
+//  Engine 클래스는 그대로다. Engine.cpp 가 길어 열기 어려워져 이 갈래만 따로 낸 것이다
 //  (헤더는 한 줄도 안 바뀐다 — 같은 Engine 의 멤버 함수 본체가 여기 있을 뿐이다).
 //
 //  ── 부르는 자리 ──────────────────────────────────────────────────────────
 //  poll_regime_file()  : data_thread 가 매 사이클
-//  apply_regime_selection() : poll_regime_file() 과 전략 적재가 부른다
+//  apply_regime_selection() : poll_regime_file() 과 data_thread_fn()(개장 전이·재스캔 직후)이 부른다
 //  set_regime_file()   : 기동 설정
 
 #include "core/Engine.h"
@@ -121,8 +121,8 @@ void Engine::apply_regime_selection(Regime regime, bool force_log)
     strategy_.last_selected_regime = regime;
 }
 
-// 파일 관측만 한다(존재·나이·파싱). 판정은 RegimeFileJudge::step이 하고, 여기서는 그 결과를
-//  OrderGate·force_liquidate_에 옮기고 로그 문구를 붙인다. 원자적 write라 정상은 완전한 json이고
+// 파일 관측만 한다(존재·나이·파싱). 판정은 RegimeFileJudge::step이, 결과를 주문 쪽 요청·force_liquidate_로
+//  옮기고 로그를 붙이는 것은 poll_regime_file()이 한다. 원자적 write라 정상은 완전한 json이고
 //  부분/손상은 kUnreadable로 조용히 넘긴다.
 static regime_file::Observation observe_regime_file(const std::string& path, int stale_sec)
 {
@@ -172,14 +172,15 @@ static regime_file::Observation observe_regime_file(const std::string& path, int
     return observation;
 }
 
-// ─── 매크로 레짐 파일 폴링 → OrderGate entry_halt 토글 (data_thread 전용) ─────
-//  Python macro_regime_feed.py가 원자적으로 쓰는 regime.json을 매 사이클 읽어,
-//  entry_halt(신규 진입만 차단, 청산은 통과)를 국면에 맞춰 켜고 끈다.
+// ─── 매크로 레짐 파일 폴링 → entry_halt 요청 (data_thread 전용) ─────────────
+//  PYQuant/tools/macro_regime_feed.py가 원자적으로 쓰는 regime.json을 매 사이클 읽어,
+//  entry_halt(신규 진입만 차단, 청산은 통과)를 국면에 맞춰 켜고 끈다. OrderGate는 주문 쪽 것이라
+//  직접 고치지 않고 request_entry_halt()·request_entry_scale()로 제어 요청을 보낸다. [why D-114]
 //  신규진입 정지를 내는 곳은 이 함수뿐이라 소유권 단순. 파일 없음/손상/
-//  판정보류(valid=false)/stale이면 게이트를 새로 켜지 않는다(유지가 실패안전).
+//  판정보류(valid=false)/갱신 지연이면 게이트를 새로 켜지 않는다(유지가 실패안전).
 //  매크로 risk-off 오버레이 축(G2): entry_halt·force_liquidate(강제청산)를 건다.
 //  전략선택 축(apply_regime_selection)과는 별개 관심사다.
-//  판정(stale·시간 상자·1회 로그)은 core/RegimeFileJudge.h의 상태기계가 맡는다. [why D-060]
+//  판정(갱신 지연·시간 상자·1회 로그)은 Quant/include/core/RegimeFileJudge.h의 상태기계가 맡는다. [why D-060]
 void Engine::poll_regime_file()
 {
     if (regime_file_.empty())
