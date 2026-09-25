@@ -541,6 +541,45 @@ void test_cross_day_fill_not_deduped()
     PASS("cross_day_fill_not_deduped");
 }
 
+// ─── 선점 정리가 KIS 답을 기다리는 주문의 선점을 풀지 않는다 ─────────────────────
+//   선점은 전송 전 INTENT 때 생기고 이력에는 답이 온 뒤에 들어간다. 그 사이에 데이터 스레드의 정리가 돌면
+//   이력만 보고 방금 잡은 선점을 풀었다. 스텁이 전송 도중에 정리를 불러 그 순간을 그대로 만든다.
+struct SweepDuringSendExecutor : StubOrderExecutor
+{
+    OrderRouter* router = nullptr;
+    int          released_during_send = -1;
+
+    SweepDuringSendExecutor() : StubOrderExecutor(true, "0000000222") {}
+
+    OrderAck submit_order_acknowledgement(const OrderSignal& signal) override
+    {
+        if (router && signal.ticker == "005930")
+        {
+            released_during_send = router->sweep_stale_reservations();
+        }
+
+        return StubOrderExecutor::submit_order_acknowledgement(signal);
+    }
+};
+
+void test_sweep_keeps_in_flight_reservation()
+{
+    OrderGate               gate(relaxed_config());
+    SweepDuringSendExecutor stub;
+    OrderRouter             router(gate, stub);
+    stub.router = &router;
+
+    // 이력이 비면 정리는 아무 것도 안 하므로, 다른 종목의 접수 한 건을 먼저 둔다.
+    assert(router.submit(make_signal("000660", OrderSide::BUY, 5)).status == OrderStatus::ACCEPTED);
+
+    const auto managed_order = router.submit(make_signal("005930", OrderSide::BUY, 10));
+    assert(managed_order.status == OrderStatus::ACCEPTED);
+    assert(stub.released_during_send == 0);
+    assert(gate.ledger().reserved("005930") == 10);
+    assert(gate.ledger().reserved("000660") == 5);
+    PASS("sweep_keeps_in_flight_reservation");
+}
+
 // ─── 테스트 9: CANCEL 경로 — reserved 해제 + orgno 캡처 (MM-1) ────────────────
 void test_cancel_releases_reserved()
 {
@@ -1032,6 +1071,7 @@ int main()
     test_unmapped_fill_clamped_by_order_quantity();
     test_fill_linked_by_original_order_number();
     test_cross_day_fill_not_deduped();
+    test_sweep_keeps_in_flight_reservation();
     test_cancel_releases_reserved();
     test_cancel_unknown_order_id();
     test_partial_fill_then_cancel();

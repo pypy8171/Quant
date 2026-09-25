@@ -93,10 +93,10 @@ public:
     };
     AdoptResult adopt_open_intents(const std::vector<OrderGate::OpenIntent>& intents);
 
-    // 살아있는 주문이 없는데 게이트에 남은 선점을 푼다. 선점은 접수 때만 생기므로
-    //  라우터 이력이 정본이다. 모의투자는 미체결조회(inquire-psbl-rvsecncl)를 지원하지 않아
-    //  브로커에 물어볼 수가 없고, 통보를 한 번 놓치면 선점이 슬롯을 물고 하루를 간다.
-    //  주기 호출(잔고 대조와 같은 사이클) 전제. 반환값은 푼 종목 수.
+    // 살아있는 주문이 없는데 원장에 남은 선점을 푼다. 살아 있다고 치는 것은 이력의 접수·미체결 주문과,
+    //  INTENT를 적고 KIS 답을 기다리는 주문(in_flight_symbols_)이다 — 선점은 전송 전 INTENT 때 생기고
+    //  이력에는 답이 온 뒤에야 들어간다. 통보를 한 번 놓치면 선점이 슬롯을 물고 하루를 가서 정리한다.
+    //  데이터 스레드가 잔고 대조와 같은 사이클에 부른다. 반환값은 푼 종목 수. [why D-113]
     int sweep_stale_reservations();
 
     // ── 일별 리셋 (장 시작) — 체결 목격 기록(fill_sightings_) 정리 ─────────────
@@ -290,6 +290,26 @@ private:
 #endif
     // 미매핑 체결("UNLINKED")의 전략 번호 — 생성자에서 한 번 받는다. [why D-112]
     const strategy_table::StrategyId unlinked_strategy_index_;
+
+    // INTENT를 적기 직전부터 이력에 적힐 때까지 걸어 두는 종목 표시. 선점 정리가 이 목록도 살아 있는
+    //  선점으로 친다 — 없으면 KIS 답을 기다리는 사이(수백 ms~2초)에 도는 정리가 방금 잡은 선점을 푼다.
+    //  [lock-order] in_flight_mutex_ → history_mutex_ → 원장 positions_mutex_(정리 한 곳). 거는 쪽은
+    //  in_flight_mutex_만 잠깐 잡는다. [why D-113]
+    class InFlightMark
+    {
+    public:
+        InFlightMark(OrderRouter& router, symbol::SymbolId symbol_id);
+        ~InFlightMark();
+        InFlightMark(const InFlightMark&)            = delete;
+        InFlightMark& operator=(const InFlightMark&) = delete;
+
+    private:
+        OrderRouter&     router_;
+        symbol::SymbolId symbol_id_;
+    };
+
+    std::mutex                    in_flight_mutex_;
+    std::vector<symbol::SymbolId> in_flight_symbols_; // 같은 종목이 두 번 들 수 있다(신규 안의 청산 재매도)
 
     mutable std::mutex       history_mutex_;
     std::deque<ManagedOrder> history_;

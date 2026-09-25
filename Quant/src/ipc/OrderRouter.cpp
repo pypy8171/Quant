@@ -241,6 +241,10 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
     // 원장 레코드가 이 주문을 가리키는 이름표 — 내부 주문번호(ORD-NNNNNN의 숫자)와 주문 유형. ODNO는 접수 뒤에 붙는다.
     OrderGate::OrderRef order_reference{digits_to_number(managed_order.order_id), 0, signal.type};
     bool                intent_taken = false;
+    // 여기부터 함수 끝(이력 기록)까지 이 종목의 선점을 정리가 풀지 못하게 건다 — 아래 INTENT 두 자리(청산 재매도,
+    //  신규 전송) 모두 이 안이다. [why D-113]
+    const InFlightMark in_flight{*this, signal.symbol_id != symbol::kNone ? signal.symbol_id
+                                                                        : ledger.intern_symbol(signal.ticker)};
 
     if (sell_no_quantity)
     {
@@ -891,6 +895,18 @@ int OrderRouter::sweep_stale_reservations()
     auto& ledger = gate_.ledger();
 
     std::vector<bool> live(ledger.symbols().capacity(), false);
+    // [inv] 표시 목록을 읽고 원장 선점을 풀 때까지 in_flight_mutex_를 쥔다 — 그 사이에 주문 스레드가 표시를
+    //  걸고 INTENT를 적으면, 읽을 때 없던 새 선점을 풀게 된다.
+    std::lock_guard<std::mutex> in_flight_lock(in_flight_mutex_);
+
+    for (const symbol::SymbolId symbol_id : in_flight_symbols_)
+    {
+        if (symbol_id < live.size())
+        {
+            live[symbol_id] = true;
+        }
+    }
+
     {
         std::lock_guard<std::mutex> lock(history_mutex_);
 
@@ -931,6 +947,25 @@ int OrderRouter::sweep_stale_reservations()
     }
 
     return static_cast<int>(gone.size());
+}
+
+OrderRouter::InFlightMark::InFlightMark(OrderRouter& router, symbol::SymbolId symbol_id)
+    : router_(router), symbol_id_(symbol_id)
+{
+    std::lock_guard<std::mutex> lock(router_.in_flight_mutex_);
+    router_.in_flight_symbols_.push_back(symbol_id_);
+}
+
+OrderRouter::InFlightMark::~InFlightMark()
+{
+    std::lock_guard<std::mutex> lock(router_.in_flight_mutex_);
+    auto& symbols = router_.in_flight_symbols_;
+    const auto found = std::find(symbols.begin(), symbols.end(), symbol_id_);
+
+    if (found != symbols.end())
+    {
+        symbols.erase(found);
+    }
 }
 
 // ─── 이력 저장 (max_history 초과 시 체결 완료/거부된 것만 삭제) ───────────
@@ -2290,6 +2325,7 @@ ManagedOrder OrderRouter::replace_route(const OrderSignal& signal)
     reserve_signal.side        = side;
     reserve_signal.quantity    = new_quantity;
     const OrderGate::OrderRef order_reference{digits_to_number(managed_order.order_id), 0, signal.type};
+    const InFlightMark        in_flight{*this, ledger.intern_symbol(ticker)};
 
     if (!take_intent(reserve_signal, order_reference))
     {
