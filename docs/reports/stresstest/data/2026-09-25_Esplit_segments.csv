@@ -1,0 +1,13 @@
+round,segment,label,inside_pop_to_done,count,p50_us,p90_us,p99_us,max_us
+Esplit,tick_to_signal_us,tick recv -> strategy decision,0,15326,1086,1475,1751,2110
+Esplit,signal_to_pop_us,strategy decision -> order thread pop,0,15326,5328,8788,303504,306979
+Esplit,gate_us,order gate check,1,15326,1,2,14,32
+Esplit,history_guard_us,order history lock + duplicate guard,1,15326,0,2,14,561
+Esplit,history_lock_wait_us,  of which: waiting for the lock,1,15326,0,2,13,559
+Esplit,journal_us,ledger write-ahead (disk),1,15326,0,0,1,25
+Esplit,bucket_wait_us,broker rate limit queueing,1,15326,0,0,0,0
+Esplit,transport_us,order send -> broker response (round trip),1,15326,0,1,1,17
+Esplit,record_us,"after send: accept, publish, history, ledger csv",1,15326,7,12,21,296738
+Esplit,open_orders_us,  of which: pending-order file rewrite,1,15326,0,0,0,5
+Esplit,pop_to_done_us,pop -> router return (holds the six above),0,15326,10,20,39,296745
+Esplit,total_us,tick recv -> router return (whole chain),0,15326,6467,10144,303524,307325

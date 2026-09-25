@@ -707,7 +707,8 @@ if(UNIX)
 endif()
 
 # ─── 벤치 타겟: 유휴 대기 해상도 (sleep_for·condvar, Windows 타이머 격자, D-071 Phase 0) ────
-add_executable(bench_sleep_res tests/bench_sleep_res.cpp)
+add_executable(bench_sleep_res tests/bench_sleep_res.cpp src/core/WakeGate.cpp)
+target_include_directories(bench_sleep_res PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 if(WIN32)
     target_link_libraries(bench_sleep_res PRIVATE winmm)
 elseif(UNIX)

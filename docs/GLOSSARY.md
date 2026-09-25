@@ -42,7 +42,7 @@
 | **OrderRouter** | order 스레드에서 실제 KIS 주문을 실행·라우팅(new_route/on_fill) | 거부(REJECTED) 시 drop, 재큐잉 없음(C++). 체결콜백 on_fill로 원장 갱신 | `Quant/src/ipc/OrderRouter.cpp` |
 | **reconcile** (리컨사일) | 로컬 원장 ↔ KIS 실잔고를 재조회로 재동기 | rest 모드처럼 체결콜백이 없을 때 손익 근사 경로 | `Quant/src/core/Engine.cpp` |
 | **kill switch** | 신규·청산 양방향 하드스톱 스위치 | ZMQ 수동명령 / WS 연속 실패로 발동(손익기반 자동킬은 미구현) | `Quant/src/risk/OrderGate.cpp` |
-| **entry_halt** | 신규 진입(BUY)만 차단, 청산(SELL)은 허용하는 플래그 | **OrderGate 전역 플래그**라 켜지면 모든 전략의 신규진입이 함께 막힌다. 원천이 셋이고(매크로 보조 프로세스 regime.json 파일 전달, 운영단말 수동 정지 `manual_buy_halt`, 전략 스레드 사망 `set_strategy_down_halt`) 서로를 지우지 않고 OR만 한다 — 한 원천의 자동 해제가 다른 원천이 켠 정지를 지우면 급락장에 신규 매수가 되살아난다(D-091·D-095·D-114) | `Quant/src/risk/OrderGate.cpp` |
+| **entry_halt** | 신규 진입(BUY)만 차단, 청산(SELL)은 허용하는 플래그 | **OrderGate 전역 플래그**라 켜지면 모든 전략의 신규진입이 함께 막힌다. 원천이 넷이고(매크로 보조 프로세스 regime.json 파일 전달, 운영단말 수동 정지 `manual_buy_halt`, 전략 스레드 사망 `set_strategy_down_halt`, 시세 쪽 사망 `set_feed_down_halt`) 서로를 지우지 않고 OR만 한다 — 한 원천의 자동 해제가 다른 원천이 켠 정지를 지우면 급락장에 신규 매수가 되살아난다(D-091·D-095·D-114·D-137) | `Quant/src/risk/OrderGate.cpp` |
 | **FORCE_LIQ** | BEAR 등에서 보유 전량을 시장가로 청산하는 강제청산 신호 | `strategy_id="FORCE_LIQ"`. 시장가라 명목 백스톱 우회 방지로 평단을 `reference_price`에 stamp | `Quant/src/core/Engine.cpp` |
 | **UniverseScanner** | 시총·거래대금·등락률 필터로 매매 유니버스를 스캔(scan_devscale / scan_itb) | 정배열 일봉 조회·수급 필터 포함 | `Quant/include/universe/UniverseScanner.h:16` |
 | **StrategyFactory** | config를 읽어 전략 인스턴스를 생성·등록하는 팩토리 | main.cpp에서 분리된 전략 로딩 계층 | `Quant/src/strategy/StrategyFactory.cpp` |

@@ -47,6 +47,7 @@ Engine::QueueStatistics Engine::queue_statistics() const
     statistics.order_response_dropped = pipeline_.order_response_dropped.load(std::memory_order_relaxed);
     statistics.strategy_beat_gap_max_ns = pipeline_.strategy_beat_gap_max_ns.load(std::memory_order_relaxed);
     statistics.order_beat_gap_max_ns    = pipeline_.order_beat_gap_max_ns.load(std::memory_order_relaxed);
+    statistics.feed_beat_gap_max_ns     = pipeline_.feed_beat_gap_max_ns.load(std::memory_order_relaxed);
     statistics.order_answer_overdue     = pipeline_.order_answer_overdue.load(std::memory_order_relaxed);
     return statistics;
 }
@@ -187,6 +188,10 @@ void Engine::control_thread_fn(std::stop_token stop_token)
                                     kNanosecondsPerMillisecond) + "ms" +
                      " order_answer_overdue=" +
                      std::to_string(pipeline_.order_answer_overdue.load(std::memory_order_relaxed)) +
+                     // 시세 쪽 박동 — 제어 바퀴 5초가 그대로 들어온다. 이 값이 사망 문턱의 근거다. [why D-137]
+                     " feed_beat_gap_max=" +
+                     std::to_string(pipeline_.feed_beat_gap_max_ns.load(std::memory_order_relaxed) /
+                                    kNanosecondsPerMillisecond) + "ms" +
                      // 장부 사본 — 몇 판 나왔는지와 못 실은 남의 계좌 줄 수. 뒤엣것은 0이어야 한다. [why D-114]
                      " ledger_gen=" + std::to_string(ledger_snapshot_->generation()) +
                      " ledger_foreign=" + std::to_string(order_gate_.ledger().ledger_foreign_account_rows()) +

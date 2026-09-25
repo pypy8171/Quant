@@ -609,6 +609,7 @@
     ],
     "core/EngineOrderThread.cpp": [
       "core/Engine.h",
+      "core/KstTime.h",
       "core/LatencyTrace.h",
       "risk/DisplacementDesk.h",
       "utils/Logger.h",
@@ -1410,6 +1411,7 @@
       "core/EngineDataThread.cpp",
       "core/EngineFeed.cpp",
       "core/EngineOpsServer.cpp",
+      "core/EngineOrderThread.cpp",
       "core/EngineUniverse.cpp",
       "core/KstTime.cpp",
       "core/LedgerReconciler.h",

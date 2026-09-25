@@ -860,7 +860,9 @@ void Engine::feed_lane_thread_fn(std::stop_token stop_token, uint32_t lane)
     ipc::MarketLimits limits;
 
     // 유휴 전이: 샤드 스레드와 같은 정책이되 게이트가 없다 — 건너편은 다른 프로세스라 깨울 수 없다. [why D-071]
-    //  놀린 뒤에도 빈 채면 짧게 잔다 — 타이머 격자를 2ms로 내려 둔 위에서(main.cpp timeBeginPeriod) 시세 지연을 1ms 밑으로 둔다.
+    //  놀린 뒤에도 빈 채면 짧게 잔다. 이 잠은 타이머 격자를 안 타는 길로 잔다(sleep_precise_unless_stopped) —
+    //  격자를 타면 500us 를 부탁해도 2ms 를 자고, 그만큼이 그대로 "시세 수신 -> 전략" 에 실린다.
+    //  2026-09-25 부하시험의 조용한 판에서 52us 가 1,086us 가 된 것이 이것이다. [why D-137]
     constexpr auto                        kSpinBudget = std::chrono::microseconds(200);
     constexpr auto                        kIdleSleep  = std::chrono::microseconds(500);
     std::chrono::steady_clock::time_point idle_since{};
@@ -923,7 +925,7 @@ void Engine::feed_lane_thread_fn(std::stop_token stop_token, uint32_t lane)
             continue;
         }
 
-        wake::sleep_unless_stopped(stop_token, kIdleSleep);
+        wake::sleep_precise_unless_stopped(stop_token, kIdleSleep);
     }
 
     LOG_INFO("[Feed " + std::to_string(lane) + "] 종료");

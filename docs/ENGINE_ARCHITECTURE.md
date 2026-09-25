@@ -8,7 +8,7 @@
 
 ### 스레드 모델
 
-<!-- sync: Quant/include/core/Engine.h@cfba42a Quant/src/core/Engine.cpp@3d4488a Quant/include/core/DataPoller.h@5ed346c Quant/include/core/SignalDispatcher.h@63c6f95 Quant/include/core/OrderRateLimiter.h@2650fb2 Quant/include/core/LedgerReconciler.h@77c1a8a Quant/include/core/WakeGate.h@cfe77bc Quant/include/core/BarAggregator.h@f50287c Quant/include/core/LatencyTrace.h@b01b770 Quant/include/core/ReconcilePlan.h@5e8d897 -->
+<!-- sync: Quant/include/core/Engine.h@515000a Quant/src/core/Engine.cpp@980f4ea Quant/include/core/DataPoller.h@5ed346c Quant/include/core/SignalDispatcher.h@63c6f95 Quant/include/core/OrderRateLimiter.h@2650fb2 Quant/include/core/LedgerReconciler.h@77c1a8a Quant/include/core/WakeGate.h@b842ec7 Quant/include/core/BarAggregator.h@f50287c Quant/include/core/LatencyTrace.h@b01b770 Quant/include/core/ReconcilePlan.h@5e8d897 -->
 스레드는 다섯 개(데이터·전략·주문·체결·제어)에 전략 샤드 M개(config `strategy_shards`, 기본 1, 상한 64), 소켓마다
 수신 스레드 하나, 프리페치 풀(코어/4, 2~8개)을 더한다. 스레드끼리는 락 없는 큐로만 넘긴다. 각 스레드는 기동 직후
 `thread_name::set_current`(`Quant/include/utils/ThreadName.h`)로 이름을 붙여 procwatch와 디버거에 그 이름으로 보인다.
@@ -66,7 +66,9 @@ flowchart LR
 
 버리고 세는 카운터는 제어 스레드가 1분마다 `[큐 고수위]` 줄에 싣고, `scripts/check_runtime_health.py`가 0이 아니면 FAIL로 판정한다.
 큐가 비면 소비자는 `Quant/include/core/WakeGate.h`의 `wake::WakeGate`에서 잠들고 생산자가 깨운다 — 전략은 200us yield 뒤,
-주문은 재시도 만기까지 잔다(D-071, `test_wake_gate`).
+주문은 재시도 만기까지 잔다(D-071, `test_wake_gate`). 갈라 띄운 판의 시세 줄 스레드만 깨워 줄 생산자가 건너편
+프로세스에 있어 스스로 깬다 — 이때는 `wake::sleep_precise_unless_stopped`로 잔다. OS 타이머 격자를 타는
+`condition_variable`로 자면 500us를 부탁해도 1.5~15ms를 자고 그만큼이 시세 지연에 그대로 실린다(D-137).
 
 #### 주문 한 건 따라가기
 

@@ -23,6 +23,11 @@ from pathlib import Path
 TICK_FLUSH_ROWS = 500
 TICK_FLUSH_SECONDS = 5.0
 
+# 리코더 원장 배치(신호·주문·체결) — 틱보다 훨씬 드물지만 사람이 장중에 들여다보는 표라 시간 문턱을 짧게 둔다.
+#  조용한 구간에는 1초 무응답(on_idle)이 비우는 시계 노릇을 하므로 실제 지연은 1초 언저리다. [why D-137]
+LEDGER_FLUSH_ROWS = 200
+LEDGER_FLUSH_SECONDS = 1.0
+
 # python/ 폴더를 패키지 루트로
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -252,6 +257,51 @@ def cmd_monitor(args):
     monitor.run()
 
 
+class RecordBuffer:
+    """한 표에 들어갈 행을 모았다가 묶음으로 넣는다.
+
+    건마다 INSERT 하면 커밋도 건마다고 로그도 건마다다 — 2026-09-25 부하시험에서 주문·신호 적재가
+    초당 272~372행에 붙어 있었다(docs/reports/stresstest/OVERVIEW.md 5.6). 건수·시간 중 먼저 닿는 쪽에서
+    비우고, 로그는 묶음마다 한 줄만 남긴다. 담은 수(queued)와 넣은 수(stored)를 따로 세어 두는 것은
+    적재기 안에서 새는 양을 밖에서 볼 수 있게 하려는 것이다. [why D-137]
+    """
+
+    def __init__(self, label, insert_batch, flush_rows, flush_seconds, on_stored=None):
+        self.label = label
+        self.queued = 0
+        self.stored = 0
+        self._insert_batch = insert_batch
+        self._flush_rows = flush_rows
+        self._flush_seconds = flush_seconds
+        self._on_stored = on_stored
+        self._records: list[dict] = []
+        self._deadline = time.monotonic() + flush_seconds
+
+    def append(self, record: dict):
+        self._records.append(record)
+        self.queued += 1
+        self.flush()
+
+    def flush(self, force: bool = False):
+        if not self._records:
+            self._deadline = time.monotonic() + self._flush_seconds
+            return
+
+        if (not force and len(self._records) < self._flush_rows
+                and time.monotonic() < self._deadline):
+            return
+
+        # 넣기 전에 그릇을 비운다 — 적재가 실패해 예외가 나도 같은 행을 다음 묶음에서 또 넣지 않는다.
+        batch = self._records
+        self._records = []
+        self._deadline = time.monotonic() + self._flush_seconds
+        self.stored += self._insert_batch(batch)
+        logger.info(f"REC {self.label} {len(batch)}건 적재 (누적 담음 {self.queued} 넣음 {self.stored})")
+
+        if self._on_stored is not None:
+            self._on_stored(batch)
+
+
 def cmd_record(args):
     from db.client import DbClient
     db = DbClient()
@@ -285,60 +335,63 @@ def cmd_record(args):
 
         return False
 
-    def _rec_fill(d):
-        if not is_our_account(d):
-            return
+    def store_positions(batch: list[dict]):
+        # 종목·계좌마다 마지막 것 하나만 올린다. positions 는 누적이 아니라 그때의 잔고를 통째로 덮어쓰는
+        #  표라(upsert_position) 묶음 안의 중간 상태를 다 올릴 필요가 없다 — 같은 종목이 한 묶음에 여러 번
+        #  들어와도 DB 왕복은 한 번이다. 파이썬 dict 는 넣은 순서를 지키므로 마지막 대입이 마지막 체결이다.
+        latest: dict[tuple[str, str], dict] = {}
 
-        db.insert_fill(d)
-        db.upsert_position(d["ticker"], d["net_qty"], d["avg_price"],
-                           d.get("realized_pnl", 0.0),
-                           account=d.get("account", "unknown"))
-        sg = '+' if d.get("realized_pnl", 0) >= 0 else ''
-        logger.info(f"REC FILL   {d.get('ticker')} {d.get('side')} "
-                    f"{d.get('filled_qty')}주 @{d.get('filled_price'):,.0f}  "
-                    f"avg={d.get('avg_price'):,.0f}  "
-                    f"pnl={sg}{d.get('realized_pnl', 0):,.0f}")
+        for record in batch:
+            latest[(str(record.get("account", "unknown")), record["ticker"])] = record
+
+        for (account, ticker), record in latest.items():
+            db.upsert_position(ticker, record["net_qty"], record["avg_price"],
+                               record.get("realized_pnl", 0.0), account=account)
 
     # 체결 틱은 리플레이 입력이 아니라(그건 엔진의 .bin 캡처가 맡는다) 그라파나 "피드 지연"·"초당 틱 유입"
-    #  패널의 재료다. 틱마다 insert+commit 하면 커밋이 초당 수십 번이고 로그도 그만큼 불어나므로, 모아서
-    #  executemany 로 한 번에 넣고 로그는 flush 단위로만 남긴다. flush 조건은 건수·시간 둘 다 — 조용한 구간에도
-    #  버퍼가 몇 분씩 묶여 있으면 피드 지연 패널이 실제보다 늦게 보인다.
-    tick_buffer: list[dict] = []
-    tick_flush_deadline = [time.monotonic() + TICK_FLUSH_SECONDS]
-    tick_total = [0]
+    #  패널의 재료다. 신호·주문·체결도 같은 이유로 모아서 넣는다 — 건마다 넣으면 커밋이 건마다고 로그도
+    #  건마다라, 넣는 쪽이 엔진이 내보내는 속도를 못 따라가면 ZMQ 가 조용히 버린다. flush 조건은 건수·시간
+    #  둘 다이고, 조용한 구간은 아래 on_idle 이 비운다.
+    tick_buffer = RecordBuffer("TRADE ", db.insert_trade_batch, TICK_FLUSH_ROWS, TICK_FLUSH_SECONDS)
+    signal_buffer = RecordBuffer("SIGNAL", db.insert_signal_batch, LEDGER_FLUSH_ROWS, LEDGER_FLUSH_SECONDS)
+    order_buffer = RecordBuffer("ORDER ", db.insert_order_batch, LEDGER_FLUSH_ROWS, LEDGER_FLUSH_SECONDS)
+    fill_buffer = RecordBuffer("FILL  ", db.insert_fill_batch, LEDGER_FLUSH_ROWS, LEDGER_FLUSH_SECONDS,
+                               on_stored=store_positions)
+    buffers = (tick_buffer, signal_buffer, order_buffer, fill_buffer)
 
-    def flush_ticks(force: bool = False):
-        if not tick_buffer:
-            tick_flush_deadline[0] = time.monotonic() + TICK_FLUSH_SECONDS
-            return
-
-        if not force and len(tick_buffer) < TICK_FLUSH_ROWS and time.monotonic() < tick_flush_deadline[0]:
-            return
-
-        db.insert_trade_batch(tick_buffer)
-        tick_total[0] += len(tick_buffer)
-        logger.info(f"REC TRADE  {len(tick_buffer)}건 적재 (누적 {tick_total[0]})")
-        tick_buffer.clear()
-        tick_flush_deadline[0] = time.monotonic() + TICK_FLUSH_SECONDS
+    def flush_all(force: bool = False):
+        for buffer in buffers:
+            buffer.flush(force)
 
     def _rec_health(data: dict):
-        flush_ticks(force=True)       # 30초 주기 HEALTH 가 조용한 구간의 flush 시계 노릇을 한다
+        flush_all(force=True)         # 30초 주기 HEALTH 가 조용한 구간의 flush 시계 노릇을 한다
         db.insert_health(data)
-        logger.info(f"REC HEALTH data={data.get('data')} sig={data.get('signal')} ord={data.get('order')}")
+        # 어디서 새는지 가르는 계기. 왼쪽부터 ① 엔진이 발행했다고 말하는 누적 건수(역할마다 채우는 칸이
+        #  다르다) ② 이 프로세스가 실제로 받은 건수 ③ 표에 넣은 건수다. ①과 ② 사이가 벌어지면 ZMQ 가
+        #  버린 것이고(PUB 소켓은 대기칸이 차면 알리지 않고 버린다), ②와 ③ 사이가 벌어지면 여기서 버린
+        #  것이다(계좌 필터·필드 오류·적재 실패). 세 자리를 안 가르면 무엇을 고쳐야 할지 알 수 없다.
+        #  [why D-137]
+        received = " ".join(f"{topic}={count}" for topic, count in sorted(monitor.received.items()))
+        stored = " ".join(f"{buffer.label.strip()}={buffer.stored}/{buffer.queued}" for buffer in buffers)
+        logger.info(f"REC HEALTH role={data.get('role')} 발행 data={data.get('data')} "
+                    f"sig={data.get('signal')} ord={data.get('order')} | 받음 {received} | 넣음 {stored}")
 
     # 틱에도 계좌가 실린다(ZmqBridge::format_trade). ticks 표에는 계좌 열이 없어 주문·체결처럼 뒤에서 가려낼 수
     #  없으므로 들어오기 전에 버린다 — 09-22 장중 부하 하네스의 합성 틱이 09:42~09:57 사이 운영 표에 섞였다.
     if args.record_ticks:
-        monitor.on_trade = lambda d: is_our_account(d) and (tick_buffer.append(d), flush_ticks())
-    monitor.on_signal = lambda d: is_our_account(d) and (db.insert_signal(d), logger.info(f"REC SIGNAL {d.get('ticker')} {d.get('side')}"))
-    monitor.on_order  = lambda d: is_our_account(d) and (db.insert_order(d),  logger.info(f"REC ORDER  {d.get('ticker')} {'OK' if d.get('ok') else 'FAIL'}"))
+        monitor.on_trade = lambda d: is_our_account(d) and tick_buffer.append(d)
+    monitor.on_signal = lambda d: is_our_account(d) and signal_buffer.append(d)
+    monitor.on_order  = lambda d: is_our_account(d) and order_buffer.append(d)
     monitor.on_health = _rec_health
-    monitor.on_fill   = _rec_fill
+    monitor.on_fill   = lambda d: is_our_account(d) and fill_buffer.append(d)
+    # 받을 것이 없는 1초마다 비운다 — 이게 없으면 장 끝 무렵의 마지막 몇 건이 다음 HEALTH(30초)까지 잠긴다.
+    monitor.on_idle = flush_all
 
     logger.info(f"ZMQ({args.host}:{args.port}) → TimescaleDB 적재 시작 (Ctrl+C로 종료)")
     try:
         monitor.run()
     finally:
+        flush_all(force=True)     # Ctrl+C 로 끊어도 모아 둔 행은 표에 넣고 나간다
         db.close()
 
 

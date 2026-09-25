@@ -23,6 +23,12 @@ def _ms_to_dt(ts_ms: int) -> datetime:
     return datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc)
 
 
+# execute_values 가 INSERT 문 하나에 붙일 행 수. 묶음이 이보다 크면 이 크기로 잘라 여러 문장으로 보낸다.
+#  크게 잡을수록 왕복이 줄지만 문장 하나가 길어져 서버 쪽 파싱·메모리가 늘고, 실패했을 때 되돌릴 덩어리도
+#  커진다. 500은 psycopg2 기본(100)보다 크고 한 문장이 수십 KB를 넘지 않는 선이다. [why D-137]
+_BATCH_PAGE_SIZE = 500
+
+
 class WriteMeter:
     """표별 DB 쓰기 시간을 모은다 — 적재기가 체감한 시간(왕복·대기 포함)이라 서버 쪽 통계(pg_stat_statements)와
     다르다. 어느 쪽이 느린지는 둘을 나란히 놓아야 보인다. HEALTH 주기(30초)마다 비운다."""
@@ -356,33 +362,127 @@ class DbClient:
         except Exception as error:
             logger.error(f"db_write_stats 적재 실패 ({len(drained)}표): {error}")
 
-    def insert_trade_batch(self, records: list[dict]):
-        """고빈도 tick 배치 insert — executemany로 개별 autocommit 부하 감소."""
-        valid = []
-        for data in records:
-            try:
-                _require(data, "ts", "ticker", "price")
-                valid.append((
-                    _ms_to_dt(data["ts"]),
-                    data["ticker"],
-                    data["price"],
-                    data.get("volume"),
-                    data.get("direction"),
-                    data.get("market", "KR"),
-                ))
-            except Exception as e:
-                logger.error(f"insert_trade_batch 필드 오류 (data={data}): {e}")
-        if not valid:
-            return
+    # 묶음 적재의 공통 부분. 하는 일은 셋이다 — ① INSERT 문 하나에 여러 행을 붙여 보내고(execute_values)
+    #  ② 커밋을 묶음마다 한 번으로 줄이고(autocommit 이 켜져 있어 문장 하나가 곧 커밋 하나다)
+    #  ③ 실패해도 적재기를 세우지 않는다. 건마다 execute 하던 길은 커밋도 건마다라, 2026-09-25 부하시험에서
+    #  주문·신호가 초당 300행 언저리에 붙어 있었다(docs/reports/stresstest/OVERVIEW.md 5.6). 틱은 이미
+    #  묶어 넣고 있었는데 psycopg2 의 executemany 는 안에서 한 건씩 도는 구현이라 묶음의 값어치가 적다 —
+    #  execute_values 는 값 목록을 한 문장으로 만들어 보낸다.
+    #  표 이름·열 이름은 이 파일 안의 글자 상수뿐이다(바깥 입력이 닿지 않는다). [why D-137]
+    def _insert_batch(self, table: str, columns: str, rows: list[tuple]) -> int:
+        if not rows:
+            return 0
+
         try:
-            with self._timed_write("ticks", len(valid)), self._cursor() as cursor:
-                cursor.executemany(
-                    "INSERT INTO ticks(ts,ticker,price,volume,direction,market)"
-                    " VALUES (%s,%s,%s,%s,%s,%s)",
-                    valid,
+            with self._timed_write(table, len(rows)), self._cursor() as cursor:
+                execute_values(
+                    cursor,
+                    f"INSERT INTO {table}({columns}) VALUES %s",
+                    rows,
+                    page_size=_BATCH_PAGE_SIZE,
                 )
-        except Exception as e:
-            logger.error(f"insert_trade_batch 실패 ({len(valid)}건): {e}")
+
+            return len(rows)
+        except Exception as error:
+            logger.error(f"{table} 묶음 적재 실패 ({len(rows)}건): {error}")
+            return 0
+
+    def insert_trade_batch(self, records: list[dict]) -> int:
+        """고빈도 tick 묶음 적재. 넣은 건수를 돌려준다(부른 쪽이 새는 양을 세는 데 쓴다)."""
+        rows = []
+
+        for record in records:
+            try:
+                _require(record, "ts", "ticker", "price")
+                rows.append((
+                    _ms_to_dt(record["ts"]),
+                    record["ticker"],
+                    record["price"],
+                    record.get("volume"),
+                    record.get("direction"),
+                    record.get("market", "KR"),
+                ))
+            except Exception as error:
+                logger.error(f"insert_trade_batch 필드 오류 (record={record}): {error}")
+
+        return self._insert_batch("ticks", "ts,ticker,price,volume,direction,market", rows)
+
+    def insert_signal_batch(self, records: list[dict]) -> int:
+        """신호 묶음 적재. 건별 insert_signal 과 넣는 열이 같다."""
+        rows = []
+
+        for record in records:
+            try:
+                _require(record, "ts", "strategy", "ticker", "side", "qty")
+                rows.append((
+                    _ms_to_dt(record["ts"]),
+                    record["strategy"],
+                    record["ticker"],
+                    record["side"],
+                    record["qty"],
+                    record.get("price"),
+                    record.get("market", "KR"),
+                    record.get("regime"),
+                    record.get("account"),
+                ))
+            except Exception as error:
+                logger.error(f"insert_signal_batch 필드 오류 (record={record}): {error}")
+
+        return self._insert_batch("signals", "ts,strategy,ticker,side,qty,price,market,regime,account", rows)
+
+    def insert_order_batch(self, records: list[dict]) -> int:
+        """주문 묶음 적재. 건별 insert_order 와 넣는 열이 같다."""
+        rows = []
+
+        for record in records:
+            try:
+                _require(record, "ts", "ticker", "side", "qty", "ok")
+                rows.append((
+                    _ms_to_dt(record["ts"]),
+                    record["ticker"],
+                    record["side"],
+                    record["qty"],
+                    record.get("price"),
+                    record["ok"],
+                    record.get("market", "KR"),
+                    record.get("account"),
+                ))
+            except Exception as error:
+                logger.error(f"insert_order_batch 필드 오류 (record={record}): {error}")
+
+        return self._insert_batch("orders", "ts,ticker,side,qty,price,ok,market,account", rows)
+
+    def insert_fill_batch(self, records: list[dict]) -> int:
+        """체결 묶음 적재. 건별 insert_fill 과 넣는 열이 같다.
+        포지션 원장(positions)은 여기서 건드리지 않는다 — 부른 쪽이 종목마다 마지막 상태 하나만 올린다."""
+        rows = []
+
+        for record in records:
+            try:
+                _require(record, "ts", "odno", "ticker", "side", "filled_qty", "filled_price")
+                stamp = record["ts"] if isinstance(record["ts"], datetime) else _ms_to_dt(record["ts"])
+                rows.append((
+                    stamp,
+                    record["odno"],
+                    record["ticker"],
+                    record["side"],
+                    record["filled_qty"],
+                    record["filled_price"],
+                    record.get("commission"),
+                    record.get("tax"),
+                    record.get("market", "KR"),
+                    record.get("regime"),
+                    record.get("strategy"),
+                    record.get("account"),
+                ))
+            except Exception as error:
+                logger.error(f"insert_fill_batch 필드 오류 (record={record}): {error}")
+
+        return self._insert_batch(
+            "fills",
+            "ts,odno,ticker,side,filled_qty,filled_price,commission,tax,market,regime,strategy,account",
+            rows,
+        )
 
     def insert_fill(self, data: dict):
         """체결통보(H0STCNI0) 1건을 fills 원장에 기록."""

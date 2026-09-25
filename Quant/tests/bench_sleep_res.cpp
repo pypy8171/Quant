@@ -6,8 +6,11 @@
 #include <condition_variable>
 #include <cstdio>
 #include <mutex>
+#include <stop_token>
 #include <thread>
 #include <vector>
+
+#include "core/WakeGate.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -71,6 +74,18 @@ void run_table(const char* title, int iters)
     {
         std::unique_lock<std::mutex> lock(mutex);
         condition_variable.wait_for(lock, milliseconds(1));
+    }));
+    // 격자를 안 타는 길(Windows 고해상도 대기 타이머 / POSIX nanosleep). 시세 줄 스레드의 유휴 잠이
+    //  이것을 쓴다 — 위 두 줄과 같은 500us 를 부탁해 얼마나 자는지 나란히 본다. [why D-137]
+    std::stop_source stop_source;
+    print_row("precise(500us)", 500.0, measure(iters, [&]
+    {
+        wake::sleep_precise_unless_stopped(stop_source.get_token(), microseconds(500));
+    }));
+    print_row("cv.wait_for(500us)", 500.0, measure(iters, [&]
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        condition_variable.wait_for(lock, microseconds(500));
     }));
     print_row("yield()", 0.0, measure(iters, [] { std::this_thread::yield(); }));
 }

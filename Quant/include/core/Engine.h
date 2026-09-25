@@ -335,6 +335,7 @@ public:
         uint64_t order_response_dropped = 0; // 전략이 답을 안 가져가 버린 수
         int64_t  strategy_beat_gap_max_ns = 0; // 전략 박동의 가장 긴 공백. 사망 문턱의 근거
         int64_t  order_beat_gap_max_ns    = 0; // 주문 박동의 가장 긴 공백. 증권사 왕복이 그대로 들어온다
+        int64_t  feed_beat_gap_max_ns     = 0; // 시세 박동의 가장 긴 공백. 제어 바퀴 5초가 그대로 들어온다
         uint64_t order_answer_overdue     = 0; // 시한을 넘겨도 답이 안 온 요청을 본 횟수. 0이 아니면 답이 샌다
     };
 
@@ -626,6 +627,11 @@ private:
     void track_strategy_liveness(ipc::HeartbeatMonitor::Step step, bool just_died,
                                  std::chrono::steady_clock::time_point now);
 
+    // 시세 생사에 따라 신규 진입을 끊고 푼다. 전략 쪽과 달리 보호 주문은 걸지 않는다 — 현재가가 멎어
+    //  청산선 판단의 근거가 없기 때문이다. 하는 일은 진입을 끊고 남기는 것 둘뿐이다.
+    //  [inv] order_thread에서만 부른다. [why D-137]
+    void track_feed_liveness(ipc::HeartbeatMonitor::Step step, bool just_died);
+
     // ── 전략 레지스트리·국면·유니버스 보조 ─────────────────────────────────
     //  계좌 인자는 장부 사본을 읽게 된 뒤로 쓰지 않는다 — 한 판은 한 계좌만 담는다. 전략에 주는 함수 모양이라
     //  자리는 남겨 둔다(전략마다 고치지 않게). [why D-114]
@@ -870,6 +876,10 @@ private:
         std::atomic<int64_t> order_beat_gap_max_ns{0};
         // 시한을 넘겨도 답이 안 온 요청을 본 횟수. 세고 찍기만 한다 — 다시 보내지 않는다. [why D-114]
         std::atomic<uint64_t> order_answer_overdue{0};
+        // 주문 스레드가 본 가장 긴 시세 박동 공백(나노초). 시세 쪽은 hot loop 가 아니라 제어 바퀴
+        //  5초마다 찍으므로 공백에 그 간격이 그대로 들어온다 — 문턱을 실측으로 좁히려고 밖으로 낸다.
+        //  [why D-137]
+        std::atomic<int64_t> feed_beat_gap_max_ns{0};
         // 소비자 깨우기 — 생산자가 push 뒤 notify, 소비자는 큐가 비면 잔다. 1ms 폴링은 Windows 타이머 격자 때문에
         //  실측 p50 15.6ms였다(bench_sleep_res). [why D-071]
         wake::WakeGate fill_wake;  // fill_thread ← WS 수신 스레드
@@ -997,6 +1007,8 @@ private:
     std::atomic<std::chrono::steady_clock::rep> protective_next_ticks_{0};
     // 전략이 죽어 주문 쪽이 마무리에 들어간 국면. 주문 스레드만 쓰고 HEALTH·판정 행이 읽는다. [why D-114]
     std::atomic<bool> strategy_wound_down_{false};
+    // 시세가 죽어 신규 진입을 끊은 국면. 주문 스레드만 쓰고 HEALTH·판정 행이 읽는다. [why D-137]
+    std::atomic<bool> feed_wound_down_{false};
     ZmqPorts    zmq_ports_;
 
     // ── 심볼·현재가 캐시 ──────────────────────────────────────────────────────

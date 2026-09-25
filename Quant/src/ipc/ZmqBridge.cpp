@@ -22,9 +22,15 @@ namespace
 constexpr size_t kCriticalQueueCap = 100000; // FILL/ORDER/SIGNAL 하드캡
 constexpr size_t kNormalQueueCap   = 1000;   // HEALTH 하드캡
 // TRADE 링 용량. 한 바퀴에 링을 통째로 비우므로 상한은 (용량 × 한 바퀴 수)건이다. 주문 다리는 REP를
-//  10 ms 폴링하니 초당 100바퀴, 발행 전용 다리는 생산자가 깨우니 그보다 훨씬 자주 돈다. 1,000칸이면
-//  주문 다리에서 10만 건/s로 장 초반 전 시장 피드가 넘친다. 봉투 하나 ~100 B라 8,192칸은 1 MB가 안 된다.
-constexpr size_t kTradeQueueCap    = 8192;
+//  10 ms 폴링하니 초당 100바퀴, 발행 전용 다리는 생산자가 깨우니 그보다 훨씬 자주 돈다.
+//  8,192칸에서 초당 67.9만 건을 걸었더니 들어온 5,450만 건의 43%(2,327만 건)를 여기서 버렸다
+//  (2026-09-25 회차 M, docs/reports/stresstest/OVERVIEW.md 5.5). 버려진 것의 원인은 100% 이 한 군데였다 —
+//  소켓이 안 받은 것도, 보내다 난 예외도 0이다. 한 바퀴가 (폴링 10 ms + 비우는 시간)이라 그 사이 들어온
+//  1만 건 남짓이 8,192칸을 넘겼다. 8배로 올린다. 봉투 하나 ~100 B라 65,536칸도 7 MB가 안 된다.
+//  실제 장 최대 유량(초당 73,315건)에서는 한 바퀴에 733건이라 어느 쪽이든 안 차지만, 전 시장 2,500종목이
+//  목표라 먼저 닿는 천장이 여기다. 근본 해결은 폴링 10 ms 를 깨우기로 바꾸는 것이고 그건 따로 한다.
+//  [why D-137]
+constexpr size_t kTradeQueueCap    = 65536;
 constexpr auto   kReplyPollTimeout = 10ms;   // REP 명령 수신 폴링 1회 대기 시간
 
 // 정수·실수를 JSON 숫자 표기로 붙인다. 실수는 nlohmann과 같은 최단 왕복 표기 + 정수처럼 보이면 ".0"을 붙여
@@ -100,6 +106,16 @@ void ZmqBridge::thread_fn()
     //  시세·전략 프로세스는 발행만 하고, KILL·STATUS 는 주문 쪽 하나만 받는다. [why D-129]
     const bool    serves_commands = rep_port_ > 0;
     zmq::socket_t rep             = serves_commands ? zmq::socket_t{context, zmq::socket_type::rep} : zmq::socket_t{};
+
+    // 받는 쪽(적재기·대시보드)이 밀릴 때 소켓이 들고 있을 건수. ZMQ 기본은 1,000건이고, PUB 소켓은
+    //  이 칸이 차면 조용히 버린다 — 보낸 쪽에 실패를 알리지도, 버린 수를 세어 주지도 않는다.
+    //  2026-09-25 부하시험에서 엔진이 초당 2만 행을 내보내는 동안 파이썬 적재기는 초당 300행을 넣고
+    //  있었으니 1,000칸은 0.05초치였다(docs/reports/stresstest/OVERVIEW.md 5.6). 받는 쪽도 같은 크기로
+    //  넓혔고(PYQuant/ipc/subscriber.py), 넣는 속도 자체는 묶음 적재로 따로 올렸다.
+    //  한 건 ~200 B라 20만 칸은 40 MB 안쪽이고, 실제로 그만큼 쌓이는 것은 받는 쪽이 밀릴 때뿐이다.
+    //  [inv] HWM 은 bind 보다 먼저 걸어야 그 연결에 적용된다. [why D-137]
+    constexpr int kPublishHighWaterMark = 200'000;
+    publish_socket.set(zmq::sockopt::sndhwm, kPublishHighWaterMark);
 
     try
     {

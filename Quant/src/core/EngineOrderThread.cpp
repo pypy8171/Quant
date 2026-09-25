@@ -115,6 +115,29 @@ void Engine::run_protective_orders(SignalDispatcher& dispatcher, std::chrono::st
     }
 }
 
+// 시세가 죽으면 새 진입만 끊는다. 전략 쪽 마무리와 달리 보호 주문은 걸지 않는다 — 현재가가 멎어
+//  청산선을 판단할 근거가 없고, 낡은 값으로 시장가를 내면 그쪽이 더 나쁘다. 보유분은 그대로 둔다.
+//  [inv] order_thread 전용. [why D-137]
+void Engine::track_feed_liveness(ipc::HeartbeatMonitor::Step step, bool just_died)
+{
+    // 박동이 돌아왔다 — 감시견이 시세를 다시 띄웠거나 멈췄던 바퀴가 돌기 시작했다.
+    //  정지를 안 풀면 그날 내내 못 산다.
+    if (step == ipc::HeartbeatMonitor::Step::kHealthy &&
+        feed_wound_down_.exchange(false, std::memory_order_relaxed))
+    {
+        order_gate_.set_feed_down_halt(false);
+        LOG_WARN("[마무리] 시세 박동이 돌아왔다 — 신규 진입 정지를 푼다");
+    }
+
+    if (just_died)
+    {
+        order_gate_.set_feed_down_halt(true);
+        feed_wound_down_.store(true, std::memory_order_relaxed);
+        LOG_ERROR("[마무리] 시세 박동이 끊겼다 — 신규 진입 정지. 현재가가 멎어 진입 판단의 근거가 낡았고, "
+                  "체결통보도 같은 소켓에 실려 예약 수량이 안 풀린다. 청산·취소는 그대로 나간다");
+    }
+}
+
 // 마무리 순서: ① 새 진입을 끊고 ② 감시견에 알리고 ③ 보유분은 보호 주문 표가 지킨다.
 //  저널은 여기서 따로 안 민다 — 표를 들고 있는 쪽(주문·원장)이 살아 있고 append마다 이미 fflush한다.
 //  [inv] order_thread 전용. 여기서 부르는 OrderRouter::submit이 단일 스레드를 전제한다. [why D-114]
@@ -195,6 +218,17 @@ void Engine::order_thread_fn(std::stop_token stop_token)
     ipc::DuplicateFilter duplicate_filter(ShardPipeline::kOrderQueueCapacity);
     ipc::HeartbeatMonitor strategy_monitor;
 
+    // 시세 쪽 생사를 보는 눈. 문턱이 전략 쪽(250ms·1s)보다 훨씬 헐거운 것은 시세 박동이 hot loop 가 아니라
+    //  제어 스레드의 5초 바퀴에서 찍히기 때문이다. 그 바퀴에는 구독 걸기·칸 재배정이 같이 들어 있어
+    //  2,700종목을 올리는 기동 중에는 시세 쪽이 번호를 다 받기까지 27초가 걸린다(2026-09-25 부하시험
+    //  실측). 사망 문턱을 그보다 낮게 잡으면 멀쩡한 기동을 죽었다고 읽으므로 그 위에서 시작하고,
+    //  feed_beat_gap_max_ns 에 쌓이는 실측으로 뒤에 좁힌다. [why D-137]
+    constexpr int64_t     kFeedBeatPeriodMs  = 5'000;
+    constexpr int64_t     kFeedBeatSuspectMs = 30'000;
+    constexpr int64_t     kFeedBeatDeadMs    = 90'000;
+    ipc::HeartbeatMonitor feed_monitor(
+        ipc::HeartbeatConfig{kFeedBeatPeriodMs, kFeedBeatSuspectMs, kFeedBeatDeadMs});
+
     // 꺼낸 값이 표 밖을 짚지 않는지 보는 기준. 지금 든 수가 아니라 표가 받을 수 있는 칸 수를 쓴다 —
     //  종목 표는 장중에도 늘어나서(처음 보는 종목) 지금 든 수로 재면 방금 올라온 종목이 걸린다. [why D-114]
     const ipc::RequestLimits request_limits{static_cast<uint32_t>(ledger.symbols().capacity()),
@@ -271,6 +305,13 @@ void Engine::order_thread_fn(std::stop_token stop_token)
         const auto step = strategy_monitor.observe(trace::now_ns(), pipeline_.strategy_heartbeat->last_ns());
         pipeline_.strategy_beat_gap_max_ns.store(strategy_monitor.max_gap_ns(), std::memory_order_relaxed);
         track_strategy_liveness(step, strategy_monitor.take_dead_once(), steady_clock::now());
+
+        // 시세가 살아 있는가 — 같은 자리에서 본다. 전략 쪽과 달리 아직 한 번도 안 뛴 칸(0)은 정상으로
+        //  읽히므로(HeartbeatMonitor::observe), 시세 프로세스가 아직 안 뜬 기동 초반을 사망으로 보지 않는다.
+        //  [why D-137]
+        const auto feed_step = feed_monitor.observe(trace::now_ns(), pipeline_.feed_heartbeat->last_ns());
+        pipeline_.feed_beat_gap_max_ns.store(feed_monitor.max_gap_ns(), std::memory_order_relaxed);
+        track_feed_liveness(feed_step, feed_monitor.take_dead_once());
 
         // 교체 보류 시한이 지난 매수는 버리고 그 순번에 답을 돌려준다 — 답이 없으면 전략 쪽 PendingRequests가 샌다.
         displace_desk.expire(steady_clock::now(), displace_expired);

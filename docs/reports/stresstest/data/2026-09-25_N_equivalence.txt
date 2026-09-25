@@ -1,0 +1,65 @@
+order equivalence
+  baseline : latency_trace_Jprime.csv (64580 orders)
+  compared : latency_trace_N.csv (79620 orders)
+
+check                                  baseline     compared
+------------------------------------------------------------
+orders written                            64580        79620
+distinct order shapes                      7190         7119
+matched (both sides)                      61374        61374
+unmatched                                  3206        18246
+
+gaps in order sequence                     2095         5022
+symbols that emitted orders                2700         2700
+symbols whose stream diverges              2699             
+
+per-symbol order streams that diverge (position: baseline vs compared):
+  000100   #4      FIXED_INTERVAL_000100 SELL NEW 0   vs   FIXED_INTERVAL_000100 BUY NEW 1
+  000150   #2      FIXED_INTERVAL_000150 SELL NEW 0   vs   FIXED_INTERVAL_000150 BUY NEW 1
+  000250   #1      FIXED_INTERVAL_000250 BUY NEW 1   vs   FIXED_INTERVAL_000250 SELL NEW 1
+  000270   #2      FIXED_INTERVAL_000270 SELL NEW 0   vs   FIXED_INTERVAL_000270 BUY NEW 1
+  000500   #2      FIXED_INTERVAL_000500 SELL NEW 0   vs   FIXED_INTERVAL_000500 BUY NEW 1
+  000660   #4      FIXED_INTERVAL_000660 SELL NEW 0   vs   FIXED_INTERVAL_000660 BUY NEW 1
+  000720   #5      FIXED_INTERVAL_000720 SELL NEW 1   vs   FIXED_INTERVAL_000720 BUY NEW 1
+  000810   #5      FIXED_INTERVAL_000810 BUY NEW 1   vs   FIXED_INTERVAL_000810 SELL NEW 1
+  000880   #2      FIXED_INTERVAL_000880 BUY NEW 1   vs   FIXED_INTERVAL_000880 SELL NEW 0
+  000990   #3      FIXED_INTERVAL_000990 SELL NEW 1   vs   FIXED_INTERVAL_000990 BUY NEW 1
+  001440   #3      FIXED_INTERVAL_001440 BUY NEW 1   vs   FIXED_INTERVAL_001440 SELL NEW 1
+  001820   #5      FIXED_INTERVAL_001820 BUY NEW 1   vs   FIXED_INTERVAL_001820 SELL NEW 1
+  ... 2687 more symbols
+
+orders only in the baseline run:
+  x13     900712 FIXED_INTERVAL_900712 SELL NEW 0
+  x12     902567 FIXED_INTERVAL_902567 SELL NEW 0
+  x12     900456 FIXED_INTERVAL_900456 SELL NEW 0
+  x12     902017 FIXED_INTERVAL_902017 SELL NEW 0
+  x12     901084 FIXED_INTERVAL_901084 SELL NEW 0
+  x12     902456 FIXED_INTERVAL_902456 SELL NEW 0
+  x11     902608 FIXED_INTERVAL_902608 SELL NEW 0
+  x11     900861 FIXED_INTERVAL_900861 SELL NEW 0
+  x11     902056 FIXED_INTERVAL_902056 SELL NEW 0
+  x11     902649 FIXED_INTERVAL_902649 SELL NEW 0
+  x10     902556 FIXED_INTERVAL_902556 SELL NEW 0
+  x10     237690 FIXED_INTERVAL_237690 SELL NEW 0
+  ... 1379 more shapes
+
+orders only in the compared run:
+  x15     902652 FIXED_INTERVAL_902652 SELL NEW 1
+  x15     902456 FIXED_INTERVAL_902456 SELL NEW 1
+  x14     902056 FIXED_INTERVAL_902056 SELL NEW 1
+  x14     902608 FIXED_INTERVAL_902608 SELL NEW 1
+  x13     902567 FIXED_INTERVAL_902567 SELL NEW 1
+  x13     902536 FIXED_INTERVAL_902536 SELL NEW 1
+  x13     900712 FIXED_INTERVAL_900712 SELL NEW 1
+  x13     902556 FIXED_INTERVAL_902556 SELL NEW 1
+  x12     160190 FIXED_INTERVAL_160190 SELL NEW 1
+  x12     901084 FIXED_INTERVAL_901084 SELL NEW 1
+  x12     900456 FIXED_INTERVAL_900456 SELL NEW 1
+  x12     901003 FIXED_INTERVAL_901003 SELL NEW 1
+  ... 5717 more shapes
+
+verdict
+  per-symbol order stream: FAIL - 2699 symbols
+  sequence gaps          : PRESENT - orders went missing
+  same orders (multiset) : differs (round length - not a defect by itself)
+  same emission order    : differs (shard interleaving - not a defect)

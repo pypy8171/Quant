@@ -109,4 +109,13 @@ bool sleep_unless_stopped(std::stop_token stop_token, std::chrono::duration<Repr
     return !condition_variable.wait_for(lock, stop_token, duration, [&] { return stop_token.stop_requested(); });
 }
 
+// 밀리초 밑의 짧은 잠. 위 sleep_unless_stopped 는 condition_variable 을 타고, 그 밑은 OS 타이머
+//  격자라 500us 를 부탁해도 실제로는 2ms 를 잔다(timeBeginPeriod(1)을 건 뒤에도 그렇다 — bench_sleep_res).
+//  2026-09-25 부하시험에서 갈라 띄운 판의 "시세 수신 → 전략" 이 조용할 때 52us 에서 1,086us 로 늘어난 것이
+//  이 격자다(docs/reports/stresstest/OVERVIEW.md 5.4). 여기서는 격자를 안 타는 길로 잔다 —
+//  Windows 는 고해상도 대기 타이머, 그 밖은 nanosleep.
+//  정지 요청은 깨우지 않는다. 자는 길이가 1ms 안팎이라 만기 뒤에 보는 것으로 충분하고, 깨우려면 커널 객체를
+//  하나 더 들고 다녀야 한다. 다 자고 왔으면 true, 정지 요청이 와 있으면 false. [why D-137]
+bool sleep_precise_unless_stopped(std::stop_token stop_token, std::chrono::nanoseconds duration);
+
 } // namespace wake

@@ -1,0 +1,13 @@
+round,segment,label,inside_pop_to_done,count,p50_us,p90_us,p99_us,max_us
+Jprime,tick_to_signal_us,tick recv -> strategy decision,0,64580,53,419,1621,15479
+Jprime,signal_to_pop_us,strategy decision -> order thread pop,0,64580,360984,605422,739181,799175
+Jprime,gate_us,order gate check,1,64580,11,87,124,7836
+Jprime,history_guard_us,order history lock + duplicate guard,1,64580,66,209,376,7182
+Jprime,history_lock_wait_us,  of which: waiting for the lock,1,64580,26,166,278,6836
+Jprime,journal_us,ledger write-ahead (disk),1,64258,0,1,2,254
+Jprime,bucket_wait_us,broker rate limit queueing,1,64258,0,0,0,0
+Jprime,transport_us,order send -> broker response (round trip),1,64258,3,11,17,405
+Jprime,record_us,"after send: accept, publish, history, ledger csv",1,64580,283,588,1048,314603
+Jprime,open_orders_us,  of which: pending-order file rewrite,1,64580,0,0,1,33
+Jprime,pop_to_done_us,pop -> router return (holds the six above),0,64580,369,876,1410,314638
+Jprime,total_us,tick recv -> router return (whole chain),0,64580,361630,606113,739991,799670

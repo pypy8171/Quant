@@ -1115,9 +1115,10 @@ void OrderGate::publish_ledger(ipc::LedgerSnapshot& snapshot) const
         globals.displace_unscored_z      = config_.displace_unscored_z;
         globals.max_concurrent_positions = config_.max_concurrent_positions;
         globals.displace_enabled         = config_.displace_enabled ? 1 : 0;
-        // 세 원천을 OR한 결과만 싣는다. 어느 원천이 켰는지는 주문 쪽 일이다 — 한 원천의 자동 해제가
-        //  다른 원천을 지우면 안 되므로 원천 자체는 가르지 않는다. [why D-091]
-        globals.entry_halted             = (entry_halt_.load() || manual_buy_halt_.load() || strategy_down_halt_.load()) ? 1 : 0;
+        // 네 원천을 OR한 결과만 싣는다. 어느 원천이 켰는지는 주문 쪽 일이다 — 한 원천의 자동 해제가
+        //  다른 원천을 지우면 안 되므로 원천 자체는 가르지 않는다. [why D-091][why D-137]
+        globals.entry_halted             = (entry_halt_.load() || manual_buy_halt_.load() ||
+                                            strategy_down_halt_.load() || feed_down_halt_.load()) ? 1 : 0;
         globals.manual_sell_halted       = manual_sell_halt_.load() ? 1 : 0;
     };
 
@@ -1137,6 +1138,11 @@ void OrderGate::set_entry_halt(bool on)
 void OrderGate::set_strategy_down_halt(bool on)
 {
     strategy_down_halt_.store(on);
+}
+
+void OrderGate::set_feed_down_halt(bool on)
+{
+    feed_down_halt_.store(on);
 }
 
 void OrderGate::set_manual_halt(OrderSide side, bool on)

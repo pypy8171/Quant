@@ -57,7 +57,7 @@ graph LR
 |---|---|
 | `utils/Logger.h` | 54 |
 | `core/Types.h` | 48 |
-| `core/KstTime.h` | 28 |
+| `core/KstTime.h` | 29 |
 | `core/SymbolTable.h` | 22 |
 | `core/Engine.h` | 16 |
 | `strategy/StrategyBase.h` | 16 |
@@ -425,6 +425,7 @@ graph LR
   n_core_EngineOpsServer_cpp --> n_core_KstTime_h
   n_core_EngineOpsServer_cpp --> n_utils_Logger_h
   n_core_EngineOrderThread_cpp --> n_core_Engine_h
+  n_core_EngineOrderThread_cpp --> n_core_KstTime_h
   n_core_EngineOrderThread_cpp --> n_core_LatencyTrace_h
   n_core_EngineOrderThread_cpp --> n_risk_DisplacementDesk_h
   n_core_EngineOrderThread_cpp --> n_utils_Logger_h

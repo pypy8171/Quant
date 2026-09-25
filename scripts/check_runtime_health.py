@@ -141,7 +141,11 @@ BLOCKED_SELL_RE = re.compile(r"청산차단 미해소 (\d{6})")
 BEAT_DEAD_RE = re.compile(r"\[마무리\] 전략 박동이 끊겼다")
 BEAT_BACK_RE = re.compile(r"\[마무리\] 전략 박동이 돌아왔다")
 # [큐 고수위] 줄 꼬리 — 없으면 D-114 배포 전 바이너리라 이 세 행을 판정하지 않는다.
-BEAT_GAP_RE = re.compile(r"beat_gap_max=(\d+)ms")
+BEAT_GAP_RE = re.compile(r"(?<![a-z_])beat_gap_max=(\d+)ms")
+# 시세 사망 마무리(D-137) — 주문 스레드가 시세 박동 공백만 보고 낸 판정.
+FEED_DEAD_RE = re.compile(r"\[마무리\] 시세 박동이 끊겼다")
+FEED_BACK_RE = re.compile(r"\[마무리\] 시세 박동이 돌아왔다")
+FEED_BEAT_GAP_RE = re.compile(r"feed_beat_gap_max=(\d+)ms")
 ORDER_DUPLICATE_RE = re.compile(r"order_duplicate=(\d+)")
 ORDER_RESPONSE_DROP_RE = re.compile(r"order_response_dropped=(\d+)")
 # 요청 면(D-114 단계 4) — 값이 말이 안 돼 버린 요청 수, 판단 근거가 칸을 넘어 잘린 신호 수.
@@ -202,6 +206,12 @@ BASKET_BUY_LEG_DEADLINE = 15 * 3600 + 5 * 60  # 매수 레그는 15:05까지 끝
 # 전략 박동 문턱 — Quant/include/ipc/Heartbeat.h의 HeartbeatConfig 기본값과 같은 값이다(D-114 단계 2).
 BEAT_SUSPECT_MS = 250
 BEAT_DEAD_MS = 1000
+
+# 시세 박동 문턱 — 전략·주문 칸과 다르다. 이 칸을 찍는 자리가 5초마다 도는 제어 바퀴라(hot loop 가 아니다)
+#  그 간격 위에서 잡고, 2,700종목 기동이 종목 번호를 다 받기까지 걸린 27초 실측보다 넉넉히 위에 둔다.
+#  좁히는 근거는 HEALTH 줄의 feed_beat_gap_max 누적이다(D-137).
+FEED_BEAT_SUSPECT_MS = 30_000
+FEED_BEAT_DEAD_MS = 90_000
 
 def median(values: list[int]) -> int:
     if not values:
@@ -1392,6 +1402,9 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
     beat_dead = 0                                # 주문 스레드가 전략을 죽었다고 본 횟수
     beat_back = 0                                # 박동이 돌아와 진입 정지를 푼 횟수
     beat_gap_max = -1                            # 전략 박동의 가장 긴 공백(ms). -1이면 그 줄이 없는 구 exe
+    feed_dead = 0                                # 주문 스레드가 시세를 죽었다고 본 횟수(D-137)
+    feed_back = 0                                # 시세 박동이 돌아와 진입 정지를 푼 횟수
+    feed_beat_gap_max = -1                       # 시세 박동의 가장 긴 공백(ms). -1이면 그 칸이 없는 옛 exe
     order_duplicate = 0                          # 주문 쪽이 같은 순번을 두 번 받아 거른 수
     order_response_dropped = 0                   # 전략이 답을 안 가져가 버린 수
     order_implausible = -1                       # 값이 말이 안 돼 버린 요청 수. -1이면 그 칸이 없는 옛 바이너리
@@ -1472,6 +1485,12 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
                 beat_back += 1
             if found := BEAT_GAP_RE.search(line):
                 beat_gap_max = max(beat_gap_max, int(found.group(1)))
+            if FEED_DEAD_RE.search(line):
+                feed_dead += 1
+            if FEED_BACK_RE.search(line):
+                feed_back += 1
+            if found := FEED_BEAT_GAP_RE.search(line):
+                feed_beat_gap_max = max(feed_beat_gap_max, int(found.group(1)))
             if found := ORDER_DUPLICATE_RE.search(line):
                 order_duplicate = max(order_duplicate, int(found.group(1)))
             if found := ORDER_IMPLAUSIBLE_RE.search(line):
@@ -1746,6 +1765,13 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
             return (name, True, level, "통로 수치 줄 없음(D-114 단계 2 배포 전 바이너리) — 판정 안 함")
         return (name, ok, level, detail)
 
+    # 시세 박동(D-137) — 이 칸은 전략 박동 줄보다 늦게 붙었으므로 따로 건너뛴다.
+    def feed_beat_row(name: str, ok: bool, level: str, detail: str):
+        if feed_beat_gap_max < 0:
+            return (name, True, level, "시세 박동 칸 없음(D-137 배포 전 바이너리) — 판정 안 함")
+
+        return (name, ok, level, detail)
+
     # 장부 사본(D-114 단계 2.5) — 이 줄은 박동 줄보다 늦게 붙었으므로 따로 건너뛴다.
     def ledger_row(name: str, ok: bool, level: str, detail: str):
         if ledger_foreign < 0:
@@ -1824,6 +1850,16 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
         # 문턱 아래여도 의심 문턱을 넘은 날은 전략 스레드가 한 바퀴에 오래 붙들린 것이라 미리 본다.
         channel_row("전략 박동 여유", beat_gap_max <= BEAT_SUSPECT_MS, "WARN",
                     f"가장 긴 공백 {beat_gap_max}ms (의심 문턱 {BEAT_SUSPECT_MS}ms, 부하 하네스 실측 24ms)"),
+        # 시세가 죽으면 체결통보가 주문 쪽에 안 들어와 예약 수량이 안 풀린다(총노출 이중계상). 09-25 Kill_feed
+        #  회차에서 죽여도 90초간 로그가 한 줄도 안 났던 자리다 — 이제 판정이 여기서 난다. [why D-137]
+        feed_beat_row("시세 박동", feed_dead == 0, "FAIL",
+                    f"사망 판정 {feed_dead}회 · 복귀 {feed_back}회 · 가장 긴 공백 {feed_beat_gap_max}ms"
+                    f" (기대 0회, 사망 문턱 {FEED_BEAT_DEAD_MS}ms — 판정이 나면 그 사이 신규 진입이 막힌다)"),
+        # 문턱 아래여도 의심 문턱을 넘은 날은 시세 소켓이나 제어 바퀴가 오래 붙들린 것이라 미리 본다.
+        #  사망 문턱을 좁힐 근거도 이 값이다.
+        feed_beat_row("시세 박동 여유", feed_beat_gap_max <= FEED_BEAT_SUSPECT_MS, "WARN",
+                    f"가장 긴 공백 {feed_beat_gap_max}ms (의심 문턱 {FEED_BEAT_SUSPECT_MS}ms,"
+                    f" 찍는 간격은 제어 바퀴 5초)"),
         # 포트를 못 잡은 엔진은 매매는 하면서 적재만 안 한다 — 로그에 ERROR 한 줄뿐이라 놓치기 쉽다.
         ("ZMQ 포트", zmq_bind_fail == 0, "FAIL",
                     f"bind 실패 {zmq_bind_fail}회 (기대 0 — 실패하면 그 엔진의 체결·시그널이"

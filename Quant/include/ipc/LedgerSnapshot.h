@@ -52,7 +52,7 @@ struct LedgerGlobals
     double  displace_unscored_z      = 0.0; // 점수 없는 종목을 교체 후보로 볼 때 쓰는 z. 기동 시 고정
     int32_t open_slot_count          = 0;   // 열린 슬롯 수
     int32_t max_concurrent_positions = 0;   // 동시 보유 슬롯 한도. 기동 시 고정
-    uint8_t entry_halted             = 0;   // 진입 정지 — 세 원천의 OR 결과만 싣는다(원천 구분은 주문 쪽 일이다)
+    uint8_t entry_halted             = 0;   // 진입 정지 — 네 원천의 OR 결과만 싣는다(원천 구분은 주문 쪽 일이다)
     uint8_t manual_sell_halted       = 0;   // 전략 매도 정지
     uint8_t capacity_full            = 0;   // 신규 종목을 열 여력이 없다(자리 또는 예산)
     uint8_t displace_enabled         = 0;   // 교체 진입 사용. 기동 시 고정
