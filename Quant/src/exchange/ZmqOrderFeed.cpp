@@ -8,6 +8,7 @@
 #include <chrono>
 #include <ctime>
 #include <fstream>
+#include <thread>
 #include <utility>
 
 #ifdef HAS_ZMQ
@@ -23,6 +24,11 @@ constexpr int kReceiveHighWaterMark = 100000;
 
 // 소켓에 아무것도 없을 때 기다리는 시간. 이 주기로 전략 주문 큐도 같이 비운다.
 constexpr int kPollTimeoutMilliseconds = 2;
+
+// 갈라 띄운 판에서 전략 프로세스가 종목을 다 등록할 때까지 기다리는 한도와 되물어보는 주기. 등록은 전략
+//  적재와 함께 끝나므로 보통 수십 초다(300종목 약 60초, 09-25 실측). 한도를 넘기면 connect가 실패한다.
+constexpr std::chrono::seconds      kSharedSymbolWaitLimit{300};
+constexpr std::chrono::milliseconds kSharedSymbolPollInterval{200};
 
 // 한 번에 연달아 꺼내는 전문 통 수. 이걸 안 두면 소켓이 계속 차 있는 동안 전략 주문이 밀린다.
 constexpr int kMaxBatchesPerPoll = 256;
@@ -149,6 +155,74 @@ void ZmqOrderFeed::write_universe_file() const
              options_.universe_out_path);
 }
 
+bool ZmqOrderFeed::resolve_symbol_indices()
+{
+    // 한 프로세스판은 여기서 번호를 직접 찍는다.
+    if (!options_.await_shared_symbols)
+    {
+        for (const WatchSpec& specification : specifications_)
+        {
+            index_to_symbol_id_.push_back(symbols_.intern(specification.ticker));
+        }
+
+        return true;
+    }
+
+    // 갈라 띄우면 번호는 주문 프로세스가 찍고 전략 프로세스가 청한다 — 시세 프로세스는 찾기만 한다
+    //  (D-114 단계 5). 전략 적재가 끝나기 전에 순번을 굳히면 전부 kNone 이 되어 들어오는 주문을 통째로
+    //  버린다(09-25 실측: 354,600건 전량 버림). 그래서 표에 다 오를 때까지 기다린다. [why D-114 단계 5]
+    index_to_symbol_id_.assign(specifications_.size(), symbol::kNone);
+
+    const auto started  = std::chrono::steady_clock::now();
+    const auto deadline = started + kSharedSymbolWaitLimit;
+    bool       notified = false;
+
+    while (true)
+    {
+        size_t resolved = 0;
+
+        for (size_t index = 0; index < specifications_.size(); ++index)
+        {
+            if (index_to_symbol_id_[index] == symbol::kNone)
+            {
+                index_to_symbol_id_[index] = symbols_.lookup(specifications_[index].ticker);
+            }
+
+            if (index_to_symbol_id_[index] != symbol::kNone)
+            {
+                ++resolved;
+            }
+        }
+
+        if (resolved == specifications_.size())
+        {
+            if (notified)
+            {
+                const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - started).count();
+                LOG_INFO("[부하시험] 종목 번호 " + std::to_string(resolved) + "개를 " + std::to_string(seconds) + "초 만에 다 받았다");
+            }
+
+            return true;
+        }
+
+        if (std::chrono::steady_clock::now() >= deadline)
+        {
+            LOG_ERROR("[부하시험] 종목 번호를 다 못 받았다 — " + std::to_string(resolved) + "/" +
+                      std::to_string(specifications_.size()) + "개. 전략 프로세스가 떴는지 본다");
+            return false;
+        }
+
+        if (!notified)
+        {
+            notified = true;
+            LOG_INFO("[부하시험] 전략 프로세스가 종목 " + std::to_string(specifications_.size()) +
+                     "개를 등록할 때까지 기다린다 — 지금 " + std::to_string(resolved) + "개");
+        }
+
+        std::this_thread::sleep_for(kSharedSymbolPollInterval);
+    }
+}
+
 bool ZmqOrderFeed::connect(const std::vector<WatchSpec>& specifications)
 {
     if (running_.load(std::memory_order_acquire))
@@ -161,13 +235,15 @@ bool ZmqOrderFeed::connect(const std::vector<WatchSpec>& specifications)
     index_to_symbol_id_.clear();
     index_to_symbol_id_.reserve(specifications_.size());
 
+    if (!resolve_symbol_indices())
+    {
+        return false;
+    }
+
     symbol::SymbolId highest_symbol_id = symbol::kNone;
 
-    for (const WatchSpec& specification : specifications_)
+    for (const symbol::SymbolId symbol_id : index_to_symbol_id_)
     {
-        const symbol::SymbolId symbol_id = symbols_.intern(specification.ticker);
-        index_to_symbol_id_.push_back(symbol_id);
-
         if (symbol_id > highest_symbol_id)
         {
             highest_symbol_id = symbol_id;

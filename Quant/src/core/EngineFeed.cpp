@@ -50,6 +50,24 @@ uint32_t Engine::websocket_lane_count() const
     return 1u;
 }
 
+// 설정의 종목 목록을 그대로 구독 목록으로 깐다 — 전략이 없는 시세 프로세스에서 종목 순번표를 채우려면
+//  이 목록이 필요하다. 스레드가 뜨기 전에만 불러서 자물쇠 없이 쓴다. [why D-114 단계 5]
+void Engine::seed_watch_specifications(const std::vector<std::string>& tickers)
+{
+    watch_specifications_.clear();
+    watch_specifications_.reserve(tickers.size());
+
+    for (const auto& ticker : tickers)
+    {
+        WatchSpec specification;
+        specification.ticker = ticker;
+        specification.market = Market::KR;
+        watch_specifications_.push_back(std::move(specification));
+    }
+
+    LOG_INFO("[Engine] 설정에서 깐 WS 구독 종목: " + std::to_string(watch_specifications_.size()) + "개");
+}
+
 void Engine::collect_watch_specifications()
 {
     // 전략별 구독 스펙 수집 (중복 제거)
@@ -297,6 +315,81 @@ void Engine::fan_out_trade(uint32_t lane, const TradeData& trade)
     }
 }
 
+// 체결통보 한 건을 갈 길로 넣는다. 갈라 띄운 날의 체결통보는 이 프로세스 것이 아니다 — 소켓이 시세로
+//  오면서 체결통보도 같이 따라왔고, 원장을 쥔 쪽은 주문이다. 그래서 시세 역할일 때만 공유 체결 통로로
+//  넘긴다. 한 프로세스로 돌면 예전처럼 프로세스 안 큐로 가 홉이 늘지 않는다.
+//  부르는 쪽은 둘이다 — WS 수신 콜백(connect_feed), 그리고 갈라 띄운 주문 프로세스의 모의 체결기
+//  콜백(start). 어느 쪽이든 한 번에 하나만 넣는다. [why D-114 단계 5]
+void Engine::push_fill_notification(const FillNotification& fill_notification)
+{
+    const bool fill_crosses_boundary = role_ == ProcessRole::Feed;
+
+    // 넣는 쪽은 한 번에 하나다(pipeline_.fill_producing 설명). 겹치면 뒤에 온 쪽이
+    //  기다려 한 줄로 서고 센다 — 그대로 넣으면 SPSC 큐의 칸 번호가 어긋나 체결이 사라진다.
+    if (pipeline_.fill_producing.exchange(true, std::memory_order_acquire))
+    {
+        const auto count = pipeline_.fill_producer_overlap.fetch_add(1, std::memory_order_relaxed) + 1;
+        LOG_ERROR("[Engine] 체결통보 생산자 겹침 — 두 스레드가 같이 넣으려 했다 ODNO=" +
+                  fill_notification.kis_order_no + " (누적 " + std::to_string(count) + "건, 기대 0)");
+
+        while (pipeline_.fill_producing.exchange(true, std::memory_order_acquire))
+        {
+            std::this_thread::yield();
+        }
+    }
+
+    struct ProducerTurn
+    {
+        std::atomic<bool>& producing;
+
+        ~ProducerTurn()
+        {
+            producing.store(false, std::memory_order_release);
+        }
+    };
+
+    const ProducerTurn producer_turn{pipeline_.fill_producing};
+
+    // 두 길 모두 문자열 없는 레코드로 옮겨 넣는다 — 큐 칸에 힙 문자열이 있으면 넣고 뺄 때마다
+    //  할당·해제가 수신 스레드에서 일어난다. 옮기는 일은 여기서 한 번이다. [why CODE_REVIEW W-7]
+    bool           truncated = false;
+    const uint64_t sequence  = pipeline_.fill_sequence.fetch_add(1, std::memory_order_relaxed) + 1;
+    const auto     notice    = ipc::to_notice(fill_notification, sequence, trace::now_ns(), &truncated);
+
+    if (truncated)
+    {
+        // 잘린 주문번호로는 취소·정정을 증권사에 되돌려 줄 수 없다. 넘기기는 하되 남긴다.
+        LOG_ERROR("[Engine] 체결통보 칸이 모자라 글자가 잘렸다 — " + fill_notification.ticker +
+                  " ODNO=" + fill_notification.kis_order_no);
+    }
+
+    if (fill_crosses_boundary)
+    {
+        if (!layout_.fills().push(notice))
+        {
+            const auto count = pipeline_.fill_dropped.fetch_add(1, std::memory_order_relaxed) + 1;
+            LOG_ERROR("[Engine] 체결 통로 가득 참 — 드롭 " + fill_notification.ticker + " ODNO=" +
+                      fill_notification.kis_order_no + " (누적 " + std::to_string(count) +
+                      "건) 주문 쪽 예약 수량이 안 풀린다");
+        }
+
+        return;
+    }
+
+    // 수신 스레드는 큐에 넣고 바로 돌아간다. 가득 찼으면(1024건 밀림 = 소비자가 멈춘 것)
+    //  기다리지 않고 버린다 — 여기서 대기하면 전 종목 틱이 같이 선다. 버린 건은
+    //  잔고 대조(control_thread)가 원장에 메운다. [why D-056]
+    if (!pipeline_.fill_queue.push(notice))
+    {
+        const auto count = pipeline_.fill_dropped.fetch_add(1, std::memory_order_relaxed) + 1;
+        LOG_ERROR("[Engine] 체결통보 큐 가득 참 — 드롭 " + fill_notification.ticker + " ODNO=" + fill_notification.kis_order_no +
+                  " (누적 " + std::to_string(count) + "건)");
+        return;
+    }
+
+    pipeline_.fill_wake.notify();
+}
+
 void Engine::connect_feed()
 {
     // WebSocket — 동적 구독 스펙으로 연결.
@@ -485,78 +578,11 @@ void Engine::connect_feed()
 
                            fan_out_trade(lane, trade);
                        });
-    // 갈라 띄운 날의 체결통보는 이 프로세스 것이 아니다 — 소켓이 시세로 오면서 체결통보도 같이 따라왔고,
-    //  원장을 쥔 쪽은 주문이다. 그래서 시세 역할일 때만 공유 체결 통로로 넘긴다. 한 프로세스로 돌면
-    //  예전처럼 프로세스 안 큐로 가 홉이 늘지 않는다. [why D-114 단계 5]
-    const bool fill_crosses_boundary = role_ == ProcessRole::Feed;
+    auto push_fill = [this](const FillNotification& fill_notification)
+    {
+        push_fill_notification(fill_notification);
+    };
 
-    auto push_fill = [this, fill_crosses_boundary](const FillNotification& fill_notification)
-                           {
-                               // 넣는 쪽은 한 번에 하나다(pipeline_.fill_producing 설명). 겹치면 뒤에 온 쪽이
-                               //  기다려 한 줄로 서고 센다 — 그대로 넣으면 SPSC 큐의 칸 번호가 어긋나 체결이 사라진다.
-                               if (pipeline_.fill_producing.exchange(true, std::memory_order_acquire))
-                               {
-                                   const auto count = pipeline_.fill_producer_overlap.fetch_add(1, std::memory_order_relaxed) + 1;
-                                   LOG_ERROR("[Engine] 체결통보 생산자 겹침 — 두 스레드가 같이 넣으려 했다 ODNO=" +
-                                             fill_notification.kis_order_no + " (누적 " + std::to_string(count) + "건, 기대 0)");
-
-                                   while (pipeline_.fill_producing.exchange(true, std::memory_order_acquire))
-                                   {
-                                       std::this_thread::yield();
-                                   }
-                               }
-
-                               struct ProducerTurn
-                               {
-                                   std::atomic<bool>& producing;
-
-                                   ~ProducerTurn()
-                                   {
-                                       producing.store(false, std::memory_order_release);
-                                   }
-                               };
-
-                               const ProducerTurn producer_turn{pipeline_.fill_producing};
-
-                               // 두 길 모두 문자열 없는 레코드로 옮겨 넣는다 — 큐 칸에 힙 문자열이 있으면 넣고 뺄 때마다
-                               //  할당·해제가 수신 스레드에서 일어난다. 옮기는 일은 여기서 한 번이다. [why CODE_REVIEW W-7]
-                               bool           truncated = false;
-                               const uint64_t sequence  = pipeline_.fill_sequence.fetch_add(1, std::memory_order_relaxed) + 1;
-                               const auto     notice    = ipc::to_notice(fill_notification, sequence, trace::now_ns(), &truncated);
-
-                               if (truncated)
-                               {
-                                   // 잘린 주문번호로는 취소·정정을 증권사에 되돌려 줄 수 없다. 넘기기는 하되 남긴다.
-                                   LOG_ERROR("[Engine] 체결통보 칸이 모자라 글자가 잘렸다 — " + fill_notification.ticker +
-                                             " ODNO=" + fill_notification.kis_order_no);
-                               }
-
-                               if (fill_crosses_boundary)
-                               {
-                                   if (!layout_.fills().push(notice))
-                                   {
-                                       const auto count = pipeline_.fill_dropped.fetch_add(1, std::memory_order_relaxed) + 1;
-                                       LOG_ERROR("[Engine] 체결 통로 가득 참 — 드롭 " + fill_notification.ticker + " ODNO=" +
-                                                 fill_notification.kis_order_no + " (누적 " + std::to_string(count) +
-                                                 "건) 주문 쪽 예약 수량이 안 풀린다");
-                                   }
-
-                                   return;
-                               }
-
-                               // 수신 스레드는 큐에 넣고 바로 돌아간다. 가득 찼으면(1024건 밀림 = 소비자가 멈춘 것)
-                               //  기다리지 않고 버린다 — 여기서 대기하면 전 종목 틱이 같이 선다. 버린 건은
-                               //  잔고 대조(control_thread)가 원장에 메운다. [why D-056]
-                               if (!pipeline_.fill_queue.push(notice))
-                               {
-                                   const auto count = pipeline_.fill_dropped.fetch_add(1, std::memory_order_relaxed) + 1;
-                                   LOG_ERROR("[Engine] 체결통보 큐 가득 참 — 드롭 " + fill_notification.ticker + " ODNO=" + fill_notification.kis_order_no +
-                                             " (누적 " + std::to_string(count) + "건)");
-                                   return;
-                               }
-
-                               pipeline_.fill_wake.notify();
-                           };
     feed_.websocket->set_fill_callback(push_fill);
 
     if (feed_.paper)

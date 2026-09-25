@@ -48,6 +48,10 @@ public:
         // connect()가 종목 순번표를 적을 파일. 인젝터가 이 파일을 읽어 순번을 맞춘다 — 양쪽이 config를 따로
         //  읽어 순서가 조용히 어긋나는 것을 막는다. 비면 안 적는다.
         std::string universe_out_path;
+
+        // 종목 번호를 남이 찍어 줄 때까지 connect()가 기다릴지. 갈라 띄운 판의 시세 프로세스는 번호를 찍지
+        //  못하고 찾기만 하므로(D-114 단계 5) 전략 프로세스가 등록을 마칠 때까지 기다려야 한다. [why D-114 단계 5]
+        bool        await_shared_symbols = false;
     };
 
     struct Statistics
@@ -146,6 +150,10 @@ private:
 
     // 체결에 찍을 시각. options_.session_start_hhmmss 가 0이면 실제 시계, 아니면 그 시각 + connect() 이후 흐른 초.
     [[nodiscard]] int32_t market_hhmmss() const;
+
+    // 구독 목록 순서대로 종목 번호를 채운다. options_.await_shared_symbols 면 남이 다 찍어 줄 때까지 기다린다.
+    //  다 못 채우고 한도를 넘기면 false.
+    [[nodiscard]] bool resolve_symbol_indices();
 
     // 종목 순번표를 파일로 적는다. connect()가 순번을 굳힌 뒤 한 번.
     void write_universe_file() const;

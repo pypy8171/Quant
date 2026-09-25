@@ -231,6 +231,7 @@
 ### Quant/config/
 
 - [config.json.example](../Quant/config/config.json.example) — 설정 파일 예시(KIS 인증·모드·전략 스펙)
+- [equivalence_universe.json](../Quant/config/equivalence_universe.json) — 정합성 회차가 쓰는 300종목 유니버스 — 한 프로세스판과 세 프로세스판에 같은 입력을 먹이려고 종목 목록·차선 수·시작 포트를 고정해 둔 것
 - [etf_name_tokens.json](../Quant/config/etf_name_tokens.json) — 종목명 ETF·ETN 판별용 토큰 목록
 - [etf_prefixes.json](../Quant/config/etf_prefixes.json) — ETF 브랜드 접두사 목록(유니버스 필터용)
 - [reit_name_suffixes.json](../Quant/config/reit_name_suffixes.json) — 리츠 종목명 접미사 목록
@@ -728,6 +729,7 @@
 - [2026-09-23_db_ingest_cost.md](reports/stresstest/2026-09-23_db_ingest_cost.md) — 09-23 J~L회차. 적재기(TimescaleDB)를 붙이면 꺼냄→반환이 1.5~1.7배 느려지고 늘어난 몫은 거의 전부 이력 저장. 적재는 입력을 2.3배 올려도 초당 272~372행에서 평평 — 09-22의 5.8%·회차 B의 0.013%와 같은 천장
 - [2026-09-23_drop_breakdown.md](reports/stresstest/2026-09-23_drop_breakdown.md) — 09-23 M회차. 버린 2,300만 건이 전부 체결 링 만석이고 소켓 쪽은 0. 주문은 엔진이 안 버렸는데 DB에는 56.5%만 남는다. 버린 건수가 health 에 안 남던 이유는 그 메시지가 발행 큐에서 가장 먼저 버려지기 때문 — 요청·응답 STATUS 로 읽게 고쳤다
 - [2026-09-23_order_stage_breakdown.md](reports/stresstest/2026-09-23_order_stage_breakdown.md) — 09-23 D~I회차. 주문 한 건의 2밀리초를 12구간으로 가르니 절반이 미결주문 파일 다시쓰기. 그 파일과 원장 CSV·사유 줄을 차례로 전담 스레드로 빼고 몇 분 간격 대조 — pop→반환 누적 대략 2.6배(D-123·D-124)
+- [OVERVIEW.md](reports/stresstest/OVERVIEW.md) — 09-22·09-23·09-25 부하시험 전체를 한 장으로: 하네스 셋, 회차별 구조·방법·수치, 프로세스 분리 뒤 정합성·구간 지연, 드러난 천장 목록
 - [README.md](reports/stresstest/README.md) — 부하테스트 결과 모음의 색인·실행 가이드·결과 열 읽는 법
 
 ### docs/reports/stresstest/data/
@@ -750,6 +752,19 @@
 - [2026-09-23_db_ingest_rows.csv](reports/stresstest/data/2026-09-23_db_ingest_rows.csv) — 회차 J·K·L이 DB 표(주문·체결·신호·시세)에 남긴 행 수와 초당 행, 주입 뒤 밀린 시간, 최소 여유 메모리
 - [2026-09-23_drop_breakdown.csv](reports/stresstest/data/2026-09-23_drop_breakdown.csv) — M회차를 적재기 있음·없음으로 돌리며 10초마다 STATUS 로 읽은 원인별 버린 건수와 가용 메모리 16행
 - [2026-09-23_order_stages.csv](reports/stresstest/data/2026-09-23_order_stages.csv) — 09-23 회차 E·F·G·H·I의 구간별 p50·p90·p99·최대 80행(창 둘: 첫 60초·전체). 원본 latency_trace.csv에서 뽑은 요약
+- [2026-09-25_Eboth_segments.csv](reports/stresstest/data/2026-09-25_Eboth_segments.csv) — 09-25 Eboth(한 프로세스, 300종목 × 1,000건, DB 끔) 12구간 지연 요약
+- [2026-09-25_Eboth_highwater.csv](reports/stresstest/data/2026-09-25_Eboth_highwater.csv) — 같은 회차의 큐 최고 수위·안전 계수기
+- [2026-09-25_Esplit_segments.csv](reports/stresstest/data/2026-09-25_Esplit_segments.csv) — 09-25 Esplit(세 프로세스, 같은 입력) 12구간 지연 요약 — Eboth와 짝
+- [2026-09-25_Esplit_highwater.csv](reports/stresstest/data/2026-09-25_Esplit_highwater.csv) — 같은 회차의 큐 최고 수위·안전 계수기(역할별)
+- [2026-09-25_Esplit_equivalence.txt](reports/stresstest/data/2026-09-25_Esplit_equivalence.txt) — 정합성 판정문 — 갈라진 종목 0·빠진 순번 0(판정은 이 파일로 낸다)
+- [2026-09-25_Jprime_segments.csv](reports/stresstest/data/2026-09-25_Jprime_segments.csv) — 09-25 Jprime(한 프로세스, 2,700종목 × 30,000건, DB 켬) 12구간 지연 요약
+- [2026-09-25_Jprime_highwater.csv](reports/stresstest/data/2026-09-25_Jprime_highwater.csv) — 같은 회차의 큐 최고 수위·안전 계수기
+- [2026-09-25_Jprime_status.csv](reports/stresstest/data/2026-09-25_Jprime_status.csv) — 같은 회차를 10초마다 STATUS로 읽은 원인별 버린 건수·가용 메모리
+- [2026-09-25_N_segments.csv](reports/stresstest/data/2026-09-25_N_segments.csv) — 09-25 N(세 프로세스, 같은 큰 입력) 12구간 지연 요약 — Jprime과 짝
+- [2026-09-25_N_highwater.csv](reports/stresstest/data/2026-09-25_N_highwater.csv) — 같은 회차의 큐 최고 수위·안전 계수기(역할별)
+- [2026-09-25_N_status.csv](reports/stresstest/data/2026-09-25_N_status.csv) — 같은 회차의 10초 주기 STATUS 표본
+- [2026-09-25_N_equivalence.txt](reports/stresstest/data/2026-09-25_N_equivalence.txt) — N 대 Jprime 정합성 출력 — 양쪽이 주문을 버리는 입력이라 판정에 쓰지 않는다(OVERVIEW 8절 9번)
+
 
 ## linux_practice
 

@@ -7,9 +7,57 @@
 #include "utils/Logger.h"
 
 #include <algorithm>
+#include <string>
+#include <unordered_set>
+#include <utility>
+#include <vector>
 
 namespace
 {
+
+// 전략 설정에 적힌 종목을 모은다 — 갈라 띄운 시세 프로세스에는 전략이 없어 구독 목록을 여기서 만든다.
+//  전략이 붙는 판에서는 start()가 전략에게 다시 물어 덮으므로, 이 목록은 그때까지의 자리표다.
+//  키는 둘을 본다 — 한 종목짜리 전략의 "ticker", 바스켓 전략의 "tickers". [why D-114 단계 5]
+std::vector<std::string> strategy_tickers(const nlohmann::json& strategies)
+{
+    std::vector<std::string> tickers;
+    std::unordered_set<std::string> seen;
+
+    auto take = [&tickers, &seen](const nlohmann::json& node)
+    {
+        if (!node.is_string())
+        {
+            return;
+        }
+
+        if (std::string ticker = node.get<std::string>(); seen.insert(ticker).second)
+        {
+            tickers.push_back(std::move(ticker));
+        }
+    };
+
+    for (const auto& strategy : strategies)
+    {
+        if (const auto one = strategy.find("ticker"); one != strategy.end())
+        {
+            take(*one);
+        }
+
+        const auto many = strategy.find("tickers");
+
+        if (many == strategy.end() || !many->is_array())
+        {
+            continue;
+        }
+
+        for (const auto& entry : *many)
+        {
+            take(entry);
+        }
+    }
+
+    return tickers;
+}
 
 // 피드·리플레이·매크로 레짐·ZMQ·운영단말.
 void configure_channels(Engine& engine, const AppConfig& app)
@@ -38,6 +86,14 @@ void configure_channels(Engine& engine, const AppConfig& app)
     //  둘이 만들면 부하 투입기가 반쪽짜리를 읽는다. 바인드 자체는 connect()가 하고 그쪽은 이미 갈라져 있다.
     //  단계 5에서 소켓이 시세로 옮겨 가면서 이 갈래도 같이 옮겼다 — 피드 소스는 소켓 쥔 쪽 것이다.
     //  [why D-114 단계 5]
+    if (app.load_test_enabled)
+    {
+        // 수신단은 시세 쪽에만 두지만 브로커를 끊고 모의 체결기에 현금을 주는 것은 세 역할 모두다 —
+        //  주문 프로세스는 피드 소스가 없어 이것이 없으면 혼자 진짜 KIS에 붙고(시험 주문이 거래소로 나간다),
+        //  현금이 0이면 들어온 주문을 전량 거부한다. [why D-114 단계 5]
+        engine.set_broker_offline(true, app.replay_cash);
+    }
+
     if (app.load_test_enabled && engine.runs_feed_side())
     {
         exchange::ZmqOrderFeed::Options load_test_options;
@@ -46,7 +102,14 @@ void configure_channels(Engine& engine, const AppConfig& app)
         load_test_options.bind_address = app.load_test_bind_address;
         load_test_options.session_start_hhmmss = app.load_test_session_hhmmss;
         load_test_options.universe_out_path    = app.load_test_universe_out;
+        // 전략이 이 프로세스에 없으면 종목 번호도 이 프로세스가 못 찍는다 — 전략 프로세스가 등록을 마칠
+        //  때까지 connect()가 기다리게 한다. [why D-114 단계 5]
+        load_test_options.await_shared_symbols = !engine.runs_strategy_side();
 
+        // 구독 목록부터 깐다 — 갈라 띄우면 이 프로세스에 전략이 없어 목록이 비고, 그 상태로 connect 하면
+        //  종목 순번표가 0개로 적혀 부하 투입기가 아무것도 보내지 않는다(09-25 실측). 한 프로세스판은
+        //  start()가 전략에서 같은 목록을 다시 모으므로 여기서 깐 것은 그때 덮인다. [why D-114 단계 5]
+        engine.seed_watch_specifications(strategy_tickers(app.strategies));
         engine.set_feed_source(std::make_unique<exchange::ZmqOrderFeed>(engine.symbols(), load_test_options),
                                app.replay_cash);
         LOG_INFO("[Engine] 부하시험 주문 수신단: " + app.load_test_bind_address + " 포트 " +

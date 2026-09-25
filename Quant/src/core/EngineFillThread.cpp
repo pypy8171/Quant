@@ -30,10 +30,14 @@ void Engine::fill_thread_fn(std::stop_token stop_token)
     const bool from_channel = role_ == ProcessRole::Order;
     const ipc::FillLimits fill_limits;
 
+    // 통로로 오는 날에도 프로세스 안 큐를 같이 본다 — 브로커를 끊고 도는 판(부하시험·리플레이)의 모의
+    //  체결기가 이 프로세스에 있고, 그 체결은 통로를 거치지 않는다. [why D-114 단계 5]
+    const bool from_queue = !from_channel || feed_.paper != nullptr;
+
     // 큐가 비었는가 — 어느 길인지에 따라 보는 자리가 다르다. 잠드는 조건과 정지 뒤 비우기가 같이 쓴다.
-    auto fill_queue_empty = [this, from_channel]
+    auto fill_queue_empty = [this, from_channel, from_queue]
     {
-        return from_channel ? layout_.fills().readable() == 0 : pipeline_.fill_queue.empty();
+        return (!from_channel || layout_.fills().readable() == 0) && (!from_queue || pipeline_.fill_queue.empty());
     };
 
     // 정지 요청 뒤에도 큐를 비운다 — stop()이 WS를 끊은 다음 join하므로 남은 통보가 여기서 빠진다.
@@ -48,9 +52,13 @@ void Engine::fill_thread_fn(std::stop_token stop_token)
                 option = ipc::to_fill(notice);
             }
         }
-        else if (const auto notice = pipeline_.fill_queue.pop())
+
+        if (!option && from_queue)
         {
-            option = ipc::to_fill(*notice);
+            if (const auto notice = pipeline_.fill_queue.pop())
+            {
+                option = ipc::to_fill(*notice);
+            }
         }
 
         if (!option)

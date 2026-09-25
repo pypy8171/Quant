@@ -540,7 +540,7 @@ void Engine::start()
     }
 #endif
 
-    const bool offline = feed_.feed_override != nullptr || !feed_.replay_file.empty();
+    const bool offline = feed_.feed_override != nullptr || !feed_.replay_file.empty() || feed_.broker_offline;
 
     // 인증은 양쪽이 한다 — 주문 쪽은 주문·잔고에, 전략 쪽은 시세·일봉 조회에 REST를 쓴다.
     if (!authenticate_feed(offline))
@@ -558,6 +558,20 @@ void Engine::start()
         setup_paper_executor(offline);
         initialize_order_router();
         initialize_ledger_reconciler();
+
+        // 갈라 띄운 주문 프로세스의 모의 체결기에는 체결을 낼 길이 없다 — 틱은 시세 프로세스로만 가고
+        //  (connect_feed 가 거기서 콜백을 건다), 그대로 두면 대기 주문이 영영 안 차서 보유 수량이 0이고
+        //  매도가 전량 40240000으로 거부된다(09-25 실측 6,060건). 여기서 콜백만 걸고, 틱은 주문 스레드가
+        //  접수를 마친 뒤 지어 먹인다(feed_paper_fill_tick) — 이 역할에는 WS 생산자가 없어 큐 생산자는
+        //  주문 스레드 하나로 남는다. [why D-114 단계 5]
+        if (feed_.paper && !runs_feed_side())
+        {
+            feed_.paper->set_fill_callback(
+                [this](const FillNotification& fill_notification)
+                {
+                    push_fill_notification(fill_notification);
+                });
+        }
 
         // 원장 파일·미결주문 파일은 한 프로세스만 연다 — 둘이 같은 파일을 쓰면 줄이 섞인다. [why D-114]
         if (!try_open_ledger_journal() || !try_bootstrap_ledger())

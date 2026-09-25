@@ -14,6 +14,15 @@ namespace
 {
 int g_checks = 0;
 
+// 이 실행만의 꼬리표. 임시 폴더는 트리와 상관없이 한 곳이라, 세션 둘이 각자 워크트리에서 ctest를 돌리면
+//  고정 이름으로는 서로 캡처 파일을 덮어쓴다 — 그러면 이 시험이 제 코드와 무관하게 깨진다.
+std::string unique_suffix()
+{
+    const auto now = std::chrono::steady_clock::now().time_since_epoch();
+
+    return std::to_string(std::chrono::duration_cast<std::chrono::nanoseconds>(now).count());
+}
+
 #define CHECK(condition)                                                                        \
     do                                                                                     \
     {                                                                                      \
@@ -82,7 +91,7 @@ void hook(feed::ReplaySource& source, Seen& seen)
 
 int main()
 {
-    const auto path = std::filesystem::temp_directory_path() / "quant_test_replay_source.bin";
+    const auto path = std::filesystem::temp_directory_path() / ("quant_test_replay_source_" + unique_suffix() + ".bin");
     std::filesystem::remove(path);
 
     // 캡처: 체결 4(005930·000660 번갈아, 간격 100ms)·호가 1. 총 5.
@@ -174,7 +183,8 @@ int main()
 
     // 5. 없는 파일이면 connect가 false.
     {
-        feed::ReplaySource source(std::filesystem::temp_directory_path() / "quant_test_replay_missing.bin");
+        feed::ReplaySource source(std::filesystem::temp_directory_path() /
+                                  ("quant_test_replay_missing_" + unique_suffix() + ".bin"));
         CHECK(!source.connect({}));
         CHECK(!source.is_connected());
     }

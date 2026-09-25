@@ -273,6 +273,24 @@ public:
         feed_.replay_cash   = cash;
     }
 
+
+    // 설정의 종목 목록을 그대로 구독 목록으로 깐다. 갈라 띄운 시세 프로세스에는 전략이 없어 구독 목록이
+    //  비는데, 부하시험은 그 목록으로 종목 순번표를 적는다 — 비면 순번표가 0개가 되어 부하 투입기가
+    //  보낼 종목을 못 찾는다. 한 프로세스판은 전략에서 같은 목록을 얻으므로 이 자리는 시세 역할 전용이다.
+    //  스레드 시작 전에만. [why D-114 단계 5]
+    void seed_watch_specifications(const std::vector<std::string>& tickers);
+
+    // 브로커 없이 돈다고 못 박는다 — 피드 소스를 쥐지 않은 역할도 KisClient를 만들지 않고 모의 체결기를 쓴다.
+    //  부하시험이 그 자리다: 수신단은 시세 프로세스에 있어서 주문 프로세스에는 피드 소스가 없는데,
+    //  그대로 두면 주문 프로세스만 진짜 KIS에 붙어 시험 주문을 거래소로 내보낸다. 모의 체결기 현금도
+    //  여기서 준다 — set_feed_source 는 시세 프로세스에서만 불려 주문 쪽 현금이 0으로 남고, 그러면
+    //  들어온 주문이 전량 E_PAPER_CASH 로 거부된다(09-25 실측: 12,799건 전부). [why D-114 단계 5]
+    void set_broker_offline(bool offline, double cash)
+    {
+        feed_.broker_offline = offline;
+        feed_.replay_cash    = cash;
+    }
+
     // ── 기동 옵션 ────────────────────────────────────────────────────────────
     // 기동 시(bootstrap) 실계좌 잔고를 내부 장부의 초기값으로 채운다(G5).
     // 프로그램을 재시작하면 OrderGate 원장이 0으로 비는데, 실계좌엔 이미 보유분이 남아있다.
@@ -578,6 +596,14 @@ private:
     //  소켓이 없어 이 스레드가 행렬 그 행의 생산자다. [why D-114]
     void feed_lane_thread_fn(std::stop_token stop_token, uint32_t lane);
     void order_thread_fn(std::stop_token stop_token);
+    // 갈라 띄운 주문 프로세스에서 접수된 주문 한 건을 그 값의 틱으로 모의 체결기에 먹인다 — 이 프로세스에는
+    //  시세가 오지 않아 대기 주문이 영영 안 찬다. 주문 스레드가 접수를 마친 뒤에 부른다. [why D-114 단계 5]
+    void feed_paper_fill_tick(const OrderSignal& signal);
+
+    // 체결통보 한 건을 갈 길로 넣는다 — 시세 역할이면 공유 통로로, 아니면 프로세스 안 큐로.
+    //  WS 콜백과 모의 체결기 콜백이 같이 쓴다(주문 역할에는 WS가 없다). [why D-114 단계 5]
+    void push_fill_notification(const FillNotification& fill_notification);
+
     void fill_thread_fn(std::stop_token stop_token);     // 체결통보 소비(fill_queue → OrderRouter::on_fill → ops 방송). WS 수신 스레드에서 뗀 것 [why D-056]
     void control_thread_fn(std::stop_token stop_token); // WebSocket 시세단절 감지·재연결(연속 실패 시 kill switch). ZMQ REP 처리는 ZmqBridge 내부 스레드 담당
 
@@ -678,6 +704,7 @@ private:
         double                             replay_cash  = 0.0;
         std::unique_ptr<feed::PaperExecutor> paper; // 리플레이·피드 주입일 때만. OrderRouter·대조기가 kis 대신 본다
         std::unique_ptr<feed::IFeedSource>   feed_override; // set_feed_source가 준 소스. start()가 ws로 옮기고 kis는 비운다 [why D-071]
+        bool                                 broker_offline = false; // 피드 소스가 없는 역할도 KIS를 부르지 않는다 [why D-114 단계 5]
         std::string                        capture_directory;
         std::unique_ptr<feed::TickCapture> capture; // WS 수신 스레드(소켓마다 하나)가 on_*를 부른다 — 큐는 MPSC
     };

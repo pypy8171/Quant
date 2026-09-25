@@ -8,12 +8,14 @@
 //  track_strategy_liveness()  : order_thread_fn() 가 전략 박동을 볼 때마다
 
 #include "core/Engine.h"
+#include "core/KstTime.h"
 #include "core/LatencyTrace.h"
 #include "risk/DisplacementDesk.h"
 #include "utils/Logger.h"
 #include "utils/ThreadName.h"
 #include <algorithm>
 #include <chrono>
+#include <ctime>
 #include <exception>
 #include <thread>
 #include <nlohmann/json.hpp>
@@ -418,6 +420,13 @@ void Engine::order_thread_fn(std::stop_token stop_token)
                 pipeline_latency_.add(marks, managed_order.stages);
             }
 
+            // 갈라 띄운 주문 프로세스만 하는 일 — 접수가 끝난 뒤에 모의 체결기에 틱을 먹인다. 접수 안에서
+            //  체결을 내면 라우터가 ODNO를 적기 전이라 통보가 "미매핑 체결"로 빠진다. [why D-114 단계 5]
+            if (managed_order.status == OrderStatus::ACCEPTED)
+            {
+                feed_paper_fill_tick(signal);
+            }
+
             // 단말이 없으면 JSON 직렬화를 건너뛴다 — 주문 스레드 hot path에서 받는 이 없는 문자열을 만들지 않는다.
             //  client_count()는 뮤텍스 한 번이지만 직렬화보다 싸다. [why D-071]
             if (ops_.server && ops_.server->client_count() > 0)
@@ -468,4 +477,31 @@ void Engine::order_thread_fn(std::stop_token stop_token)
     }
 
     LOG_INFO("[OrderThread] 종료");
+}
+
+// 갈라 띄운 주문 프로세스에는 시세가 오지 않아 모의 체결기의 대기 주문이 영영 안 찬다 — 산 적이 없으니
+//  팔 것도 없어 매도가 전량 거부된다. 접수된 주문 한 건을 그 값의 체결 하나로 지어 먹여, 한 프로세스로
+//  돌 때 진짜 틱이 하던 일을 대신한다. 시세가 오는 판에서는 아무것도 하지 않는다. [why D-114 단계 5]
+void Engine::feed_paper_fill_tick(const OrderSignal& signal)
+{
+    if (!feed_.paper || runs_feed_side())
+    {
+        return;
+    }
+
+    const double price = signal.price > 0.0 ? signal.price : signal.reference_price;
+
+    if (price <= 0.0)
+    {
+        return;
+    }
+
+    TradeData trade;
+    trade.ticker    = signal.ticker;
+    trade.symbol_id = signal.symbol_id;
+    trade.hhmmss    = kst::hhmmss_int(std::time(nullptr));
+    trade.price     = price;
+    trade.quantity  = signal.quantity;
+    trade.timestamp = std::chrono::system_clock::now();
+    feed_.paper->on_tick(trade);
 }
