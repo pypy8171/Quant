@@ -1,4 +1,4 @@
-// 프로세스 둘이 같이 보는 종목 표 — 공유 쪽지 위에 놓인 버킷 배열·이름 배열 한 벌.
+// 주문·전략·시세 프로세스가 같이 보는 종목 표 — 공유 쪽지 위에 놓인 버킷 배열·이름 배열 한 벌.
 //  전략과 주문이 갈리면 같은 종목에 같은 번호가 붙어야 한다. 주문 요청이 종목을 정수 번호로 나르기
 //  때문이다(D-071 원칙 6) — 양쪽이 각자 번호를 찍으면 전략 쪽 3번과 주문 쪽 3번이 다른 종목이 되고,
 //  그건 엉뚱한 종목에 주문이 나가는 것이다. [why D-114]
@@ -53,7 +53,7 @@ public:
     // 표를 새로 놓는다(구역을 만든 주문 쪽이 한 번 부른다). base는 캐시라인 경계여야 한다.
     [[nodiscard]] bool create(std::byte* base, size_t bytes, size_t capacity);
 
-    // 이미 놓인 표에 붙는다(전략 쪽이 부른다). 머리가 다르면 붙지 않는다.
+    // 이미 놓인 표에 붙는다(전략·시세 쪽이 부른다). 머리가 다르면 붙지 않는다.
     [[nodiscard]] bool attach(std::byte* base, size_t bytes, size_t capacity);
 
     void unbind() noexcept;
@@ -67,7 +67,7 @@ public:
     //  [inv] 주문 프로세스만 부른다. 그 안에서는 스레드가 여럿이라 자물쇠로 직렬화한다.
     symbol::SymbolId intern(std::string_view ticker);
 
-    // 읽기 — 자물쇠를 잡지 않는다. 전략 프로세스가 쓰는 길이다.
+    // 읽기 — 자물쇠를 잡지 않는다. 전략·시세 프로세스가 쓰는 길이다.
     [[nodiscard]] symbol::SymbolId lookup(std::string_view ticker) const
     {
         return symbol::table_lookup(slots_, ticker);

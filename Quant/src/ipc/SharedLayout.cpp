@@ -6,8 +6,8 @@
 namespace ipc
 {
 
-// 장부 사본을 공유 바이트 위에 그대로 놓는다 — 배열이 고정이고 값 칸만 있어야 건너편이 같은 자리를 본다.
-//  포인터나 힙을 들고 있으면 여기서 걸린다(그 주소는 건너편에서 남의 자리다).
+// 장부 사본·박동·국면 칸은 머리 없이 공유 바이트 위에 그대로 놓는다 — 배열이 고정이고 값 칸만 있어야
+//  건너편이 같은 자리를 본다. 장부 사본이 포인터나 힙을 들고 있으면 여기서 걸린다(그 주소는 건너편에서 남의 자리다).
 static_assert(std::is_standard_layout_v<LedgerSnapshot>, "장부 사본은 표준 배치여야 공유 쪽지에 얹힌다");
 static_assert(std::is_trivially_destructible_v<LedgerSnapshot>, "장부 사본은 소멸자 없이 사라져야 한다");
 static_assert(alignof(LedgerSnapshot) <= kSharedCacheLine, "장부 사본 정렬이 캐시라인보다 크다");
@@ -39,7 +39,7 @@ enum class FaceParty : uint8_t
 };
 
 // 붙는 역할이 그 면에서 맡는 끝. 제 끝이 아닌 면은 구경만 한다 — 붙기만 하고 공유 칸에는 아무것도 안 적는다.
-//  아래 부르는 자리들이 통로 방향의 정본이다(설계 문서의 면 표와 같아야 한다). [why D-114]
+//  아래 부르는 자리들이 통로 방향의 정본이다(docs/diagrams/engine_processes.html의 면 표와 같아야 한다). [why D-114]
 [[nodiscard]] RingEndpoint endpoint_for(SharedAttachRole role, FaceParty producer, FaceParty consumer) noexcept
 {
     const FaceParty self = role == SharedAttachRole::kFeed ? FaceParty::kFeed : FaceParty::kStrategy;
@@ -189,7 +189,7 @@ bool SharedLayout::bind(std::byte* base, const SharedLayoutConfig& config, bool 
 
     std::byte* cursor = base + align_up(sizeof(SharedLayoutHead));
 
-    // 큐 셋 — 놓기와 붙기는 같은 자리를 같은 차례로 짚고, 다른 것은 머리를 적느냐 대조하느냐뿐이다.
+    // 큐 넷과 체결 통로 — 놓기와 붙기는 같은 자리를 같은 차례로 짚고, 다른 것은 머리를 적느냐 대조하느냐뿐이다.
     const size_t request_bytes = align_up(SharedSpscRing<OrderRequest>::bytes_for(config.request_capacity));
 
     // 요청 큐: 전략이 보내고 주문이 받는다 — 시세는 구경만 한다.
@@ -260,7 +260,7 @@ bool SharedLayout::bind(std::byte* base, const SharedLayoutConfig& config, bool 
 
     cursor += fill_bytes;
 
-    // 박동 — 값 둘뿐이라 머리가 없다. 놓는 쪽만 0으로 민다(붙는 쪽이 밀면 건너편이 찍어 둔 박동이 사라진다).
+    // 박동 — 값 셋(전략·주문·시세)뿐이라 머리가 없다. 놓는 쪽만 0으로 민다(붙는 쪽이 밀면 건너편이 찍어 둔 박동이 사라진다).
     const size_t heartbeat_bytes = align_up(sizeof(SharedHeartbeats));
 
     if (as_owner)

@@ -1,5 +1,5 @@
-// 프로세스 둘이 같이 보는 전략 이름표 — 공유 쪽지 위에 놓인 이름 배열 한 벌.
-//  종목 표(ipc/SharedSymbolDictionary.h)와 같은 이유다. 주문 요청이 전략을 정수 번호로 나르므로
+// 주문·전략·시세 프로세스가 같이 보는 전략 이름표 — 공유 쪽지 위에 놓인 이름 배열 한 벌.
+//  종목 표(Quant/include/ipc/SharedSymbolDictionary.h)와 같은 이유다. 주문 요청이 전략을 정수 번호로 나르므로
 //  (OrderSignal::strategy_index) 양쪽 번호가 갈리면 서브원장 귀속과 중복 신호 키가 엉뚱한 전략에 붙는다.
 //  장중 재스캔이 종목마다 전략 하나를 새로 등록하는 자리라 기동 때 한 번 맞춰 두는 것으로는 모자란다. [why D-114]
 //  선형 탐색·발행 순서는 strategy_table::StrategyTable과 같은 한 벌을 쓴다(table_lookup·table_insert).
@@ -50,7 +50,7 @@ public:
     // 표를 새로 놓는다(구역을 만든 주문 쪽이 한 번 부른다). base는 캐시라인 경계여야 한다.
     [[nodiscard]] bool create(std::byte* base, size_t bytes, size_t capacity);
 
-    // 이미 놓인 표에 붙는다(전략 쪽이 부른다). 머리가 다르면 붙지 않는다.
+    // 이미 놓인 표에 붙는다(전략·시세 쪽이 부른다). 머리가 다르면 붙지 않는다.
     [[nodiscard]] bool attach(std::byte* base, size_t bytes, size_t capacity);
 
     void unbind() noexcept;

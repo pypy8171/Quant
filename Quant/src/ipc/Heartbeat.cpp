@@ -29,7 +29,7 @@ HeartbeatMonitor::Step HeartbeatMonitor::observe(int64_t now_ns, int64_t last_be
 {
     if (last_beat_ns == 0)
     {
-        // 아직 한 번도 안 뛰었다. 기동 직후 전략 스레드가 첫 바퀴를 돌기 전이라 공백을 세지 않는다.
+        // 아직 한 번도 안 뛰었다. 기동 직후 찍는 쪽(전략·주문·시세)이 첫 바퀴를 돌기 전이라 공백을 세지 않는다.
         state_ = Step::kHealthy;
         return state_;
     }

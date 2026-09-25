@@ -1,4 +1,5 @@
-// SharedRegion.h 구현 — 이름 붙은 공유메모리를 만들고 붙고 닫는다. 플랫폼 갈래는 HTTP 전송(KisTransport.cpp)과
+// Quant/include/ipc/SharedRegion.h 구현 — 이름 붙은 공유메모리를 만들고 붙고 닫는다. 플랫폼 갈래는 HTTP 전송
+//  (Quant/src/api/KisTransport.cpp)과
 //  같은 방식으로 이 파일 안 #ifdef 하나로 둔다(WebSocket처럼 파일을 가를 만큼 길지 않다).
 #include "ipc/SharedRegion.h"
 
@@ -53,7 +54,7 @@ bool role_in_range(SharedAttachRole role) noexcept
 }
 
 #ifndef _WIN32
-// 구역 파일 권한 — 만든 사용자만 읽고 쓴다. 트레이더와 전략은 같은 계정으로 돈다(감시견이 띄운다).
+// 구역 파일 권한 — 만든 사용자만 읽고 쓴다. 주문·전략·시세 프로세스는 같은 계정으로 돈다(감시견이 띄운다).
 constexpr int kRegionPermissions = 0600;
 
 // 남아 있는 구역의 머리만 떠 온다. 성한 머리를 못 읽으면 거짓이고, out은 건드리지 않는다.
@@ -458,9 +459,10 @@ bool SharedRegion::creator_is_alive() const noexcept
     return process_is_alive(creator_identity());
 }
 
-// 아래 둘은 건너편이 도는 중에 읽고 쓰는 칸이다 — 주인이 옛 판을 물려받아 번호를 올리는 순간에도 짝은 붙어
-//  있다. 그래서 머리 안에 원자 타입을 박지 않고(머리는 고정 크기 정수만 두는 자리다) 읽고 쓰는 자리에서
-//  atomic_ref로 감싼다. [inv] boot_generation·shutdown_reason은 이 네 함수 밖에서 직접 건드리지 않는다.
+// 아래 둘이 읽는 boot_generation·shutdown_reason은 건너편이 도는 중에 읽고 쓰는 칸이다 — 주인이 옛 판을
+//  물려받아 번호를 올리는 순간에도 짝은 붙어 있다. 그래서 머리 안에 원자 타입을 박지 않고(머리는 고정 크기
+//  정수만 두는 자리다) 읽고 쓰는 자리에서 atomic_ref로 감싼다.
+//  [inv] 두 칸은 create()·mark_clean_shutdown()과 아래 둘, 이 네 함수 밖에서 직접 건드리지 않는다.
 uint64_t SharedRegion::boot_generation() const noexcept
 {
     const SharedRegionHeader* head = header();
@@ -568,8 +570,8 @@ void SharedRegion::mark_clean_shutdown(SharedShutdownReason reason) noexcept
         return;
     }
 
-    // 주인은 주인 칸에, 붙은 쪽은 제 역할 칸에 적는다. 예전에는 주인만 적었는데, 붙는 쪽이 둘이 되면서
-    //  그 둘의 정상/크래시 구분이 통째로 비었다 — 남은 쪽이 "시세가 죽었나 곱게 내려갔나"를 못 가린다.
+    // 주인은 주인 칸에, 붙은 쪽은 제 역할 칸에 적는다 — 붙는 쪽이 둘(전략·시세)이라 칸이 주인 것 하나면
+    //  남은 쪽이 "시세가 죽었나 곱게 내려갔나"를 못 가린다.
     //  [inv] 제 칸 말고는 아무도 쓰지 않는다. [why D-114]
     uint32_t* field = &head->shutdown_reason;
 

@@ -1,5 +1,5 @@
-// ProcessIdentity.h 구현 — 프로세스 표를 읽고, 그 프로세스가 아직 사는지 운영체제에 묻는다.
-//  플랫폼 갈래는 SharedRegion.cpp 와 같은 방식으로 이 파일 안 #ifdef 하나로 둔다.
+// Quant/include/ipc/ProcessIdentity.h 구현 — 프로세스 표를 읽고, 그 프로세스가 아직 사는지 운영체제에 묻는다.
+//  플랫폼 갈래는 Quant/src/ipc/SharedRegion.cpp 와 같은 방식으로 이 파일 안 #ifdef 하나로 둔다.
 #include "ipc/ProcessIdentity.h"
 
 #ifdef _WIN32
