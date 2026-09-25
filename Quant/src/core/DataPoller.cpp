@@ -1,12 +1,86 @@
-// REST 현재가 폴러 구현 — 호출 간격·1회 로그·넘침 목록. 판정·틱 생성은 poller 네임스페이스의 순수 함수(선언은 Quant/include/core/DataPoller.h, 정의는 이 파일 아래쪽). [why D-062]
+// REST 현재가 폴러 구현 — 조회 스레드·호출 간격·1회 로그·넘침 목록. 판정·틱 생성은 poller 네임스페이스의 순수 함수(선언은 Quant/include/core/DataPoller.h, 정의는 이 파일 아래쪽). [why D-062]
 #include "core/DataPoller.h"
 
 #include "core/KstTime.h"
+#include "core/WakeGate.h"
 #include "utils/Logger.h"
 
 #include <thread>
 
 DataPoller::DataPoller(QuoteFn quote, TickSink sink) : quote_(std::move(quote)), sink_(std::move(sink)) {}
+
+DataPoller::~DataPoller()
+{
+    request_stop();
+    join();
+}
+
+void DataPoller::start(LoopSources sources, std::chrono::milliseconds round_period)
+{
+    if (loop_thread_.joinable())
+    {
+        return;
+    }
+
+    // sources는 스레드 안으로 옮긴다 — 이 뒤로 다른 스레드가 만지지 않는다.
+    loop_thread_ = std::jthread([this, sources = std::move(sources), round_period](std::stop_token stop_token)
+                                { loop(stop_token, sources, round_period); });
+}
+
+void DataPoller::request_stop()
+{
+    loop_thread_.request_stop();
+}
+
+void DataPoller::join()
+{
+    if (loop_thread_.joinable())
+    {
+        loop_thread_.join();
+    }
+}
+
+void DataPoller::loop(std::stop_token stop_token, const LoopSources& sources, std::chrono::milliseconds round_period)
+{
+    LOG_INFO("[Engine] REST 조회 스레드 시작 — 목표 주기 " + std::to_string(round_period.count()) + "ms");
+
+    while (!stop_token.stop_requested() && keep_going())
+    {
+        const auto round_start = std::chrono::steady_clock::now();
+        int        ticks       = 0;
+
+        try
+        {
+            const bool rest_mode = sources.rest_mode && sources.rest_mode();
+
+            if (rest_mode && sources.universe)
+            {
+                ticks = poll_universe(sources.universe(), std::time(nullptr));
+            }
+            else if (!rest_mode && sources.from_websocket)
+            {
+                ticks = poll_overflow(sources.from_websocket(), {}, std::time(nullptr));
+            }
+        }
+        catch (const std::exception& exception)
+        {
+            LOG_ERROR("[Engine] REST 조회 스레드 예외 - what(" + std::string(exception.what()) + ")");
+        }
+
+        if (ticks > 0 && sources.on_ticks)
+        {
+            sources.on_ticks(ticks);
+        }
+
+        // 한 바퀴가 목표보다 짧으면 남은 만큼 잔다. 길었으면 바로 다음 바퀴 — 호출 간격과 앱키 한도가 속도를 잡는다.
+        const auto spent = std::chrono::steady_clock::now() - round_start;
+
+        if (spent < round_period && !wake::sleep_unless_stopped(stop_token, round_period - spent))
+        {
+            break;
+        }
+    }
+}
 
 int DataPoller::poll_universe(const std::vector<WatchSpec>& specifications, std::time_t now_utc)
 {

@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <functional>
 #include <initializer_list>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -55,6 +56,11 @@ public:
     // 토큰·레이트리밋 뮤텍스를 소유한다 — 사본은 같은 계좌를 한도 밖에서 두 번 두드린다.
     KisClient(const KisClient&)            = delete;
     KisClient& operator=(const KisClient&) = delete;
+
+    // 같은 app_key를 쓰는 다른 클라이언트와 초당 한도를 한 버킷으로 센다. 실계좌는 주문 키가 곧 시세 키라
+    //  클라이언트 둘이 각자 한도를 채우면 합쳐서 두 배가 나간다. 기동 때 호출 스레드가 뜨기 전에 한 번만 부른다.
+    //  키나 도메인이 다르면 아무것도 하지 않고 false. [why D-138]
+    bool share_rate_limit_with(const KisClient& other);
 
     // 이 스레드의 조회를 재시도 없이 보낸다(재시도 없이 즉시 실패). 공유 전략 스레드처럼 한 번의 왕복이
     //  다른 종목 전체를 막는 자리에서 쓴다 — 3회 재시도 × 타임아웃이면 한 번의 조회가 스레드를
@@ -319,13 +325,16 @@ private:
     mutable std::mutex daily_cache_mutex_;
     std::unordered_map<std::string, DailyCacheEntry> daily_cache_; // 키는 REST 인자 그대로 — 이 클라이언트는 종목 테이블을 모른다(HTTP 왕복당 한 번)
 
-    // 초당 호출 한도 토큰버킷 — 인스턴스(=app_key)당 하나. 한도는 app_key 단위라 시세 클라이언트와
-    //  주문 클라이언트가 각각 자기 예산을 쓴다. 모든 호출이 http_get/http_post를 지나므로
-    //  여기서 재우면 우회하는 호출 경로가 없다. 주문·잔고 경로는 예약분을 따로 둬, 시세 조회가
-    //  버킷을 비워도 주문이 그 뒤에 줄서지 않게 한다.
-    mutable std::mutex rate_mutex_;
-    double rate_tokens_ = 0.0;
-    std::chrono::steady_clock::time_point rate_last_;
+    // 초당 호출 한도 토큰버킷. 한도는 app_key 단위라 같은 키를 쓰는 클라이언트끼리 버킷 하나를 나눠 쥔다
+    //  (share_rate_limit_with). 모든 호출이 http_get/http_post를 지나므로 여기서 재우면 우회하는 호출 경로가 없다.
+    //  주문·잔고 경로는 예약분을 따로 둬, 시세 조회가 버킷을 비워도 주문이 그 뒤에 줄서지 않게 한다. [why D-138]
+    struct RateBucket
+    {
+        std::mutex                            mutex;
+        double                                tokens = 0.0;
+        std::chrono::steady_clock::time_point last;
+    };
+    std::shared_ptr<RateBucket> rate_bucket_ = std::make_shared<RateBucket>();
     // market-cap 한 페이지(최대 kRankingPageRows행). 가격 구간·자르기·재정렬 규약은 아래 volume-rank와 같다.
     std::vector<RankingStock> fetch_kr_ranking_page(const std::string& market_div, const std::string& price_from,
                                                     const std::string& price_to);

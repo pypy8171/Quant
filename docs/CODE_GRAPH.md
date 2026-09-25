@@ -350,6 +350,7 @@ graph LR
   n_core_ControlPlane_h --> n_risk_ProtectiveRule_h
   n_core_DataPoller_cpp --> n_core_DataPoller_h
   n_core_DataPoller_cpp --> n_core_KstTime_h
+  n_core_DataPoller_cpp --> n_core_WakeGate_h
   n_core_DataPoller_cpp --> n_utils_Logger_h
   n_core_DataPoller_h --> n_core_Types_h
   n_core_Engine_cpp --> n_core_Engine_h
@@ -936,7 +937,7 @@ graph LR
 | `scripts/backfill_studies.py` | `backtest.report` |
 | `scripts/build_review_entry.py` | `market_close_collect` |
 | `scripts/check_market_open.py` | `kis.client` |
-| `scripts/check_runtime_health.py` | `_logdir`, `log_patterns` |
+| `scripts/check_runtime_health.py` | `_logdir`, `capture_stats`, `log_patterns` |
 | `scripts/dashboard_server.py` | `_logdir`, `kis.client`, `naver.theme` |
 | `scripts/deploy_trader.py` | `deploy_lock`, `notify_trades`, `restart_verify` |
 | `scripts/exit_ev.py` | `backtest.costs` |

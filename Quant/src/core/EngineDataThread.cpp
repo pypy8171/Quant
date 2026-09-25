@@ -480,27 +480,8 @@ void Engine::data_thread_fn(std::stop_token stop_token)
 
             }
 
-            // 폴링 두 가지는 시세 소켓을 쥔 쪽 일감이다 — 넘침 목록이 그 소켓에만 있고, WS가 죽어 REST로
-            //  낮출지를 아는 것도 그쪽뿐이다. 한 프로세스로 돌면 셋이 다 참이라 예전과 같은 자리에서 돈다.
-            //  [why D-114 단계 5]
-            if (feed_side && poller_)
-            {
-                if (rest_now)
-                {
-                    // REST 현재가 폴링 → TradeData(WS on_trade 경로 대체). 깨진 일봉(G1/G2) 대신 살아있는
-                    //  get_current_price를 쓰고, ITB는 이 틱으로 1분 버킷 채널을 구성/스탑 평가한다.
-                    //  종전엔 WS와 같은 큐에 넣었는데, WS 폴백 중 WS가 되살아나면 생산자가 둘이 됐다 — 폴러의
-                    //  싱크는 행렬의 데이터 스레드 행이라 그 경우가 없다. [why D-062]
-                    data_count_ += poller_->poll_universe(watch_specifications_, std::time(nullptr));
-                }
-                else if (feed_.websocket)
-                {
-                    // WS 상한에 밀린 종목은 REST로 받는다. 칸 복귀는 rebalance_websocket_slots()가 우선순위로 정한다 — 여기서
-                    //  먼저 잡으면 넘침 목록에 먼저 선 종목이 보유 종목보다 칸을 먼저 가져간다. [why D-132]
-                    //  REST 폴백이 도는 사이클에는 부르지 않는다(그쪽이 이미 전 종목을 폴링한다).
-                    data_count_ += poller_->poll_overflow(feed_.websocket->take_overflow_specifications(), {}, std::time(nullptr));
-                }
-            }
+            // REST 폴백·넘침 종목 조회는 이 사이클에서 떼어 폴러의 조회 스레드가 1초 목표로 돈다
+            //  (Engine::start_rest_poll_loop). [why D-138]
         }
         catch (const std::exception& exception)
         {

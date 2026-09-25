@@ -26,6 +26,10 @@ struct AppConfig
     bool                   bootstrap_ledger_from_balance = false;
     bool                   rest_price_feed = false;
     std::string            capture_directory;
+    // 캡처에 담을 종목(비면 구독 종목 전부). 전 종목 호가까지 남기면 하루 GB 단위라 확인용으로 좁힌다. [why D-138]
+    std::vector<std::string> capture_tickers;
+    // 전략이 안 봐도 WS 칸을 늘 쥐는 종목(체결만). 엔진이 실제로 받는 체결 수를 캡처로 세려고 둔다. [why D-138]
+    std::vector<std::string> websocket_pin_tickers;
     // 원장 저널 폴더(ledger_YYYYMMDD.bin). capture_directory와 독립 — 틱 캡처를 안 켜도 이건 켠다(저장량이 틱의
     //  몇 만분의 1). 빈 문자열=끔(테스트·벤치만). fsync=append마다 디스크 동기화. [why D-113]
     std::string            ledger_journal_directory;

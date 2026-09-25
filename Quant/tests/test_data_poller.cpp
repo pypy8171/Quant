@@ -1,14 +1,20 @@
 // REST 현재가 폴러(core/DataPoller.h) 단위 테스트. 브로커·큐·WS 재구독을 std::function으로 대신해 KIS 없이
 //  유니버스 폴링(KR만·실패 건너뜀·종료 플래그), 넘침 목록의 중복·재구독 복귀·REST 대체와 1회 로그, 틱 끊긴
-//  보유 선택, KST 시각 변환을 고정한다. Logger만 링크한다. 관련 결정: D-053(대체 틱 큐), D-062(분리).
+//  보유 선택, KST 시각 변환, 폴러 자기 스레드의 바퀴·폴백 전환·멈춤을 고정한다. Logger만 링크한다. 관련 결정: D-053(대체 틱 큐), D-062(분리).
 // 빌드: cmake --build <directory> --target test_data_poller
 #include "core/DataPoller.h"
 #include "core/KstTime.h"
 #include "utils/Logger.h"
 
+#include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cstdlib>
+#include <functional>
 #include <iostream>
 #include <map>
+#include <mutex>
+#include <thread>
 #include <vector>
 
 namespace
@@ -173,6 +179,90 @@ int test_top_up()
     CHECK(data_poller.top_up({"A"}, [&](const std::string& ticker, double price) { received.emplace_back(ticker, price); }) == 0 && received.empty());
     return 0;
 }
+
+// 폴러 자기 스레드 — 넘침 목록을 매 바퀴 조회하고, REST 폴백으로 바뀌면 유니버스를 돈다. 멈춤 요청은
+//  바퀴 사이 대기를 바로 깨운다(바퀴 주기가 길어도 종료가 늦지 않다). [why D-138]
+bool wait_until(const std::function<bool()>& condition)
+{
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+
+    while (!condition())
+    {
+        if (std::chrono::steady_clock::now() > deadline)
+        {
+            return false;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+
+    return true;
+}
+
+int test_loop()
+{
+    std::mutex               asked_mutex;
+    std::vector<std::string> asked;
+    std::atomic<int>         sunk{0};
+    std::atomic<int>         counted{0};
+    std::atomic<bool>        rest_mode{false};
+    std::atomic<int>         websocket_calls{0};
+    DataPoller data_poller(
+        [&](const std::string& ticker)
+        {
+            std::lock_guard<std::mutex> lock(asked_mutex);
+            asked.push_back(ticker);
+            return 100.0;
+        },
+        [&](const TradeData&) { ++sunk; });
+    data_poller.set_universe_call_interval(std::chrono::milliseconds(0));
+
+    DataPoller::LoopSources sources;
+    sources.rest_mode      = [&] { return rest_mode.load(); };
+    sources.universe       = [] { return std::vector<WatchSpec>{specification("U")}; };
+    sources.from_websocket = [&]
+    {
+        // 첫 바퀴에만 넘침 종목을 준다 — 그 뒤로는 폴러 목록에 남아 매 바퀴 조회돼야 한다.
+        return websocket_calls++ == 0 ? std::vector<WatchSpec>{specification("A")} : std::vector<WatchSpec>{};
+    };
+    sources.on_ticks = [&](int ticks) { counted += ticks; };
+    data_poller.start(std::move(sources), std::chrono::milliseconds(5));
+
+    CHECK(wait_until([&] { return counted.load() >= 3; })); // 세 바퀴 이상 A를 조회했다
+    CHECK(sunk.load() >= 3 && data_poller.overflow_count() == 1);
+
+    {
+        std::lock_guard<std::mutex> lock(asked_mutex);
+        asked.clear();
+    }
+
+    rest_mode = true;
+    CHECK(wait_until([&]
+    {
+        std::lock_guard<std::mutex> lock(asked_mutex);
+        return std::find(asked.begin(), asked.end(), "U") != asked.end();
+    }));
+
+    data_poller.request_stop();
+    data_poller.join();
+
+    // 바퀴 주기가 1분이어도 멈춤 요청이 대기를 깨워 곧바로 회수된다.
+    DataPoller slow([](const std::string&) { return 1.0; }, [](const TradeData&) {});
+    DataPoller::LoopSources idle;
+    std::atomic<int> rounds{0};
+    idle.from_websocket = [&]
+    {
+        ++rounds;
+        return std::vector<WatchSpec>{};
+    };
+    slow.start(std::move(idle), std::chrono::minutes(1));
+    CHECK(wait_until([&] { return rounds.load() >= 1; }));
+    const auto stop_begin = std::chrono::steady_clock::now();
+    slow.request_stop();
+    slow.join();
+    CHECK(std::chrono::steady_clock::now() - stop_begin < std::chrono::seconds(2) && rounds.load() == 1);
+    return 0;
+}
 } // namespace
 
 int main()
@@ -183,7 +273,7 @@ int main()
         Logger::instance().set_base_directory(Logger::executable_directory() / "logs_test");
     }
 
-    if (test_kst() || test_pure() || test_universe() || test_overflow() || test_top_up())
+    if (test_kst() || test_pure() || test_universe() || test_overflow() || test_top_up() || test_loop())
     {
         return 1;
     }

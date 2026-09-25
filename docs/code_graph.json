@@ -510,6 +510,7 @@
     "core/DataPoller.cpp": [
       "core/DataPoller.h",
       "core/KstTime.h",
+      "core/WakeGate.h",
       "utils/Logger.h"
     ],
     "core/DataPoller.h": [
@@ -1641,6 +1642,7 @@
     "core/WakeGate.h": [
       "api/WebSocketClient.cpp",
       "core/ControlPlane.h",
+      "core/DataPoller.cpp",
       "core/Engine.h",
       "core/FeedMux.h",
       "core/PrefetchPool.h",
@@ -2031,11 +2033,11 @@
       "in_degree": 12
     },
     {
-      "header": "api/KisClient.h",
-      "in_degree": 11
+      "header": "core/WakeGate.h",
+      "in_degree": 12
     },
     {
-      "header": "core/WakeGate.h",
+      "header": "api/KisClient.h",
       "in_degree": 11
     },
     {
@@ -2192,6 +2194,7 @@
       "scripts/backfill_studies.py",
       "scripts/build_review_entry.py",
       "scripts/build_study_site.py",
+      "scripts/capture_stats.py",
       "scripts/check_backtest.py",
       "scripts/check_market_open.py",
       "scripts/check_runtime_health.py",
@@ -2487,6 +2490,7 @@
       ],
       "scripts/check_runtime_health.py": [
         "_logdir",
+        "capture_stats",
         "log_patterns"
       ],
       "scripts/dashboard_server.py": [
@@ -2591,6 +2595,9 @@
         "PYQuant/dashboard/backfill_series_a.py",
         "PYQuant/main.py",
         "scripts/backfill_studies.py"
+      ],
+      "capture_stats": [
+        "scripts/check_runtime_health.py"
       ],
       "check_runtime_health": [
         "scripts/market_close_autodoc.py",

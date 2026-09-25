@@ -211,6 +211,8 @@ AppConfig parse_config(const json& document)
     app.bootstrap_ledger_from_balance = document.value("bootstrap_ledger_from_balance", false);
     app.rest_price_feed               = document.value("rest_price_feed", false);
     app.capture_directory             = document.value("capture_dir", std::string());
+    app.capture_tickers               = document.value("capture_tickers", std::vector<std::string>{});
+    app.websocket_pin_tickers         = document.value("websocket_pin_tickers", std::vector<std::string>{});
     app.ledger_journal_directory      = document.value("ledger_journal_dir", std::string());
     app.ledger_journal_fsync          = document.value("ledger_journal_fsync", false);
     app.strategy_shards               = document.value("strategy_shards", 1u);

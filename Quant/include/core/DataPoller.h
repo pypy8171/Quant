@@ -1,8 +1,10 @@
 #pragma once
 // REST 현재가 폴러 — WS 대신(폴링 모드·WS 폴백) 유니버스를 훑거나, WS 구독 상한에 밀린 종목을 재구독·REST로
-//  대신 흘리거나, 틱이 끊긴 보유 종목의 현재가를 보충한다. poll_*·top_up은 Engine의 data_thread가 부르고, add_overflow는
-//  제어 스레드(구독 요청 반영)도 부른다 — 그래서 넘침 목록만 overflow_mutex_로 지킨다. 1회 로그 집합은 data_thread 소유라 락이 없다. 브로커 호출·틱 배출·재구독은 std::function으로 받아 KIS 없이 시험한다.
-//  [why D-062]
+//  대신 흘리거나, 틱이 끊긴 보유 종목의 현재가를 보충한다.
+//  스레드: poll_*는 이 객체의 조회 스레드(start로 띄움)가 부르고, top_up은 Engine의 data_thread가 부른다. add_overflow·
+//  remove_overflow는 제어 스레드(구독 요청 반영)도 부른다 — 그래서 넘침 목록만 overflow_mutex_로 지킨다. 1회 로그 집합은
+//  조회 스레드 소유라 락이 없다. 브로커 호출·틱 배출·재구독은 std::function으로 받아 KIS 없이 시험한다.
+//  [why D-062] [why D-138]
 #include "core/Types.h"
 
 #include <chrono>
@@ -10,7 +12,9 @@
 #include <functional>
 #include <mutex>
 #include <optional>
+#include <stop_token>
 #include <string>
+#include <thread>
 #include <unordered_set>
 #include <vector>
 
@@ -50,11 +54,32 @@ public:
     using ResubscribeFn = std::function<bool(const WatchSpec&)>;            // WS 재구독 시도. true = 슬롯 확보
     using KeepGoingFn   = std::function<bool()>;                            // running_ — 종료 중이면 루프를 끊는다
 
+    // 조회 스레드가 한 바퀴마다 묻는 것들. 어느 것이든 비어 있으면 그 일을 하지 않는다.
+    struct LoopSources
+    {
+        std::function<bool()>                   rest_mode;      // true = WS가 없거나 죽어 감시 종목 전체를 REST로 받는다
+        std::function<std::vector<WatchSpec>()> universe;       // 감시 종목 사본(rest_mode일 때만 묻는다)
+        std::function<std::vector<WatchSpec>()> from_websocket; // 소켓이 상한에 밀어낸 종목. 가져가면 소켓 쪽은 비워진다
+        std::function<void(int)>                on_ticks;       // 한 바퀴에 흘린 틱 수(data_count_ 가산용)
+    };
+
     DataPoller(QuoteFn quote, TickSink sink);
+    ~DataPoller();
+    DataPoller(const DataPoller&)            = delete;
+    DataPoller& operator=(const DataPoller&) = delete;
+
+    // 조회 스레드를 띄운다. 한 바퀴(넘침 종목 전체, REST 폴백이면 감시 종목 전체)를 round_period 안에 끝내는 것이
+    //  목표다. 종목이 많아 한 바퀴가 그보다 길면 쉬지 않고 다음 바퀴로 간다 — 그때 주기는 종목 수 × 호출 간격이다.
+    //  예전에는 data_thread의 30초 사이클 안에서 돌아, 넘친 종목의 시세가 30초에 한 점이었다. [why D-138]
+    void start(LoopSources sources, std::chrono::milliseconds round_period);
+    // 정지 요청만 한다(엔진 request_shutdown에서). 회수는 join이다.
+    void request_stop();
+    // 조회 스레드 회수. sink가 넣는 행렬보다 먼저 멈춰야 하므로 엔진 stop()이 샤드 join 전에 부른다.
+    void join();
 
     void set_keep_going(KeepGoingFn keep_going) { keep_going_ = std::move(keep_going); }
-    // 종목 간 호출 간격. 실전 도메인 시세는 초당 한도(~20/s)가 있어 무간격으로 몰아치면 뒷종목이 HTTP 500으로
-    //  떨어진다 — 150ms면 한도 밑에 깔려 전 종목이 매 사이클 틱을 받는다(종목 수×150ms가 사이클 안에 들게).
+    // 종목 간 호출 간격. 실전 앱키 한도는 초당 20건이고 주문·잔고·스캔도 같은 한도를 쓴다(실계좌는 같은 키).
+    //  100ms면 조회 스레드가 초당 10건까지만 쓰고 나머지를 남긴다 — 넘친 종목 10개까지 1초 주기다. [why D-138]
     void set_universe_call_interval(std::chrono::milliseconds milliseconds) { universe_call_interval_ = milliseconds; }
     // 보유 보충은 모의 도메인(초당 한도가 낮다)에서도 돌아 300ms.
     void set_top_up_call_interval(std::chrono::milliseconds milliseconds) { top_up_call_interval_ = milliseconds; }
@@ -78,11 +103,12 @@ public:
 
 private:
     bool keep_going() const { return !keep_going_ || keep_going_(); }
+    void loop(std::stop_token stop_token, const LoopSources& sources, std::chrono::milliseconds round_period);
 
     QuoteFn                   quote_;
     TickSink                  sink_;
     KeepGoingFn               keep_going_;
-    std::chrono::milliseconds universe_call_interval_{150};
+    std::chrono::milliseconds universe_call_interval_{100};
     std::chrono::milliseconds top_up_call_interval_{300};
     // [lock-order] overflow_mutex_ 안에서는 다른 락을 잡지 않고 네트워크 호출도 하지 않는다.
     mutable std::mutex        overflow_mutex_;
@@ -91,4 +117,5 @@ private:
     //  문자열인 이유: 소스 계층은 종목 테이블 앞이라 WatchSpec.ticker(문자열)만 있다. REST 왕복당 한 번.
     std::unordered_set<std::string> rest_seen_;
     std::unordered_set<std::string> rest_failed_;
+    std::jthread                    loop_thread_; // 마지막 멤버 — 소멸 때 가장 먼저 멈추고 회수된다
 };

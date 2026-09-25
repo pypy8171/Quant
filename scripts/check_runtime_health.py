@@ -1250,6 +1250,80 @@ def orphan_process_rows() -> list:
             (tool_name, tool_bytes < tool_limit_bytes, "WARN", tool_detail)]
 
 
+def pinned_capture_row(date: str) -> tuple:
+    """WS 고정 종목(websocket_pin_tickers)의 체결을 엔진이 실제로 받았는지 캡처로 센다.
+
+    엔진이 체결을 빠짐없이 받는지 확인하려고 한 종목(000660)을 칸에 고정하고 캡처에 담는다. [why D-138]
+    받은 체결 수가 0이면 칸을 못 쥐었거나 캡처가 꺼진 것이고, 수량 합이 KIS 누적거래량 증가분보다
+    작으면 받는 길에서 체결이 빠진 것이다. 09-21 모의 캡처 25종목은 99.8~99.96%였다(356680 하나만 94.7%)
+    — 100%가 아닌 까닭을 아직 모르므로 99% 아래는 경고로만 둔다.
+    """
+    import capture_stats  # noqa: PLC0415 — scripts/ 가 sys.path 에 있다
+
+    name = "고정 종목 체결 수신"
+    pins: set[str] = set()
+    folders: set[Path] = set()
+
+    for config_path in sorted((REPO / "Quant" / "config").glob("config*.json")):
+        try:
+            document = json.loads(config_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+
+        if document.get("websocket_pin_tickers") and document.get("capture_dir"):
+            pins.update(document["websocket_pin_tickers"])
+            folders.add(REPO / document["capture_dir"])
+
+    if not pins:
+        return (name, True, "WARN", "websocket_pin_tickers 를 켠 설정이 없다 — 판정 안 함")
+
+    files = [path for folder in sorted(folders) for path in capture_stats.capture_files(folder, date)]
+
+    if not files:
+        return (name, True, "WARN", f"{date} 캡처 파일이 없다 — 판정 안 함")
+
+    trades: dict[str, int] = {pin: 0 for pin in pins}
+    matches: dict[str, list[float]] = {pin: [] for pin in pins}
+    anything = 0
+
+    for path in files:
+        try:
+            summary = capture_stats.summarize(path)
+        except (OSError, ValueError):
+            continue
+
+        for ticker, statistics in summary.tickers.items():
+            anything += statistics.trades
+
+            if ticker in pins:
+                trades[ticker] += statistics.trades
+                match = statistics.volume_match()
+
+                if match is not None:
+                    matches[ticker].append(match)
+
+    if not anything:
+        return (name, True, "WARN", f"{date} 캡처 {len(files)}개에 체결이 하나도 없다(장 밖 기동) — 판정 안 함")
+
+    details = []
+
+    for pin in sorted(pins):
+        lowest = min(matches[pin]) if matches[pin] else None
+        details.append(f"{pin} {trades[pin]}건" + ("" if lowest is None else f" 수량/누적거래량 {lowest * 100:.2f}%"))
+
+    missing = [pin for pin in pins if trades[pin] == 0]
+
+    if missing:
+        return (name, False, "FAIL", f"다른 종목은 받았는데 고정 종목 {', '.join(sorted(missing))} 체결 0건 — 칸을 못 쥐었다 ({'; '.join(details)})")
+
+    short = [pin for pin in pins if matches[pin] and min(matches[pin]) < 0.99]
+
+    if short:
+        return (name, False, "WARN", f"수량 합이 누적거래량보다 1% 넘게 모자란다 — 받는 길에서 체결이 빠졌을 수 있다 ({'; '.join(details)})")
+
+    return (name, True, "WARN", f"캡처 {len(files)}개 — {'; '.join(details)}")
+
+
 def global_rows(date: str) -> list:
     """계좌와 무관한 판정 — 하루에 한 번만 낸다.
 
@@ -1268,6 +1342,7 @@ def global_rows(date: str) -> list:
         shared_region_exit_row(date),
         order_answer_row(date),
         fill_notice_session_row(date),
+        pinned_capture_row(date),
         scan_registration_row(date),
         job_attach_row(date),
         *orphan_process_rows(),

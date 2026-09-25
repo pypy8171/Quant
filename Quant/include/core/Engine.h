@@ -237,6 +237,10 @@ public:
     // WS 틱·호가 캡처 폴더(빈 문자열이면 끔). 기동마다 ticks_<UTC시각>.bin 하나. REST 대체 틱은 raw 피드가
     //  아니라 캡처하지 않는다. [why D-071]
     void set_capture_directory(const std::string& directory) { feed_.capture_directory = directory; }
+    // 캡처에 담을 종목만 고른다(비면 전부). [why D-138]
+    void set_capture_tickers(const std::vector<std::string>& tickers) { feed_.capture_tickers = tickers; }
+    // 전략이 안 봐도 WS 칸을 가장 앞 순위로 쥐는 종목(체결만). [why D-138]
+    void set_websocket_pin_tickers(const std::vector<std::string>& tickers) { websocket_pin_tickers_ = tickers; }
 
     // 원장 저널 폴더 — 거래일마다 ledger_YYYYMMDD.bin 하나(틱 캡처와 달리 재기동이 같은 파일에 이어 쓴다, 다음 기동이
     //  리플레이해야 하므로). start()가 열고 리플레이하며, 못 열면 기동을 거부한다. 빈 문자열이면 저널 없이 동작
@@ -575,6 +579,7 @@ private:
 
     void connect_feed();
     void spawn_threads();
+    void start_rest_poll_loop(); // 피드 쪽이면 폴러 조회 스레드를 1초 바퀴로 띄운다 [why D-138]
 
     // 시세 한 건을 이 종목을 보는 샤드 전부에 나눠 넣는다(경로표 `routes`). 한 프로세스로 돌면 소켓
     //  수신 스레드가, 갈라 띄우면 전략 쪽 줄 스레드가 부른다 — 어느 쪽이든 행렬 그 행의 생산자는 하나다.
@@ -715,6 +720,9 @@ private:
         bool                                 broker_offline = false; // 피드 소스가 없는 역할도 KIS를 부르지 않는다 [why D-114 단계 5]
         std::string                        capture_directory;
         std::unique_ptr<feed::TickCapture> capture; // WS 수신 스레드(소켓마다 하나)가 on_*를 부른다 — 큐는 MPSC
+        std::vector<std::string>           capture_tickers;
+        // 종목 id → 캡처에 담나. 비면 전부 담는다. [inv] 캡처를 열 때 한 번 채우고 그 뒤로는 읽기만 한다.
+        std::vector<uint8_t>               capture_wanted;
     };
     FeedState feed_;
     // ── 매크로 레짐 ──────────────────────────────────────────────────────────
@@ -734,9 +742,10 @@ private:
     // 잔고 → 원장 대조기(기동 시드·주기 대조·손익 기준선·서킷브레이커). start()에서 feed_.kis·order_router_ 뒤에
     //  만들고 data_thread만 부른다. [why D-061]
     std::unique_ptr<LedgerReconciler> ledger_;
-    // REST 현재가 폴러(폴링 모드 유니버스·WS 넘침 대체·보유 보충). start()에서 feed_.kis 뒤에 만들고
-    //  data_thread만 부른다 — 넘침 목록이 여기로 옮겨가며 watch_specifications_mutex_ 보호에서 빠졌다. [why D-062]
+    // REST 현재가 폴러(폴링 모드 유니버스·WS 넘침 대체·보유 보충). start()에서 feed_.kis 뒤에 만든다.
+    //  poll_*은 폴러 자기 스레드(start_rest_poll_loop), top_up은 data_thread가 부른다. [why D-062] [why D-138]
     std::unique_ptr<DataPoller> poller_;
+    static constexpr int kRestPollRoundMs = 1000; // 넘침 종목 한 바퀴 목표. 종목이 한도(초당 10)를 넘으면 그만큼 늘어난다
 
     // 무거운 REST를 미리 당기는 공용 프리페치 풀. 전략보다 먼저 선언해 나중에 사라지게 둔다
     //  — 전략 소멸자가 자기 작업을 떼는 동안 풀이 살아 있어야 한다. [why D-071]
@@ -990,6 +999,15 @@ private:
     // 전략 쪽이 마지막으로 보낸 칸 우선순위 — 종목 id 인덱스, 아직 안 보냈으면 kUnsent. [inv] data_thread만. [why D-132]
     static constexpr int32_t kUnsent = -1;
     std::vector<int32_t>     watch_priority_sent_;
+    // 칸을 늘 쥐는 종목(설정 websocket_pin_tickers). 기동 때 한 번 받고 읽기만 한다 — 몇 개뿐이라 선형 탐색. [why D-138]
+    std::vector<std::string> websocket_pin_tickers_;
+    bool is_websocket_pinned(std::string_view ticker) const;
+    // 이 종목 체결·호가를 캡처에 담나. 수신 스레드가 부른다 — 문자열 없이 id 인덱스로 본다(원칙 6).
+    bool capture_wanted(symbol::SymbolId symbol) const
+    {
+        return feed_.capture_wanted.empty() || (symbol < feed_.capture_wanted.size() && feed_.capture_wanted[symbol] != 0);
+    }
+
     // 구독 상한에 밀린 종목 수. 0이 아니면 그 종목은 WS 틱을 못 받는다 — 판정 행 "구독 상한"이 본다. [why D-114]
     std::atomic<uint64_t> watch_overflow_{0};
     // 시세 통로 버린 건수 둘. 보내는 쪽은 소켓 수신 스레드, 받는 쪽은 줄 스레드가 올린다. [why D-114]

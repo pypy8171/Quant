@@ -1153,6 +1153,7 @@
 - [build_review_entry.py](../scripts/build_review_entry.py) — 장 마감 리뷰 항목 생성 스크립트
 - [build_study_site.py](../scripts/build_study_site.py) — 주식 스터디 리더 사이트 생성 스크립트
 - [build_trader.ps1](../scripts/build_trader.ps1) — 장중 재빌드 진입구. 한글 TEMP·실행 중 exe 잠금으로 나는 LNK1104 두 가지를 링크 전에 가른다
+- [capture_stats.py](../scripts/capture_stats.py) — 틱 캡처 파일에서 엔진이 받은 체결 수를 종목별로 센다(분당·초당 최대, 수량 합 ÷ 누적거래량, D-138)
 - [check_backtest.py](../scripts/check_backtest.py) — 백테스트 재현성 검사 스크립트
 - [check_market_open.py](../scripts/check_market_open.py) — 오늘 개장인지 KIS 국내휴장일조회로 묻는다(달력 24일치 캐시, 종료코드 0 개장·1 휴장·2 모름)
 - [check_runtime_health.py](../scripts/check_runtime_health.py) — 실행 로그 장애 패턴 검사 스크립트

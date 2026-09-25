@@ -92,6 +92,24 @@ void Engine::collect_watch_specifications()
         }
     }
 
+    // 고정 종목은 목록 맨 앞에 체결만으로 넣는다 — 연결 때 앞에서부터 칸을 채우므로 상한에 밀리지 않는다. [why D-138]
+    for (auto pin = websocket_pin_tickers_.rbegin(); pin != websocket_pin_tickers_.rend(); ++pin)
+    {
+        const bool already = std::any_of(watch_specifications_.begin(), watch_specifications_.end(),
+                                         [&pin](const WatchSpec& watch) { return watch.market == Market::KR && watch.ticker == *pin; });
+
+        if (!already)
+        {
+            WatchSpec specification;
+            specification.ticker     = *pin;
+            specification.market     = Market::KR;
+            specification.trade_only = true;
+            watch_specifications_.insert(watch_specifications_.begin(), std::move(specification));
+        }
+
+        LOG_INFO("[Engine] WS 고정 종목: " + *pin);
+    }
+
     LOG_INFO("[Engine] WS 구독 종목: " + std::to_string(watch_specifications_.size()) + "개");
 
     // 재스캔 중복 방지 시드 — 기동 유니버스에 이미 등록된 KR 종목 기록(스펙의 문자열 티커는 여기서 id가 된다).
@@ -229,8 +247,8 @@ void Engine::drain_pending_subscriptions()
 }
 
 // 소켓을 쥔 시세 프로세스가 디코드한 체결을 전략 프로세스로 넘긴다. 기다리지 않는다 — 큐가 차면 버리고 센다(원칙 3).
-//  [inv] 한 줄의 보내는 쪽은 스레드 하나다 — 소켓 줄은 그 수신 스레드, 마지막 줄(pipeline_.data_row)은 넘침 폴러를
-//  돌리는 데이터 스레드. 한 줄을 두 스레드가 부르면 SPSC가 깨진다. [why D-114]
+//  [inv] 한 줄의 보내는 쪽은 스레드 하나다 — 소켓 줄은 그 수신 스레드, 마지막 줄(pipeline_.data_row)은 폴러의
+//  조회 스레드. 한 줄을 두 스레드가 부르면 SPSC가 깨진다. [why D-114] [why D-138]
 void Engine::push_feed_trade(uint32_t lane, const TradeData& trade)
 {
     if (!layout_.feed().push_trade(lane, trade) &&
@@ -480,6 +498,25 @@ void Engine::connect_feed()
         {
             LOG_INFO("[Engine] 틱 캡처 시작: " + feed_.capture_directory + "/" + file_name);
 
+            // 담을 종목을 좁혔으면 id 표로 바꿔 둔다 — 수신 스레드는 이 표만 본다. 콜백을 걸기 전이라 경합이 없다.
+            for (const auto& ticker : feed_.capture_tickers)
+            {
+                const symbol::SymbolId symbol = symbols_.table.intern(ticker);
+
+                if (symbol == symbol::kNone)
+                {
+                    continue;
+                }
+
+                if (feed_.capture_wanted.size() <= symbol)
+                {
+                    feed_.capture_wanted.resize(std::max<size_t>(symbols_.table.capacity() + 1, symbol + 1), 0);
+                }
+
+                feed_.capture_wanted[symbol] = 1;
+                LOG_INFO("[Engine] 틱 캡처 대상: " + ticker);
+            }
+
             // 그날 무엇을 구독했는지를 파일 머리에 남긴다 — 호가가 비어 있는 종목이 trade_only인지 파일만 보고 알 수 있게.
             for (const auto& specification : watch_specifications_)
             {
@@ -511,7 +548,7 @@ void Engine::connect_feed()
                                order_book.received_ns = trace::now_ns();
                            }
 
-                           if (feed_.capture)
+                           if (feed_.capture && capture_wanted(order_book.symbol_id))
                            {
                                feed_.capture->on_book(order_book);
                            }
@@ -552,7 +589,7 @@ void Engine::connect_feed()
                                trade.received_ns = trace::now_ns();
                            }
 
-                           if (feed_.capture)
+                           if (feed_.capture && capture_wanted(trade.symbol_id))
                            {
                                feed_.capture->on_trade(trade);
                            }
@@ -608,6 +645,11 @@ void Engine::connect_feed()
 }
 
 // ─── 구독 칸 배정(제어 스레드) ────────────────────────────────────────────
+bool Engine::is_websocket_pinned(std::string_view ticker) const
+{
+    return std::find(websocket_pin_tickers_.begin(), websocket_pin_tickers_.end(), ticker) != websocket_pin_tickers_.end();
+}
+
 int32_t Engine::websocket_slot_priority(const WatchSpec& specification) const
 {
     if (!websocket_slot::is_managed(specification))

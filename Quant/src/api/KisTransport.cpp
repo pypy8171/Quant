@@ -1,5 +1,5 @@
 // api/KisTransport.cpp — HTTP 전송 한 겹: 플랫폼별 요청(WinHTTP/libcurl)·재시도·초당 한도·공용 인증 헤더.
-//  모든 REST 호출은 http_get/http_post를 지난다. 스레드 공용(연결은 스레드별 캐시, 한도 버킷은 rate_mutex_).
+//  모든 REST 호출은 http_get/http_post를 지난다. 스레드 공용(연결은 스레드별 캐시, 한도 버킷은 RateBucket::mutex — 같은 app_key끼리 공유).
 //  KisClient 멤버 구현은 도메인별 7파일이다(목록 Quant/src/api/KisClientInternal.h). 자유 함수는
 //  Quant/src/api/KisClient.cpp. [why D-048]
 #include "KisClientInternal.h"
@@ -599,28 +599,29 @@ void KisClient::rate_limit_acquire(const std::string& url)
     {
         double wait_sec = 0.0;
         {
-            std::lock_guard<std::mutex> lock(rate_mutex_);
+            RateBucket&                 bucket = *rate_bucket_;
+            std::lock_guard<std::mutex> lock(bucket.mutex);
             auto now = std::chrono::steady_clock::now();
 
-            if (rate_last_.time_since_epoch().count() == 0)
+            if (bucket.last.time_since_epoch().count() == 0)
             {
-                rate_last_ = now;
-                rate_tokens_ = capacity; // 첫 호출은 기다리지 않는다
+                bucket.last   = now;
+                bucket.tokens = capacity; // 첫 호출은 기다리지 않는다
             }
 
-            double elapsed = std::chrono::duration<double>(now - rate_last_).count();
-            rate_last_ = now;
-            rate_tokens_ = (std::min)(capacity, rate_tokens_ + elapsed * refill);
+            double elapsed = std::chrono::duration<double>(now - bucket.last).count();
+            bucket.last   = now;
+            bucket.tokens = (std::min)(capacity, bucket.tokens + elapsed * refill);
 
-            if (rate_tokens_ >= need)
+            if (bucket.tokens >= need)
             {
-                rate_tokens_ -= 1.0;
+                bucket.tokens -= 1.0;
                 t_rate_wait_ns += static_cast<std::uint64_t>(
                     std::chrono::duration_cast<std::chrono::nanoseconds>(now - acquire_start).count());
                 return;
             }
 
-            wait_sec = (need - rate_tokens_) / refill;
+            wait_sec = (need - bucket.tokens) / refill;
         }
         
         if (wait_sec > 0.2)
@@ -634,8 +635,20 @@ void KisClient::rate_limit_acquire(const std::string& url)
 
 void KisClient::note_rate_limited()
 {
-    std::lock_guard<std::mutex> lock(rate_mutex_);
-    rate_tokens_ = 0.0; // 다음 호출은 리필을 기다린다(모의 기준 ≈1초, 실전은 ≈0.13초)
+    RateBucket&                 bucket = *rate_bucket_;
+    std::lock_guard<std::mutex> lock(bucket.mutex);
+    bucket.tokens = 0.0; // 다음 호출은 리필을 기다린다(모의 기준 ≈1초, 실전은 ≈0.13초)
+}
+
+bool KisClient::share_rate_limit_with(const KisClient& other)
+{
+    if (&other == this || other.config_.app_key != config_.app_key || other.config_.is_paper != config_.is_paper)
+    {
+        return false;
+    }
+
+    rate_bucket_ = other.rate_bucket_;
+    return true;
 }
 
 std::string KisClient::http_get(const std::string& url, const std::vector<std::string>& headers)

@@ -257,6 +257,12 @@ bool Engine::authenticate_feed(bool offline)
         else
         {
             LOG_INFO("[Engine] 시세 클라이언트(실전 도메인) 인증 완료 — 현재가 폴링 소스");
+
+            // 실계좌는 시세 키가 주문 키의 사본이다 — 초당 한도를 둘이 따로 세면 같은 키로 두 배가 나간다. [why D-138]
+            if (feed_.quote_kis->share_rate_limit_with(*feed_.kis))
+            {
+                LOG_INFO("[Engine] 시세·주문 클라이언트가 같은 앱키 — 초당 호출 한도를 하나로 센다");
+            }
         }
     }
 
@@ -308,7 +314,7 @@ void Engine::initialize_ledger_reconciler()
 void Engine::initialize_data_poller()
 {
     // REST 현재가 폴러. 시세는 시세 전용 클라이언트가 있으면 그쪽(실전 도메인 초당 한도가 높다). [why D-062]
-    //  [lock-order] 데이터 스레드는 pipeline_.trade_matrix의 WS 수신 스레드 행에 넣지 않는다 — 폴러의 틱은 자기 행(pipeline_.data_row)으로 간다.
+    //  [lock-order] 폴러 스레드는 pipeline_.trade_matrix의 WS 수신 스레드 행에 넣지 않는다 — 폴러의 틱은 자기 행(pipeline_.data_row)으로 간다.
     poller_ = std::make_unique<DataPoller>(
         [this](const std::string& ticker)
         {
@@ -320,8 +326,8 @@ void Engine::initialize_data_poller()
             trade.symbol_id       = lookup_symbol(trade.ticker);
 
             // 갈라 띄우면 샤드가 저쪽에 있다 — WS 수신 스레드와 같은 길로 통로에 넣고, 꺼내 가르는 일은
-            //  전략 쪽 줄 스레드가 한다. 줄 번호는 행렬의 데이터 스레드 행과 같은 자리다(폴러 몫 한 줄).
-            //  [inv] 이 줄에 넣는 스레드는 데이터 스레드 하나다 — SPSC가 그 위에 서 있다. [why D-114]
+            //  전략 쪽 줄 스레드가 한다. 줄 번호는 행렬의 폴러 행과 같은 자리다(폴러 몫 한 줄).
+            //  [inv] 이 줄에 넣는 스레드는 폴러의 조회 스레드 하나다 — SPSC가 그 위에 서 있다. [why D-114] [why D-138]
             //  단계 5부터 소켓과 넘침 폴러를 쥔 쪽은 시세 프로세스다 — 여기 넣는 쪽도 그쪽 하나다.
             if (role_ == ProcessRole::Feed)
             {
@@ -439,6 +445,7 @@ void Engine::spawn_threads()
     //  주문 쪽은 원장 대조·선점 정리·하루 초기화다(가르는 선은 docs/DECISIONS.md D-114). [why D-114]
     // jthread는 stop_token을 첫 인자로 넣으므로 멤버 함수 포인터(this가 첫 인자)는 람다로 감싼다.
     data_thread_ = std::jthread([this](std::stop_token stop_token) { data_thread_fn(stop_token); });
+    start_rest_poll_loop();
 
     if (runs_strategy_side())
     {
@@ -634,6 +641,27 @@ int Engine::ledger_position(const std::string& ticker) const
     return ledger_snapshot_->row(symbols_.table.lookup(ticker)).position;
 }
 
+void Engine::start_rest_poll_loop()
+{
+    // REST 폴백·넘침 종목 조회는 데이터 스레드 30초 사이클에서 떼어 폴러 스레드가 1초 목표로 돈다.
+    //  넘침 종목이 늘면 한 바퀴가 1초를 넘는다 — 초당 호출 한도가 먼저라 그 늘어남은 받아들인다. [why D-138]
+    if (!runs_feed_side() || !poller_)
+    {
+        return;
+    }
+
+    DataPoller::LoopSources sources;
+    sources.rest_mode = [this] { return feed_.rest_feed_active.load(std::memory_order_relaxed); };
+    sources.universe  = [this]
+    {
+        std::lock_guard<std::mutex> specifications_lock(watch_specifications_mutex_);
+        return watch_specifications_; // 조회가 락 밖에서 돌도록 사본을 낸다
+    };
+    sources.from_websocket = [this] { return feed_.websocket ? feed_.websocket->take_overflow_specifications() : std::vector<WatchSpec>{}; };
+    sources.on_ticks       = [this](int ticks) { data_count_ += static_cast<uint64_t>(ticks); };
+    poller_->start(std::move(sources), std::chrono::milliseconds(kRestPollRoundMs));
+}
+
 void Engine::request_shutdown(std::string_view reason, ipc::SharedShutdownReason recorded_reason)
 {
     // 이미 내려가는 중이면 사유를 다시 적지 않는다 — stop()이 KILL 뒤에 한 번 더 부른다.
@@ -652,6 +680,11 @@ void Engine::request_shutdown(std::string_view reason, ipc::SharedShutdownReason
     for (auto& shard_thread : pipeline_.shard_threads)
     {
         shard_thread.request_stop();
+    }
+
+    if (poller_)
+    {
+        poller_->request_stop();
     }
 
     for (auto& feed_lane_thread : feed_lane_threads_)
@@ -686,6 +719,12 @@ void Engine::stop()
     if (order_thread_.joinable())
     {
         order_thread_.join();
+    }
+
+    // 폴러 조회 스레드는 샤드보다 먼저 — 폴러 행의 생산자라 샤드가 선 뒤에 넣으면 받을 쪽이 없다.
+    if (poller_)
+    {
+        poller_->join();
     }
 
     // 줄 스레드가 먼저 — 줄이 넣던 시세를 샤드가 비운 뒤 선다(샤드 행렬의 생산자가 이 스레드다).

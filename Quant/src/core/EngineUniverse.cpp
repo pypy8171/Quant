@@ -137,9 +137,10 @@ void Engine::publish_watch_priorities()
         const auto& row      = ledger_snapshot_->row(symbol);
         const bool  held     = row.position != 0;
         const bool  reserved = row.reserved != 0;
+        const bool  pinned   = is_websocket_pinned(specification.ticker); // 설정이 고정한 종목은 보는 전략이 없어도 쥔다 [why D-138]
 
         // 떼어 낸 전략의 종목이 칸을 쥔 채 남으면 새 점수 상위가 칸을 못 받는다. 보는 전략도 보유·선점도 없으면 푼다.
-        if (!held && !reserved && route_mask(symbol) == 0)
+        if (!held && !reserved && !pinned && route_mask(symbol) == 0)
         {
             {
                 std::lock_guard<std::mutex> specifications_lock(watch_specifications_mutex_);
@@ -152,7 +153,7 @@ void Engine::publish_watch_priorities()
             continue;
         }
 
-        const int32_t priority = websocket_slot::priority_of(held, reserved, scan_rank[symbol]);
+        const int32_t priority = websocket_slot::priority_of(held || pinned, reserved, scan_rank[symbol]);
 
         if (watch_priority_sent_[symbol] != priority)
         {
