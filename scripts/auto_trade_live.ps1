@@ -77,6 +77,17 @@ if ([bool]$isPaper)
   exit 2
 }
 
+# 실계좌 중지 표시가 있으면 띄우지 않는다. 표시 파일에 이유와 재개 조건을 적고, 조건을 채운 뒤 사람이
+#  손으로 지운다 — 이 스크립트는 지우지 않는다. [why 전수조사 09-25: 매수·매도 선점이 한 칸이라 DevScale 이 실계좌에서 새다]
+$haltFile = Join-Path $Repo "_private\state\live_halt.txt"
+
+if (Test-Path $haltFile)
+{
+  Write-Host "[중단] 실계좌 중지 표시가 있다: $haltFile" -ForegroundColor Red
+  Get-Content $haltFile -Encoding UTF8 | ForEach-Object { Write-Host "       $_" -ForegroundColor DarkYellow }
+  exit 3
+}
+
 # ─────────────── 2. 무엇으로 띄우는지 보여 준다 ───────────────
 $risk = $configJson.risk
 $strategy = $configJson.strategies[0]
