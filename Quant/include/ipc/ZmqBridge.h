@@ -20,7 +20,7 @@
 //
 //  ZMQ(ZeroMQ) 소켓 두 개로 통신한다:
 //  PUB  tcp://127.0.0.1:5555  — 엔진이 발행(publish). 포트는 config `zmq_pub_port`·`zmq_rep_port`(기본 5555·5556). 체결/시그널/주문/헬스를 구독자에게 단방향 송신.
-//  REP  tcp://127.0.0.1:5556  — Python이 명령 전송(KILL / STATUS / PAUSE / RESUME), 엔진이 응답(reply).
+//  REP  tcp://127.0.0.1:5556  — Python이 명령 전송(KILL / STATUS, 그 밖은 "UNKNOWN"), 엔진이 응답(reply).
 //
 //  프로세스를 셋으로 가르면(D-114) 역할마다 발행 포트를 따로 연다 — 주문 5555·시세 `zmq_feed_pub_port`·
 //  전략 `zmq_strategy_pub_port`. 명령 소켓은 주문 쪽 하나뿐이라 시세·전략은 rep_port 0으로 만든다.
@@ -29,7 +29,7 @@
 //  ZMQ 소켓은 스레드 세이프하지 않아 전용 zmq_thread_에서만 사용한다.
 //  다른 스레드는 enqueue()로 메시지를 전달한다. TRADE만 예외다 — 수신 스레드(여럿일 수 있다)가 틱마다 부르는
 //  자리라 JSON도 뮤텍스도 없이 TradeData를 MpscQueue에 memcpy로 넣고, 문자열은 송신 스레드가 만든다.
-//  수신 스레드 비용 ~1,000 ns/틱 → ~26 ns/틱(tests/bench_zmq_publish.cpp, 2026-09-20). [why D-071]
+//  수신 스레드 비용 ~1,000 ns/틱 → ~26 ns/틱(Quant/tests/bench_zmq_publish.cpp, 2026-09-20). [why D-071]
 // ─────────────────────────────────────────────────────────────────────────────
 class ZmqBridge
 {
@@ -53,8 +53,8 @@ public:
     void set_account_no(std::string account) { account_no_ = std::move(account); }
     // 현재 선택된 국면(RISK_ON·NEUTRAL·RISK_OFF). Engine::apply_regime_selection이 국면이
     // 바뀔 때마다 갱신 — SIGNAL·FILL 페이로드에 그때그때 실어 DB의 regime 열을 채운다.
-    //  쓰는 쪽은 데이터 스레드 하나, 읽는 쪽은 전략·주문·체결 스레드 여럿이다. 예전에는 std::string을
-    //  잠금 없이 주고받아 경합이었다 — 정수 하나로 바꿔 원자로 오간다. 라벨 문자열은 읽는 쪽이 만든다.
+    //  쓰는 쪽은 데이터 스레드 하나, 읽는 쪽은 전략·주문·체결 스레드 여럿이라 정수 하나를 원자로 주고받는다.
+    //  라벨 문자열은 읽는 쪽이 만든다.
     void set_regime(Regime regime);
     // 공유 쪽지 위의 국면 칸을 꽂는다. 갈라 띄우면 국면을 고르는 쪽(전략)과 체결을 적는 쪽(주문)이 다른
     //  프로세스라, 프로세스 안 정수만 보면 주문 쪽 값은 기동부터 끝까지 -1이고 체결의 regime 열이
@@ -118,7 +118,7 @@ public:
                       double average_price, int net_quantity, double realized_pnl);
 
     // ── Python 명령 수신 콜백 설정 ──────────────────────────────────────────
-    // command  : 수신된 명령 문자열 (KILL / STATUS / PAUSE <id> 등)
+    // command  : 수신된 명령 문자열 (KILL / STATUS — 엔진이 받는 것은 이 둘뿐이다)
     // reply: 명령에 대한 응답 문자열 반환
     using CmdHandler = std::function<std::string(const std::string& command)>;
     void set_command_handler(CmdHandler handler)
@@ -189,8 +189,8 @@ private:
 
     std::mutex queue_mutex_;
     std::queue<Message> send_queue_;
-    MpscQueue<TradeEnvelope> trade_queue_;
-    std::string              trade_payload_; // 송신 스레드 전용 재사용 버퍼 // 생산자 = WS 수신 스레드 수(둘 이상일 수 있다) → MPSC [why D-071 원칙 5]
+    MpscQueue<TradeEnvelope> trade_queue_;   // 생산자 = WS 수신 스레드 수(둘 이상일 수 있다) → MPSC [why D-071 원칙 5]
+    std::string              trade_payload_; // 송신 스레드 전용 재사용 버퍼
 
     // 발행 전용 다리(REP 없음)의 송신 스레드를 생산자가 깨운다 — 폴링할 소켓이 없는데 sleep_for로
     //  쉬면 윈도우 타이머 격자에 걸려 한 바퀴가 길어진다. 깃발은 "비우기 전에 내리고 넣은 뒤에 세운다"

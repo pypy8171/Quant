@@ -1,6 +1,6 @@
 #pragma once
-// 운영단말(ops terminal) ↔ 엔진 TCP 프레이밍. 헤더 전용·의존성 0 — 서버(OpsServer)와
-//  단말(콘솔 ops_client·MFC)이 같은 파일을 컴파일한다. 소켓·JSON은 여기 없다: 바이트열을
+// 운영단말(ops terminal) ↔ 엔진 TCP 프레이밍. 구현은 Quant/src/ipc/OpsProtocol.cpp, 표준 라이브러리
+//  밖 의존은 없다 — 서버(OpsServer)와 단말(콘솔 ops_client·MFC)이 같은 두 파일을 컴파일한다. 소켓·JSON은 여기 없다: 바이트열을
 //  프레임으로 자르고 붙이는 일만 한다. [why D-043]
 //
 //  [wire] 헤더 8바이트, 빅엔디언. 본문은 UTF-8 JSON.
@@ -38,11 +38,11 @@ enum class OpsMsg : uint8_t
     STATUS_REQ        = 0x10, // c→s {}
     STATUS_ACK        = 0x11, // s→c {"running","data","signal","order","kill","entry_halt","manual_buy_halt","manual_sell_halt","force_liq","paper","strategies","equity","cash","daily_pnl","position_value","unrealized_pnl"} — 뒤 다섯은 계좌 요약(원). 단말이 1초마다 묻는다
     POSITIONS_REQ     = 0x12, // c→s {}
-    POSITIONS_ACK     = 0x13, // s→c {"positions":[{account,ticker,name,quantity,average_price,reserved,last}]} — reserved: 미체결 매도 음수·매수 양수, last: 최근 체결가(틱 없으면 0)
-    POSITIONS_NTF     = 0x14, // s→c 본문은 POSITIONS_ACK와 같다. 인증 직후 1회, 이후 보유분이 바뀌면 1초 주기로 민다
-    ORDER_REQ         = 0x20, // c→s {"cid","ticker","side","qty","price","ref_price"}
+    POSITIONS_ACK     = 0x13, // s→c {"positions":[{account,ticker,name,qty,avg_price,reserved,last}]} — 키 이름은 와이어 규약이라 약어를 그대로 둔다. reserved: 미체결 매도 음수·매수 양수, last: 최근 체결가(틱 없으면 0)
+    POSITIONS_NTF     = 0x14, // s→c 본문은 POSITIONS_ACK와 같다. HELLO_ACK 바로 뒤 1회, 이후 1초마다 보고 바뀌었을 때만 민다
+    ORDER_REQ         = 0x20, // c→s {"cid","ticker","side","qty","price","ref_price","account"}
     ORDER_ACK         = 0x21, // s→c {"cid","accepted","msg"} — 인테이크 적재 여부(게이트 통과 아님)
-    ORDER_RESULT_NTF  = 0x22, // s→c {"cid","order_id","strategy","ticker","side","qty","ok","msg"} — 게이트·브로커 결과. 전략 주문도 같은 채널로 온다
+    ORDER_RESULT_NTF  = 0x22, // s→c {"cid","order_id","odno","strategy","ticker","side","qty","price","ok","msg"} — 게이트·브로커 결과. 전략 주문도 같은 채널로 온다
     FILL_NTF          = 0x23, // s→c {"odno","ticker","side","qty","price","time"}
     KILL_REQ          = 0x30, // c→s {}
     KILL_ACK          = 0x31, // s→c {"ok"}

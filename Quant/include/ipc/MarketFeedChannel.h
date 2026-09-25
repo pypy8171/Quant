@@ -33,10 +33,11 @@ constexpr size_t kFeedOrderBookCapacity = 8192;
 // 줄 수 상한. 소켓 수와 같다 — 이 수만큼 큐 쌍이 공유 쪽지를 차지하므로 무한정 두지 않는다.
 constexpr uint32_t kMaxFeedLanes = 16;
 
-// 꺼낸 시세가 말이 되는지 보는 기준. 종목 수는 기동 때 공유 종목 표에서 받아 채운다.
+// 꺼낸 시세가 말이 되는지 보는 기준. 종목 표는 장중에도 늘어나므로 받는 쪽이 꺼내는 회차마다 지금 든 수로
+//  다시 채운다.
 struct MarketLimits
 {
-    uint32_t symbol_count = 0;             // 종목 표 크기. id는 1부터 이 수까지다(0은 없음)
+    uint32_t symbol_count = 0;             // 종목 표에 지금 든 수. id는 1부터 이 수까지다(0은 없음)
     int64_t  quantity_max = 1'000'000'000; // 한 건 최대 수량(체결·호가 잔량)
     double   price_max    = 100'000'000.0; // 한 주 최대 가격(원)
 };
@@ -86,7 +87,8 @@ public:
         return lanes_;
     }
 
-    // 보내는 쪽. 거짓은 "큐가 참" — 그 건은 버려지고 overflow_trades()가 하나 는다. 수신 스레드는 기다리지 않는다.
+    // 보내는 쪽. 거짓이면 그 건은 버려진다 — 큐가 찼으면 overflow_trades()·overflow_order_books()가 하나 늘고,
+    //  lane이 범위 밖이면 세지 않는다. 수신 스레드는 기다리지 않는다.
     [[nodiscard]] bool push_trade(uint32_t lane, const TradeData& trade) noexcept;
     [[nodiscard]] bool push_order_book(uint32_t lane, const OrderBook& order_book) noexcept;
 

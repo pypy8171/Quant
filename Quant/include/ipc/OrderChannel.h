@@ -1,8 +1,9 @@
 // 전략 ↔ 주문 요청·응답 통로 — 레코드 형식과 순번·중복 거름 규칙만. 큐도 소켓도 공유메모리도 여기 없다.
-//  전략이 신호 한 건에 순번을 붙여 보내고, 주문 쪽이 그 순번으로 받았다는 답을 돌려준다. 답이 없으면 전략이
-//  다시 보내고, 주문 쪽은 같은 순번을 한 번만 받는다. 이 통로의 처리량은 초당 몇 건이라 문제가 아니다. [why D-114]
-//  지금은 한 프로세스 안 두 스레드(전략 스레드 ↔ 주문 스레드)가 양끝이고, 단계 4에서 프로세스가 갈릴 때
-//  레코드는 그대로 두고 운반 수단만 공유메모리로 바꾼다 — 그래서 레코드에 std::string도 포인터도 안 쓴다.
+//  전략이 신호 한 건에 순번을 붙여 보내고, 주문 쪽이 그 순번으로 받았다는 답을 돌려준다. 답이 없어도 다시
+//  보내지 않는다 — KIS 주문 전문에 우리 식별자 칸이 없어 다시 보내면 이중 발주다. 전략은 세고 찍기만 하고,
+//  주문 쪽은 같은 순번을 한 번만 받는다. 이 통로의 처리량은 초당 몇 건이라 문제가 아니다. [why D-114]
+//  운반은 공유 쪽지 위의 SharedSpscRing(자리 셈은 Quant/include/ipc/SharedLayout.h)이 맡는다 — 레코드가
+//  프로세스 경계를 건너므로 std::string도 포인터도 안 쓴다.
 #pragma once
 
 #include <cstdint>
@@ -38,9 +39,9 @@ enum class OrderResult : uint8_t
 {
     kAccepted  = 1, // 증권사가 접수했다(주문번호 있음)
     kRejected  = 2, // 게이트나 증권사가 거부했다 — 사유가 reason에 있다
-    kFailed    = 3, // 보내다 실패했다(예외·전송 오류) — 재시도 대상
+    kFailed    = 3, // 보내다 실패했다(예외·전송 오류)
     kDuplicate = 4, // 이미 받은 순번이라 아무것도 하지 않았다
-    kInvalid   = 5, // 값이 말이 안 되는 요청이라 버렸다(is_plausible). 재전송해도 같은 값이면 또 버린다
+    kInvalid   = 5, // 값이 말이 안 되는 요청이라 버렸다(is_plausible)
     kStale     = 6, // 큐에서 너무 오래 기다려 보내지 않고 버렸다 — 거부가 아니다 [why D-127]
 };
 
@@ -94,12 +95,13 @@ struct OrderResponse
 // 꺼낸 칸은 믿지 않는다 — 값이 말이 되는지 보고 아니면 버린다
 // ─────────────────────────────────────────────────────────────────────────────
 
-// 요청 한 건이 말이 되는지 보는 기준. 종목·전략 수는 기동 때 표에서 받아 채운다.
-//  [inv] 한 번 정하면 장중에 안 바뀐다 — 표가 커지는 자리(SymbolTable::intern)는 기동 구간뿐이다.
+// 요청 한 건이 말이 되는지 보는 기준. 종목·전략 수는 기동 때 표의 용량(칸 수)으로 채운다.
+//  [inv] 한 번 정하면 장중에 안 바뀐다 — 종목 표는 장중에도 늘어나므로(처음 보는 종목) 지금 든 수가 아니라
+//  용량을 쓴다. 든 수로 재면 방금 올라온 종목이 걸린다.
 struct RequestLimits
 {
-    uint32_t symbol_count   = 0;             // 종목 표 크기. id는 1부터 이 수까지다(0은 없음)
-    uint32_t strategy_count = 0;             // 전략 표 크기. 번호도 1부터다
+    uint32_t symbol_count   = 0;             // 종목 표 용량. id는 1부터 이 수까지다(0은 없음)
+    uint32_t strategy_count = 0;             // 전략 표 용량. 번호도 1부터다
     int32_t  quantity_max   = 1'000'000;     // 한 건 최대 수량
     double   price_max      = 100'000'000.0; // 한 주 최대 가격(원)
 };
@@ -122,12 +124,12 @@ OrderRequest to_request(const OrderSignal& signal, bool* truncated = nullptr) no
 //  [inv] 받는 쪽(주문 프로세스)에서만 부른다 — 표를 가진 쪽이 그쪽이다(원칙 4). [why D-114]
 [[nodiscard]] OrderSignal to_signal(const OrderRequest& request, std::string_view strategy_id);
 
-// 결과·사유로 응답 레코드를 만든다. 사유는 칸을 넘으면 잘린다.
 // 증권사 주문번호 문자열("0000123456")을 레코드의 정수 손잡이로. 숫자가 아니면 0이다.
 // [inv] 앞의 0은 사라진다 — 이 값은 전략이 답과 요청을 맞추고 로그에 남기는 손잡이지, 다시 증권사를 부르는 데
 //  쓰지 않는다(취소·정정은 주문 쪽이 한다).
 uint64_t to_order_number(std::string_view kis_order_no) noexcept;
 
+// 결과·사유로 응답 레코드를 만든다. 사유는 칸을 넘으면 잘린다.
 OrderResponse make_response(uint64_t sequence, OrderResult result, uint64_t kis_order_number,
                             std::string_view reason, int64_t handled_at_ns) noexcept;
 
@@ -135,7 +137,8 @@ OrderResponse make_response(uint64_t sequence, OrderResult result, uint64_t kis_
 // 전략 쪽 — 보낸 것과 답이 온 것을 맞춘다
 // ─────────────────────────────────────────────────────────────────────────────
 
-// 답을 기다리는 요청을 순번으로 들고 있다가, 답이 오면 지운다. 오래 답이 없는 것은 다시 보낼 후보로 꺼내 준다.
+// 답을 기다리는 요청을 순번으로 들고 있다가, 답이 오면 지운다. 오래 답이 없는 것은 세고 찍도록 꺼내 준다
+//  — 다시 보내지는 않는다(이중 발주).
 //  [inv] 전략 스레드 하나만 부른다 — 동기화는 없다. SignalDispatcher가 그렇듯 소유 스레드가 하나다.
 class PendingRequests
 {
@@ -144,13 +147,13 @@ public:
     //  전략 스레드의 메모리가 대신 자란다.
     explicit PendingRequests(size_t capacity);
 
-    // 보냈다고 적는다. 같은 순번을 두 번 적으면 시각만 갱신한다(재전송).
+    // 보냈다고 적는다. 같은 순번을 두 번 적으면 시각만 갱신한다.
     void note_sent(uint64_t sequence, int64_t now_ns);
 
     // 답이 왔다고 적는다. 기다리던 순번이었으면 참.
     bool note_response(uint64_t sequence);
 
-    // 보낸 지 timeout_ns를 넘긴 것 중 가장 오래된 순번. 없으면 빈 값 — 재전송은 호출자가 정한다.
+    // 보낸 지 timeout_ns를 넘긴 것 중 가장 오래된 순번. 없으면 빈 값.
     [[nodiscard]] std::optional<uint64_t> oldest_overdue(int64_t now_ns, int64_t timeout_ns) const;
 
     [[nodiscard]] size_t size() const noexcept
@@ -186,7 +189,7 @@ private:
 class DuplicateFilter
 {
 public:
-    // 기억할 순번 수. 주문 큐 용량보다 넉넉해야 한다 — 창보다 오래 밀린 순번은 판정할 근거가 없어 거른다.
+    // 기억할 순번 수. 지금은 요청 큐 용량과 같게 준다 — 창보다 오래 밀린 순번은 판정할 근거가 없어 거른다.
     explicit DuplicateFilter(size_t window);
 
     // 처음 보는 순번이면 참(받아서 처리한다). 이미 본 것이거나 창보다 오래된 것이면 거짓.

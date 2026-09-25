@@ -396,7 +396,7 @@ else()
     target_link_libraries(test_ops_server PRIVATE nlohmann_json::nlohmann_json ws2_32)
 endif()
 
-# 운영단말 프레이밍(ipc/OpsProtocol.h) — 헤더 전용, 부분 수신·규약 위반 케이스
+# 운영단말 프레이밍(ipc/OpsProtocol.h, 구현은 quant_header_impl) — 부분 수신·규약 위반 케이스
 add_executable(test_ops_protocol tests/test_ops_protocol.cpp)
 target_include_directories(test_ops_protocol PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 

@@ -248,7 +248,7 @@ void OpsServer::thread_fn()
             }
         }
 
-        // 50ms — broadcast 큐와 포지션 push를 이 주기로 돌린다. 운영 화면에는 충분하다.
+        // 50ms — broadcast 큐는 이 주기로 비운다. 포지션은 아래에서 1초마다 보고 바뀌었을 때만 민다.
         timeval time_value{};
         time_value.tv_sec  = 0;
         time_value.tv_usec = 50000;
@@ -674,7 +674,7 @@ void OpsServer::flush(Client& client)
 
         if (width < 0 && would_block(ops_errno()))
         {
-            return; // 다음 select에서 wr로 깨운다
+            return; // 다음 select에서 write_set으로 깨운다
         }
 
         LOG_WARN("[Ops] send 실패 " + client.name + " err=" + std::to_string(ops_errno()));
