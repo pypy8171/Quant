@@ -1398,6 +1398,14 @@ void OrderRouter::flush_file_writes()
 OrderRouter::~OrderRouter()
 {
     // jthread 소멸자가 같은 일을 하지만 그건 멤버 소멸 순서 안에서다 — 스레드가 쓰는 멤버가 먼저 죽지 않게 여기서 회수한다.
+    //  되묻기 스레드가 맨 먼저다 — 이 스레드가 쓰는 reconcile_busy_·kis_calls_는 선언이 뒤라 먼저 소멸한다.
+    transport_reconcile_.request_stop();
+
+    if (transport_reconcile_.joinable())
+    {
+        transport_reconcile_.join();
+    }
+
     stale_threshold_.request_stop();
 
     if (stale_threshold_.joinable())
@@ -1434,10 +1442,17 @@ void OrderRouter::reconcile_unknown_order_async(std::string ticker)
         return;   // 앞 건이 돌고 있다 — 다음 타임아웃이나 다음 기동이 다시 잡는다
     }
 
-    transport_reconcile_ = std::jthread([this, ticker = std::move(ticker)](std::stop_token stop_token)
+    // 주문 스레드에서 번호를 받아 둔다 — 종목 표에 새로 넣는 일은 이 스레드 몫이다.
+    const symbol::SymbolId symbol_id = gate_.ledger().intern_symbol(ticker);
+
+    transport_reconcile_ = std::jthread([this, ticker = std::move(ticker), symbol_id](std::stop_token stop_token)
     {
         // KIS가 접수를 조회에 반영할 틈을 준다. 곧바로 물으면 방금 낸 주문이 안 보인다.
-        std::this_thread::sleep_for(std::chrono::seconds(3));
+        //  3초를 한 번에 자지 않고 잘게 나눠 멈춤 요청을 본다 — 소멸자가 이 스레드를 기다린다.
+        for (int slice = 0; slice < 30 && !stop_token.stop_requested(); ++slice)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
 
         if (stop_token.stop_requested())
         {
@@ -1464,8 +1479,35 @@ void OrderRouter::reconcile_unknown_order_async(std::string ticker)
             }
 
             ++kis_calls_;
+            const std::vector<OpenOrder> open_orders = kis_.get_open_orders();
 
-            for (const auto& open : kis_.get_open_orders())
+            // 파일은 쓰기 스레드가 늦게 쓰므로 조회가 끝난 뒤의 이력도 본다 — 그 사이 접수된 우리 주문이 파일에
+            //  아직 없을 수 있다. 같은 종목이 KIS 답을 기다리는 중이면 번호를 모르는 우리 주문일 수 있어 건너뛴다.
+            {
+                std::lock_guard<std::mutex> in_flight_lock(in_flight_mutex_);
+
+                if (std::find(in_flight_symbols_.begin(), in_flight_symbols_.end(), symbol_id) !=
+                    in_flight_symbols_.end())
+                {
+                    LOG_INFO("[OrderRouter] 전송 타임아웃 되묻기 건너뜀 — 같은 종목 주문이 전송 중 " + ticker);
+                    reconcile_busy_ = false;
+                    return;
+                }
+            }
+
+            {
+                std::lock_guard<std::mutex> history_lock(history_mutex_);
+
+                for (const auto& managed_order : history_)
+                {
+                    if (!managed_order.kis_order_no.empty())
+                    {
+                        known.push_back(managed_order.kis_order_no);
+                    }
+                }
+            }
+
+            for (const auto& open : open_orders)
             {
                 if (open.ticker != ticker || open.kis_order_no.empty() || open.psbl_qty <= 0)
                 {
@@ -1970,8 +2012,8 @@ void OrderRouter::record_reconcile(const ReconcileNote& reconcile_note)
                              static_cast<long long>(reconcile_note.broker_average), reconcile_note.action, reason));
     }
 
-    // 빈 칸: order_id·kis_order_no·strategy, side·type, 끝의 entry_reason·realized_pnl·sequence.
-    append_trade_line(std::format("RECONCILE,,,,{},NONE,,{},{:.2f},{},{:.2f},{},{},,,", reconcile_note.ticker, reconcile_note.ledger_quantity,
+    // 빈 칸: order_id·kis_order_no·strategy, side·type, 끝의 entry_reason·realized_pnl·sequence·strategy_realized_pnl.
+    append_trade_line(std::format("RECONCILE,,,,{},NONE,,{},{:.2f},{},{:.2f},{},{},,,,", reconcile_note.ticker, reconcile_note.ledger_quantity,
                                   reconcile_note.ledger_average, reconcile_note.broker_quantity, reconcile_note.broker_average, csv_safe(reconcile_note.action), reason));
 }
 

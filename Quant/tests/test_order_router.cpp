@@ -812,13 +812,13 @@ void test_reconcile_row_written()
     auto rows = tail_trade_rows(1);
     assert(rows.size() == 1);
     auto other_split_csv = split_csv(rows[0]);
-    assert(other_split_csv.size() == 17);              // 헤더 열 수와 같다(sequence까지)
+    assert(other_split_csv.size() == 18);              // 헤더 열 수와 같다(strategy_realized_pnl까지)
     assert(other_split_csv[1] == "RECONCILE");
     assert(other_split_csv[5] == "005930");
     assert(other_split_csv[8] == "10" && other_split_csv[10] == "7"); // order_quantity=원장, fill_quantity=브로커
     assert(other_split_csv[12] == "OVERWRITE");
     assert(other_split_csv[13] == "live_orders=1 diff_qty=-3 mode=REST");
-    assert(other_split_csv[16].empty());               // sequence 빈 칸
+    assert(other_split_csv[16].empty() && other_split_csv[17].empty()); // sequence·strategy_realized_pnl 빈 칸
     PASS("reconcile_row_written");
 }
 
