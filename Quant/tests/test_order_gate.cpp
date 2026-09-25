@@ -18,6 +18,7 @@
 //      원장만 보는 테스트(9·10·19~22)는 tests/test_position_ledger.cpp
 //  23. 장부 사본이 원본과 같은 값을 싣는다 — 보유·선점·매도가능·평단·면제·전역값 전부 (D-114)
 //  24. 판정은 거부 코드와 숫자만 돌려주고 문장은 describe가 만든다 (CODE_REVIEW W-8)
+//  25. 하루 리셋은 거래일당 한 번 — 장중 재기동·US 개장이 되살린 선점과 당일 손익을 안 지운다 (전수조사 A-4)
 
 #include "risk/OrderGate.h"
 #include "ipc/LedgerSnapshot.h"
@@ -29,6 +30,7 @@
 #include <iostream>
 #include <thread>
 #include <chrono>
+#include <filesystem>
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -694,6 +696,54 @@ void test_publish_ledger_matches_gate()
     PASS("publish_ledger_matches_gate");
 }
 
+// ─── 테스트 25: 하루 리셋은 거래일당 한 번 (전수조사 A-4) ──────────────────────
+//  장 시작 감지는 "이 스레드가 본 닫힘→열림"이라 장중 재기동 직후 첫 회차에도 불린다. 저널의 RESET_DAY로
+//  그날 리셋을 이미 했음을 알고 건너뛰어야, 리플레이가 되살린 선점과 당일 손익이 남는다.
+void test_reset_daily_once_per_trading_date()
+{
+    const std::filesystem::path directory = std::filesystem::temp_directory_path() / "quant_gate_test_reset_day";
+    std::error_code             error_code;
+    std::filesystem::remove_all(directory, error_code);
+    std::filesystem::create_directories(directory, error_code);
+    const std::string  date = "20260925";
+    constexpr uint32_t kTradingDate = 20260925;
+    constexpr uint32_t kNextTradingDate = 20260928;
+
+    {
+        OrderGate gate(OrderGate::Config{});
+        assert(gate.ledger().set_journal(directory, date, false));
+        // 개장 전(NXT 프리마켓)에 낸 주문 — 개장 리셋이 비운다
+        assert(gate.ledger().on_intent("", "000660", OrderSide::BUY, 3, 200000.0,
+                                       PositionLedger::OrderRef{1, 0, OrderType::LIMIT}));
+        assert(gate.reset_daily(kTradingDate));
+        assert(gate.ledger().reserved("", "000660") == 0);
+
+        assert(gate.ledger().on_intent("", "005930", OrderSide::BUY, 5, 70000.0,
+                                       PositionLedger::OrderRef{2, 0, OrderType::LIMIT}));
+        gate.ledger().set_daily_pnl(-3000.0);
+        assert(!gate.reset_daily(kTradingDate)); // 같은 프로세스의 US 22:30 개장 — 건너뜀
+        assert(gate.ledger().reserved("", "005930") == 5);
+    }
+
+    // 장중 재기동 — 새 프로세스가 저널을 리플레이한 뒤 첫 회차에 또 부른다
+    OrderGate restarted(OrderGate::Config{});
+    assert(restarted.ledger().set_journal(directory, date, false));
+    assert(restarted.ledger().last_daily_reset_date() == kTradingDate);
+    assert(restarted.ledger().reserved("", "000660") == 0); // 리플레이도 RESET_DAY에서 비운다
+    assert(restarted.ledger().reserved("", "005930") == 5);
+    assert(!restarted.reset_daily(kTradingDate));
+    assert(restarted.ledger().reserved("", "005930") == 5);
+    assert(restarted.ledger().daily_pnl() < -2999.0 && restarted.ledger().daily_pnl() > -3001.0);
+
+    // 다음 거래일에는 한다
+    assert(restarted.reset_daily(kNextTradingDate));
+    assert(restarted.ledger().reserved("", "005930") == 0);
+    assert(restarted.ledger().daily_pnl() == 0.0);
+
+    std::filesystem::remove_all(directory, error_code);
+    PASS("reset_daily_once_per_trading_date");
+}
+
 int main()
 {
 #ifdef _WIN32
@@ -722,6 +772,7 @@ int main()
     test_slot_exempt();
     test_publish_ledger_matches_gate();
     test_verdict_codes_and_describe();
+    test_reset_daily_once_per_trading_date();
     std::cout << "=== All tests passed ===\n";
     return 0;
 }

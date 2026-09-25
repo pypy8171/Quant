@@ -1027,8 +1027,17 @@ void OrderGate::note_displacement(const DisplacePlan& plan, symbol::SymbolId ben
 }
 
 // ─── 일별 리셋 (장 시작 시) ─────────────────────────────────────────────────
-void OrderGate::reset_daily()
+bool OrderGate::reset_daily(uint32_t trading_date_yyyymmdd)
 {
+    // 하루 한 번이다. 장 시작 감지는 "이 스레드가 본 닫힘→열림"이라 장중 재기동 직후 첫 회차와 US 22:30에도
+    //  불린다. 그때 다시 비우면 리플레이·미체결 대조로 되살린 선점과 당일 손익이 0이 된다.
+    //  그날 리셋을 했는지는 저널의 RESET_DAY가 안다. [why A-4]
+    if (ledger_.last_daily_reset_date() == trading_date_yyyymmdd)
+    {
+        LOG_INFO(std::format("[OrderGate] 하루 리셋 건너뜀 - 거래일({}) 리셋은 이미 했다", trading_date_yyyymmdd));
+        return false;
+    }
+
     ledger_.set_daily_pnl(0.0); // 저널에도 DAILY_PNL 0 — 리셋 전 체결이 리플레이로 되살아나지 않게
 
     {
@@ -1044,9 +1053,11 @@ void OrderGate::reset_daily()
 
     entry_priority_.reset_daily();
 
-    ledger_.expire_reservations(); // 미체결 선점 일일 만료 — 사유는 PositionLedger::expire_reservations
+    ledger_.expire_reservations(trading_date_yyyymmdd); // 미체결 선점 일일 만료 — 사유는 PositionLedger::expire_reservations
 
     // average_prices_ / positions_ 는 영속 원장 — 장 시작에 초기화하지 않는다
+    LOG_INFO(std::format("[OrderGate] 하루 리셋 - 거래일({}) 선점·당일 손익·주문 한도를 새로 열었다", trading_date_yyyymmdd));
+    return true;
 }
 
 // ─── 진입 우선순위 표 ─────────────────────────────────────────────────────────

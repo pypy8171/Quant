@@ -62,6 +62,7 @@ enum class Kind : uint16_t
     RESET_RESERVED = 8, // 잔고 대조가 선점 전체를 비움
     CASH           = 9, // 주문가능현금·총평가금 스냅샷(cash·equity)
     DAILY_PNL      = 10, // 잔고 대조가 당일 손익을 절대치로 덮어씀(pnl) — 체결 누적과 별개
+    RESET_DAY      = 11, // 장 시작 하루 리셋 — 선점 전체 만료. reserved0 = 그 KST 거래일(yyyymmdd)
 };
 
 struct FileHeader

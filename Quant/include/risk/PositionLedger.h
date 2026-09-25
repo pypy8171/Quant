@@ -395,8 +395,15 @@ public:
     // check() 3절의 원장 키 — 처음 보는 계좌·종목은 등록한다. positions_mutex_를 잠깐 잡는다.
     [[nodiscard]] PosKey register_signal(const OrderSignal& signal);
 
-    // 장 시작(OrderGate::reset_daily) — 미체결 선점을 비운다. 보유·평단은 영속 원장이라 두고, 저널에도 적지 않는다.
-    void expire_reservations();
+    // 장 시작(OrderGate::reset_daily) — 미체결 선점을 비운다. 보유·평단은 영속 원장이라 둔다. 저널에 RESET_DAY로
+    //  그 거래일을 남겨, 같은 날 재기동한 프로세스가 리플레이로 "오늘 리셋은 끝났다"를 알게 한다. [why A-4]
+    void expire_reservations(uint32_t trading_date_yyyymmdd);
+
+    // 마지막으로 하루 리셋을 한 KST 거래일(yyyymmdd). 한 번도 없으면 0.
+    uint32_t last_daily_reset_date() const
+    {
+        return last_daily_reset_date_.load(std::memory_order_relaxed);
+    }
 
     // 장부 사본 한 판(D-114 단계 2.5). 종목별 값과 원장에서 셈하는 전역값(열린 슬롯·여력)을 positions_mutex_
     //  한 번으로 담는다. fill_globals는 게이트가 든 전역값을 채우는 자리로, 발행 잠금을 쥔 뒤·원장 잠금 전에
@@ -443,6 +450,7 @@ private:
 
     std::atomic<double> available_cash_{0.0}; // 주문가능현금 스냅샷. 잔고 대조가 갱신, clamp_buy_quantity가 락 없이 읽음
     std::atomic<double> equity_{0.0};      // 총평가금 스냅샷(§3d 총노출 게이트 분모). 잔고 대조가 갱신, check()가 락 없이 읽음
+    std::atomic<uint32_t> last_daily_reset_date_{0}; // 하루 리셋을 한 거래일(yyyymmdd). expire_reservations·RESET_DAY 리플레이가 쓴다
 
     // 원장 키 표 — 종목 테이블(자체 락)과 계좌 이름. 계좌 이름 쪽은 positions_mutex_를 잡고 쓴다.
     LedgerKeys keys_;

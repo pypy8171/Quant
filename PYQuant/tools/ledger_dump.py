@@ -42,7 +42,8 @@ RECORD_SIZE = struct.calcsize(RECORD_FORMAT)
 assert HEADER_SIZE == 16 and RECORD_SIZE == 192, (HEADER_SIZE, RECORD_SIZE)
 
 KIND_NAMES = {1: "SEED", 2: "INTENT", 3: "ACCEPT", 4: "REJECT", 5: "FILL",
-              6: "CANCEL", 7: "ADJUST", 8: "RESET_RESERVED", 9: "CASH", 10: "DAILY_PNL"}
+              6: "CANCEL", 7: "ADJUST", 8: "RESET_RESERVED", 9: "CASH", 10: "DAILY_PNL",
+              11: "RESET_DAY"}
 SIDE_NAMES = {0: "BUY", 1: "SELL", 2: "NONE"}
 TYPE_NAMES = {0: "MARKET", 1: "LIMIT"}
 
@@ -230,6 +231,8 @@ def print_records(records: list[Record]) -> None:
             note = f"현금 {record.cash:,.0f} · 평가 {record.equity:,.0f}"
         elif record.kind == "DAILY_PNL":
             note = f"당일손익 {record.pnl:,.0f}"
+        elif record.kind == "RESET_DAY":
+            note = "하루 리셋(선점 전체 만료)"
         elif record.kind == "FILL" and record.pnl:
             note = f"실현 {record.pnl:,.0f}" + (f" · {record.reason}" if record.reason else "")
         elif record.kind in ("SEED", "ADJUST"):

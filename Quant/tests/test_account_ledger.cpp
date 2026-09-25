@@ -137,7 +137,7 @@ void test_reset_daily_isolation()
     assert(gate.ledger().reserved("ACC1", "005930") == 5);
     assert(gate.ledger().reserved("ACC2", "005930") == 7);
 
-    gate.reset_daily(); // 미체결 선점 만료, 포지션/평단은 영속
+    gate.reset_daily(20260925); // 미체결 선점 만료, 포지션/평단은 영속
 
     assert(gate.ledger().reserved("ACC1", "005930") == 0);
     assert(gate.ledger().reserved("ACC2", "005930") == 0);

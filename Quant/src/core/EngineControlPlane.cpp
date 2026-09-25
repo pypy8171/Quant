@@ -7,6 +7,7 @@
 //  set_slot_exempt_tickers()         : 슬롯 면제 집합을 새로 정했을 때(전략 쪽)
 
 #include "core/Engine.h"
+#include "core/KstTime.h"
 #include "utils/Logger.h"
 #include <string>
 
@@ -20,7 +21,14 @@
 
 void Engine::apply_reset_daily()
 {
-    order_gate_.reset_daily();
+    // 같은 거래일 두 번째 호출(장중 재기동·US 22:30)이면 게이트가 거절한다. 라우터·기준선도 그날 이미
+    //  새로 열었으니 같이 건너뛴다. [why A-4]
+    const auto trading_date = static_cast<uint32_t>(std::stoul(kst::date_yyyymmdd(std::time(nullptr))));
+
+    if (!order_gate_.reset_daily(trading_date))
+    {
+        return;
+    }
 
     if (order_router_)
     {

@@ -404,6 +404,10 @@ void PositionLedger::apply_record(const ledger_journal::Record& record)
     case Kind::DAILY_PNL:
         set_daily_pnl(record.pnl);
         break;
+
+    case Kind::RESET_DAY:
+        expire_reservations(record.reserved0);
+        break;
     }
 }
 
@@ -979,14 +983,20 @@ size_t PositionLedger::open_slot_count() const
 }
 
 // ─── 일별 만료 (장 시작 시) ─────────────────────────────────────────────────
-void PositionLedger::expire_reservations()
+void PositionLedger::expire_reservations(uint32_t trading_date_yyyymmdd)
 {
     // 미체결 선점은 일일 만료 (KIS 당일 주문은 장 마감 소멸 → 다음날 잘못된 차단 방지).
     // C5(MM-1): 명시적 취소는 on_cancel()로 일원화. reserved_.clear()는 장 마감 안전망
     //   — 취소 없이 장 마감까지 미체결로 만료된 분의 선점을 청소한다.
+    const JournalFlushAfter journal_flush_after{*this};
     std::lock_guard<std::mutex> lock(positions_mutex_);
     reserved_.clear();
     reserved_price_.clear();
+    last_daily_reset_date_.store(trading_date_yyyymmdd, std::memory_order_relaxed);
+    ledger_journal::Record record;
+    record.kind      = static_cast<uint16_t>(ledger_journal::Kind::RESET_DAY);
+    record.reserved0 = trading_date_yyyymmdd;
+    journal_append(record, std::string_view(), std::string_view());
 }
 
 // ─── 조회 (계좌별) ───────────────────────────────────────────────────────────

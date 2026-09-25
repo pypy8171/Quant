@@ -361,7 +361,7 @@ CREATE TABLE IF NOT EXISTS ledger_events (
     trade_date   DATE          NOT NULL,   -- 저널 파일 헤더의 YYYYMMDD
     seq          BIGINT        NOT NULL,   -- 파일 안 1부터 증가
     ts           TIMESTAMPTZ   NOT NULL,   -- 엔진이 그 줄을 적은 시각
-    kind         TEXT          NOT NULL,   -- SEED/INTENT/ACCEPT/REJECT/FILL/CANCEL/ADJUST/RESET_RESERVED/CASH/DAILY_PNL
+    kind         TEXT          NOT NULL,   -- SEED/INTENT/ACCEPT/REJECT/FILL/CANCEL/ADJUST/RESET_RESERVED/CASH/DAILY_PNL/RESET_DAY
     account      TEXT,
     ticker       TEXT,
     side         TEXT,                     -- BUY / SELL / NONE
