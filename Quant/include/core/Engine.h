@@ -2,6 +2,7 @@
 #include "api/KisClient.h"
 #include "api/KisWebSocket.h"
 #include "core/CommandLine.h"
+#include "core/ControlPlane.h"
 #include "core/DataPoller.h"
 #include "core/LedgerReconciler.h"
 #include "core/RingBuffer.h"
@@ -583,52 +584,16 @@ private:
     // 보호 주문 표 한 주기 — 원장 보유 스냅샷·현재가로 청산을 만들어 디스패처로 보낸다. strategy_thread 전용. [why D-114]
     void run_protective_orders(SignalDispatcher& dispatcher, std::chrono::steady_clock::time_point now);
     std::vector<OrderSignal> build_protective_orders(std::chrono::steady_clock::time_point now);
+
     // ── 제어 요청 (전략 쪽 → 주문 스레드) ───────────────────────────────────
-    // 요청 한 줄 보내기. 순번은 여기서 찍는다. 큐가 가득이면 거짓 — 표를 보내는 쪽은 그때 commit 을
-    //  보내지 않고 접는다(반쪽 표를 거느니 이번 판을 통째로 거른다). [why D-114]
-    bool send_control(ipc::ControlRequest& request);
-
-    // 스위치 요청 한 줄을 싣는다. 못 실으면 큰 소리로 남긴다 — 사라진 것이 kill switch 일 수 있다.
-    void send_control_switch(ipc::ControlRequest& request, std::string_view what);
-
+    //  싣기·옮기기·적용은 control_plane_(Quant/include/core/ControlPlane.h)이 한다. 여기는 Engine 몫만 남는다.
     // 하루치를 새로 여는 실제 손질. [inv] 주문 쪽에서만 부른다(Both 의 data_thread 또는 order_thread).
     void apply_reset_daily();
-
-    // 주문 스레드가 표를 모으는 자리. 표마다 하나씩 둬 둘이 큐에서 섞여 와도 각자 모인다.
-    struct ControlInbox
-    {
-        ipc::ControlTableBuilder slot_exempt{ipc::kControlTableMax};
-        ipc::ControlTableBuilder entry_priority{ipc::kControlTableMax};
-    };
-
-    // 전략 쪽 생산자들이 앞 토막에 넣은 제어 요청을 경계 너머 제어 면으로 옮긴다 — 여럿이 넣은 줄을 한 줄로 모으는 자리다.
-    //  [inv] strategy_thread에서만 부른다 — 앞 토막이 MPSC라 꺼내는 쪽이 하나여야 한다. [why D-114]
-    void relay_control_requests();
-
-    // 제어 면에 쌓인 요청을 비우고 완성된 표를 건다. [inv] order_thread에서만 부른다(원칙 4).
-    void apply_control_requests(ControlInbox& inbox);
 
     // 전략 → 시세 제어 줄을 비운다. 구독·해지 낱말만 이 줄로 오므로 받는 자리도 여기 하나다.
     //  소켓을 쥔 쪽의 감시 스레드가 부른다 — 목록에만 올리고 소켓에 거는 것은 이어지는
     //  drain_pending_subscriptions()가 한다. [why D-114 단계 5]
     void apply_feed_control_requests();
-
-    // 전략이 보는 보호 주문 창구. 켜고 끄기는 요청으로 주문 스레드에 넘기고, 읽기 둘은 표를 그대로 본다 —
-    //  표를 고치는 것은 단일 시퀀서다(원칙 4). 프로세스를 가르면 읽기 둘도 응답 통로로 바뀐다. [why D-114]
-    class ControlProtectiveRegistry : public risk::ProtectiveOrderRegistry
-    {
-    public:
-        explicit ControlProtectiveRegistry(Engine& engine);
-
-        void arm(const risk::ProtectiveRule& rule) override;
-        void disarm(const std::string& account, symbol::SymbolId symbol) override;
-        bool owns(const std::string& account, symbol::SymbolId symbol) const override;
-        bool consume_fired(const std::string& account, symbol::SymbolId symbol) override;
-
-    private:
-        // [inv] Engine 멤버라 Engine보다 오래 살지 않는다.
-        Engine& engine_;
-    };
 
     // 전략 생사에 따라 주문 쪽 마무리를 켜고 끈다. 주문 스레드는 안 내려간다 — 보유분을 지키는 것이 남은 일이다.
     //  [inv] order_thread에서만 부른다(OrderRouter::submit의 단일 스레드 규약). [why D-114]
@@ -854,28 +819,6 @@ private:
         ipc::SharedSpscRing<ipc::OrderResponse>* order_responses = nullptr;
         std::atomic<uint64_t> order_response_dropped{0}; // 전략이 답을 안 가져가 버린 응답 수
         std::atomic<uint64_t> order_duplicate{0};        // 주문 쪽이 같은 순번을 두 번 받아 거른 수. 0이 아니면 통로가 샜다
-        // 전략 쪽이 주문 쪽 표를 고쳐 달라고 보내는 통로(슬롯 면제 집합·진입 우선순위 표·보호 주문 등록,
-        //  매크로 국면의 신규진입 정지·매수 비율). 통로는 두 토막이다 — 전략 프로세스 안에서 여럿이 모이는
-        //  앞 토막과, 경계를 넘는 뒤 토막. 공유 쪽지 큐는 보내는 쪽이 하나여야 해서 한 줄로 모은다. [why D-114]
-        //  표 하나가 여러 줄로 오므로 용량은 표 상한의 몇 배로 둔다 — 한 줄만 잃어도 그 표는 통째로 버려진다.
-        static constexpr size_t kControlQueueCapacity = 8192;
-        // 앞 토막. 생산자가 샤드 스레드·데이터 스레드로 여럿이라 MPSC(원칙 5).
-        //  [inv] 꺼내는 자리는 relay_control_requests 하나뿐이고, 그 안을 control_relay_mutex 가 감싼다 —
-        //  여럿이 동시에 꺼내면 MPSC 약속이 깨진다. 자물쇠를 둔 것은 번호를 기다리는 쪽이 제 손으로
-        //  옮겨야 하기 때문이다(전략 스레드가 on_start 안에서 막히면 아무도 안 옮긴다). [why D-114]
-        MpscQueue<ipc::ControlRequest> strategy_control_outbox{kControlQueueCapacity};
-        std::mutex                     control_relay_mutex;
-        // 뒤 토막. 자리표 위 제어 면이고 여기 있는 것은 그 자리를 가리키는 포인터다. 전략 스레드가 넣고
-        //  주문 스레드가 꺼낸다. [inv] bind_layout()이 꽂는다. [why D-114]
-        ipc::SharedSpscRing<ipc::ControlRequest>* controls = nullptr;
-        // 전략 → 시세 제어 줄. 구독·해지 낱말만 이리로 간다(ipc::routes_to_feed). 소켓을 쥔 쪽이 시세로
-        //  옮겨 가면서 구독 요청이 갈 곳도 같이 옮겼다 — 주문 쪽을 거쳐 가면 한 홉이 늘고, 주문 스레드가
-        //  소켓 쓰기에 막히면 그동안 주문이 안 나간다. [inv] bind_layout()이 꽂는다. [why D-114 단계 5]
-        ipc::SharedSpscRing<ipc::ControlRequest>* feed_controls = nullptr;
-        std::atomic<uint64_t> control_sequence{0};  // 제어 요청 순번 발급기. 0은 안 쓴다
-        std::atomic<uint64_t> control_dropped{0};   // 앞 토막이 가득 차 못 보낸 줄 수. 0이 아니면 표가 버려졌다
-        std::atomic<uint64_t> control_relay_dropped{0}; // 뒤 토막이 가득 차 못 옮긴 줄 수. 보낸 쪽은 성공을 받은 뒤다
-        std::atomic<uint64_t> control_discarded{0}; // 주문 쪽이 반쪽 표로 보고 버린 줄 수
         // 전략 스레드가 한 바퀴마다 찍고 주문 스레드가 공백만 보고 생사를 판정한다. 자리표의 박동 면
         //  가운데 전략 쪽 칸을 가리킨다 — 프로세스가 갈려도 찍는 자리도 보는 자리도 그대로다. [why D-114]
         //  [inv] bind_layout()이 꽂는다.
@@ -1020,8 +963,6 @@ private:
     std::string zmq_control_token_;
     // 보호 주문 표 — 전략(샤드 스레드)가 등록하고 strategy_thread(주문 시퀀서)가 본다. 표 자체가 잠금을 가진다. [why D-114]
     risk::ProtectiveOrderBook             protective_book_;
-    // 전략에 꽂아 주는 창구. 등록·해제는 요청이 되고 표는 주문 스레드가 고친다. [why D-114]
-    ControlProtectiveRegistry             protective_requests_{*this};
     std::chrono::milliseconds             protective_interval_{kProtectiveIntervalMsDefault};
     // 다음에 표를 볼 시각(steady_clock 틱). 전략·주문 두 스레드가 잡으러 오므로 원자다 — claim_protective_cycle만 민다.
     std::atomic<std::chrono::steady_clock::rep> protective_next_ticks_{0};
@@ -1070,6 +1011,12 @@ private:
         [this](std::unique_ptr<StrategyBase> strategy) { register_strategy_runtime(std::move(strategy)); },
         [this](StrategyBase* pointer, const std::function<std::string(const StrategyBase&)>& make_line)
         { retire_strategy(pointer, make_line); }};
+
+    // 제어 요청 통로 — 전략 쪽이 주문 쪽 표를 고쳐 달라고 보내는 요청을 싣고·옮기고·적용한다. 보호 주문 창구도
+    //  여기서 전략에 꽂아 준다. [inv] order_gate_·protective_book_·symbols_·pipeline_ 뒤에 선언한다 — 참조를
+    //  생성자에서 받는다. 뒤 토막은 bind_layout()이 꽂는다. [why D-114]
+    ControlPlane control_plane_{order_gate_, protective_book_, symbols_.table, pipeline_.strategy_wake,
+                                pipeline_.order_wake, [this] { apply_reset_daily(); }};
 
     double                                  last_price(symbol::SymbolId id) const noexcept;
     double                                  last_price(const std::string& ticker) const;

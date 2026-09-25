@@ -198,9 +198,6 @@ void Engine::order_thread_fn(std::stop_token stop_token)
     const ipc::RequestLimits request_limits{static_cast<uint32_t>(ledger.symbols().capacity()),
                                             static_cast<uint32_t>(ledger.strategy_table().capacity())};
 
-    // 전략 쪽이 보낸 표를 모으는 자리. 주문 스레드 지역 변수라 이 스레드 말고는 손대지 않는다. [why D-114]
-    ControlInbox control_inbox;
-
     // 교체 진입 — 최약체 고르기·매도 발주·쿨다운 기록·매수 보류가 여기 한 덩어리로 있다. 전략 쪽에 두면
     //  고르는 시점과 예약하는 시점이 갈려 둘이 같은 종목을 두 번 판다. [why D-114]
     risk::DisplacementDesk displace_desk(order_gate_);
@@ -260,7 +257,7 @@ void Engine::order_thread_fn(std::stop_token stop_token)
         // 전략이 살아 있는가 — 박동 공백만 본다. 사망이어도 주문 스레드는 안 내려간다(보유분을 지켜야 한다).
         // 표 고치기가 주문보다 먼저다 — 슬롯 면제·우선순위가 낡은 채로 이 회차의 주문을 거르면
         //  전략이 이미 반영된 줄 알고 낸 신호가 옛 표에 걸린다. [why D-114]
-        apply_control_requests(control_inbox);
+        control_plane_.apply();
 
         const auto step = strategy_monitor.observe(trace::now_ns(), pipeline_.strategy_heartbeat->last_ns());
         pipeline_.strategy_beat_gap_max_ns.store(strategy_monitor.max_gap_ns(), std::memory_order_relaxed);
@@ -371,7 +368,7 @@ void Engine::order_thread_fn(std::stop_token stop_token)
             // 제어 요청·수동주문도 이 스레드가 처리하므로 잠드는 조건에 같이 넣는다 — 안 넣으면 표 고치기와
             //  사람이 누른 주문이 다음 주문이나 100ms 만기까지 밀린다. [why D-114]
             pipeline_.order_wake.wait_until(deadline, stop_token, [this] {
-                return pipeline_.requests->readable() == 0 && pipeline_.controls->readable() == 0 &&
+                return pipeline_.requests->readable() == 0 && control_plane_.order_lane_empty() &&
                        ops_.manual_inbox.empty();
             });
 

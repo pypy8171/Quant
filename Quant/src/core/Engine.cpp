@@ -760,7 +760,7 @@ void Engine::set_entry_priority(const std::vector<OrderGate::PriorityEntry>& ent
         ipc::ControlRequest open;
         open.kind = ipc::ControlKind::kEntryPriorityBegin;
 
-        if (send_control(open))
+        if (control_plane_.send(open))
         {
             uint32_t sent = 0;
             bool     full = false;
@@ -774,7 +774,7 @@ void Engine::set_entry_priority(const std::vector<OrderGate::PriorityEntry>& ent
                 row.rank      = entry.rank;
                 row.score_z   = entry.z_score;
 
-                if (!send_control(row))
+                if (!control_plane_.send(row))
                 {
                     full = true;
                     break;
@@ -796,7 +796,7 @@ void Engine::set_entry_priority(const std::vector<OrderGate::PriorityEntry>& ent
                 close.rank      = total;
                 close.row_count = sent;
 
-                if (!send_control(close))
+                if (!control_plane_.send(close))
                 {
                     LOG_WARN("[Engine] 진입 우선순위 표 마무리를 못 보냈다 — 이번 판은 걸리지 않는다");
                 }

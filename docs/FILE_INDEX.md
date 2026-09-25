@@ -258,6 +258,7 @@
 - [AppConfig.h](../Quant/include/core/AppConfig.h) — config.json을 typed 값으로 옮긴 프로세스 설정 한 벌(`AppConfig`)과 `parse_config` 선언
 - [BarAggregator.h](../Quant/include/core/BarAggregator.h) — 체결 틱 → 종목별 N분봉 집계기(D-068·D-072)
 - [CommandLine.h](../Quant/include/core/CommandLine.h) — 실행 인자 뜯기 선언 — 설정 경로·모드 오버라이드·역할(`ProcessRole` both/order/strategy)(D-114 단계 4)
+- [ControlPlane.h](../Quant/include/core/ControlPlane.h) — 제어 요청 통로 — 주문 쪽 표를 고쳐 달라는 요청을 싣고(`send`) 경계 너머로 옮기고(`relay`) 주문 스레드가 적용한다(`apply`), 보호 주문 창구(D-114)
 - [DataPoller.h](../Quant/include/core/DataPoller.h) — REST 현재가 폴러 — 폴링 모드·WS 폴백(D-062)
 - [Engine.h](../Quant/include/core/Engine.h) — 엔진 클래스 선언 — 파이프라인 스레드 배선
 - [FeedMux.h](../Quant/include/core/FeedMux.h) — 피드 소스 여러 개를 한 소스로 묶는 mux(D-071)
@@ -395,10 +396,11 @@
 - [AppConfig.cpp](../Quant/src/core/AppConfig.cpp) — config.json 읽기의 유일한 자리 — 키 이름·기본값·kis.exchange 검증·매매 창 hhmm→분
 - [BarAggregator.cpp](../Quant/src/core/BarAggregator.cpp) — N분봉 집계기 구현(D-068·D-074)
 - [CommandLine.cpp](../Quant/src/core/CommandLine.cpp) — CommandLine.h 구현 — 모르는 역할·모르는 깃발은 기본값으로 낙하하지 않고 멈춘다(D-114 단계 4)
+- [ControlPlane.cpp](../Quant/src/core/ControlPlane.cpp) — ControlPlane.h 구현 — 앞 토막(MPSC)→주문·시세 줄(SPSC) 가르기, 표 모으기·스위치 적용(D-114)
 - [DataPoller.cpp](../Quant/src/core/DataPoller.cpp) — REST 현재가 폴러 구현 — 호출 간격·넘침 목록(D-062)
 - [Engine.cpp](../Quant/src/core/Engine.cpp) — 엔진 본체 구현 — 생성자·전략 등록·파이프라인
 - [EngineConfigure.cpp](../Quant/src/core/EngineConfigure.cpp) — `Engine::configure(const AppConfig&)` — AppConfig 값을 Engine 세터에 옮기는 배선 4단계(채널·국면맵·시세 키·위험 한도)
-- [EngineControlPlane.cpp](../Quant/src/core/EngineControlPlane.cpp) — 제어 요청 통로 — 주문 쪽(OrderGate·원장)에 부탁하는 요청을 보내고(`send_control`) 옮기고(`relay_control_requests`) 적용한다(`apply_control_requests`), 주문 쪽 스위치 다섯
+- [EngineControlPlane.cpp](../Quant/src/core/EngineControlPlane.cpp) — 주문 쪽 스위치 다섯(`request_*`)·하루치 새로 열기·슬롯 면제 표 보내기 — 그 자리에서 고치거나 ControlPlane에 싣는다
 - [EngineControlThread.cpp](../Quant/src/core/EngineControlThread.cpp) — 제어 쪽 — 제어 스레드(`control_thread_fn`: 감시·피드 끊김 폴백·마감 자기 종료)와 통계 모으기
 - [EngineDataThread.cpp](../Quant/src/core/EngineDataThread.cpp) — 데이터 수집 스레드 — 장 시작 감지·잔고 대조·일봉·지수·수급 조회를 한 사이클씩 돈다(`data_thread_fn`)
 - [EngineFeed.cpp](../Quant/src/core/EngineFeed.cpp) — 시세 입력 — WebSocket 구독 목록 만들기·소켓 연결(`connect_feed`)·받은 체결과 호가를 전략 샤드 큐나 시세 통로로 보내기·구독 칸 재배정(`rebalance_websocket_slots`)과 시세 쪽 제어 요청 적용(`apply_feed_control_requests`)·전략 쪽 시세 줄 스레드(`feed_lane_thread_fn`)
@@ -537,6 +539,7 @@
 - [test_bar_aggregator.cpp](../Quant/tests/test_bar_aggregator.cpp) — N분봉 집계기 단위 테스트(D-068·D-072)
 - [test_command_line.cpp](../Quant/tests/test_command_line.cpp) — 실행 인자 뜯기 단위 테스트: 기본값 불변·--role 두 철자·모르는 값에서 멈추는지 검증(D-114 단계 4)
 - [test_control_channel.cpp](../Quant/tests/test_control_channel.cpp) — 제어 요청 단위 테스트: 계좌 칸, 표 모으기, 남의 표 줄·반쪽 표·닫기 누락을 안 거는지 검증(D-114 단계 2.5 갈래 B)
+- [test_control_plane.cpp](../Quant/tests/test_control_plane.cpp) — 제어 요청 통로 단위 테스트: 순번·낱말별 줄 가르기·주문 쪽 적용·표 모으기·보호 주문 창구·가득 참 셈(D-114)
 - [test_data_poller.cpp](../Quant/tests/test_data_poller.cpp) — REST 현재가 폴러 단위 테스트(D-053·D-062)
 - [test_devscale_rules.cpp](../Quant/tests/test_devscale_rules.cpp) — DevScale 순수 판정 단위 테스트 25검사(트레일 경계·원장 읽기·ATR·진입 허용, D-111)
 - [test_displacement_desk.cpp](../Quant/tests/test_displacement_desk.cpp) — 교체 진입 창구 단위 테스트: 최약체 매도 앞세우기, 매수 보류·자리 나면 발주·시한 만료(D-114 단계 2.5 갈래 B)

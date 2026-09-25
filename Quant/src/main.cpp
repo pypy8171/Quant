@@ -267,7 +267,7 @@ static int run_trade(const AppConfig& app, ProcessRole role)
     //  같은 조회를 두 번 때리는데, 올린 전략을 start()가 켜 주지도 않는다 — start_strategies()와
     //  collect_watch_specifications()는 이미 전략 역할에서만 돌기 때문이다. 주문 쪽이 쓰는 것은 전략
     //  알맹이가 아니라 이름표 번호이고, 그건 전략 쪽 등록 요청이 제어 통로로 건너와 채운다
-    //  (Engine::apply_control_requests). [why D-114]
+    //  (ControlPlane::apply). [why D-114]
     if (engine.runs_strategy_side())
     {
         // 전략 로딩 — 타입별 로더 디스패치 + active_regimes 후처리 (strategy/StrategyFactory.cpp)

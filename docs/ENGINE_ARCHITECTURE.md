@@ -8,7 +8,7 @@
 
 ### 스레드 모델
 
-<!-- sync: Quant/include/core/Engine.h@59f3bcf Quant/src/core/Engine.cpp@377ac67 Quant/include/core/DataPoller.h@5ed346c Quant/include/core/SignalDispatcher.h@63c6f95 Quant/include/core/OrderRateLimiter.h@2650fb2 Quant/include/core/LedgerReconciler.h@77c1a8a Quant/include/core/WakeGate.h@cfe77bc Quant/include/core/BarAggregator.h@f50287c Quant/include/core/LatencyTrace.h@b01b770 Quant/include/core/ReconcilePlan.h@5e8d897 -->
+<!-- sync: Quant/include/core/Engine.h@cfba42a Quant/src/core/Engine.cpp@3d4488a Quant/include/core/DataPoller.h@5ed346c Quant/include/core/SignalDispatcher.h@63c6f95 Quant/include/core/OrderRateLimiter.h@2650fb2 Quant/include/core/LedgerReconciler.h@77c1a8a Quant/include/core/WakeGate.h@cfe77bc Quant/include/core/BarAggregator.h@f50287c Quant/include/core/LatencyTrace.h@b01b770 Quant/include/core/ReconcilePlan.h@5e8d897 -->
 스레드는 다섯 개(데이터·전략·주문·체결·제어)에 전략 샤드 M개(config `strategy_shards`, 기본 1, 상한 64), 소켓마다
 수신 스레드 하나, 프리페치 풀(코어/4, 2~8개)을 더한다. 스레드끼리는 락 없는 큐로만 넘긴다. 각 스레드는 기동 직후
 `thread_name::set_current`(`Quant/include/utils/ThreadName.h`)로 이름을 붙여 procwatch와 디버거에 그 이름으로 보인다.
@@ -57,7 +57,7 @@ flowchart LR
 | 요청 면 `requests` | SPSC, 자리표 위 | 전략 → 주문 | 1,024 | 버리고 센다 (`order_dropped`, D-073) |
 | 응답 면 `order_responses` | SPSC, 자리표 위 | 주문 → 전략 | 1,024 | — |
 | 제어 면 | SPSC, 자리표 위 | 전략 → 주문 | 8,192 | 버리고 `LOG_ERROR` (`control_relay_dropped`) |
-| `strategy_control_outbox` | MPSC | 전략 프로세스의 여러 스레드 → 전략 | 8,192 | 전략 스레드가 제어 면으로 옮긴다 |
+| `ControlPlane::outbox_` | MPSC | 전략 프로세스의 여러 스레드 → 전략 | 8,192 | 전략 스레드가 제어 면으로 옮긴다 |
 | `fill_queue` | SPSC | 수신 → 체결 | 1,024 | 칸은 문자열 없는 `ipc::FillNotice`(128바이트, 체결 통로와 같은 모양, W-7). 버리고 `LOG_ERROR` (`fill_dropped`). 넣는 쪽이 둘 겹치면 한 줄로 세우고 `fill_producer_overlap`에 센다(W-6) |
 | `manual_inbox` | MPSC | 운영단말 서버 → 주문 | 256 | 단말에 거부로 답한다 |
 | 시세 통로 (갈라 띄울 때) | 줄별 SPSC 한 쌍 (`Quant/include/ipc/MarketFeedChannel.h`) | 시세 쪽 수신 → 전략 쪽 줄 스레드 | 체결 16,384·호가 8,192 | 버리고 센다 (`feed_channel_overflow`) |
@@ -137,7 +137,7 @@ flowchart LR
 | 요청·응답 면 | 주문 요청과 종착 상태. 문자열·포인터 없는 고정 레코드 | `Quant/include/ipc/OrderChannel.h` · `test_order_channel` |
 | 제어 면 (시세) | 구독·해지·구독 칸 우선순위만 여기로 간다. 어느 낱말이 어느 줄로 가는지는 `ipc::routes_to_feed` 하나가 정한다 | `Quant/include/ipc/ControlChannel.h` · `test_control_channel` |
 | 체결 통로 | 시세 소켓에 실려 온 체결통보를 주문 쪽으로 나른다. 종목 코드와 증권사 주문번호는 글자 그대로 간다(번호를 다는 쪽이 주문뿐이고, 앞의 0을 잃으면 취소·정정에 못 쓴다) | `Quant/include/ipc/FillChannel.h` · `test_fill_channel` |
-| 제어 면 (주문) | 전략이 주문 쪽 표를 고칠 때(슬롯 면제·진입 우선순위·보호 주문 등록·종목 등록)와 스위치 다섯(하루치 새로 열기·신규진입 정지·매수 비율·전방향 차단·수동 정지). 여러 줄 표는 온전히 모였을 때만 건다 | `Quant/include/ipc/ControlChannel.h` · `test_control_channel` |
+| 제어 면 (주문) | 전략이 주문 쪽 표를 고칠 때(슬롯 면제·진입 우선순위·보호 주문 등록·종목 등록)와 스위치 다섯(하루치 새로 열기·신규진입 정지·매수 비율·전방향 차단·수동 정지). 여러 줄 표는 온전히 모였을 때만 건다 | `Quant/include/ipc/ControlChannel.h`·`Quant/include/core/ControlPlane.h` · `test_control_channel`·`test_control_plane` |
 | 장부 사본 | 보유·미체결 선점·매도가능·평단과 전역값. 판 번호로 묶여 읽는 쪽은 잠금 없이 읽는다. 발주 한 바퀴마다, 기동 직후 한 번, 한가할 때 100ms마다 낸다 | `Quant/include/ipc/LedgerSnapshot.h` · `test_ledger_snapshot` |
 | 박동 | 칸이 셋이고 서로를 본다. 전략 쪽은 의심 250ms·끊김 1,000ms — 죽으면 주문 쪽이 신규 진입을 끊고 보호 주문을 이어받는다(주문 쪽은 내려가지 않는다). 주문 쪽은 의심 30초·끊김 60초로 훨씬 헐겁다. 그 공백에 증권사 왕복(윈도 전송 10초·수신 15초)이 그대로 들어오기 때문이고, 그래서 끊겨도 찍고 셀 뿐 아무것도 멈추지 않는다 | `Quant/include/ipc/Heartbeat.h` · `test_heartbeat` |
 | 국면 칸 | 전략이 고른 국면(`apply_regime_selection`)을 담는 값 한 칸이다. 링이 아니라 상태라, 붙는 쪽은 뜨는 순간 지금 국면을 그대로 읽는다 — 낱말로 흘려보내면 다음 전환까지 빈 채로 돌고, 장중에 주문 프로세스만 다시 뜬 날은 그날 내내 빈다. 주문 쪽이 체결 한 건마다 읽어 `fills.regime`을 채운다. 놓는 쪽이 `-1`로 밀어야 판정 전 체결이 국면 0(RISK_ON)으로 적히지 않는다(D-129) | `Quant/include/ipc/RegimeCell.h` · `test_shared_layout` |

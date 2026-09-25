@@ -65,7 +65,7 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
         return ledger_sellable(account, ticker);
     });
     strategy->set_symbol_resolver([this](std::string_view ticker) { return register_symbol(ticker); });
-    strategy->set_protective_registry(&protective_requests_);
+    strategy->set_protective_registry(&control_plane_.protective_registry());
     assign_strategy_identity(*strategy);
 
     try
@@ -141,7 +141,7 @@ void Engine::start_strategies()
             return ledger_sellable(account, ticker);
         });
         strategy->set_symbol_resolver([this](std::string_view ticker) { return register_symbol(ticker); });
-        strategy->set_protective_registry(&protective_requests_);
+        strategy->set_protective_registry(&control_plane_.protective_registry());
 
         try
         {
@@ -295,7 +295,7 @@ void Engine::strategy_thread_fn(std::stop_token stop_token)
         }
 
         // 전략 쪽 생산자들이 넣은 제어 요청을 경계 너머로 옮긴다 — 보내는 쪽이 하나여야 하는 자리다. [why D-114]
-        relay_control_requests();
+        control_plane_.relay();
 
         const auto loop_now = std::chrono::steady_clock::now();
 

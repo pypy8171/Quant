@@ -21,10 +21,10 @@ graph LR
   api -->|12| core
   api -->|8| utils
   core -->|11| api
-  core -->|11| ipc
-  core -->|7| risk
+  core -->|13| ipc
+  core -->|10| risk
   core -->|4| strategy
-  core -->|32| utils
+  core -->|33| utils
   exchange -->|7| core
   exchange -->|2| utils
   ipc -->|2| api
@@ -55,10 +55,10 @@ graph LR
 
 | 헤더 | 유입 수 |
 |---|---|
-| `utils/Logger.h` | 53 |
+| `utils/Logger.h` | 54 |
 | `core/Types.h` | 48 |
 | `core/KstTime.h` | 28 |
-| `core/SymbolTable.h` | 21 |
+| `core/SymbolTable.h` | 22 |
 | `core/Engine.h` | 16 |
 | `strategy/StrategyBase.h` | 16 |
 | `utils/ThreadName.h` | 13 |
@@ -98,6 +98,8 @@ graph LR
     n_core_BarAggregator_cpp["core/BarAggregator.cpp"]
     n_core_BarAggregator_h["core/BarAggregator.h"]
     n_core_CommandLine_cpp["core/CommandLine.cpp"]
+    n_core_ControlPlane_cpp["core/ControlPlane.cpp"]
+    n_core_ControlPlane_h["core/ControlPlane.h"]
     n_core_DataPoller_cpp["core/DataPoller.cpp"]
     n_core_DataPoller_h["core/DataPoller.h"]
     n_core_Engine_cpp["core/Engine.cpp"]
@@ -331,6 +333,17 @@ graph LR
   n_core_BarAggregator_cpp --> n_core_KstTime_h
   n_core_BarAggregator_h --> n_core_Types_h
   n_core_CommandLine_cpp --> n_core_CommandLine_h
+  n_core_ControlPlane_cpp --> n_core_ControlPlane_h
+  n_core_ControlPlane_cpp --> n_core_LatencyTrace_h
+  n_core_ControlPlane_cpp --> n_risk_OrderGate_h
+  n_core_ControlPlane_cpp --> n_risk_ProtectiveOrders_h
+  n_core_ControlPlane_cpp --> n_utils_Logger_h
+  n_core_ControlPlane_h --> n_core_MpscQueue_h
+  n_core_ControlPlane_h --> n_core_SymbolTable_h
+  n_core_ControlPlane_h --> n_core_WakeGate_h
+  n_core_ControlPlane_h --> n_ipc_ControlChannel_h
+  n_core_ControlPlane_h --> n_ipc_SharedSpscRing_h
+  n_core_ControlPlane_h --> n_risk_ProtectiveRule_h
   n_core_DataPoller_cpp --> n_core_DataPoller_h
   n_core_DataPoller_cpp --> n_core_KstTime_h
   n_core_DataPoller_cpp --> n_utils_Logger_h
@@ -345,6 +358,7 @@ graph LR
   n_core_Engine_h --> n_api_KisClient_h
   n_core_Engine_h --> n_api_KisWebSocket_h
   n_core_Engine_h --> n_core_CommandLine_h
+  n_core_Engine_h --> n_core_ControlPlane_h
   n_core_Engine_h --> n_core_DataPoller_h
   n_core_Engine_h --> n_core_FeedMux_h
   n_core_Engine_h --> n_core_FeedSupervisor_h
@@ -384,7 +398,6 @@ graph LR
   n_core_EngineConfigure_cpp --> n_core_Engine_h
   n_core_EngineConfigure_cpp --> n_utils_Logger_h
   n_core_EngineControlPlane_cpp --> n_core_Engine_h
-  n_core_EngineControlPlane_cpp --> n_core_LatencyTrace_h
   n_core_EngineControlPlane_cpp --> n_utils_Logger_h
   n_core_EngineControlThread_cpp --> n_core_Engine_h
   n_core_EngineControlThread_cpp --> n_core_KstTime_h

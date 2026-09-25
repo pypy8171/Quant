@@ -126,7 +126,7 @@ void Engine::send_watch_request(const WatchSpec& specification, ipc::ControlKind
     request.is_future  = specification.is_future ? 1 : 0;
     ipc::set_exchange(request, specification.exchange);
 
-    if (!send_control(request))
+    if (!control_plane_.send(request))
     {
         // 사라지면 그 종목은 틱이 영영 오지 않는다(09-11 실측: 구독 밖 종목 체결 0건). 큰 소리로 남긴다.
         LOG_ERROR("[Engine] 구독 요청을 못 보냈다 — " + specification.ticker + " 는 시세를 받지 못한다");
@@ -747,7 +747,7 @@ void Engine::apply_feed_control_requests()
 {
     ipc::ControlRequest request;
 
-    while (pipeline_.feed_controls->pop(request))
+    while (control_plane_.pop_feed(request))
     {
         switch (request.kind)
         {

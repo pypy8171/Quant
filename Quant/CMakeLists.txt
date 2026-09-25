@@ -144,6 +144,7 @@ set(HEADER_IMPL_SOURCES
   src/core/Types.cpp
   src/core/UniverseExit.cpp
   src/core/UniverseRescan.cpp
+  src/core/ControlPlane.cpp
   src/core/WakeGate.cpp
   src/core/WebSocketSlotPlan.cpp
   src/exchange/MatchingEngine.cpp
@@ -653,6 +654,10 @@ target_link_libraries(test_universe_scoring PRIVATE quant_engine)
 add_executable(test_universe_rescan tests/test_universe_rescan.cpp)
 target_link_libraries(test_universe_rescan PRIVATE quant_engine)
 
+# ─── 테스트 타깃: 제어 요청 통로 — 순번·낱말별 줄 가르기·주문 쪽 적용·표 모으기·보호 주문 창구·가득 참 셈 (D-114) ──
+add_executable(test_control_plane tests/test_control_plane.cpp)
+target_link_libraries(test_control_plane PRIVATE quant_engine)
+
 # ─── 테스트 타깃: WS 피드 감독기 — stale→재연결 백오프(step×n, 상한)→폴백 요구 한 번·복귀 재무장 (헤더 전용, D-071) ──
 add_executable(test_feed_supervisor tests/test_feed_supervisor.cpp)
 target_include_directories(test_feed_supervisor PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -950,6 +955,7 @@ set(QUANT_ASSERT_TARGETS
     test_ledger_snapshot
     test_universe_scoring
     test_universe_rescan
+    test_control_plane
 )
 foreach(_qt IN LISTS QUANT_ASSERT_TARGETS)
     if(MSVC)

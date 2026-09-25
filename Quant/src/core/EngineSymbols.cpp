@@ -172,11 +172,11 @@ symbol::SymbolId Engine::request_symbol_registration(std::string_view ticker)
     request.kind   = ipc::ControlKind::kRegisterSymbol;
     request.ticker = ticker;
 
-    if (send_control(request))
+    if (control_plane_.send(request))
     {
         // 앞 토막에서 경계 너머로 직접 옮긴다 — 평소 옮겨 주는 전략 스레드가 바로 이 자리에서 번호를
         //  기다리고 있을 수 있다. 그때는 아무도 안 옮겨 기다림이 헛돈다. [why D-114]
-        relay_control_requests();
+        control_plane_.relay();
 
         // 답을 따로 받지 않는다 — 주문 쪽이 넣으면 같은 공유 표에 뜬다. 그것을 본다.
         const symbol::SymbolId id = wait_for_shared_id([this, ticker] { return symbols_.table.lookup(ticker); },
@@ -200,9 +200,9 @@ strategy_table::StrategyId Engine::request_strategy_registration(std::string_vie
     request.kind = ipc::ControlKind::kRegisterStrategy;
     request.strategy_name.assign(name);
 
-    if (send_control(request))
+    if (control_plane_.send(request))
     {
-        relay_control_requests(); // 종목 등록과 같은 이유로 이 자리에서 직접 옮긴다 [why D-114]
+        control_plane_.relay(); // 종목 등록과 같은 이유로 이 자리에서 직접 옮긴다 [why D-114]
 
         const strategy_table::StrategyId id =
             wait_for_shared_id([this, name] { return order_gate_.ledger().strategy_table().lookup(name); },

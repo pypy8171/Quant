@@ -191,11 +191,11 @@ void Engine::control_thread_fn(std::stop_token stop_token)
                      " ledger_gen=" + std::to_string(ledger_snapshot_->generation()) +
                      " ledger_foreign=" + std::to_string(order_gate_.ledger().ledger_foreign_account_rows()) +
                      // 제어 요청 — 못 보낸 줄, 경계 너머로 못 옮긴 줄, 반쪽 표로 보고 버린 줄. 셋 다 0이어야 한다. [why D-114]
-                     " control_dropped=" + std::to_string(pipeline_.control_dropped.load(std::memory_order_relaxed)) +
+                     " control_dropped=" + std::to_string(control_plane_.dropped()) +
                      " control_relay_dropped=" +
-                     std::to_string(pipeline_.control_relay_dropped.load(std::memory_order_relaxed)) +
+                     std::to_string(control_plane_.relay_dropped()) +
                      " control_discarded=" +
-                     std::to_string(pipeline_.control_discarded.load(std::memory_order_relaxed)) +
+                     std::to_string(control_plane_.discarded()) +
                      // 티커→번호 — 등록을 주문 쪽에서 못 받은 수, 표에 없는 티커로 잦은 자리가 불린 수. 둘 다 0이어야 한다. [why D-114]
                      " symbol_register_timeout=" + std::to_string(symbol_register_timeouts()) +
                      " symbol_lookup_miss=" + std::to_string(symbol_lookup_misses()) +

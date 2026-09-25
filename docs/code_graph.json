@@ -29,12 +29,12 @@
     {
       "from": "core",
       "to": "ipc",
-      "weight": 11
+      "weight": 13
     },
     {
       "from": "core",
       "to": "risk",
-      "weight": 7
+      "weight": 10
     },
     {
       "from": "core",
@@ -44,7 +44,7 @@
     {
       "from": "core",
       "to": "utils",
-      "weight": 32
+      "weight": 33
     },
     {
       "from": "exchange",
@@ -168,6 +168,7 @@
     "core/AppConfig.h": "core",
     "core/BarAggregator.h": "core",
     "core/CommandLine.h": "core",
+    "core/ControlPlane.h": "core",
     "core/DataPoller.h": "core",
     "core/Engine.h": "core",
     "core/FeedMux.h": "core",
@@ -278,6 +279,7 @@
     "core/AppConfig.cpp": "core",
     "core/BarAggregator.cpp": "core",
     "core/CommandLine.cpp": "core",
+    "core/ControlPlane.cpp": "core",
     "core/DataPoller.cpp": "core",
     "core/Engine.cpp": "core",
     "core/EngineConfigure.cpp": "core",
@@ -486,6 +488,21 @@
     "core/CommandLine.cpp": [
       "core/CommandLine.h"
     ],
+    "core/ControlPlane.cpp": [
+      "core/ControlPlane.h",
+      "core/LatencyTrace.h",
+      "risk/OrderGate.h",
+      "risk/ProtectiveOrders.h",
+      "utils/Logger.h"
+    ],
+    "core/ControlPlane.h": [
+      "core/MpscQueue.h",
+      "core/SymbolTable.h",
+      "core/WakeGate.h",
+      "ipc/ControlChannel.h",
+      "ipc/SharedSpscRing.h",
+      "risk/ProtectiveRule.h"
+    ],
     "core/DataPoller.cpp": [
       "core/DataPoller.h",
       "core/KstTime.h",
@@ -507,6 +524,7 @@
       "api/KisClient.h",
       "api/KisWebSocket.h",
       "core/CommandLine.h",
+      "core/ControlPlane.h",
       "core/DataPoller.h",
       "core/FeedMux.h",
       "core/FeedSupervisor.h",
@@ -550,7 +568,6 @@
     ],
     "core/EngineControlPlane.cpp": [
       "core/Engine.h",
-      "core/LatencyTrace.h",
       "utils/Logger.h"
     ],
     "core/EngineControlThread.cpp": [
@@ -1338,6 +1355,10 @@
       "core/Engine.h",
       "main.cpp"
     ],
+    "core/ControlPlane.h": [
+      "core/ControlPlane.cpp",
+      "core/Engine.h"
+    ],
     "core/DataPoller.h": [
       "core/DataPoller.cpp",
       "core/Engine.h",
@@ -1410,9 +1431,9 @@
       "universe/UniverseScoring.cpp"
     ],
     "core/LatencyTrace.h": [
+      "core/ControlPlane.cpp",
       "core/Engine.cpp",
       "core/Engine.h",
-      "core/EngineControlPlane.cpp",
       "core/EngineControlThread.cpp",
       "core/EngineDataThread.cpp",
       "core/EngineFeed.cpp",
@@ -1438,6 +1459,7 @@
       "strategy/ValueContraryStrategy.h"
     ],
     "core/MpscQueue.h": [
+      "core/ControlPlane.h",
       "core/Engine.h",
       "core/TickCapture.h",
       "exchange/ZmqOrderFeed.h",
@@ -1510,6 +1532,7 @@
       "strategy/StrategyBase.h"
     ],
     "core/SymbolTable.h": [
+      "core/ControlPlane.h",
       "core/Engine.h",
       "core/PaperExecutor.h",
       "core/ReconcilePlan.h",
@@ -1605,6 +1628,7 @@
     ],
     "core/WakeGate.h": [
       "api/WebSocketClient.cpp",
+      "core/ControlPlane.h",
       "core/Engine.h",
       "core/FeedMux.h",
       "core/PrefetchPool.h",
@@ -1620,6 +1644,7 @@
       "core/WebSocketSlotPlan.cpp"
     ],
     "ipc/ControlChannel.h": [
+      "core/ControlPlane.h",
       "core/Engine.h",
       "ipc/ControlChannel.cpp",
       "ipc/SharedLayout.h"
@@ -1685,6 +1710,7 @@
       "ipc/SharedRegion.cpp"
     ],
     "ipc/SharedSpscRing.h": [
+      "core/ControlPlane.h",
       "ipc/FillChannel.h",
       "ipc/MarketFeedChannel.h",
       "ipc/SharedLayout.h",
@@ -1733,6 +1759,7 @@
     ],
     "risk/OrderGate.h": [
       "core/AppConfig.h",
+      "core/ControlPlane.cpp",
       "core/Engine.h",
       "core/LedgerReconciler.h",
       "core/SignalDispatcher.h",
@@ -1746,10 +1773,12 @@
       "risk/PositionLedger.cpp"
     ],
     "risk/ProtectiveOrders.h": [
+      "core/ControlPlane.cpp",
       "core/Engine.h",
       "risk/ProtectiveOrders.cpp"
     ],
     "risk/ProtectiveRule.h": [
+      "core/ControlPlane.h",
       "risk/ProtectiveOrders.h",
       "risk/ProtectiveRule.cpp",
       "strategy/StrategyBase.h"
@@ -1885,6 +1914,7 @@
       "api/WsSocketPosix.cpp",
       "api/WsSocketWin.cpp",
       "core/AppConfig.cpp",
+      "core/ControlPlane.cpp",
       "core/DataPoller.cpp",
       "core/Engine.cpp",
       "core/EngineConfigure.cpp",
@@ -1958,7 +1988,7 @@
   "hubs": [
     {
       "header": "utils/Logger.h",
-      "in_degree": 53
+      "in_degree": 54
     },
     {
       "header": "core/Types.h",
@@ -1970,7 +2000,7 @@
     },
     {
       "header": "core/SymbolTable.h",
-      "in_degree": 21
+      "in_degree": 22
     },
     {
       "header": "core/Engine.h",
@@ -1993,12 +2023,16 @@
       "in_degree": 11
     },
     {
+      "header": "core/WakeGate.h",
+      "in_degree": 11
+    },
+    {
       "header": "utils/JsonNode.h",
       "in_degree": 11
     },
     {
-      "header": "core/WakeGate.h",
-      "in_degree": 10
+      "header": "risk/OrderGate.h",
+      "in_degree": 9
     },
     {
       "header": "universe/MaAlign.h",
@@ -2013,27 +2047,23 @@
       "in_degree": 8
     },
     {
-      "header": "risk/OrderGate.h",
-      "in_degree": 8
-    },
-    {
       "header": "ipc/LedgerSnapshot.h",
       "in_degree": 7
+    },
+    {
+      "header": "core/MpscQueue.h",
+      "in_degree": 6
     },
     {
       "header": "core/StrategyTable.h",
       "in_degree": 6
     },
     {
+      "header": "ipc/SharedSpscRing.h",
+      "in_degree": 6
+    },
+    {
       "header": "core/IFeedSource.h",
-      "in_degree": 5
-    },
-    {
-      "header": "core/MpscQueue.h",
-      "in_degree": 5
-    },
-    {
-      "header": "core/ReconcilePlan.h",
       "in_degree": 5
     }
   ],

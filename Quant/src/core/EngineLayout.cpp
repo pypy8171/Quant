@@ -34,7 +34,7 @@ bool Engine::bind_layout(uint32_t feed_lanes)
     layout_config_.feed_lanes        = feed_lanes;
     layout_config_.request_capacity  = ShardPipeline::kOrderQueueCapacity;
     layout_config_.response_capacity = ShardPipeline::kOrderResponseCapacity;
-    layout_config_.control_capacity  = ShardPipeline::kControlQueueCapacity;
+    layout_config_.control_capacity  = ControlPlane::kQueueCapacity;
 
     const size_t needed = ipc::SharedLayout::bytes_for(layout_config_);
 
@@ -48,8 +48,7 @@ bool Engine::bind_layout(uint32_t feed_lanes)
 
     // 자리표 위 면을 쓰는 자리에 꽂는다. [inv] 이 포인터들은 다음 bind_layout 까지만 유효하다.
     ledger_snapshot_             = layout_.ledger();
-    pipeline_.controls           = &layout_.controls();
-    pipeline_.feed_controls      = &layout_.feed_controls();
+    control_plane_.bind(&layout_.controls(), &layout_.feed_controls());
     pipeline_.requests           = &layout_.requests();
     pipeline_.order_responses    = &layout_.responses();
     pipeline_.strategy_heartbeat = &layout_.heartbeats()->strategy;
