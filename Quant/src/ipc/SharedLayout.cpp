@@ -1,5 +1,6 @@
 #include "ipc/SharedLayout.h"
 
+#include <atomic>
 #include <new>
 #include <type_traits>
 
@@ -150,14 +151,16 @@ bool SharedLayout::bind_head(std::byte* base, const SharedLayoutConfig& config, 
         head->feed_order_book_capacity = config.feed_order_book_capacity;
         head->feed_control_capacity    = config.feed_control_capacity;
         head->fill_capacity            = config.fill_capacity;
-        head->magic                    = kSharedLayoutMagic; // 표식은 마지막에 — 붙는 쪽은 이걸 보고 들어온다
+        // 표식은 마지막에 release로 — 붙는 쪽은 이걸 acquire로 보고 들어온다
+        std::atomic_ref<uint32_t>(head->magic).store(kSharedLayoutMagic, std::memory_order_release);
         head_                          = head;
         return true;
     }
 
     SharedLayoutHead* head = reinterpret_cast<SharedLayoutHead*>(base);
 
-    if (head->magic != kSharedLayoutMagic || head->layout_version != kSharedLayoutVersion)
+    if (std::atomic_ref<uint32_t>(head->magic).load(std::memory_order_acquire) != kSharedLayoutMagic ||
+        head->layout_version != kSharedLayoutVersion)
     {
         last_error_ = "자리표 머리가 다르다 — 옛 exe가 새 배치에 붙었는지 본다";
         return false;

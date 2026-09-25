@@ -2,6 +2,7 @@
 
 #include "ipc/SharedWriteLock.h"
 
+#include <atomic>
 #include <cstring>
 
 namespace ipc
@@ -76,7 +77,7 @@ bool SharedSymbolDictionary::create(std::byte* base, size_t bytes, size_t capaci
     control->bucket_count = symbol::bucket_count_for(capacity);
     control->count.store(1, std::memory_order_relaxed);
     control->write_lock.store(0, std::memory_order_relaxed);
-    control->magic = kSharedDictionaryMagic;
+    std::atomic_ref<uint32_t>(control->magic).store(kSharedDictionaryMagic, std::memory_order_release);
 
     bind(base, capacity);
     return true;
@@ -91,7 +92,9 @@ bool SharedSymbolDictionary::attach(std::byte* base, size_t bytes, size_t capaci
 
     const auto* control = reinterpret_cast<const SharedDictionaryControl*>(base);
 
-    if (control->magic != kSharedDictionaryMagic || control->record_bytes != sizeof(symbol::Ticker) ||
+    if (std::atomic_ref<uint32_t>(const_cast<uint32_t&>(control->magic)).load(std::memory_order_acquire) !=
+            kSharedDictionaryMagic ||
+        control->record_bytes != sizeof(symbol::Ticker) ||
         control->capacity != capacity || control->bucket_count != symbol::bucket_count_for(capacity))
     {
         last_error_ = "표 머리가 다르다 — 옛 exe가 새 배치에 붙었는지 본다";

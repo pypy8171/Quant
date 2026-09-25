@@ -42,7 +42,9 @@ ProcessIdentity creator_of(const SharedRegionHeader& header)
 // 머리가 성한 구역만 쓴다 — 이름이 남과 부딪혔거나, 판이 바뀐 채 남아 있는 것을 여기서 거른다.
 bool header_matches(const SharedRegionHeader& header, size_t bytes, uint32_t layout_version)
 {
-    return header.magic == kSharedRegionMagic && header.layout_version == layout_version &&
+    return std::atomic_ref<uint32_t>(const_cast<uint32_t&>(header.magic)).load(std::memory_order_acquire) ==
+               kSharedRegionMagic &&
+           header.layout_version == layout_version &&
            header.bytes == bytes;
 }
 
@@ -76,7 +78,9 @@ bool read_posix_header(const std::string& posix_name, SharedRegionHeader& out)
     }
 
     const auto* header = static_cast<const SharedRegionHeader*>(address);
-    const bool  usable = header->magic == kSharedRegionMagic;
+    const bool  usable =
+        std::atomic_ref<uint32_t>(const_cast<uint32_t&>(header->magic)).load(std::memory_order_acquire) ==
+        kSharedRegionMagic;
 
     if (usable)
     {
@@ -272,6 +276,7 @@ bool SharedRegion::create(std::string_view name, size_t bytes, uint32_t layout_v
 #endif
 
     // 머리를 먼저 지우고 쓴다 — 붙는 쪽은 magic을 보고 들어오므로 magic이 마지막이어야 반쪽 머리를 안 본다.
+    //  [inv] magic은 release로 쓰고 붙는 쪽은 acquire로 읽는다 — 평범한 대입이면 컴파일러가 앞 쓰기와 순서를 바꿀 수 있다.
     std::memset(address_, 0, bytes);
     const ProcessIdentity identity = current_process_identity();
     auto*                 header   = static_cast<SharedRegionHeader*>(address_);
@@ -282,7 +287,7 @@ bool SharedRegion::create(std::string_view name, size_t bytes, uint32_t layout_v
     header->creator_start_time     = identity.start_time;
     header->boot_generation        = previous_generation + 1;
     header->shutdown_reason        = static_cast<uint32_t>(SharedShutdownReason::kNone);
-    header->magic                  = kSharedRegionMagic;
+    std::atomic_ref<uint32_t>(header->magic).store(kSharedRegionMagic, std::memory_order_release);
     return true;
 }
 

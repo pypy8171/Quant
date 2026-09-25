@@ -2,6 +2,7 @@
 
 #include "ipc/SharedWriteLock.h"
 
+#include <atomic>
 #include <cstring>
 
 namespace ipc
@@ -71,7 +72,7 @@ bool SharedStrategyDictionary::create(std::byte* base, size_t bytes, size_t capa
     control->capacity     = capacity;
     control->count.store(1, std::memory_order_relaxed);
     control->write_lock.store(0, std::memory_order_relaxed);
-    control->magic = kSharedStrategyDictionaryMagic;
+    std::atomic_ref<uint32_t>(control->magic).store(kSharedStrategyDictionaryMagic, std::memory_order_release);
 
     bind(base, capacity);
     return true;
@@ -86,7 +87,8 @@ bool SharedStrategyDictionary::attach(std::byte* base, size_t bytes, size_t capa
 
     const auto* control = reinterpret_cast<const SharedStrategyControl*>(base);
 
-    if (control->magic != kSharedStrategyDictionaryMagic ||
+    if (std::atomic_ref<uint32_t>(const_cast<uint32_t&>(control->magic)).load(std::memory_order_acquire) !=
+            kSharedStrategyDictionaryMagic ||
         control->record_bytes != sizeof(strategy_table::StrategyName) || control->capacity != capacity)
     {
         last_error_ = "표 머리가 다르다 — 옛 exe가 새 배치에 붙었는지 본다";

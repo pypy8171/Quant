@@ -88,7 +88,7 @@ public:
         control->capacity     = capacity;
         control->published_head.store(0, std::memory_order_relaxed);
         control->published_tail.store(0, std::memory_order_relaxed);
-        control->magic = kSharedRingMagic;
+        std::atomic_ref<uint32_t>(control->magic).store(kSharedRingMagic, std::memory_order_release);
 
         bind(base, capacity);
 
@@ -109,7 +109,9 @@ public:
 
         const auto* control = reinterpret_cast<const SharedRingControl*>(base);
 
-        if (control->magic != kSharedRingMagic || control->record_bytes != sizeof(Record) ||
+        if (std::atomic_ref<uint32_t>(const_cast<uint32_t&>(control->magic)).load(std::memory_order_acquire) !=
+                kSharedRingMagic ||
+            control->record_bytes != sizeof(Record) ||
             control->capacity != capacity)
         {
             last_error_ = "큐 머리가 다르다 — 옛 exe가 새 배치에 붙었는지 본다";
