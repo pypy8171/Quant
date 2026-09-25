@@ -570,7 +570,15 @@ OrderAck OrderRouter::reconcile_blocked_sell(const OrderSignal& signal, const Or
     {
         try
         {
-            opens = kis_.get_open_orders();
+            auto fetched = kis_.get_open_orders();
+
+            if (!fetched)
+            {
+                LOG_WARN("[OrderRouter] 미체결 조회 실패 — " + error_text(fetched));
+                return OrderAck::fail(kis_error::kTransport);
+            }
+
+            opens = std::move(*fetched);
         }
         catch (const std::exception& exception)
         {
@@ -767,8 +775,18 @@ OrderRouter::AdoptResult OrderRouter::adopt_open_intents(const std::vector<Order
     {
         try
         {
-            open_orders  = kis_.get_open_orders();
-            asked_broker = true;
+            auto fetched = kis_.get_open_orders();
+
+            // 조회 실패는 "브로커에 못 물어봤다"로 둔다 — 빈 목록으로 읽으면 살아 있는 주문의 선점을 다 푼다. [why 전수조사 B1-2]
+            if (fetched)
+            {
+                open_orders  = std::move(*fetched);
+                asked_broker = true;
+            }
+            else
+            {
+                LOG_WARN("[OrderRouter] 재기동 미체결 조회 실패 — 접수된 주문은 살아 있는 것으로 둔다: " + error_text(fetched));
+            }
         }
         catch (const std::exception& exception)
         {
@@ -1479,7 +1497,14 @@ void OrderRouter::reconcile_unknown_order_async(std::string ticker)
             }
 
             ++kis_calls_;
-            const std::vector<OpenOrder> open_orders = kis_.get_open_orders();
+            const auto open_orders = kis_.get_open_orders();
+
+            if (!open_orders)
+            {
+                LOG_WARN("[OrderRouter] 전송 타임아웃 되묻기 — 미체결 조회 실패, 다음 기동이 다시 잡는다: " + error_text(open_orders));
+                reconcile_busy_ = false;
+                return;
+            }
 
             // 파일은 쓰기 스레드가 늦게 쓰므로 조회가 끝난 뒤의 이력도 본다 — 그 사이 접수된 우리 주문이 파일에
             //  아직 없을 수 있다. 같은 종목이 KIS 답을 기다리는 중이면 번호를 모르는 우리 주문일 수 있어 건너뛴다.
@@ -1507,7 +1532,7 @@ void OrderRouter::reconcile_unknown_order_async(std::string ticker)
                 }
             }
 
-            for (const auto& open : open_orders)
+            for (const auto& open : *open_orders)
             {
                 if (open.ticker != ticker || open.kis_order_no.empty() || open.psbl_qty <= 0)
                 {
@@ -1622,7 +1647,15 @@ void OrderRouter::cancel_stale_orders_async()
     //  주문을 채운다. [why D-101]
     try
     {
-        for (const auto& open : kis_.get_open_orders())
+        static const std::vector<OpenOrder> kNoOpenOrders; // 실패 때 돌 빈 목록 — 삼항 양쪽을 참조로 맞춰 복사를 안 만든다
+        const auto open_orders = kis_.get_open_orders();
+
+        if (!open_orders)
+        {
+            LOG_WARN("[OrderRouter] 미체결 보충 조회 실패 — 부속 파일 줄만 취소한다: " + error_text(open_orders));
+        }
+
+        for (const auto& open : open_orders ? *open_orders : kNoOpenOrders)
         {
             if (open.kis_order_no.empty() || open.psbl_qty <= 0)
             {

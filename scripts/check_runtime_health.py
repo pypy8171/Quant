@@ -131,6 +131,10 @@ LEDGER_UNNUMBERED_RE = re.compile(r"\[OrderRouter\] 재기동 미결 주문 짝 
 LEDGER_RESOLVE_RE = re.compile(r"\[Engine\] 원장 미결 주문 대조: 되살림 (\d+)건 · 선점해제 (\d+)건 · 저널기록실패 (\d+)건")
 # 주문 앞 선기록(OrderRouter)과 잠금 밖 묶음 기록(PositionLedger, W-2) 실패를 같이 센다.
 LEDGER_WRITE_FAIL_RE = re.compile(r"\[(?:OrderRouter|PositionLedger)\] 원장 저널 기록 실패")
+# 하루 리셋은 거래일당 한 번이다 — 같은 날짜로 두 번 찍히면 재기동이 되살린 선점·당일 손익을 지운 것이다(전수조사 A-4)
+DAILY_RESET_RE = re.compile(r"\[OrderGate\] 하루 리셋 - 거래일\((\d{8})\)")
+# 미체결 조회가 실패하면 재기동 대조는 접수된 주문을 살려 두고 넘어간다 — 잦으면 선점 대조가 그날 안 된 것이다(전수조사 B1-2)
+OPEN_ORDER_FAIL_RE = re.compile(r"\[OrderRouter\] (?:재기동 미체결 조회 실패|미체결 조회 실패|미체결 보충 조회 실패|전송 타임아웃 되묻기 — 미체결 조회 실패)")
 # 엔진이 모르는 채 브로커에 살아 있던 주문 — 전송이 타임아웃 나면 KIS에는 접수됐는데 ODNO를 못 받아
 #  부속 파일에 못 적는다. 그 주문이 보유분을 묶으면 손절이 닿아도 못 판다(2026-09-23 09:26 021240,
 #  ODNO=0000007886 매도 18주). 기동 때 브로커 조회로 보충하면 이 줄이 남는다 — 남았다는 건 그날 샜다는 뜻이다.
@@ -1399,6 +1403,8 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
     ledger_unnumbered = 0                        # 되살림 가운데 접수 응답 전에 끊겨 미체결과 짝지은 주문
     ledger_start_failures = 0                    # 기동 시점 저널 기록 실패 누계(기동마다 한 줄)
     ledger_write_fails = 0                       # 장중 저널 기록 실패(안 나간 주문 + 파일이 원장보다 뒤처진 묶음)
+    daily_resets: dict[str, int] = {}            # 거래일(yyyymmdd) → 하루 리셋 횟수. 1보다 크면 A-4 재발
+    open_order_fails = 0                         # 미체결 조회 실패 줄 수
     beat_dead = 0                                # 주문 스레드가 전략을 죽었다고 본 횟수
     beat_back = 0                                # 박동이 돌아와 진입 정지를 푼 횟수
     beat_gap_max = -1                            # 전략 박동의 가장 긴 공백(ms). -1이면 그 줄이 없는 구 exe
@@ -1479,6 +1485,10 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
                 ledger_start_failures = max(ledger_start_failures, int(found.group(3)))
             if LEDGER_WRITE_FAIL_RE.search(line):
                 ledger_write_fails += 1
+            if found := DAILY_RESET_RE.search(line):
+                daily_resets[found.group(1)] = daily_resets.get(found.group(1), 0) + 1
+            if OPEN_ORDER_FAIL_RE.search(line):
+                open_order_fails += 1
             if BEAT_DEAD_RE.search(line):
                 beat_dead += 1
             if BEAT_BACK_RE.search(line):
@@ -1998,6 +2008,11 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
                    f"되살림 {ledger_restored}건(접수 응답 전 끊김 짝지음 {ledger_unnumbered}) · 선점해제 {ledger_released}건 · 꼬리 잘림 {ledger_truncated}회"
                    f" (리플레이 최대 {max(ledger_replays, default=0)}건 — 선점해제는 원장에 적고 KIS엔 안 간 주문,"
                    f" 꼬리 잘림은 쓰다 만 레코드)"),
+        ledger_row("하루 리셋 한 번", all(count == 1 for count in daily_resets.values()), "FAIL",
+                   f"거래일별 리셋 {daily_resets or '줄 없음'} (기대 각 1회 — 2회 이상이면 재기동·US 개장이"
+                   f" 되살린 선점과 당일 손익을 지웠다)"),
+        ledger_row("미체결 조회", open_order_fails == 0, "WARN",
+                   f"조회 실패 {open_order_fails}건 (기대 0 — 실패한 회차는 접수된 주문을 살려 두고 대조를 건너뛴다)"),
         ("일찍 끝난 세션", not short, "FAIL",
          f"{MIN_SESSION_SEC}초 미만 종료 {len(short)}회"
          + (f" — {', '.join(hhmm(second) for second in short[:5])}" if short else "")),

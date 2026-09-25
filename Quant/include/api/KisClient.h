@@ -131,7 +131,7 @@ public:
                                         const std::string& krx_forwarding_org_no, int new_quantity, double new_price) override;
     [[nodiscard]] bool is_paper() const noexcept override { return config_.is_paper; }
     // 미체결(정정취소 가능) 예약주문 조회 — 실전 inquire-psbl-rvsecncl(TTTC0084R), 모의는 VTTC0081R(inquire-daily-ccld)
-    [[nodiscard]] std::vector<OpenOrder> get_open_orders() override;
+    [[nodiscard]] KisResult<std::vector<OpenOrder>> get_open_orders() override;
     [[nodiscard]] std::uint64_t rate_limit_wait_ns_this_thread() const noexcept override { return rate_wait_ns_this_thread(); }
     // 잔고 — inquire-balance(모의 VTTC8434R / 실전 TTTC8434R). 연속조회로 보유 전 페이지를 합친다.
     //  실패(전송·파싱·rt_cd≠0, 어느 페이지든)는 fail 봉투로 돌려주고 부분 목록은 내지 않는다 — 호출자가 잔고에

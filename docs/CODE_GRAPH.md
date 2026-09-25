@@ -18,7 +18,7 @@ graph LR
   ipc[ipc]
   utils[utils]
   exchange[exchange]
-  api -->|12| core
+  api -->|13| core
   api -->|8| utils
   core -->|11| api
   core -->|13| ipc
@@ -57,7 +57,7 @@ graph LR
 |---|---|
 | `utils/Logger.h` | 54 |
 | `core/Types.h` | 48 |
-| `core/KstTime.h` | 29 |
+| `core/KstTime.h` | 31 |
 | `core/SymbolTable.h` | 22 |
 | `core/Engine.h` | 16 |
 | `strategy/StrategyBase.h` | 16 |
@@ -280,8 +280,10 @@ graph LR
     n_utils_Utf8_cpp["utils/Utf8.cpp"]
   end
   n_api_IMarketDataSource_h --> n_core_Types_h
+  n_api_IOrderExecutor_h --> n_api_KisResult_h
   n_api_IOrderExecutor_h --> n_core_Types_h
   n_api_KisAccount_cpp --> n_api_KisRestDecode_h
+  n_api_KisAccount_cpp --> n_core_KstTime_h
   n_api_KisClient_cpp --> n_api_KisClient_h
   n_api_KisClient_h --> n_api_IMarketDataSource_h
   n_api_KisClient_h --> n_api_IOrderExecutor_h
@@ -299,6 +301,8 @@ graph LR
   n_api_KisOrder_cpp --> n_core_TickSize_h
   n_api_KisOrder_cpp --> n_utils_JsonNode_h
   n_api_KisRestDecode_cpp --> n_api_KisRestDecode_h
+  n_api_KisRestDecode_h --> n_api_IOrderExecutor_h
+  n_api_KisRestDecode_h --> n_api_KisResult_h
   n_api_KisRestDecode_h --> n_api_KisTypes_h
   n_api_KisRestDecode_h --> n_core_KstTime_h
   n_api_KisRestDecode_h --> n_core_Types_h
@@ -398,6 +402,7 @@ graph LR
   n_core_EngineConfigure_cpp --> n_core_Engine_h
   n_core_EngineConfigure_cpp --> n_utils_Logger_h
   n_core_EngineControlPlane_cpp --> n_core_Engine_h
+  n_core_EngineControlPlane_cpp --> n_core_KstTime_h
   n_core_EngineControlPlane_cpp --> n_utils_Logger_h
   n_core_EngineControlThread_cpp --> n_core_Engine_h
   n_core_EngineControlThread_cpp --> n_core_KstTime_h

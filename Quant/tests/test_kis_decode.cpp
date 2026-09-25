@@ -1,6 +1,6 @@
 // KIS REST 디코더(api/KisRestDecode.h) 단위 테스트. 분봉: 숫자 필드 실패 처리·시각 변환·페이지 병합(중복·날짜
 // 필터·커서)·interval 집계(OHLC 병합·정렬·bar_index·count 상한). 잔고: 행 필터·주문가능수량 "모름"·요약 폴백·
-// 배열/객체 output2. 전광판: 키 후보 순서·빈 코드. 헤더 전용이라 HTTP·인증 링크 없이 돈다.
+// 배열/객체 output2. 전광판: 키 후보 순서·빈 코드. 미체결: 한도 초과·빈 본문은 실패, 행 필터·커서. 헤더 전용이라 HTTP·인증 링크 없이 돈다.
 // 관련 결정: D-051(분봉), D-059(잔고·전광판·KisResult).
 #include "api/KisRestDecode.h"
 #include "core/KstTime.h"
@@ -240,6 +240,50 @@ int test_decode_future_board()
     return 0;
 }
 
+int test_decode_open_order_page()
+{
+    // 초당 한도(EGW00201) — rt_cd "1"에 빈 배열. 급락장 재기동에서 실제로 오는 모양이라 "미체결 없음"이 아니라
+    //  실패여야 한다. 모의(output1)·실거래(output) 둘 다. (전수조사 B1-2)
+    const std::string throttled_paper =
+        R"({"rt_cd":"1","msg_cd":"EGW00201","msg1":"초당 거래건수를 초과하였습니다.","output1":[],"output2":{}})";
+    const auto paper_failed = kis_rest::decode_open_order_page(throttled_paper, /*paper=*/true);
+    CHECK(!paper_failed && paper_failed.error().code == "EGW00201");
+    const std::string throttled_live =
+        R"({"rt_cd":"1","msg_cd":"EGW00201","msg1":"초당 거래건수를 초과하였습니다.","output":[]})";
+    const auto live_failed = kis_rest::decode_open_order_page(throttled_live, /*paper=*/false);
+    CHECK(!live_failed && live_failed.error().code == "EGW00201");
+
+    // 빈 본문(전송 실패)·JSON 아님(게이트웨이 오류 페이지)도 실패다.
+    CHECK(kis_rest::decode_open_order_page("", false).error().code == "transport");
+    CHECK(kis_rest::decode_open_order_page("<html>502</html>", false).error().code == "parse");
+
+    // 브로커가 "없다"고 답한 것만 빈 목록 성공이다.
+    const auto none = kis_rest::decode_open_order_page(R"({"rt_cd":"0","output":[],"ctx_area_nk100":"   "})", false);
+    CHECK(none && none->rows.empty() && none->next_key.empty());
+
+    // 실거래: psbl_qty 0 행·종목 없는 행은 버리고, 매도/매수 코드를 읽고, 커서의 끝 공백을 뗀다.
+    const std::string live_page = R"({"rt_cd":"0","output":[
+        {"pdno":"005930","odno":"0000007886","ord_gno_brno":"06010","psbl_qty":"18","ord_unpr":"70100","sll_buy_dvsn_cd":"01"},
+        {"pdno":"000660","odno":"0000007887","psbl_qty":"0","ord_unpr":"1","sll_buy_dvsn_cd":"02"},
+        {"odno":"0000007888","psbl_qty":"3","sll_buy_dvsn_cd":"02"},
+        {"pdno":"035420","ODNO":"0000007889","psbl_qty":"2","ord_unpr":"150000","sll_buy_dvsn_cd":"02"}],
+        "ctx_area_fk100":"FK1  ","ctx_area_nk100":"NK1  "})"; // [wire] KIS 응답 필드명
+    const auto live = kis_rest::decode_open_order_page(live_page, false);
+    CHECK(live && live->rows.size() == 2);
+    CHECK(live->rows[0].kis_order_no == "0000007886" && live->rows[0].psbl_qty == 18 && live->rows[0].side == OrderSide::SELL);
+    CHECK(live->rows[0].krx_forwarding_org_no == "06010" && live->rows[0].ord_unpr == 70100.0);
+    CHECK(live->rows[1].kis_order_no == "0000007889" && live->rows[1].side == OrderSide::BUY);
+    CHECK(live->forward_key == "FK1" && live->next_key == "NK1");
+
+    // 모의: output1·rmn_qty(잔여)를 읽고 취소된 행(cncl_yn=Y)은 버린다.
+    const std::string paper_page = R"({"rt_cd":"0","output1":[
+        {"pdno":"021240","odno":"1","rmn_qty":"4","psbl_qty":"99","cncl_yn":"N","sll_buy_dvsn_cd":"02"},
+        {"pdno":"021240","odno":"2","rmn_qty":"5","cncl_yn":"Y","sll_buy_dvsn_cd":"02"}]})";
+    const auto paper = kis_rest::decode_open_order_page(paper_page, true);
+    CHECK(paper && paper->rows.size() == 1 && paper->rows[0].psbl_qty == 4);
+    return 0;
+}
+
 int test_kis_result()
 {
     // 봉투(std::expected): 실패는 bool false·error_text, 성공은 값 접근. 실패 봉투에는 값이 없다.
@@ -260,7 +304,8 @@ int test_kis_result()
 int main()
 {
     if (test_number() || test_parse_dt() || test_parse_minute_page() || test_aggregate() || test_option_number() ||
-        test_decode_holding() || test_decode_balance_page() || test_decode_future_board() || test_kis_result())
+        test_decode_holding() || test_decode_balance_page() || test_decode_future_board() || test_decode_open_order_page() ||
+        test_kis_result())
     {
         return 1;
     }

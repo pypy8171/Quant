@@ -48,6 +48,7 @@ struct StubOrderExecutor : IOrderExecutor
     // 재기동 대조 — get_open_orders가 돌려줄 KIS 미체결
     std::vector<OpenOrder> open_orders;
     int                    open_order_calls = 0;
+    bool                   open_orders_fail = false; // 미체결 조회 실패(한 쪽이라도 못 받음)
 
     explicit StubOrderExecutor(bool flag, std::string output = "0000000042")
         : succeed(flag), kis_order_no(std::move(output))
@@ -56,9 +57,15 @@ struct StubOrderExecutor : IOrderExecutor
 
     bool is_paper() const noexcept override { return paper; }
 
-    std::vector<OpenOrder> get_open_orders() override
+    KisResult<std::vector<OpenOrder>> get_open_orders() override
     {
         ++open_order_calls;
+
+        if (open_orders_fail)
+        {
+            return kis_fail("EGW00201", "초당 거래건수를 초과하였습니다");
+        }
+
         return open_orders;
     }
 
@@ -1026,6 +1033,23 @@ void test_adopt_paper_keeps_accepted_rule()
     PASS("adopt_paper_keeps_accepted_rule");
 }
 
+// 실계좌 미체결 조회가 실패하면 "브로커에 못 물어봤다"로 본다 — 빈 목록으로 읽어 접수된 주문의 선점을 풀면
+//  같은 수량이 또 나간다. 접수 기록이 없는 번호 없는 INTENT만 푼다. (전수조사 B1-2)
+void test_adopt_open_orders_failure_keeps_accepted()
+{
+    OrderGate         gate(relaxed_config());
+    StubOrderExecutor stub(true);
+    OrderRouter       router(gate, stub);
+    stub.open_orders_fail = true;
+
+    const auto adopted = router.adopt_open_intents({reserve_intent(gate, 12, 562, 10), reserve_intent(gate, 13, 0, 7)});
+    assert(stub.open_order_calls == 1);
+    assert(adopted.restored == 1 && adopted.released == 1);
+    assert(gate.ledger().reserved("005930") == 10);
+    assert(router.recent(1)[0].kis_order_no == "0000000562");
+    PASS("adopt_open_orders_failure_keeps_accepted");
+}
+
 int main()
 {
 #ifdef _WIN32
@@ -1085,6 +1109,7 @@ int main()
     test_adopt_unnumbered_intent_not_sent();
     test_adopt_unnumbered_skips_claimed_order();
     test_adopt_paper_keeps_accepted_rule();
+    test_adopt_open_orders_failure_keeps_accepted();
     std::cout << "=== All tests passed ===\n";
     return 0;
 }

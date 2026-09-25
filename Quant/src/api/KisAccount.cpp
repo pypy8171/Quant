@@ -3,6 +3,7 @@
 #include "KisClientInternal.h"
 #include "api/KisRestDecode.h"
 
+#include "core/KstTime.h"
 #include <ctime>
 
 // ─── 잔고 조회 (체결 확인용) — inquire-balance ────────────────────────────
@@ -90,20 +91,11 @@ KisResult<AccountBalance> KisClient::get_balance()
 //  주문번호는 odno(ODNO), 행 배열은 모의 output1·실전 output. 필드는 소문자: ord_gno_brno·pdno·prdt_name·psbl_qty·
 //  ord_unpr·sll_buy_dvsn_cd(01매도/02매수). 수량·단가는 문자열이라 파싱 가드.
 //  잔고처럼 ctx_area(FK/NK)로 페이지네이션한다.
-// 오늘(로컬 시각 기준 — 운영 PC가 KST라 같다) 날짜 YYYYMMDD. 모의계좌 미체결 조회가 조회구간을 요구해서 쓴다.
+// 오늘 KST 날짜 YYYYMMDD. 모의계좌 미체결 조회가 조회구간을 요구해서 쓴다. 로컬 시각을 쓰면 UTC로 도는
+//  리눅스 서버에서 09:00 전 조회가 전날 주문을 묻는다. [why 전수조사 B1-2]
 static std::string today_yyyymmdd()
 {
-    const std::time_t now = std::time(nullptr);
-    std::tm broken{};
-#ifdef _WIN32
-    localtime_s(&broken, &now);
-#else
-    localtime_r(&now, &broken);
-#endif
-    char buffer[16] = {0};
-    std::strftime(buffer, sizeof(buffer), "%Y%m%d", &broken);
-
-    return std::string(buffer);
+    return kst::date_yyyymmdd(std::time(nullptr));
 }
 
 // ─── 미체결 조회 ──────────────────────────────────────────────────────────
@@ -112,24 +104,10 @@ static std::string today_yyyymmdd()
 //  그래서 브로커에는 살아 있는데 엔진이 모르는 주문이 생겨도 대사가 못 잡았다 — 2026-09-23 09:26 021240에서
 //  전송 실패로 접수된 매도 18주(ODNO=0000007886)를 못 찾아 손절 불능 상태가 됐다. 모의는 일별주문체결조회
 //  (inquire-daily-ccld, VTTC0081R)로 당일분을 받아 잔여수량>0·미취소만 남긴다. [why D-101]
-std::vector<OpenOrder> KisClient::get_open_orders()
+KisResult<std::vector<OpenOrder>> KisClient::get_open_orders()
 {
     const bool paper = config_.is_paper;
     std::string transaction_id = paper ? "VTTC0081R" : "TTTC0084R";
-
-    auto to_int = [](const std::string& text) -> int
-    { try { return text.empty() ? 0 : std::stoi(text); } catch (...) { return 0; } };
-    auto to_dbl = [](const std::string& text) -> double
-    { try { return text.empty() ? 0.0 : std::stod(text); } catch (...) { return 0.0; } };
-    auto rtrim = [](std::string text)
-    {
-        while (!text.empty() && (text.back() == ' ' || text.back() == '\t'))
-        {
-            text.pop_back();
-        }
-
-        return text;
-    };
 
     std::vector<OpenOrder> result;
     std::string forward_key, next_key, continuation;
@@ -156,74 +134,30 @@ std::vector<OpenOrder> KisClient::get_open_orders()
                    "&CTX_AREA_FK100=" + forward_key + "&CTX_AREA_NK100=" + next_key;
         }
 
-        std::string response = http_get(url, authentication_headers(transaction_id, {"tr_cont: " + continuation}));
+        const std::string response = http_get(url, authentication_headers(transaction_id, {"tr_cont: " + continuation}));
+        auto decoded = kis_rest::decode_open_order_page(response, paper);
 
-        if (response.empty())
+        // 어느 쪽이든 못 받으면 앞 쪽까지 모은 것도 버리고 실패로 돌려준다 — 잘린 목록은 빈 목록보다 위험하다. [why 전수조사 B1-2]
+        if (!decoded)
         {
-            break;
+            LOG_WARN(std::format("[KIS] 미체결 조회 {}쪽 실패: {}", page + 1, error_text(decoded)));
+            return std::unexpected(std::move(decoded.error()));
         }
 
-        nlohmann::json document;
-
-        try
+        for (auto& open_order : decoded->rows)
         {
-            document = json::parse(response);
-        }
-        catch (...)
-        {
-            break;
+            result.push_back(std::move(open_order));
         }
 
-        if (document.value("rt_cd", std::string("")) != "0")
+        if (decoded->next_key.empty())
         {
-            LOG_WARN("[KIS] 미체결 조회 오류: " + document.value("msg1", std::string("")));
-            break;
+            return result; // 다음 쪽 없음 — 끝까지 받았다
         }
 
-        // 응답 배열 이름과 수량 필드가 두 엔드포인트에서 다르다. 모의는 output1/rmn_qty(잔여), 실거래는
-        //  output/psbl_qty(취소가능). [inv] rows는 document가 사는 동안만 유효하다.
-        const char* const rows_key = paper ? "output1" : "output";
-        const auto rows = document.find(rows_key);
-
-        if (rows != document.end() && rows->is_array())
-        {
-            for (auto& output_node : *rows)
-            {
-                if (paper && output_node.value("cncl_yn", std::string("")) == "Y")
-                {
-                    continue; // 이미 취소된 주문
-                }
-
-                OpenOrder open_order;
-                open_order.ticker    = output_node.value("pdno", std::string(""));
-                open_order.name      = output_node.value("prdt_name", std::string(""));
-                open_order.kis_order_no      = output_node.value("odno", output_node.value("ODNO", std::string("")));
-                open_order.krx_forwarding_org_no = output_node.value("ord_gno_brno", std::string(""));
-                open_order.psbl_qty  = to_int(output_node.value(paper ? "rmn_qty" : "psbl_qty", std::string("")));
-                open_order.ord_unpr  = to_dbl(output_node.value("ord_unpr", std::string("")));
-                std::string buy_sell_code = output_node.value("sll_buy_dvsn_cd", std::string(""));
-                open_order.side = (buy_sell_code == "01") ? OrderSide::SELL
-                        : (buy_sell_code == "02") ? OrderSide::BUY
-                                       : OrderSide::NONE;
-
-                if (!open_order.ticker.empty() && open_order.psbl_qty > 0)
-                {
-                    result.push_back(std::move(open_order));
-                }
-            }
-        }
-
-        std::string next_key_next = rtrim(document.value("ctx_area_nk100", ""));
-
-        if (next_key_next.empty())
-        {
-            break; // 다음 페이지 없음
-        }
-
-        forward_key = rtrim(document.value("ctx_area_fk100", ""));
-        next_key = std::move(next_key_next);
+        forward_key  = std::move(decoded->forward_key);
+        next_key     = std::move(decoded->next_key);
         continuation = "N";
     }
 
-    return result;
+    return kis_fail("truncated", "미체결 조회가 30쪽을 넘었다 — 목록이 잘렸다");
 }

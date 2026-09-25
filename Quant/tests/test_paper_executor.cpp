@@ -87,7 +87,7 @@ int main()
         CHECK(fills.size() == 1);
         const auto balance = executor.balance();
         CHECK(balance.has_value() && balance->holdings[0].sellable_quantity && *balance->holdings[0].sellable_quantity == 6);
-        const auto opens = executor.get_open_orders();
+        const auto opens = executor.get_open_orders().value();
         CHECK(opens.size() == 1 && opens[0].kis_order_no == acknowledgement.kis_order_no && opens[0].psbl_qty == 4 &&
               opens[0].side == OrderSide::SELL);
         executor.on_tick(tick("005930", 71200.0, 90300));
@@ -121,10 +121,10 @@ int main()
         const auto submit_order_acknowledgement = executor.submit_order_acknowledgement(signal("005930", OrderSide::SELL, 6, 80000.0));
         CHECK(submit_order_acknowledgement.ok());
         const auto part = executor.cancel_order("005930", submit_order_acknowledgement.kis_order_no, "PAPER", 2, false);
-        CHECK(part.ok() && executor.get_open_orders()[0].psbl_qty == 4);
+        CHECK(part.ok() && executor.get_open_orders()->at(0).psbl_qty == 4);
         const auto revise_result = executor.revise_order("005930", submit_order_acknowledgement.kis_order_no, "PAPER", 3, 70000.0);
         CHECK(revise_result.ok() && revise_result.kis_order_no != submit_order_acknowledgement.kis_order_no);
-        CHECK(executor.get_open_orders()[0].kis_order_no == revise_result.kis_order_no && executor.get_open_orders()[0].psbl_qty == 3);
+        CHECK(executor.get_open_orders()->at(0).kis_order_no == revise_result.kis_order_no && executor.get_open_orders()->at(0).psbl_qty == 3);
         const auto gone = executor.cancel_order("005930", submit_order_acknowledgement.kis_order_no, "PAPER", 0, true);
         CHECK(!gone.ok() && gone.error_code == "E_PAPER_NO_ORDER");
         executor.on_tick(tick("005930", 70000.0, 90400));

@@ -84,7 +84,7 @@ OrderAck PaperExecutor::revise_order(const std::string& ticker, const std::strin
     return OrderAck{pending->kis_order_no, "PAPER", std::string()};
 }
 
-std::vector<OpenOrder> PaperExecutor::get_open_orders()
+KisResult<std::vector<OpenOrder>> PaperExecutor::get_open_orders()
 {
     std::lock_guard<std::mutex> lock(mutex_);
     std::vector<OpenOrder> out;

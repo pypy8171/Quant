@@ -10,6 +10,8 @@
 //  숫자는 문자열이고, 빈 값·형식 오류는 0으로 둔다 — 봉 하나를 버리는 것보다 0 거래량이 낫다는 판단은 아니고,
 //  둘을 구분할 신호가 응답에 없어서다.
 
+#include "api/IOrderExecutor.h"
+#include "api/KisResult.h"
 #include "api/KisTypes.h"
 #include "core/KstTime.h"
 #include "core/Types.h"
@@ -78,5 +80,19 @@ void decode_balance_page(const nlohmann::json& document, AccountBalance& out, bo
 // 선물 전광판 응답 → 계약 목록. 행 배열은 output1·output2·output 중 처음 비어 있지 않은 것이다
 //  (실키 응답이 어느 키로 오는지 문서가 못 박지 않아 셋을 본다). 코드가 빈 행은 버린다.
 std::vector<FutureContract> decode_future_board(const nlohmann::json& document);
+
+// 미체결 조회 한 쪽. rows는 종목이 있고 잔여가 0보다 큰 행만 담는다(모의는 취소된 행도 뺀다).
+struct OpenOrderPage
+{
+    std::vector<OpenOrder> rows;
+    std::string            forward_key; // ctx_area_fk100, 끝 공백을 뗀 값
+    std::string            next_key;    // ctx_area_nk100, 끝 공백을 뗀 값. 비면 마지막 쪽이다
+};
+
+// 미체결 조회 응답 본문 한 쪽 → OpenOrderPage. 본문이 비면 "transport", JSON이 아니면 "parse", rt_cd가 "0"이
+//  아니면 msg_cd·msg1을 실패로 돌려준다 — 초당 한도(EGW00201) 응답은 rt_cd "1"에 빈 output1로 오고, 그것을
+//  "미체결 없음"으로 읽으면 재기동 대조가 살아 있는 주문의 선점을 푼다. [why 전수조사 B1-2]
+//  [wire] 모의(VTTC0081R)는 output1·rmn_qty(잔여)·cncl_yn, 실거래(TTTC0084R)는 output·psbl_qty(취소가능).
+KisResult<OpenOrderPage> decode_open_order_page(std::string_view response, bool paper);
 
 } // namespace kis_rest

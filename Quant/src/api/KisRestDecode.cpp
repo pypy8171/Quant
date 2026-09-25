@@ -306,4 +306,74 @@ std::vector<FutureContract> decode_future_board(const nlohmann::json& document)
     return out;
 }
 
+
+namespace
+{
+std::string trim_right(std::string text)
+{
+    while (!text.empty() && (text.back() == ' ' || text.back() == '	'))
+    {
+        text.pop_back();
+    }
+
+    return text;
+}
+} // namespace
+
+KisResult<OpenOrderPage> decode_open_order_page(std::string_view response, bool paper)
+{
+    if (response.empty())
+    {
+        return kis_fail("transport", "미체결 조회 응답 없음");
+    }
+
+    const nlohmann::json document = nlohmann::json::parse(response, nullptr, /*allow_exceptions=*/false);
+
+    if (document.is_discarded() || !document.is_object())
+    {
+        return kis_fail("parse", "미체결 조회 응답 해석 실패");
+    }
+
+    if (document.value("rt_cd", std::string()) != "0")
+    {
+        return kis_fail(document.value("msg_cd", std::string()), document.value("msg1", std::string()));
+    }
+
+    OpenOrderPage page;
+    // 응답 배열 이름과 수량 필드가 두 엔드포인트에서 다르다. [inv] rows는 document가 사는 동안만 유효하다.
+    const auto rows = document.find(paper ? "output1" : "output");
+
+    if (rows != document.end() && rows->is_array())
+    {
+        for (const auto& node : *rows)
+        {
+            if (paper && node.value("cncl_yn", std::string()) == "Y")
+            {
+                continue; // 이미 취소된 주문
+            }
+
+            OpenOrder open_order;
+            open_order.ticker                = node.value("pdno", std::string());
+            open_order.name                  = node.value("prdt_name", std::string());
+            open_order.kis_order_no          = node.value("odno", node.value("ODNO", std::string()));
+            open_order.krx_forwarding_org_no = node.value("ord_gno_brno", std::string());
+            open_order.psbl_qty              = static_cast<int>(number(node, paper ? "rmn_qty" : "psbl_qty"));
+            open_order.ord_unpr              = number(node, "ord_unpr");
+            const std::string buy_sell_code  = node.value("sll_buy_dvsn_cd", std::string());
+            open_order.side = buy_sell_code == "01" ? OrderSide::SELL
+                              : buy_sell_code == "02" ? OrderSide::BUY
+                                                      : OrderSide::NONE;
+
+            if (!open_order.ticker.empty() && open_order.psbl_qty > 0)
+            {
+                page.rows.push_back(std::move(open_order));
+            }
+        }
+    }
+
+    page.forward_key = trim_right(document.value("ctx_area_fk100", std::string()));
+    page.next_key    = trim_right(document.value("ctx_area_nk100", std::string()));
+    return page;
+}
+
 } // namespace kis_rest

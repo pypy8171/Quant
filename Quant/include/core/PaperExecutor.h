@@ -64,7 +64,7 @@ public:
         return true;
     }
 
-    [[nodiscard]] std::vector<OpenOrder> get_open_orders() override;
+    [[nodiscard]] KisResult<std::vector<OpenOrder>> get_open_orders() override;
 
     // 피드 스레드가 틱마다 부른다. 그 종목의 대기 주문을 접수 순서대로 보고 조건이 맞으면 체결·통보한다.
     //  콜백은 락을 놓고 부른다(콜백이 큐 push라 짧지만 락 안에서 남의 코드를 부르지 않는다).
