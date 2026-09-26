@@ -48,7 +48,10 @@ struct Rig
 
     explicit Rig(OrderGate::Config config) : gate(config), desk(gate)
     {
-        desk.set_label([](const std::string& ticker) { return "<" + ticker + ">"; });
+        desk.set_label([](const std::string& ticker)
+        {
+            return "<" + ticker + ">";
+        });
     }
 
     // 슬롯 2개가 다 찬 책을 만든다.

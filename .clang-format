@@ -12,4 +12,5 @@ SpaceBeforeParens: ControlStatements
 AllowShortIfStatementsOnASingleLine: Never
 AllowShortLoopsOnASingleLine: false
 AllowShortFunctionsOnASingleLine: None
-AllowShortLambdasOnASingleLine: All
+AllowShortLambdasOnASingleLine: None
+AllowShortBlocksOnASingleLine: Never   # `{ a; b; }` 한 줄 블록 금지 (brace_style.py 규칙 4)

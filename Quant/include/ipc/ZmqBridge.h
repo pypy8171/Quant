@@ -47,12 +47,21 @@ public:
     void stop();
 
     // start() 전에만. 빈 주소는 무시한다.
-    void set_bind_address(std::string address) { if (!address.empty()) bind_address_ = std::move(address); }
+    void set_bind_address(std::string address);
+
     // KILL 공유 토큰. 비어 있으면 KILL을 아예 받지 않는다 — 무인증 REQ 한 방으로 매매가 서는 것을 막는다.
-    void set_control_token(std::string token) { control_token_ = std::move(token); }
+    void set_control_token(std::string token)
+    {
+        control_token_ = std::move(token);
+    }
+
     // 이 프로세스가 물린 브로커 계좌번호. 한 프로세스=한 계좌라 FILL/ORDER 페이로드에 고정으로 실어
     // DB 쪽에서 실계좌·모의계좌 원장이 섞이지 않게 한다.
-    void set_account_no(std::string account) { account_no_ = std::move(account); }
+    void set_account_no(std::string account)
+    {
+        account_no_ = std::move(account);
+    }
+
     // 현재 선택된 국면(RISK_ON·NEUTRAL·RISK_OFF). Engine::apply_regime_selection이 국면이
     // 바뀔 때마다 갱신 — SIGNAL·FILL 페이로드에 그때그때 실어 DB의 regime 열을 채운다.
     //  쓰는 쪽은 데이터 스레드 하나, 읽는 쪽은 전략·주문·체결 스레드 여럿이라 정수 하나를 원자로 주고받는다.
@@ -62,10 +71,17 @@ public:
     //  프로세스라, 프로세스 안 정수만 보면 주문 쪽 값은 기동부터 끝까지 -1이고 체결의 regime 열이
     //  통째로 빈다. 꽂으면 전략이 그 칸에 적고 주문이 그 칸을 읽는다. [why D-129]
     //  [inv] 다리 스레드가 뜨기 전에 부른다. 수명은 Engine 의 자리표가 다시 깔릴 때까지다.
-    void set_regime_cell(ipc::RegimeCell* cell) { regime_cell_ = cell; }
+    void set_regime_cell(ipc::RegimeCell* cell)
+    {
+        regime_cell_ = cell;
+    }
+
     // 이 다리를 연 프로세스의 역할(order·strategy·feed·both). HEALTH 한 건마다 실어, 갈라 띄운 날
     //  세 프로세스가 같은 표에 넣는 행을 읽는 쪽이 가를 수 있게 한다. [why D-129]
-    void set_role_label(std::string label) { role_label_ = std::move(label); }
+    void set_role_label(std::string label)
+    {
+        role_label_ = std::move(label);
+    }
 
     // ── 이벤트 publish (스레드-안전: 내부 큐 경유) ──────────────────────────
     void publish_trade(const TradeData& trade);
@@ -133,11 +149,30 @@ public:
     //  수신 스레드가 송신보다 빠른 것이라 손댈 곳이 서로 다르다. [why D-125]
     uint64_t drop_count() const;
 
-    uint64_t socket_full_drop_count() const { return socket_full_drop_count_.load(); }
-    uint64_t socket_error_drop_count() const { return socket_error_drop_count_.load(); }
-    uint64_t send_queue_full_drop_count() const { return send_queue_full_drop_count_.load(); }
-    uint64_t trade_ring_full_drop_count() const { return trade_ring_full_drop_count_.load(); }
-    uint64_t trade_socket_drop_count() const { return trade_socket_drop_count_.load(); }
+    uint64_t socket_full_drop_count() const
+    {
+        return socket_full_drop_count_.load();
+    }
+
+    uint64_t socket_error_drop_count() const
+    {
+        return socket_error_drop_count_.load();
+    }
+
+    uint64_t send_queue_full_drop_count() const
+    {
+        return send_queue_full_drop_count_.load();
+    }
+
+    uint64_t trade_ring_full_drop_count() const
+    {
+        return trade_ring_full_drop_count_.load();
+    }
+
+    uint64_t trade_socket_drop_count() const
+    {
+        return trade_socket_drop_count_.load();
+    }
 
     // TRADE 전용 봉투 — ts는 부른 시각(수신 스레드)이라 송신이 밀려도 바뀌지 않는다. trivially copyable.
     struct TradeEnvelope

@@ -399,12 +399,18 @@ private:
     // 부속 파일 쓰기 스레드. 멤버 기본값으로 바로 뜬다.
     //  [inv] 이 줄은 대기함 멤버(open_orders_outbox_*)·io_mutex_보다 반드시 뒤에 있어야 한다 —
     //   멤버는 선언 순서대로 지어지고, 스레드는 지어지는 즉시 그 셋을 만진다.
-    std::jthread       open_orders_writer_{[this](std::stop_token stop_token) { open_orders_writer_loop(stop_token); }};
+    std::jthread       open_orders_writer_{[this](std::stop_token stop_token)
+    {
+        open_orders_writer_loop(stop_token);
+    }};
 
     // 원장 CSV·사유 쓰기 스레드. 멤버 기본값으로 바로 뜬다.
     //  [inv] 이 줄은 큐 멤버(append_outbox_*)·파일 핸들·io_mutex_보다 반드시 뒤에 있어야 한다 —
     //   멤버는 선언 순서대로 지어지고, 스레드는 지어지는 즉시 그것들을 만진다.
-    std::jthread       append_writer_{[this](std::stop_token stop_token) { append_writer_loop(stop_token); }};
+    std::jthread       append_writer_{[this](std::stop_token stop_token)
+    {
+        append_writer_loop(stop_token);
+    }};
 
     // 전송 타임아웃 뒤 되묻기 스레드. 주문 스레드를 막지 않도록 한 번에 한 건만 돌리고,
     //  돌고 있으면 새 요청은 버린다(다음 타임아웃이나 다음 기동이 다시 잡는다).

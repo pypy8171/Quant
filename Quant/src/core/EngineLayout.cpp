@@ -77,9 +77,15 @@ void Engine::adopt_shared_dictionaries()
     {
         // 넣는 쪽 — 쪽지 위 표에 바로 넣는다(그 안 쓰기 자물쇠가 이 프로세스의 스레드를 직렬화한다).
         symbols_.table.adopt(layout_.symbols().slots(),
-                             [this](std::string_view ticker) { return layout_.symbols().intern(ticker); });
+                             [this](std::string_view ticker)
+                             {
+                                 return layout_.symbols().intern(ticker);
+                             });
         ledger.adopt_strategy_table(layout_.strategies().slots(),
-                                         [this](std::string_view name) { return layout_.strategies().intern(name); });
+                                         [this](std::string_view name)
+                                         {
+                                             return layout_.strategies().intern(name);
+                                         });
     }
     else if (role_ == ProcessRole::Feed)
     {
@@ -108,9 +114,15 @@ void Engine::adopt_shared_dictionaries()
     {
         // 읽는 쪽 — 찾기는 같은 배열에서 자물쇠 없이, 넣기는 주문 쪽에 부탁한다.
         symbols_.table.adopt(layout_.symbols().slots(),
-                             [this](std::string_view ticker) { return request_symbol_registration(ticker); });
+                             [this](std::string_view ticker)
+                             {
+                                 return request_symbol_registration(ticker);
+                             });
         ledger.adopt_strategy_table(layout_.strategies().slots(),
-                                         [this](std::string_view name) { return request_strategy_registration(name); });
+                                         [this](std::string_view name)
+                                         {
+                                             return request_strategy_registration(name);
+                                         });
     }
 
     // 고정 이름 셋은 힙 표에 찍힌 번호다 — 표를 바꿨으니 새 표에서 다시 받는다. 안 받으면 강제청산·수동

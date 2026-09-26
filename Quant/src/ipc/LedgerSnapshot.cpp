@@ -98,7 +98,10 @@ LedgerRow LedgerSnapshot::row(symbol::SymbolId id) const noexcept
 
 LedgerGlobals LedgerSnapshot::globals() const noexcept
 {
-    return read_stable([this] { return globals_; });
+    return read_stable([this]
+    {
+        return globals_;
+    });
 }
 
 EntryView LedgerSnapshot::entry(symbol::SymbolId id) const noexcept

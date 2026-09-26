@@ -57,8 +57,15 @@ public:
         int buy  = 0;
         int sell = 0;
 
-        int net() const noexcept { return buy - sell; }
-        bool empty() const noexcept { return buy == 0 && sell == 0; }
+        int net() const noexcept
+        {
+            return buy - sell;
+        }
+
+        bool empty() const noexcept
+        {
+            return buy == 0 && sell == 0;
+        }
     };
 
     PositionLedger()                                 = default;
@@ -77,15 +84,50 @@ public:
         {
         }
 
-        const PosMap<int>& positions() const noexcept { return ledger_.positions_; }
-        const PosMap<Reservation>& reserved() const noexcept { return ledger_.reserved_; }
-        const PosMap<double>& reserved_price() const noexcept { return ledger_.reserved_price_; }
-        const PosMap<double>& average_prices() const noexcept { return ledger_.average_prices_; }
-        const PosMap<double>& mark_prices() const noexcept { return ledger_.mark_prices_; }
-        const PosMap<int>& sellable() const noexcept { return ledger_.sellable_; }
-        const PosMap<TimePoint>& opened_at() const noexcept { return ledger_.opened_at_; }
-        const std::unordered_set<symbol::SymbolId>& slot_exempt() const noexcept { return ledger_.slot_exempt_; }
-        const LedgerKeys& keys() const noexcept { return ledger_.keys_; }
+        const PosMap<int>& positions() const noexcept
+        {
+            return ledger_.positions_;
+        }
+
+        const PosMap<Reservation>& reserved() const noexcept
+        {
+            return ledger_.reserved_;
+        }
+
+        const PosMap<double>& reserved_price() const noexcept
+        {
+            return ledger_.reserved_price_;
+        }
+
+        const PosMap<double>& average_prices() const noexcept
+        {
+            return ledger_.average_prices_;
+        }
+
+        const PosMap<double>& mark_prices() const noexcept
+        {
+            return ledger_.mark_prices_;
+        }
+
+        const PosMap<int>& sellable() const noexcept
+        {
+            return ledger_.sellable_;
+        }
+
+        const PosMap<TimePoint>& opened_at() const noexcept
+        {
+            return ledger_.opened_at_;
+        }
+
+        const std::unordered_set<symbol::SymbolId>& slot_exempt() const noexcept
+        {
+            return ledger_.slot_exempt_;
+        }
+
+        const LedgerKeys& keys() const noexcept
+        {
+            return ledger_.keys_;
+        }
 
     private:
         std::lock_guard<std::mutex> lock_;
@@ -232,14 +274,20 @@ public:
     // 잔고 대조 스레드가 총평가금(tot_evlu_amt) 갱신 시 호출. check()가 락 없이 읽도록 atomic.
     // 0이면 §3d 게이트 비활성(자본 미상 시 폴백 안전 — 종목당·동시보유 백스톱이 커버).
     void set_equity(double equity);
-    double equity() const { return equity_.load(std::memory_order_relaxed); }
+    double equity() const
+    {
+        return equity_.load(std::memory_order_relaxed);
+    }
 
     // 주문가능현금(원). 잔고 대조가 output2에서 읽어 넣는다. 0=미주입(클램프 비활성).
     //  총평가금(equity_)과 다르다 — 평가금이 1억이어도 미체결 지정가와 미결제 매수가
     //  현금을 묶으면 살 수 없다. 이 값이 없으면 게이트가 그걸 모른 채 계속 발주하고
     //  KIS가 40250000으로 전량 거부한다(2026-09-08 59건).
     void set_available_cash(double available_cash);
-    double available_cash() const { return available_cash_.load(std::memory_order_relaxed); }
+    double available_cash() const
+    {
+        return available_cash_.load(std::memory_order_relaxed);
+    }
 
     // 보유 종목 시가(원). 잔고 대조가 잔고 응답의 현재가로 계좌 몫을 통째 갈아 끼운다 — 잔고에 없는 종목의 값은
     //  지워진다. §3d 총노출 분자가 원가 대신 이 값을 쓰고, 값이 없는 종목은 평단으로 대신한다. 저널에는
@@ -372,9 +420,21 @@ public:
     int    reserved(const std::string& account, symbol::SymbolId symbol) const;
     int    reserved_sell(const std::string& account, symbol::SymbolId symbol) const;
     double average_price(const std::string& account, const std::string& ticker) const;
-    int    position(const std::string& ticker) const { return position(std::string(), ticker); }
-    int    reserved(const std::string& ticker) const { return reserved(std::string(), ticker); }
-    double average_price(const std::string& ticker) const { return average_price(std::string(), ticker); }
+    int    position(const std::string& ticker) const
+    {
+        return position(std::string(), ticker);
+    }
+
+    int    reserved(const std::string& ticker) const
+    {
+        return reserved(std::string(), ticker);
+    }
+
+    double average_price(const std::string& ticker) const
+    {
+        return average_price(std::string(), ticker);
+    }
+
     double daily_pnl() const;
 
     // ── 보유 포지션 스냅샷 (G3 강제청산) — net>0 실보유분만 락 하 복사 반환 ──────

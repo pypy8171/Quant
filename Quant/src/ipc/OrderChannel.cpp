@@ -281,7 +281,10 @@ void PendingRequests::note_sent(uint64_t sequence, int64_t now_ns)
     }
 
     const auto found = std::find_if(entries_.begin(), entries_.end(),
-                                    [sequence](const Entry& entry) { return entry.sequence == sequence; });
+                                    [sequence](const Entry& entry)
+                                    {
+                                        return entry.sequence == sequence;
+                                    });
 
     if (found != entries_.end())
     {
@@ -303,7 +306,10 @@ void PendingRequests::note_sent(uint64_t sequence, int64_t now_ns)
 bool PendingRequests::note_response(uint64_t sequence)
 {
     const auto found = std::find_if(entries_.begin(), entries_.end(),
-                                    [sequence](const Entry& entry) { return entry.sequence == sequence; });
+                                    [sequence](const Entry& entry)
+                                    {
+                                        return entry.sequence == sequence;
+                                    });
 
     if (found == entries_.end())
     {

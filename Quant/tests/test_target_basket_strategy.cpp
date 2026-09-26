@@ -90,8 +90,14 @@ struct Rig
         parameters.capital_krw  = 1'000'000.0;
         parameters.dry_run      = dry_run;
         parameters.pass_interval_ms = 0; // 틱 스로틀은 steady_clock이라 시험에선 끈다 — 패스마다 돈다
-        strategy = std::make_unique<TargetBasketStrategy>(parameters, [this](const std::vector<std::string>& tickers) { owned = tickers; });
-        strategy->set_clock([this] { return now; });
+        strategy = std::make_unique<TargetBasketStrategy>(parameters, [this](const std::vector<std::string>& tickers)
+        {
+            owned = tickers;
+        });
+        strategy->set_clock([this]
+        {
+            return now;
+        });
         strategy->set_position_provider([this](const std::string&, const std::string& ticker)
         {
             auto iterator = positions.find(ticker);
@@ -105,9 +111,18 @@ struct Rig
             info.average_price = 9000.0;
             return info;
         });
-        strategy->set_entry_halt_provider([this] { return halted; });
-        strategy->set_entry_scale_provider([this] { return scale; });
-        strategy->set_symbol_resolver([](std::string_view) { return symbol::SymbolId{1}; });
+        strategy->set_entry_halt_provider([this]
+        {
+            return halted;
+        });
+        strategy->set_entry_scale_provider([this]
+        {
+            return scale;
+        });
+        strategy->set_symbol_resolver([](std::string_view)
+        {
+            return symbol::SymbolId{1};
+        });
         strategy->on_start();
     }
 

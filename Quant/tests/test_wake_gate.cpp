@@ -39,7 +39,10 @@ int main()
     {
         wake::WakeGate gate;
         const auto start_time = Clock::now();
-        gate.wait_for(500ms, [] { return false; });
+        gate.wait_for(500ms, []
+        {
+            return false;
+        });
         CHECK(Clock::now() - start_time < 50ms);
         CHECK(!gate.sleeping());
     }
@@ -48,7 +51,10 @@ int main()
     {
         wake::WakeGate gate;
         const auto start_time = Clock::now();
-        gate.wait_until(Clock::now() - 1ms, [] { return true; });
+        gate.wait_until(Clock::now() - 1ms, []
+        {
+            return true;
+        });
         CHECK(Clock::now() - start_time < 50ms);
     }
 
@@ -56,7 +62,10 @@ int main()
     {
         wake::WakeGate gate;
         const auto start_time = Clock::now();
-        gate.wait_until(start_time + 30ms, [] { return true; });
+        gate.wait_until(start_time + 30ms, []
+        {
+            return true;
+        });
         const auto took = Clock::now() - start_time;
         CHECK(took >= 30ms);
         CHECK(took < 300ms);
@@ -86,7 +95,10 @@ int main()
                     continue;
                 }
 
-                gate.wait_for(1s, [&] { return queue.empty() && !stop.load(std::memory_order_acquire); });
+                gate.wait_for(1s, [&]
+                {
+                    return queue.empty() && !stop.load(std::memory_order_acquire);
+                });
             }
         });
 
@@ -152,7 +164,10 @@ int main()
                     continue;
                 }
 
-                gate.wait_for(100ms, [&] { return queue.empty() && !stop.load(std::memory_order_acquire); });
+                gate.wait_for(100ms, [&]
+                {
+                    return queue.empty() && !stop.load(std::memory_order_acquire);
+                });
             }
         });
 
@@ -196,19 +211,32 @@ int main()
         wake::WakeGate   gate;
         std::stop_source source;
         const auto       start_time = Clock::now();
-        std::jthread     stopper([&] { std::this_thread::sleep_for(50ms); source.request_stop(); });
-        gate.wait_for(2s, source.get_token(), [] { return true; });
+        std::jthread     stopper([&]
+        {
+            std::this_thread::sleep_for(50ms);
+            source.request_stop();
+        });
+        gate.wait_for(2s, source.get_token(), []
+        {
+            return true;
+        });
         const auto woke = Clock::now() - start_time;
         CHECK(woke >= 40ms);
         CHECK(woke < 1s);
         CHECK(!gate.sleeping());
 
         const auto end_time = Clock::now();
-        gate.wait_for(2s, source.get_token(), [] { return true; }); // 이미 정지 요청됨
+        gate.wait_for(2s, source.get_token(), []  // 이미 정지 요청됨
+        {
+            return true;
+        });
         CHECK(Clock::now() - end_time < 200ms);
 
         const auto later_time = Clock::now();
-        gate.wait_until(Clock::now() + 2s, source.get_token(), [] { return true; });
+        gate.wait_until(Clock::now() + 2s, source.get_token(), []
+        {
+            return true;
+        });
         CHECK(Clock::now() - later_time < 200ms);
     }
 
@@ -218,8 +246,16 @@ int main()
         std::stop_source    source;
         std::atomic<bool>   ready{false};
         const auto          start_time = Clock::now();
-        std::jthread        producer([&] { std::this_thread::sleep_for(30ms); ready.store(true, std::memory_order_release); gate.notify(); });
-        gate.wait_for(2s, source.get_token(), [&] { return !ready.load(std::memory_order_acquire); });
+        std::jthread        producer([&]
+        {
+            std::this_thread::sleep_for(30ms);
+            ready.store(true, std::memory_order_release);
+            gate.notify();
+        });
+        gate.wait_for(2s, source.get_token(), [&]
+        {
+            return !ready.load(std::memory_order_acquire);
+        });
         CHECK(Clock::now() - start_time < 1s);
         CHECK(ready.load());
     }
@@ -231,7 +267,11 @@ int main()
         CHECK(wake::sleep_unless_stopped(source.get_token(), 30ms));
         CHECK(Clock::now() - start_time >= 25ms);
 
-        std::jthread stopper([&] { std::this_thread::sleep_for(50ms); source.request_stop(); });
+        std::jthread stopper([&]
+        {
+            std::this_thread::sleep_for(50ms);
+            source.request_stop();
+        });
         const auto   end_time = Clock::now();
         CHECK(!wake::sleep_unless_stopped(source.get_token(), 5s));
         CHECK(Clock::now() - end_time < 1s);

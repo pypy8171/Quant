@@ -52,7 +52,10 @@ class InterruptSlot
 public:
     void set(PGconn* handle)
     {
-        std::shared_ptr<PGcancel> cancel(PQgetCancel(handle), [](PGcancel* pointer) { PQfreeCancel(pointer); });
+        std::shared_ptr<PGcancel> cancel(PQgetCancel(handle), [](PGcancel* pointer)
+        {
+            PQfreeCancel(pointer);
+        });
         std::lock_guard<std::mutex> lock(mutex_);
         socket_ = PQsocket(handle);
         cancel_ = std::move(cancel);
@@ -609,7 +612,10 @@ namespace
 //  멈추라는 말이 올 때까지 기다린다. 멈추는 중에는 기다리지 않고, 붙어 볼 차례면 한 번만 붙어 본다.
 bool acquire_connection(DbManager::State& state, Connection& connection, TickWorker& worker)
 {
-    const auto is_running = [&state] { return state.running.load(std::memory_order_acquire); };
+    const auto is_running = [&state]
+    {
+        return state.running.load(std::memory_order_acquire);
+    };
 
     while (!connection.usable())
     {
@@ -700,8 +706,14 @@ void tick_loop(DbManager::State& state, TickWorker& worker, unsigned index)
     Connection      connection(worker.interrupt);
     std::string     text;
     text.reserve(config.batch_rows * 64);
-    const auto      is_running = [&state] { return state.running.load(std::memory_order_acquire); };
-    const auto      is_idle = [&worker, &is_running] { return worker.queue.empty() && is_running(); };
+    const auto      is_running = [&state]
+    {
+        return state.running.load(std::memory_order_acquire);
+    };
+    const auto      is_idle = [&worker, &is_running]
+    {
+        return worker.queue.empty() && is_running();
+    };
 
     // 첫 행을 기다리지 않고 미리 붙는다. 붙는 데 9초가 걸리는데(2026-09-26 실측, WSL 안 서버까지
     //  21:44:44 기동 -> 21:44:53 연결) 그 시간이 묶음을 모은 뒤에 흐르면, 장 시작처럼 첫 순간에

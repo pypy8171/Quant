@@ -218,7 +218,10 @@ int main()
         }
 
         auto later_time = std::chrono::steady_clock::now();
-        const auto nanoseconds = [](auto left, auto right) { return std::chrono::duration_cast<std::chrono::nanoseconds>(right - left).count(); };
+        const auto nanoseconds = [](auto left, auto right)
+        {
+            return std::chrono::duration_cast<std::chrono::nanoseconds>(right - left).count();
+        };
         std::cout << "[측정] sizeof TradeData=" << sizeof(TradeData) << " OrderBook=" << sizeof(OrderBook)
                   << " MarketData=" << sizeof(MarketData) << " | 링 push+pop " << nanoseconds(start_time, end_time) / kN << "ns/틱 | 캡처 decode "
                   << nanoseconds(end_time, later_time) / kN << "ns/틱 (sink " << sink << ' ' << accumulator << ")\n";

@@ -32,7 +32,10 @@ public:
 
     explicit Judge(Config config = {}) : config_(config) {}
 
-    const Config& config() const { return config_; }
+    const Config& config() const
+    {
+        return config_;
+    }
 
     // now_sec_of_day: KST 자정부터의 초. orders_pending: 주문 큐에 아직 꺼내지 않은 신호가 있는가.
     //  창이 닫힌 뒤 grace+drain_limit보다 늦게 처음 관찰되면(밤에 손으로 띄운 TRADE 기동) 판정하지 않는다 —

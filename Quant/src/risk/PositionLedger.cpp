@@ -216,7 +216,10 @@ bool PositionLedger::set_journal(const std::filesystem::path& directory, std::st
 
     replaying_     = true;
     replay_result_ = ledger_journal::LedgerJournal::replay(
-        journal_->path(), [this](const ledger_journal::Record& record) { apply_record(record); });
+        journal_->path(), [this](const ledger_journal::Record& record)
+        {
+            apply_record(record);
+        });
     replaying_ = false;
     // 꼬리를 잘랐는지는 파일을 열 때만 알 수 있다 — 자르고 난 뒤 다시 읽으면 멀쩡해 보인다.
     replay_result_.truncated_tail = journal_->opened().truncated_tail;
@@ -298,7 +301,10 @@ std::vector<PositionLedger::OpenIntent> PositionLedger::open_intents() const
     }
 
     std::sort(intents.begin(), intents.end(),
-              [](const OpenIntent& left, const OpenIntent& right) { return left.order_id < right.order_id; });
+              [](const OpenIntent& left, const OpenIntent& right)
+              {
+                  return left.order_id < right.order_id;
+              });
     return intents;
 }
 
@@ -492,7 +498,10 @@ void PositionLedger::replace_mark_prices(const std::string& account, const std::
 {
     std::lock_guard<std::mutex> lock(positions_mutex_);
     const uint32_t              account_id = keys_.account_index(account, true);
-    std::erase_if(mark_prices_, [account_id](const auto& entry) { return entry.first.account == account_id; });
+    std::erase_if(mark_prices_, [account_id](const auto& entry)
+    {
+        return entry.first.account == account_id;
+    });
 
     for (const auto& [ticker, price] : marks)
     {

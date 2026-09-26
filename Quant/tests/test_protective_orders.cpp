@@ -69,13 +69,19 @@ risk::ProtectiveRule stop_rule(double stop_loss_percent)
 // 값이 무엇이든 그 값을 현재가로 주는 가격원. 전략도 틱 콜백도 없다.
 risk::ProtectiveOrderBook::PriceFn price_of(double price)
 {
-    return [price](symbol::SymbolId) { return price; };
+    return [price](symbol::SymbolId)
+    {
+        return price;
+    };
 }
 
 // 미체결 잔량 — 음수가 이미 낸 매도다.
 risk::ProtectiveOrderBook::SellPendingFn sell_pending_of(int sell_pending)
 {
-    return [sell_pending](const std::string&, symbol::SymbolId) { return sell_pending; };
+    return [sell_pending](const std::string&, symbol::SymbolId)
+    {
+        return sell_pending;
+    };
 }
 
 using Clock = risk::ProtectiveOrderBook::Clock;

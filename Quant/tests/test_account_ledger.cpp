@@ -40,7 +40,10 @@ static OrderGate::Config relaxed_config()
     return config;
 }
 
-static void PASS(const std::string& name) { std::cout << "[PASS] " << name << "\n"; }
+static void PASS(const std::string& name)
+{
+    std::cout << "[PASS] " << name << "\n";
+}
 
 // ─── 테스트 1: 같은 종목을 두 계좌가 독립 보유 ───────────────────────────────
 void test_independent_holdings()

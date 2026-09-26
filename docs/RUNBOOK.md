@@ -186,7 +186,7 @@ cd {ROOT}
 
 ## 5. 운영단말 (수동 매도)
 
-<!-- sync: docs/guides/OPS_TERMINAL.md@b5bcc57 docs/guides/MFC_TERMINAL.md@d95f9cf -->
+<!-- sync: docs/guides/OPS_TERMINAL.md@b5bcc57 docs/guides/MFC_TERMINAL.md@26376bf -->
 
 토큰은 `Quant\config\config_dev_paper.json`의 `ops_token`. 가이드 [guides/OPS_TERMINAL.md](guides/OPS_TERMINAL.md).
 

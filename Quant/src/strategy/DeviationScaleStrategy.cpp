@@ -133,7 +133,10 @@ void DeviationScaleStrategy::on_start()
 
     if (prefetch_pool_)
     {
-        prefetch_task_ = prefetch_pool_->add([this] { prefetch_once(); });
+        prefetch_task_ = prefetch_pool_->add([this]
+        {
+            prefetch_once();
+        });
     }
 }
 

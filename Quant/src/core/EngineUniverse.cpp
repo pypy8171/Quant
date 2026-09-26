@@ -52,7 +52,10 @@ void Engine::retire_strategy(StrategyBase* pointer, const std::function<std::str
     {
         std::lock_guard<std::mutex> lock(strategy_.mutex);
         auto strategy_iterator = std::find_if(strategy_.list.begin(), strategy_.list.end(),
-                                [pointer](const std::unique_ptr<StrategyBase>& strategy) { return strategy.get() == pointer; });
+                                [pointer](const std::unique_ptr<StrategyBase>& strategy)
+                                {
+                                    return strategy.get() == pointer;
+                                });
 
         if (strategy_iterator != strategy_.list.end())
         {
@@ -145,7 +148,10 @@ void Engine::publish_watch_priorities()
             {
                 std::lock_guard<std::mutex> specifications_lock(watch_specifications_mutex_);
                 std::erase_if(watch_specifications_,
-                              [&specification](const WatchSpec& watch) { return same_watch(watch, specification); });
+                              [&specification](const WatchSpec& watch)
+                              {
+                                  return same_watch(watch, specification);
+                              });
             }
 
             send_watch_request(specification, ipc::ControlKind::kWatchUnsubscribe);

@@ -134,7 +134,10 @@ int test_bootstrap()
         return calls < 3 ? fail_balance()
                          : ok_balance({hold("005930", 10, 70000.0, 7), hold("000660", 3, 150000.0)}, 1000000.0);
     });
-    second_reconciler.set_name_sink([&](const std::string& ticker, const std::string& name) { names.emplace_back(ticker, name); });
+    second_reconciler.set_name_sink([&](const std::string& ticker, const std::string& name)
+    {
+        names.emplace_back(ticker, name);
+    });
     CHECK(second_reconciler.bootstrap(5, std::chrono::milliseconds(0)) && calls == 3);
     CHECK(gate.ledger().position("005930") == 10 && gate.ledger().average_price("005930") == 70000.0);
     CHECK(gate.ledger().sellable_view(std::string(), "005930").possible_quantity_cap == 7);
@@ -149,9 +152,15 @@ int test_reconcile_rest()
     OrderGate gate;
     KisResult<AccountBalance> next = ok_balance({hold("A", 10, 100.0, 10)}, 1000000.0, 500000.0, 990000.0);
     std::vector<reconcile::Row> rows;
-    LedgerReconciler reconciler(gate, [&] { return next; });
+    LedgerReconciler reconciler(gate, [&]
+    {
+        return next;
+    });
     reconciler.set_baseline_directory(baseline_directory());
-    reconciler.set_reconcile_sink([&](const reconcile::Row& row) { rows.push_back(row); });
+    reconciler.set_reconcile_sink([&](const reconcile::Row& row)
+    {
+        rows.push_back(row);
+    });
 
     // 첫 대조: 원장 덮어쓰기, 기준선은 전일 총자산(990000) — 시초 갭 +10000이 당일손익에 든다. 파일 저장.
     reconciler.reconcile(true, kT0);
@@ -174,9 +183,15 @@ int test_reconcile_rest()
     CHECK(gate.ledger().daily_pnl() == 30000.0 && rows.empty());
 
     // 재시작(새 인스턴스, 같은 날): 파일 기준선을 재사용해 손실컷이 이어진다.
-    LedgerReconciler second_reconciler(gate, [&] { return next; });
+    LedgerReconciler second_reconciler(gate, [&]
+    {
+        return next;
+    });
     second_reconciler.set_baseline_directory(baseline_directory());
-    second_reconciler.set_reconcile_sink([&](const reconcile::Row& row) { rows.push_back(row); });
+    second_reconciler.set_reconcile_sink([&](const reconcile::Row& row)
+    {
+        rows.push_back(row);
+    });
     next = ok_balance({hold("A", 10, 100.0, 10)}, 900000.0);
     second_reconciler.reconcile(true, kT0 + 120);
     CHECK(second_reconciler.baseline() == 990000.0 && gate.ledger().daily_pnl() == -90000.0);
@@ -208,8 +223,14 @@ int test_reconcile_websocket()
     OrderGate gate;
     gate.ledger().seed_position(std::string(), "A", 10, 100.0);
     std::vector<reconcile::Row> rows;
-    LedgerReconciler reconciler(gate, [&] { return ok_balance({hold("A", 8, 100.0, 8)}, 1000000.0); });
-    reconciler.set_reconcile_sink([&](const reconcile::Row& row) { rows.push_back(row); });
+    LedgerReconciler reconciler(gate, [&]
+    {
+        return ok_balance({hold("A", 8, 100.0, 8)}, 1000000.0);
+    });
+    reconciler.set_reconcile_sink([&](const reconcile::Row& row)
+    {
+        rows.push_back(row);
+    });
 
     // WS 모드는 원장을 덮어쓰지 않는다(첫 관측만으로는 놓친 매도로도 안 본다). 매도가능은 매번 맞춘다.
     reconciler.reconcile(false, kT0);

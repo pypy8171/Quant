@@ -47,7 +47,12 @@ void score_cross_section(const DevScanCfg& config, std::vector<Features>& passed
         mean /= static_cast<double>(count);
         double variance = 0.0;
 
-        for (const auto& passed_entry : passed) { const double d0 = passed_entry.*field - mean; variance += d0 * d0; }
+        for (const auto& passed_entry : passed)
+        {
+            const double d0 = passed_entry.*field - mean;
+            variance += d0 * d0;
+        }
+
         variance /= static_cast<double>(count);
         const double standard_deviation = std::sqrt(variance);
 

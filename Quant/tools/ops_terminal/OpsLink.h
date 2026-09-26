@@ -51,7 +51,10 @@ public:
     // 스레드를 내린다. 블로킹.
     void stop();
 
-    bool running() const { return running_.load(); }
+    bool running() const
+    {
+        return running_.load();
+    }
 
     // 어느 스레드에서든. 연결이 없으면 버리고 false.
     bool send(ops::OpsMsg type, const std::string& body);

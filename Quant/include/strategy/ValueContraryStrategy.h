@@ -46,7 +46,10 @@ public:
         id_ = std::string("VALUE_CONTRARY_") + (market_ == Market::KR ? "KR" : "US");
     }
 
-    const std::string& id() const override { return id_; }
+    const std::string& id() const override
+    {
+        return id_;
+    }
 
     // 그 시장의 정규장 안인가(KST hhmm). KR 09:00~15:30, US 22:30~05:00(서머타임 기준). 로더가 청산 시각을 이것으로
     //  걸러낸다 — 틱 처리가 세션 밖에서 바로 돌아가므로 세션 밖 청산 시각에는 청산 분기가 닿지 않는다.

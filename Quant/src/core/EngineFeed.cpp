@@ -96,7 +96,10 @@ void Engine::collect_watch_specifications()
     for (auto pin = websocket_pin_tickers_.rbegin(); pin != websocket_pin_tickers_.rend(); ++pin)
     {
         const bool already = std::any_of(watch_specifications_.begin(), watch_specifications_.end(),
-                                         [&pin](const WatchSpec& watch) { return watch.market == Market::KR && watch.ticker == *pin; });
+                                         [&pin](const WatchSpec& watch)
+                                         {
+                                             return watch.market == Market::KR && watch.ticker == *pin;
+                                         });
 
         if (!already)
         {
@@ -183,7 +186,10 @@ void Engine::drain_pending_subscriptions()
         for (const auto& specification : unsubscriptions)
         {
             std::erase_if(watch_specifications_,
-                          [&specification](const WatchSpec& watch) { return same_watch(watch, specification); });
+                          [&specification](const WatchSpec& watch)
+                          {
+                              return same_watch(watch, specification);
+                          });
         }
     }
 
@@ -912,7 +918,10 @@ void Engine::apply_feed_control_requests()
             WatchSpec specification = ipc::watch_specification_of(request);
             std::lock_guard<std::mutex> specifications_lock(watch_specifications_mutex_);
             std::erase_if(pending_subscriptions_,
-                          [&specification](const WatchSpec& watch) { return same_watch(watch, specification); });
+                          [&specification](const WatchSpec& watch)
+                          {
+                              return same_watch(watch, specification);
+                          });
             pending_unsubscriptions_.push_back(std::move(specification));
             break;
         }

@@ -70,17 +70,26 @@ struct Rig
     SignalDispatcher         dispatcher;
 
     explicit Rig(OrderGate::Config config)
-        : gate(config), dispatcher(gate, *ledger, [this](const OrderSignal& signal) { out.push_back(signal); }, start_time,
+        : gate(config), dispatcher(gate, *ledger, [this](const OrderSignal& signal)
+        {
+            out.push_back(signal);
+        }, start_time,
                                    SignalDispatcher::SystemIds{gate.ledger().strategy_index_of("FORCE_LIQ"),
                                                                gate.ledger().strategy_index_of("LIMIT_TRIM")})
     {
-        dispatcher.set_label([](const std::string& ticker) { return "<" + ticker + ">"; });
+        dispatcher.set_label([](const std::string& ticker)
+        {
+            return "<" + ticker + ">";
+        });
         publish();
     }
 
     // 장부를 고친 뒤에는 사본을 한 판 낸다 — 실제로는 주문 스레드가 한 바퀴 끝에 내는 것을 시험이 손으로 낸다.
     //  이걸 빼먹으면 디스패처는 고치기 전 판을 본다.
-    void publish() { gate.publish_ledger(*ledger); }
+    void publish()
+    {
+        gate.publish_ledger(*ledger);
+    }
 };
 
 int test_stamp()
@@ -105,7 +114,10 @@ int test_strategy_gate()
 {
     Rig rig(open_config());
     const symbol::SymbolId symbol_g = rig.gate.ledger().intern_symbol("G");
-    rig.dispatcher.set_exit_managed_check([symbol_g](symbol::SymbolId symbol) { return symbol == symbol_g; });
+    rig.dispatcher.set_exit_managed_check([symbol_g](symbol::SymbolId symbol)
+    {
+        return symbol == symbol_g;
+    });
 
     // 비활성 전략: 신규 매수만 막고 매도·취소는 통과.
     rig.dispatcher.from_strategy(false, false, signal("A", OrderSide::BUY, 1));
@@ -135,8 +147,15 @@ int test_strategy_gate()
             return kId;
         }
 
-        std::string describe() const override { return "S"; }
-        std::optional<OrderSignal> on_data(const MarketData&) override { return std::nullopt; }
+        std::string describe() const override
+        {
+            return "S";
+        }
+
+        std::optional<OrderSignal> on_data(const MarketData&) override
+        {
+            return std::nullopt;
+        }
     } stop_token;
     CHECK(stop_token.is_active() && stop_token.in_universe());
     stop_token.set_in_universe(false);
@@ -228,8 +247,14 @@ int test_universe_evict_pick()
 
         return out;
     };
-    auto reserved0  = [](symbol::SymbolId) { return 0; };
-    auto no_absence = [](symbol::SymbolId) -> long long { return 0; };
+    auto reserved0  = [](symbol::SymbolId)
+    {
+        return 0;
+    };
+    auto no_absence = [](symbol::SymbolId) -> long long
+    {
+        return 0;
+    };
 
     // A만 오늘 top-N 밖(미보유) — A가 후보.
     CHECK(pick_evict_candidate(owned, bits({kB, kC}), bits({}), reserved0, no_absence) == kA);
@@ -238,10 +263,16 @@ int test_universe_evict_pick()
     // top-N 밖이어도 보유 중이면 대상 아님.
     CHECK(pick_evict_candidate(owned, bits({kB, kC}), bits({kA}), reserved0, no_absence) == symbol::kNone);
     // top-N 밖이어도 선점(reserved) 중이면 대상 아님.
-    auto reserved_a = [](symbol::SymbolId symbol) { return symbol == kA ? 1 : 0; };
+    auto reserved_a = [](symbol::SymbolId symbol)
+    {
+        return symbol == kA ? 1 : 0;
+    };
     CHECK(pick_evict_candidate(owned, bits({kB, kC}), bits({}), reserved_a, no_absence) == symbol::kNone);
     // 부재 시간이 다르면 가장 오래 밖에 있던 쪽(B)을 고른다 — owned 순회 순서와 무관.
-    auto absence_b_longer = [](symbol::SymbolId symbol) -> long long { return symbol == kB ? 900 : 100; };
+    auto absence_b_longer = [](symbol::SymbolId symbol) -> long long
+    {
+        return symbol == kB ? 900 : 100;
+    };
     CHECK(pick_evict_candidate(owned, bits({}), bits({}), reserved0, absence_b_longer) == kB);
     // 부재 시간이 전부 같으면(추적 없음 포함) id가 작은 쪽으로 고정 — 목록 순서(C·A·B)에 기대지 않는다.
     CHECK(pick_evict_candidate(owned, bits({}), bits({}), reserved0, no_absence) == kA);

@@ -58,8 +58,15 @@ public:
 
     // start() 전에만. 빈 주소는 무시한다.
     void set_bind(const std::string& address, int port);
-    void set_token(std::string token) { token_ = std::move(token); }
-    void set_paper(bool paper) { paper_ = paper; }
+    void set_token(std::string token)
+    {
+        token_ = std::move(token);
+    }
+
+    void set_paper(bool paper)
+    {
+        paper_ = paper;
+    }
 
     // 주문 인테이크. 빈 문자열이면 적재됨, 아니면 거부 사유. 서버 스레드에서 불린다 —
     //  큐에 넣고 바로 돌아와야 한다(게이트·브로커는 엔진 스레드 몫).
@@ -73,18 +80,52 @@ public:
     using HaltHandler  = std::function<void(const std::string& side, bool on)>; // 수동 정지 on/off, side는 "BUY"/"SELL" — OrderGate::set_manual_halt로 배선 [why D-091, D-095]
     using HaltProvider = std::function<std::pair<bool, bool>()>;                 // (매수 정지, 매도 정지) 현재값 — HALT_ACK에 둘 다 싣는다
 
-    void set_order_handler(OrderHandler order_handler) { on_order_ = std::move(order_handler); }
-    void set_status_provider(JsonProvider status_provider) { status_ = std::move(status_provider); }
-    void set_positions_provider(JsonProvider positions_provider) { positions_ = std::move(positions_provider); }
-    void set_kill_handler(KillHandler kill_handler) { on_kill_ = std::move(kill_handler); }
-    void set_shutdown_handler(ShutdownHandler shutdown_handler) { on_shutdown_ = std::move(shutdown_handler); }
-    void set_halt_handler(HaltHandler halt_handler) { on_halt_ = std::move(halt_handler); }
-    void set_halt_provider(HaltProvider halt_provider) { halt_provider_ = std::move(halt_provider); }
+    void set_order_handler(OrderHandler order_handler)
+    {
+        on_order_ = std::move(order_handler);
+    }
+
+    void set_status_provider(JsonProvider status_provider)
+    {
+        status_ = std::move(status_provider);
+    }
+
+    void set_positions_provider(JsonProvider positions_provider)
+    {
+        positions_ = std::move(positions_provider);
+    }
+
+    void set_kill_handler(KillHandler kill_handler)
+    {
+        on_kill_ = std::move(kill_handler);
+    }
+
+    void set_shutdown_handler(ShutdownHandler shutdown_handler)
+    {
+        on_shutdown_ = std::move(shutdown_handler);
+    }
+
+    void set_halt_handler(HaltHandler halt_handler)
+    {
+        on_halt_ = std::move(halt_handler);
+    }
+
+    void set_halt_provider(HaltProvider halt_provider)
+    {
+        halt_provider_ = std::move(halt_provider);
+    }
 
     bool start();
     void stop();
-    bool running() const { return running_.load(); }
-    int  port() const { return port_; }
+    bool running() const
+    {
+        return running_.load();
+    }
+
+    int  port() const
+    {
+        return port_;
+    }
 
     // 인증된 연결로 push(토큰을 안 둔 서버면 모든 연결로). 어느 스레드에서든 부를 수 있다. body는 큐로 옮겨 넣는 sink라 값으로 받는다.
     void broadcast(ops::OpsMsg type, std::string body);

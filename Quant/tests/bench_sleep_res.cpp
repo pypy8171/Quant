@@ -65,8 +65,14 @@ void print_row(const char* name, double asked_us, const Stats& statistics)
 void run_table(const char* title, int iters)
 {
     std::printf("[%s] %d회\n", title, iters);
-    print_row("sleep_for(100us)", 100.0, measure(iters, [] { std::this_thread::sleep_for(microseconds(100)); }));
-    print_row("sleep_for(1ms)", 1000.0, measure(iters, [] { std::this_thread::sleep_for(milliseconds(1)); }));
+    print_row("sleep_for(100us)", 100.0, measure(iters, []
+    {
+        std::this_thread::sleep_for(microseconds(100));
+    }));
+    print_row("sleep_for(1ms)", 1000.0, measure(iters, []
+    {
+        std::this_thread::sleep_for(milliseconds(1));
+    }));
 
     std::mutex mutex;
     std::condition_variable condition_variable;
@@ -87,7 +93,10 @@ void run_table(const char* title, int iters)
         std::unique_lock<std::mutex> lock(mutex);
         condition_variable.wait_for(lock, microseconds(500));
     }));
-    print_row("yield()", 0.0, measure(iters, [] { std::this_thread::yield(); }));
+    print_row("yield()", 0.0, measure(iters, []
+    {
+        std::this_thread::yield();
+    }));
 }
 
 } // namespace

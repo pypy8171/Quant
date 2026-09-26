@@ -115,7 +115,10 @@ int main()
         BarAggregator::Config config;
         BarAggregator aggregator(config);
         std::vector<MarketData> closed;
-        aggregator.set_sink([&](const MarketData& market_data) { closed.push_back(market_data); });
+        aggregator.set_sink([&](const MarketData& market_data)
+        {
+            closed.push_back(market_data);
+        });
 
         CHECK(aggregator.on_tick(tick("090000", 100.0, 10, 10)));
         CHECK(aggregator.on_tick(tick("090030", 103.0, 5, 15)));
@@ -184,7 +187,10 @@ int main()
     {
         BarAggregator aggregator(BarAggregator::Config{});
         std::vector<MarketData> closed;
-        aggregator.set_sink([&](const MarketData& market_data) { closed.push_back(market_data); });
+        aggregator.set_sink([&](const MarketData& market_data)
+        {
+            closed.push_back(market_data);
+        });
 
         // 로컬은 09:06 봉을 09:07부터만 봤다(구독이 늦었다).
         CHECK(aggregator.on_tick(tick("090700", 200.0, 10, 500)));
@@ -244,7 +250,10 @@ int main()
         config.keep = 3;
         BarAggregator aggregator(config);
         int n_closed = 0;
-        aggregator.set_sink([&](const MarketData&) { ++n_closed; });
+        aggregator.set_sink([&](const MarketData&)
+        {
+            ++n_closed;
+        });
 
         for (int index = 0; index < 6; ++index)
         {
@@ -332,7 +341,10 @@ int main()
     {
         bars::BarAggregator aggregator(bars::BarAggregator::Config{1, 64, 900, 1530});
         std::vector<MarketData> closed;
-        aggregator.set_sink([&](const MarketData& market_data) { closed.push_back(market_data); });
+        aggregator.set_sink([&](const MarketData& market_data)
+        {
+            closed.push_back(market_data);
+        });
         CHECK(aggregator.on_tick(tick("152959", 100.0, 1, 1)));
         CHECK(aggregator.on_tick(tick("153000", 101.0, 2, 3))); // 마감 동시호가 체결 → 15:29 닫힘, 15:30 진행
         CHECK(closed.size() == 1 && aggregator.current_slot(kSamsung).bucket == 15 * 60 + 30);

@@ -239,7 +239,10 @@ bool UniverseRescan::run_job(Job& job, KisClient& scan_client, const ipc::Ledger
         }
     }
 
-    auto reserved_of = [&snapshot](symbol::SymbolId symbol) { return snapshot.row(symbol).reserved; };
+    auto reserved_of = [&snapshot](symbol::SymbolId symbol)
+    {
+        return snapshot.row(symbol).reserved;
+    };
     auto absent_sec_of = [&job, now](symbol::SymbolId symbol) -> long long
     {
         const auto since = job.owned[symbol].absent_since;

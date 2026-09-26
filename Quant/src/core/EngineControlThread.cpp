@@ -315,7 +315,10 @@ void Engine::control_thread_fn(std::stop_token stop_token)
 
         // 다시 걸 때 칸이 모자라면 뒤에 선 종목이 밀린다 — 우선순위 순으로 세워 보유 종목이 먼저 칸을 받게 한다. [why D-132]
         std::stable_sort(specifications_copy.begin(), specifications_copy.end(),
-                         [this](const WatchSpec& left, const WatchSpec& right) { return websocket_slot_priority(left) < websocket_slot_priority(right); });
+                         [this](const WatchSpec& left, const WatchSpec& right)
+                         {
+                             return websocket_slot_priority(left) < websocket_slot_priority(right);
+                         });
 
         // 소켓이 여럿이면 멈춘 것만 다시 잇는다 — 살아 있는 소켓의 종목은 그 사이에도 틱이 흐른다. 하나면 끊고 다시 잇는 것.
         const bool ok    = feed_.websocket->reconnect_stale(specifications_copy, feed_.feed_sup.config().stale_sec);

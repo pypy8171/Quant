@@ -55,7 +55,10 @@ struct StubOrderExecutor : IOrderExecutor
     {
     }
 
-    bool is_paper() const noexcept override { return paper; }
+    bool is_paper() const noexcept override
+    {
+        return paper;
+    }
 
     KisResult<std::vector<OpenOrder>> get_open_orders() override
     {

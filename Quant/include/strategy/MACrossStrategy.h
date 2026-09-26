@@ -23,7 +23,10 @@ public:
         id_ = "MA_CROSS_" + ticker_;
     }
 
-    const std::string& id() const override { return id_; }
+    const std::string& id() const override
+    {
+        return id_;
+    }
 
     std::vector<WatchSpec> get_watch_specifications() const override
     {
@@ -36,7 +39,10 @@ public:
 
     void on_start() override;
 
-    bool wants_daily_bars() const override { return true; }
+    bool wants_daily_bars() const override
+    {
+        return true;
+    }
 
     std::optional<OrderSignal> on_data(const MarketData& data) override;
 

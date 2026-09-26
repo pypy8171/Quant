@@ -228,7 +228,10 @@ static void install_crash_handlers()
 {
     std::signal(SIGINT, signal_handler);
     std::signal(SIGTERM, signal_handler);
-    std::signal(SIGABRT, [](int) { log_and_die("SIGABRT"); });
+    std::signal(SIGABRT, [](int)
+    {
+        log_and_die("SIGABRT");
+    });
     std::set_terminate(on_terminate);
 #ifdef _WIN32
     SetUnhandledExceptionFilter(on_seh);

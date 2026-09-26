@@ -64,7 +64,10 @@ public:
 
     // 슬리브마다 한 번씩 부른다 — 덮어쓰지 않고 쌓는다. owned는 여기서 table.capacity() 크기가 된다.
     void add_job(Job job);
-    bool empty() const { return jobs_.empty(); }
+    bool empty() const
+    {
+        return jobs_.empty();
+    }
 
     // 기동 유니버스를 마지막 슬리브의 소유로 잡는다. started는 기동 때 올라간 (KR 종목, 그 종목의 전략) 쌍.
     void seed(const std::vector<std::pair<symbol::SymbolId, StrategyBase*>>& started,

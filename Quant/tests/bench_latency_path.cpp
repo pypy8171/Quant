@@ -88,7 +88,10 @@ PercentileSummary percentiles(std::vector<double>& values)
     }
 
     std::sort(values.begin(), values.end());
-    auto at = [&](double quantity) { return values[std::min(values.size() - 1, static_cast<size_t>(quantity * static_cast<double>(values.size())))]; };
+    auto at = [&](double quantity)
+    {
+        return values[std::min(values.size() - 1, static_cast<size_t>(quantity * static_cast<double>(values.size())))];
+    };
     percent.p50  = at(0.50);
     percent.p99  = at(0.99);
     percent.p999 = at(0.999);
@@ -412,7 +415,10 @@ void bench_router_n(const std::vector<std::string>& tickers, size_t n_strats)
     }
 
     strategy::Router router;
-    router.rebuild(pointers, [&table](const std::string& ticker) { return table.intern(ticker); });
+    router.rebuild(pointers, [&table](const std::string& ticker)
+    {
+        return table.intern(ticker);
+    });
 
     std::vector<TradeData> ticks(n_strats);
 
@@ -438,7 +444,10 @@ void bench_router_n(const std::vector<std::string>& tickers, size_t n_strats)
     const double new_ns = ns_per_op(kIters, [&](size_t)
     {
         const auto& trade = ticks[next_index(size) % n_strats];
-        router.for_each(trade.symbol_id, [&trade](StrategyBase* strategy) { (void)strategy->on_trade(trade); });
+        router.for_each(trade.symbol_id, [&trade](StrategyBase* strategy)
+        {
+            (void)strategy->on_trade(trade);
+        });
     });
 
     char name[64];
@@ -767,7 +776,10 @@ void bench_chain_at(const std::vector<std::string>& tickers, double rate_per_s)
     }
 
     strategy::Router router;
-    router.rebuild(pointers, [&table](const std::string& ticker) { return table.intern(ticker); });
+    router.rebuild(pointers, [&table](const std::string& ticker)
+    {
+        return table.intern(ticker);
+    });
     auto array_price = std::make_unique<std::atomic<double>[]>(kSymbols + 1);
 
     RingBuffer<TradeData> queue(1u << 16);
@@ -795,7 +807,10 @@ void bench_chain_at(const std::vector<std::string>& tickers, double rate_per_s)
 
             const symbol::SymbolId id = option->symbol_id;
             array_price[id].store(option->price, std::memory_order_relaxed);
-            router.for_each(id, [&](StrategyBase* strategy) { (void)strategy->on_trade(*option); });
+            router.for_each(id, [&](StrategyBase* strategy)
+            {
+                (void)strategy->on_trade(*option);
+            });
             latencies.push_back(static_cast<double>(now_ns() - option->received_ns));
             ++count;
         }

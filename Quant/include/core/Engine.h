@@ -216,32 +216,68 @@ public:
     void request_manual_halt(OrderSide side, bool on); // 운영단말이 손으로 거는 한 방향 정지
 
     // 지금 값. 고치는 것은 위의 요청으로만 하고 읽기는 어느 쪽에서나 한다(게이트 안은 원자값이다).
-    [[nodiscard]] bool   is_entry_halted() const { return order_gate_.is_entry_halted(); }
-    [[nodiscard]] double entry_scale() const { return order_gate_.entry_scale(); }
-    [[nodiscard]] bool   is_killed() const { return order_gate_.is_killed(); }
-    [[nodiscard]] bool   is_manual_sell_halted() const { return order_gate_.is_manual_sell_halted(); }
+    [[nodiscard]] bool   is_entry_halted() const
+    {
+        return order_gate_.is_entry_halted();
+    }
+
+    [[nodiscard]] double entry_scale() const
+    {
+        return order_gate_.entry_scale();
+    }
+
+    [[nodiscard]] bool   is_killed() const
+    {
+        return order_gate_.is_killed();
+    }
+
+    [[nodiscard]] bool   is_manual_sell_halted() const
+    {
+        return order_gate_.is_manual_sell_halted();
+    }
 
     // ── 전략 등록 ────────────────────────────────────────────────────────────
     void add_strategy(std::unique_ptr<StrategyBase> strategy);
 
-    size_t strategy_count() const { return strategy_.list.size(); }
+    size_t strategy_count() const
+    {
+        return strategy_.list.size();
+    }
 
     // ── 피드 설정(스레드 시작 전에만) ───────────────────────────────────────
     // 실시간 체결가는 원래 WebSocket으로 받지만, WS 세션이 rt_cd=9(ALREADY IN USE, 중복접속)로
     // 폭주할 때의 우회책이다. true면 DataThread가 REST get_current_price(현재가 조회)를 주기적으로
     // 폴링해 그 값을 TradeData(체결 틱)처럼 trade_matrix의 데이터 스레드 행에 넣고, WS 연결은 생략한다. ITB 전략이
     // 이 틱으로 구동된다(ITB = IntradayBreakoutStrategy, 장중 돌파 전략).
-    void set_rest_price_feed(bool rest_price_feed) { feed_.rest_price_feed = rest_price_feed; }
+    void set_rest_price_feed(bool rest_price_feed)
+    {
+        feed_.rest_price_feed = rest_price_feed;
+    }
 
     // WS 틱·호가 캡처 폴더(빈 문자열이면 끔). 기동마다 ticks_<UTC시각>.bin 하나. REST 대체 틱은 raw 피드가
     //  아니라 캡처하지 않는다. [why D-071]
-    void set_capture_directory(const std::string& directory) { feed_.capture_directory = directory; }
+    void set_capture_directory(const std::string& directory)
+    {
+        feed_.capture_directory = directory;
+    }
+
     // 캡처에 담을 종목만 고른다(비면 전부). [why D-138]
-    void set_capture_tickers(const std::vector<std::string>& tickers) { feed_.capture_tickers = tickers; }
+    void set_capture_tickers(const std::vector<std::string>& tickers)
+    {
+        feed_.capture_tickers = tickers;
+    }
+
     // 전략이 안 봐도 WS 칸을 가장 앞 순위로 쥐는 종목(체결만). [why D-138]
-    void set_websocket_pin_tickers(const std::vector<std::string>& tickers) { websocket_pin_tickers_ = tickers; }
+    void set_websocket_pin_tickers(const std::vector<std::string>& tickers)
+    {
+        websocket_pin_tickers_ = tickers;
+    }
+
     // 체결을 TimescaleDB에 바로 넣는 적재기 설정. enabled면 시세를 받는 프로세스(Both·Feed)만 start()에서 만든다. [why D-148]
-    void set_database(const db::DbConfig& config) { database_config_ = config; }
+    void set_database(const db::DbConfig& config)
+    {
+        database_config_ = config;
+    }
 
     // 원장 저널 폴더 — 거래일마다 ledger_YYYYMMDD.bin 하나(틱 캡처와 달리 재기동이 같은 파일에 이어 쓴다, 다음 기동이
     //  리플레이해야 하므로). start()가 열고 리플레이하며, 못 열면 기동을 거부한다. 빈 문자열이면 저널 없이 동작
@@ -253,11 +289,17 @@ public:
     }
 
     // 전략 샤드 수(config `strategy_shards`, 기본 1). 스레드 시작 전에만. 상한은 샤드 마스크 폭이고, 전략은 등록 순으로 샤드 하나씩 갖는다(걸침 검사 없음). [why D-110]
-    void set_strategy_shards(uint32_t strategy_shards) { pipeline_.strategy_shards = strategy_shards == 0 ? 1u : strategy_shards; }
+    void set_strategy_shards(uint32_t strategy_shards)
+    {
+        pipeline_.strategy_shards = strategy_shards == 0 ? 1u : strategy_shards;
+    }
 
     // WS 소켓을 하나 더 연다(KIS는 app_key당 실시간 1세션이라 키가 하나 더 있어야 한다). 하나라도 있으면 기본 키와
     //  함께 FeedMux로 묶여 종목이 소켓들에 나뉜다 — 구독 상한(kMaxWsSubs)이 소켓 수만큼 는다. 리플레이 중엔 무시. [why D-071]
-    void add_feed_config(const KisConfig& kis_config) { feed_.extra_feed_cfgs.push_back(kis_config); }
+    void add_feed_config(const KisConfig& kis_config)
+    {
+        feed_.extra_feed_cfgs.push_back(kis_config);
+    }
 
     // 캡처 파일 리플레이(빈 문자열이면 WS). WS 자리에 ReplaySource가 들어가 같은 콜백으로 틱·호가를 되돌린다.
     //  speed 0은 최대 속도, 1은 캡처 간격. set_feed_source와 같이 KisClient를 만들지 않는다 — 인증·계좌 없이 파일과
@@ -301,7 +343,10 @@ public:
     // 프로그램을 재시작하면 OrderGate 원장이 0으로 비는데, 실계좌엔 이미 보유분이 남아있다.
     // get_balance(잔고조회)로 종목·수량·평단을 읽어 원장에 심어(seed) 실제와 장부를 맞춘다
     // (안 맞으면 매도수량·평단·손실한도 계산이 어긋난다). main이 config로 켠다.
-    void set_bootstrap_ledger(bool bootstrap_ledger) { bootstrap_ledger_ = bootstrap_ledger; }
+    void set_bootstrap_ledger(bool bootstrap_ledger)
+    {
+        bootstrap_ledger_ = bootstrap_ledger;
+    }
 
     // 시세 전용 클라이언트 설정(실전 도메인). KIS 모의(openapivts)는 시세 REST가 HTTP 500이라
     // 시세는 실전 키+실전 도메인으로 조회하고 주문만 모의로 낸다. rest_price_feed 폴링이 사용.
@@ -313,15 +358,37 @@ public:
 
     // ── 운영 카운터·상태 조회 ───────────────────────────────────────────────
     // 운영 카운터 — data는 받은 시세 건수(WS 체결과 REST 폴링을 다 센다. 갈라 띄우면 전략 쪽은 통로에서 꺼낸 체결을 센다), signal은 주문 큐에 넣은 신호, order는 접수된 주문.
-    uint64_t data_count() const { return data_count_.load(std::memory_order_relaxed); }
-    uint64_t signal_count() const { return signal_count_.load(std::memory_order_relaxed); }
-    uint64_t order_count() const { return order_count_.load(std::memory_order_relaxed); }
+    uint64_t data_count() const
+    {
+        return data_count_.load(std::memory_order_relaxed);
+    }
+
+    uint64_t signal_count() const
+    {
+        return signal_count_.load(std::memory_order_relaxed);
+    }
+
+    uint64_t order_count() const
+    {
+        return order_count_.load(std::memory_order_relaxed);
+    }
 
     // start()가 실제로 잡은 수신 스레드(행)·전략 샤드(열) 수 — config와 다를 수 있다(샤드 수가 마스크 폭을 넘으면 거기서 자른다). 기동 뒤에만 뜻이 있다.
-    uint32_t websocket_lanes() const { return pipeline_.websocket_lanes; }
-    uint32_t shard_count() const { return static_cast<uint32_t>(pipeline_.shards.size()); }
+    uint32_t websocket_lanes() const
+    {
+        return pipeline_.websocket_lanes;
+    }
+
+    uint32_t shard_count() const
+    {
+        return static_cast<uint32_t>(pipeline_.shards.size());
+    }
+
     // 종목 id의 틱을 받는 샤드 마스크(시험·진단용). 0이면 아무 전략도 안 보는 종목이다.
-    shard::ShardMask route_mask(symbol::SymbolId symbol_id) const { return pipeline_.routes.mask(symbol_id); }
+    shard::ShardMask route_mask(symbol::SymbolId symbol_id) const
+    {
+        return pipeline_.routes.mask(symbol_id);
+    }
 
     // 큐 수위·버린 건수 — control_thread가 1분마다 찍는 [큐 고수위] 로그와 같은 값을 그 주기를 기다리지 않고 준다.
     //  부하 하네스(bench_engine_load)가 구간마다 읽는다. 읽기 전용이라 어느 스레드에서 불러도 된다.
@@ -359,7 +426,10 @@ public:
     // 그날 매크로 축은 다시 halt를 걸지 못한다. 그 뒤 통제는 장중을 실제로 보는 축
     // (UniverseScanner 코스피 게이트·종목 정배열)이 갖는다. force_liquidate는 대상이 아니다.
     // 0 이하면 만료를 끈다. [why D-033]
-    void set_regime_halt_expire_min(int regime_halt_expire_min) { regime_file_judge_.set_halt_expire_min(regime_halt_expire_min); }
+    void set_regime_halt_expire_min(int regime_halt_expire_min)
+    {
+        regime_file_judge_.set_halt_expire_min(regime_halt_expire_min);
+    }
 
     // ── 리스크·주문 ──────────────────────────────────────────────────────────
     // 주문 호출 간격 조절/재시도 (C-2/W-3) — 버스트 청산이 초당한도로 튕겨 유실되는 것 방지.
@@ -372,30 +442,52 @@ public:
     }
 
     // OrderGate 위험 한도를 config로 주입(스레드 시작 전에만). 기본값은 OrderGate::Config.
-    void set_risk_config(const OrderGate::Config& risk_config) { order_gate_.set_config(risk_config); }
+    void set_risk_config(const OrderGate::Config& risk_config)
+    {
+        order_gate_.set_config(risk_config);
+    }
+
     // 마감 자기 종료 — 마지막 매매 창이 닫히는 분과 유예 초(스레드 시작 전에만). close_min 0이면 판정 없음. [why D-098]
     void set_session_end(int close_min, int grace_sec);
 
     // 슬롯 수 조회 — 스캐너가 "베이스 총합이 목표 노출을 넘지 않도록" 배수를 정규화할 때 쓴다.
     //  위험 config는 전략 로딩보다 먼저 주입되므로(main.cpp) 이 시점에 이미 유효하다.
-    int risk_max_positions() const { return order_gate_.config().max_concurrent_positions; }
+    int risk_max_positions() const
+    {
+        return order_gate_.config().max_concurrent_positions;
+    }
+
     // 점수 랭크를 게이트에 주입 — 슬롯이 꽉 차갈수록 상위 점수만 통과시킨다.
     //  같은 표를 로그 폴더 entry_scores.json에도 남겨 대시보드가 보유 종목을 점수순으로 보인다. [why D-047]
     //  항목은 종목 id(symbols().intern)·랭크·z — 문자열 표는 없다. [why D-112]
     void set_entry_priority(const std::vector<OrderGate::PriorityEntry>& entries, int total);
     // 현재 보유(롱) 원장 스냅샷 — 유니버스 재스캔의 "보유분 제외"가 매회 최신 잔고를 보게 한다.
     //  기동 시 1회 조회한 잔고를 계속 쓰면 청산된 종목이 세션 내내 후보에서 빠진다.
-    std::vector<OrderGate::HeldPos> held_positions() const { return order_gate_.ledger().snapshot_positions(); }
+    std::vector<OrderGate::HeldPos> held_positions() const
+    {
+        return order_gate_.ledger().snapshot_positions();
+    }
+
     // 종목 테이블 — 문자열 티커는 경계(설정·잔고·스캔 응답)에서 여기로 한 번 번호가 되고 그 뒤로는 id로 다닌다. [why D-112]
-    symbol::SymbolTable&       symbols() noexcept { return symbols_.table; }
-    const symbol::SymbolTable& symbols() const noexcept { return symbols_.table; }
+    symbol::SymbolTable&       symbols() noexcept
+    {
+        return symbols_.table;
+    }
+
+    const symbol::SymbolTable& symbols() const noexcept
+    {
+        return symbols_.table;
+    }
 
     // 바스켓 슬리브 소유 종목 — 슬롯·교체·강제청산 밖(OrderGate::set_slot_exempt). 바스켓 로더가 기동 때, 전략이 파일을
     //  다시 읽을 때 넣고, DEVSCALE 재스캔이 이 목록을 유니버스에서 뺀다(같은 종목을 두 슬리브가 들지 않게). [why D-109]
     //  전략 쪽에서 부르는 자리라 게이트를 바로 고치지 않고 제어 요청으로 보낸다 — 표를 고치는 것은
     //  주문 스레드 하나다(원칙 4). 건 결과는 장부 사본의 slot_exempt 비트로 돌아온다. [why D-114]
     void set_slot_exempt_tickers(const std::vector<std::string>& tickers);
-    std::vector<symbol::SymbolId> slot_exempt_symbols() const { return order_gate_.ledger().slot_exempt_symbols(); }
+    std::vector<symbol::SymbolId> slot_exempt_symbols() const
+    {
+        return order_gate_.ledger().slot_exempt_symbols();
+    }
 
     // ── 유니버스 재스캔 ─────────────────────────────────────────────────────
     // 주기적 유니버스 재스캔(동적 등록). universe_fn: 시세 클라이언트로 유니버스 티커 목록 산출.
@@ -446,7 +538,10 @@ public:
         int strategy_pub = 5558; // config `zmq_strategy_pub_port`
     };
 
-    void set_zmq_ports(ZmqPorts ports) { zmq_ports_ = ports; }
+    void set_zmq_ports(ZmqPorts ports)
+    {
+        zmq_ports_ = ports;
+    }
 
     // 보호 주문 표(config `protective_orders`) — off/shadow/owner. 전략이 멈춰도 주문 쪽이 표만 보고
     //  손절·트레일 청산을 낸다. 스레드 시작 전에만. [why D-114]
@@ -457,12 +552,18 @@ public:
 
     // ZMQ 발행·제어 채널을 아예 열지 않는다(스레드 시작 전에만). 구독자 없이 도는 부하 하네스에서
     //  발행 큐가 차며 나는 drop 로그가 측정을 가리기 때문이다. 라이브는 기본값(켜짐) 그대로 쓴다.
-    void set_zmq_enabled(bool enabled) { zmq_enabled_ = enabled; }
+    void set_zmq_enabled(bool enabled)
+    {
+        zmq_enabled_ = enabled;
+    }
 
     // 한 기계에서 계좌를 둘 이상 돌릴 때 이 엔진을 가르는 이름(config `instance`, 예 "live").
     //  마감 표지 파일 이름에 붙는다 — 모의 엔진이 15:30에 남긴 마감 표지를 실계좌 감시견이 읽고
     //  20:00까지 도는 실계좌 트레이더를 되살리지 않던 것을 막는다. [why D-122]
-    void set_instance(std::string name) { instance_ = std::move(name); }
+    void set_instance(std::string name)
+    {
+        instance_ = std::move(name);
+    }
 
     // 운영단말 TCP 채널(config `ops_bind_addr`·`ops_port`·`ops_token`). port 0이면 열지 않는다.
     //  스레드 시작 전에만. 루프백이 아닌 주소는 token이 있어야 서버가 뜬다(OpsServer::start).
@@ -485,7 +586,11 @@ public:
     //  다른 쪽이 곧바로 되사서 수수료만 나간다(2026-09-08 금호건설: 13:39:59 전량매도 →
     //  13:40:12 재매수). 기동 시 단일스레드 구간에서만 채우고 전략 스레드는 읽기만 한다.
     //  종목 id 인덱스 비트 — 잔고 응답의 문자열 티커는 여기서 한 번 번호가 된다.
-    void mark_exit_managed_ticker(const std::string& ticker) { mark_exit_managed(symbols_.table.intern(ticker)); }
+    void mark_exit_managed_ticker(const std::string& ticker)
+    {
+        mark_exit_managed(symbols_.table.intern(ticker));
+    }
+
     void mark_exit_managed(symbol::SymbolId symbol);
 
     bool is_exit_managed(symbol::SymbolId symbol) const
@@ -502,7 +607,10 @@ public:
     std::string ticker_label(const std::string& ticker) const;
     // 등록된 종목명(hts_kor_isnm)만 반환, 없으면 빈 문자열. 전략에 이름을 주입해 로그에 노출할 때 사용.
     std::string ticker_name(symbol::SymbolId symbol) const;
-    std::string ticker_name(const std::string& ticker) const { return ticker_name(symbols_.table.lookup(ticker)); }
+    std::string ticker_name(const std::string& ticker) const
+    {
+        return ticker_name(symbols_.table.lookup(ticker));
+    }
 
     // ── 수명주기 ─────────────────────────────────────────────────────────────
     void start();
@@ -828,7 +936,11 @@ private:
         static constexpr uint64_t kDropLogEvery       = 100; // 큐 가득으로 버린 신호는 첫 건과 이 배수마다만 WARN
         static constexpr uint32_t kDefaultWebsocketLanes = 1; // 앱키 하나 = 소켓 하나. 추가 앱키·주입 소스가 있을 때만 websocket_lane_count()가 늘린다
         uint32_t                  websocket_lanes        = kDefaultWebsocketLanes; // WS 수신 스레드 수 = 소켓 수. start()가 행 수로 쓴다
-        uint32_t                  data_row() const { return websocket_lanes; } // trade_matrix의 데이터 스레드(REST 대체) 행 = 소켓 행 바로 뒤
+        uint32_t                  data_row() const  // trade_matrix의 데이터 스레드(REST 대체) 행 = 소켓 행 바로 뒤
+        {
+            return websocket_lanes;
+        }
+
         uint32_t                  strategy_shards = 1;    // config. start()가 열 수로 쓴다(상한 shard::kMaxShards)
         uint32_t                  next_shard      = 0;    // 다음 전략에 줄 샤드(라운드로빈 커서). strategy_.mutex 하에서
         shard::RouteTable         routes;                 // 종목 id → 그 종목을 보는 샤드 마스크. 수신 스레드가 틱마다 읽는다
@@ -1106,15 +1218,23 @@ private:
     // 유니버스 재스캔 장부 (data_thread 전용). [inv] symbols_ 뒤에 선언한다 — 표 참조를 생성자에서 받는다.
     UniverseRescan universe_rescan_{
         symbols_.table,
-        [this](std::unique_ptr<StrategyBase> strategy) { register_strategy_runtime(std::move(strategy)); },
+        [this](std::unique_ptr<StrategyBase> strategy)
+        {
+            register_strategy_runtime(std::move(strategy));
+        },
         [this](StrategyBase* pointer, const std::function<std::string(const StrategyBase&)>& make_line)
-        { retire_strategy(pointer, make_line); }};
+        {
+            retire_strategy(pointer, make_line);
+        }};
 
     // 제어 요청 통로 — 전략 쪽이 주문 쪽 표를 고쳐 달라고 보내는 요청을 싣고·옮기고·적용한다. 보호 주문 창구도
     //  여기서 전략에 꽂아 준다. [inv] order_gate_·protective_book_·symbols_·pipeline_ 뒤에 선언한다 — 참조를
     //  생성자에서 받는다. 뒤 토막은 bind_layout()이 꽂는다. [why D-114]
     ControlPlane control_plane_{order_gate_, protective_book_, symbols_.table, pipeline_.strategy_wake,
-                                pipeline_.order_wake, [this] { apply_reset_daily(); }};
+                                pipeline_.order_wake, [this]
+                                {
+                                    apply_reset_daily();
+                                }};
 
     double                                  last_price(symbol::SymbolId id) const noexcept;
     double                                  last_price(const std::string& ticker) const;

@@ -51,12 +51,18 @@ int test_thread_count_is_fixed()
 
     for (int index = 0; index < 100; ++index)
     {
-        pool.add([&calls] { calls.fetch_add(1, std::memory_order_relaxed); });
+        pool.add([&calls]
+        {
+            calls.fetch_add(1, std::memory_order_relaxed);
+        });
     }
 
     CHECK(pool.task_count() == 100);
     CHECK(pool.thread_count() == 3);
-    CHECK(wait_until([&calls] { return calls.load(std::memory_order_relaxed) >= 100; }, std::chrono::seconds(5)));
+    CHECK(wait_until([&calls]
+    {
+        return calls.load(std::memory_order_relaxed) >= 100;
+    }, std::chrono::seconds(5)));
     return 0;
 }
 
@@ -74,9 +80,15 @@ int test_runs_repeatedly()
 {
     prefetch::Pool pool(1, std::chrono::milliseconds(10));
     std::atomic<int> calls{0};
-    pool.add([&calls] { calls.fetch_add(1, std::memory_order_relaxed); });
+    pool.add([&calls]
+    {
+        calls.fetch_add(1, std::memory_order_relaxed);
+    });
 
-    CHECK(wait_until([&calls] { return calls.load(std::memory_order_relaxed) >= 3; }, std::chrono::seconds(5)));
+    CHECK(wait_until([&calls]
+    {
+        return calls.load(std::memory_order_relaxed) >= 3;
+    }, std::chrono::seconds(5)));
     return 0;
 }
 
@@ -85,9 +97,15 @@ int test_remove_stops_calls()
 {
     prefetch::Pool pool(2, std::chrono::milliseconds(10));
     std::atomic<int> calls{0};
-    const prefetch::Pool::TaskId id = pool.add([&calls] { calls.fetch_add(1, std::memory_order_relaxed); });
+    const prefetch::Pool::TaskId id = pool.add([&calls]
+    {
+        calls.fetch_add(1, std::memory_order_relaxed);
+    });
 
-    CHECK(wait_until([&calls] { return calls.load(std::memory_order_relaxed) >= 1; }, std::chrono::seconds(5)));
+    CHECK(wait_until([&calls]
+    {
+        return calls.load(std::memory_order_relaxed) >= 1;
+    }, std::chrono::seconds(5)));
     pool.remove(id);
     CHECK(pool.task_count() == 0);
 
@@ -110,7 +128,10 @@ int test_remove_waits_for_running_work()
         finished.store(true, std::memory_order_release);
     });
 
-    CHECK(wait_until([&inside] { return inside.load(std::memory_order_acquire); }, std::chrono::seconds(5)));
+    CHECK(wait_until([&inside]
+    {
+        return inside.load(std::memory_order_acquire);
+    }, std::chrono::seconds(5)));
     pool.remove(id);
     CHECK(finished.load(std::memory_order_acquire));
     return 0;
@@ -121,14 +142,23 @@ int test_stop()
 {
     prefetch::Pool pool(2, std::chrono::milliseconds(10));
     std::atomic<int> calls{0};
-    pool.add([&calls] { calls.fetch_add(1, std::memory_order_relaxed); });
+    pool.add([&calls]
+    {
+        calls.fetch_add(1, std::memory_order_relaxed);
+    });
 
-    CHECK(wait_until([&calls] { return calls.load(std::memory_order_relaxed) >= 1; }, std::chrono::seconds(5)));
+    CHECK(wait_until([&calls]
+    {
+        return calls.load(std::memory_order_relaxed) >= 1;
+    }, std::chrono::seconds(5)));
     pool.stop();
     CHECK(pool.thread_count() == 0);
 
     const int after_stop = calls.load(std::memory_order_relaxed);
-    pool.add([&calls] { calls.fetch_add(1, std::memory_order_relaxed); });
+    pool.add([&calls]
+    {
+        calls.fetch_add(1, std::memory_order_relaxed);
+    });
     std::this_thread::sleep_for(std::chrono::milliseconds(120));
     CHECK(calls.load(std::memory_order_relaxed) == after_stop);
     return 0;
@@ -147,8 +177,14 @@ int test_start_precreates_threads()
     // 여러 번 불러도 늘지 않고, 그 뒤 작업을 맡겨도 그대로다.
     pool.start();
     std::atomic<int> runs{0};
-    pool.add([&runs] { runs.fetch_add(1); });
-    CHECK(wait_until([&runs] { return runs.load() >= 2; }, std::chrono::seconds(3)));
+    pool.add([&runs]
+    {
+        runs.fetch_add(1);
+    });
+    CHECK(wait_until([&runs]
+    {
+        return runs.load() >= 2;
+    }, std::chrono::seconds(3)));
     CHECK(pool.thread_count() == 4);
     pool.stop();
     return 0;

@@ -100,7 +100,10 @@ int test_retry_queue()
     const auto start_time = Clock::now();
     OrderRateLimiter order_rate_limiter({350, 3}, start_time);
     int held = 10;
-    order_rate_limiter.set_position([&](const std::string&, const std::string&) { return held; });
+    order_rate_limiter.set_position([&](const std::string&, const std::string&)
+    {
+        return held;
+    });
 
     // 예약 → 만기 전엔 없음 → 만기 뒤 attempts+1로 나온다
     CHECK(order_rate_limiter.on_rejected({signal("A", OrderSide::SELL, 10), 0}, OrderStatus::REJECTED, "APBK0013", start_time));

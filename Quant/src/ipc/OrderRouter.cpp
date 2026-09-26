@@ -563,7 +563,15 @@ OrderAck OrderRouter::reconcile_blocked_sell(const OrderSignal& signal, const Or
             open_order.kis_order_no      = carry_row[0];
             open_order.krx_forwarding_org_no = carry_row[1];
 
-            try { open_order.psbl_qty = std::stoi(carry_row[4]); } catch (...) { continue; }
+            try
+            {
+                open_order.psbl_qty = std::stoi(carry_row[4]);
+            }
+            catch (...)
+            {
+                continue;
+            }
+
             open_order.side      = OrderSide::SELL;
             opens.push_back(std::move(open_order));
         }
@@ -669,7 +677,10 @@ OrderAck OrderRouter::reconcile_blocked_sell(const OrderSignal& signal, const Or
                 std::lock_guard<std::mutex> ck(carry_mutex_);
                 const auto before = carry_rows_.size();
                 carry_rows_.erase(std::remove_if(carry_rows_.begin(), carry_rows_.end(),
-                                                 [&open](const std::array<std::string, 5>& parts) { return parts[0] == open.kis_order_no; }),
+                                                 [&open](const std::array<std::string, 5>& parts)
+                                                 {
+                                                     return parts[0] == open.kis_order_no;
+                                                 }),
                                   carry_rows_.end());
                 carried = carry_rows_.size() != before;
             }
@@ -769,7 +780,10 @@ OrderRouter::AdoptResult OrderRouter::adopt_open_intents(const std::vector<Order
     // 주문번호 없는 INTENT = 전송 뒤 접수 응답 전에 죽은 주문일 수 있다. 모의는 그런 주문이 있을 때만 묻는다 —
     //  모의 미체결조회(VTTC0081R)로 ACCEPT를 본 주문까지 가리면 종전 판단이 바뀌므로 그 몫은 그대로 둔다.
     const bool has_unnumbered = std::any_of(intents.begin(), intents.end(),
-                                            [](const OrderGate::OpenIntent& intent) { return intent.kis_order_number == 0; });
+                                            [](const OrderGate::OpenIntent& intent)
+                                            {
+                                                return intent.kis_order_number == 0;
+                                            });
     std::vector<OpenOrder> open_orders;
     bool                   asked_broker = false;
 
@@ -1282,7 +1296,10 @@ void OrderRouter::open_orders_writer_loop(std::stop_token stop_token)
         {
             std::unique_lock<std::mutex> lock(open_orders_outbox_mutex_);
             open_orders_outbox_signal_.wait(lock, stop_token,
-                                            [this] { return open_orders_pending_sequence_ != 0; });
+                                            [this]
+                                            {
+                                                return open_orders_pending_sequence_ != 0;
+                                            });
         }
 
         flush_open_orders_file();
@@ -1400,7 +1417,10 @@ void OrderRouter::append_writer_loop(std::stop_token stop_token)
     {
         {
             std::unique_lock<std::mutex> lock(append_outbox_mutex_);
-            append_outbox_signal_.wait(lock, stop_token, [this] { return !append_outbox_.empty(); });
+            append_outbox_signal_.wait(lock, stop_token, [this]
+            {
+                return !append_outbox_.empty();
+            });
         }
 
         flush_append_outbox();
@@ -1668,7 +1688,9 @@ void OrderRouter::cancel_stale_orders_async()
 
             const bool known = std::any_of(rows.begin(), rows.end(),
                                            [&open](const std::array<std::string, 5>& parts)
-                                           { return parts[0] == open.kis_order_no; });
+                                           {
+                                               return parts[0] == open.kis_order_no;
+                                           });
 
             if (known)
             {
@@ -1701,7 +1723,11 @@ void OrderRouter::cancel_stale_orders_async()
         {
             int quantity = 0;
 
-            try { quantity = std::stoi(row[4]); } catch (...) {}
+            try
+            {
+                quantity = std::stoi(row[4]);
+            }
+            catch (...) {}
 
             if (quantity > 0)
             {
@@ -1739,7 +1765,14 @@ void OrderRouter::cancel_stale_orders_async()
 
             int quantity = 0;
 
-            try { quantity = std::stoi(row[4]); } catch (...) { continue; }
+            try
+            {
+                quantity = std::stoi(row[4]);
+            }
+            catch (...)
+            {
+                continue;
+            }
 
             if (quantity <= 0)
             {
@@ -1817,7 +1850,10 @@ void OrderRouter::cancel_stale_orders_async()
             {
                 std::lock_guard<std::mutex> lock(carry_mutex_);
                 carry_rows_.erase(std::remove_if(carry_rows_.begin(), carry_rows_.end(),
-                                                 [&row](const std::array<std::string, 5>& parts) { return parts[0] == row[0]; }),
+                                                 [&row](const std::array<std::string, 5>& parts)
+                                                 {
+                                                     return parts[0] == row[0];
+                                                 }),
                                   carry_rows_.end());
             }
 
@@ -1966,7 +2002,10 @@ void OrderRouter::write_trade_row(const std::string& event, const ManagedOrder& 
     auto side_string = [](OrderSide order_side) {
         return order_side == OrderSide::BUY ? "BUY" : (order_side == OrderSide::SELL ? "SELL" : "NONE");
     };
-    auto type_string = [](OrderType order_type) { return order_type == OrderType::LIMIT ? "LIMIT" : "MARKET"; };
+    auto type_string = [](OrderType order_type)
+    {
+        return order_type == OrderType::LIMIT ? "LIMIT" : "MARKET";
+    };
     auto status_string = [](OrderStatus status) -> const char* {
         switch (status)
         {

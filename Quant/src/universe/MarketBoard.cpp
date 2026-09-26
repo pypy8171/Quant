@@ -235,8 +235,14 @@ std::vector<RankedStock> rank_universe(const std::vector<ListedStock>& listing, 
             }
         };
 
-        take_top(n_market_value, [](const BoardQuote& quote) { return quote.market_value; });
-        take_top(n_turnover, [](const BoardQuote& quote) { return quote.value; });
+        take_top(n_market_value, [](const BoardQuote& quote)
+        {
+            return quote.market_value;
+        });
+        take_top(n_turnover, [](const BoardQuote& quote)
+        {
+            return quote.value;
+        });
     }
 
     return ranked;
@@ -326,7 +332,10 @@ void MarketBoard::start(const Config& config)
 
     config_.period_sec = std::max(1, config_.period_sec);
     config_.rerank_sec = std::max(config_.period_sec, config_.rerank_sec);
-    worker_            = std::thread([this] { run(); });
+    worker_            = std::thread([this]
+    {
+        run();
+    });
     LOG_INFO("[MarketBoard] 시작 — 시세 " + std::to_string(config_.period_sec) + "초·재랭킹 " +
              std::to_string(config_.rerank_sec) + "초 주기, 시장별 시총 top" + std::to_string(config_.n_market_value) +
              " ∪ 거래대금 top" + std::to_string(config_.n_turnover) + (config_.universe_out.empty() ? "" : " → " + config_.universe_out));
@@ -481,7 +490,10 @@ bool MarketBoard::sweep()
 
     for (const std::string& url : request_urls_)
     {
-        bodies.push_back(std::async(std::launch::async, [&url] { return http::get(url, naver_headers()); }));
+        bodies.push_back(std::async(std::launch::async, [&url]
+        {
+            return http::get(url, naver_headers());
+        }));
     }
 
     auto   board  = std::make_shared<BoardSnapshot>();

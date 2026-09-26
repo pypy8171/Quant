@@ -121,8 +121,15 @@ int main()
             wake::WakeGate gate;
             run("condvar ", gate, [&](RingBuffer<int>& queue, std::atomic<bool>& stop)
             {
-                gate.wait_for(1s, [&] { return queue.empty() && !stop.load(std::memory_order_acquire); });
-            }, [&] { return gate.sleeping(); });
+                gate.wait_for(1s, [&]
+                {
+                    return queue.empty() && !stop.load(std::memory_order_acquire);
+                });
+            }
+            , [&]
+            {
+                return gate.sleeping();
+            });
         }
 
         {
@@ -139,7 +146,11 @@ int main()
                 }
 
                 sleeping.store(false, std::memory_order_relaxed);
-            }, [&] { return sleeping.load(std::memory_order_acquire); });
+            }
+            , [&]
+            {
+                return sleeping.load(std::memory_order_acquire);
+            });
         }
     }
 

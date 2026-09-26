@@ -77,7 +77,10 @@ struct GateVerdict
     double           money              = 0.0;
     symbol::SymbolId symbol             = symbol::kNone;
 
-    [[nodiscard]] bool passed() const noexcept { return code == GateReject::None; }
+    [[nodiscard]] bool passed() const noexcept
+    {
+        return code == GateReject::None;
+    }
 };
 
 class OrderGate
@@ -145,12 +148,26 @@ public:
     OrderGate& operator=(const OrderGate&) = delete;
 
     // 위험 한도 주입 — 반드시 order_thread 시작 전에만 호출(config_는 check()에서 락 없이 읽힘).
-    void set_config(const Config& config) { config_ = config; }
-    const Config& config() const { return config_; }
+    void set_config(const Config& config)
+    {
+        config_ = config;
+    }
+
+    const Config& config() const
+    {
+        return config_;
+    }
 
     // 원장 — 보유·선점·평단·당일 손익과 원장 저널(Quant/include/risk/PositionLedger.h). 체결 반영·시드·조회는 여기로 간다.
-    [[nodiscard]] PositionLedger& ledger() noexcept { return ledger_; }
-    [[nodiscard]] const PositionLedger& ledger() const noexcept { return ledger_; }
+    [[nodiscard]] PositionLedger& ledger() noexcept
+    {
+        return ledger_;
+    }
+
+    [[nodiscard]] const PositionLedger& ledger() const noexcept
+    {
+        return ledger_;
+    }
 
     // 원장 쪽 중첩 형 — 바깥 코드가 OrderGate:: 이름으로 쓰던 것을 그대로 받는다.
     using OpenIntent   = PositionLedger::OpenIntent;

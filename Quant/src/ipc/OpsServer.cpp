@@ -12,7 +12,10 @@
 #pragma comment(lib, "ws2_32.lib")
 #define OPS_INVALID INVALID_SOCKET
 #define ops_close   closesocket
-static int ops_errno() { return WSAGetLastError(); }
+static int ops_errno()
+{
+    return WSAGetLastError();
+}
 #else
 #include <arpa/inet.h>
 #include <cerrno>
@@ -24,7 +27,10 @@ static int ops_errno() { return WSAGetLastError(); }
 #include <unistd.h>
 #define OPS_INVALID (-1)
 #define ops_close   ::close
-static int ops_errno() { return errno; }
+static int ops_errno()
+{
+    return errno;
+}
 #endif
 
 using json = nlohmann::json;

@@ -156,7 +156,10 @@ struct MarketGate
     bool   kospi_pass  = false;
     bool   kosdaq_pass = false;
 
-    bool closed() const { return !kospi_pass && !kosdaq_pass; }
+    bool closed() const
+    {
+        return !kospi_pass && !kosdaq_pass;
+    }
 
     // 시장 미상은 코스닥과 같은 보수 판정(닫혀 있으면 드롭).
     bool allows(Market market) const;

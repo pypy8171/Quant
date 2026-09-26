@@ -15,7 +15,10 @@ struct FieldList
 {
     std::vector<std::string_view> views;
     FieldList(const std::vector<std::string>& fields) : views(fields.begin(), fields.end()) {}
-    operator kis_websocket::Fields() const { return kis_websocket::Fields(views); }
+    operator kis_websocket::Fields() const
+    {
+        return kis_websocket::Fields(views);
+    }
 };
 
 // width개 필드를 "F<i>"로 채운 뒤 호출자가 필요한 칸만 덮어쓴다.

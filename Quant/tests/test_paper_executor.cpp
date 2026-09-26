@@ -58,7 +58,10 @@ int main()
     symbol::SymbolTable           symbols;
     feed::PaperExecutor           executor(1'000'000.0, symbols);
     std::vector<FillNotification> fills;
-    executor.set_fill_callback([&fills](const FillNotification& fill_notification) { fills.push_back(fill_notification); });
+    executor.set_fill_callback([&fills](const FillNotification& fill_notification)
+    {
+        fills.push_back(fill_notification);
+    });
 
     // 1. 시장가 매수: 접수 시점엔 체결 없음, 다음 틱 가격에 체결. 장부·현금 반영.
     {
@@ -181,8 +184,14 @@ int main()
         }
 
         std::atomic<bool> start{false};
-        std::thread first([&] { while (!start.load()) {} concurrent_executor.on_tick(tick("005930", 1000.0, 90600)); });
-        std::thread second([&] { while (!start.load()) {} concurrent_executor.on_tick(tick("000660", 1000.0, 90600)); });
+        std::thread first([&]
+        {
+            while (!start.load()) {} concurrent_executor.on_tick(tick("005930", 1000.0, 90600));
+        });
+        std::thread second([&]
+        {
+            while (!start.load()) {} concurrent_executor.on_tick(tick("000660", 1000.0, 90600));
+        });
         start.store(true);
         first.join();
         second.join();

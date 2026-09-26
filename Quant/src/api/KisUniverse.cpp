@@ -172,9 +172,14 @@ std::vector<KisClient::RankingStock> KisClient::fetch_kr_ranking_page(const std:
         static const std::vector<std::string> ETF_TOKENS =
             load_string_list("etf_name_tokens.json", "", etf_filter::default_tokens(), "ETF 토큰");
         auto is_etf_name = [&](const std::string& name)
-        { return etf_filter::is_etf_like(name, ETF_PREFIXES, ETF_TOKENS); };
+        {
+            return etf_filter::is_etf_like(name, ETF_PREFIXES, ETF_TOKENS);
+        };
         // KOSPI 보통주 티커는 반드시 6자리 숫자
-        auto is_normal_ticker = [](const std::string& ticker) { return symbol::is_korean_ticker(ticker); };
+        auto is_normal_ticker = [](const std::string& ticker)
+        {
+            return symbol::is_korean_ticker(ticker);
+        };
 
         // API 응답 키: "output2"가 있으면 그것을, 없으면 "output"
         auto& array = document.contains("output2") ? document["output2"] : document["output"];
@@ -185,9 +190,17 @@ std::vector<KisClient::RankingStock> KisClient::fetch_kr_ranking_page(const std:
             std::string name = item.value("hts_kor_isnm", "");
             std::string ticker = item.value("mksc_shrn_iscd", "");
 
-            if (!is_normal_ticker(ticker)) { ++drop_ticker; continue; }
+            if (!is_normal_ticker(ticker))
+            {
+                ++drop_ticker;
+                continue;
+            }
 
-            if (is_etf_name(name)) { ++drop_etf; continue; }
+            if (is_etf_name(name))
+            {
+                ++drop_etf;
+                continue;
+            }
 
             RankingStock stock;
             stock.ticker = std::move(ticker);
@@ -238,7 +251,10 @@ std::vector<KisClient::RankingStock> KisClient::fetch_kr_ranking(int count, cons
 
         // 두 조회 사이에 가격이 경계를 넘으면 같은 종목이 양쪽에 걸린다 — 먼저 온 쪽만 남긴다.
         std::unordered_set<std::string> seen;
-        std::erase_if(result, [&seen](const RankingStock& stock) { return !seen.insert(stock.ticker).second; });
+        std::erase_if(result, [&seen](const RankingStock& stock)
+        {
+            return !seen.insert(stock.ticker).second;
+        });
 
         LOG_INFO("[KIS] 시총랭킹 두 페이지 합침: 유니크 " + std::to_string(result.size()) + "종목 (경계 " +
                  std::to_string(kRankingPriceSplit) + "원)");
@@ -357,8 +373,13 @@ std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking_page(const s
         static const std::vector<std::string> ETF_TOKENS =
             load_string_list("etf_name_tokens.json", "", etf_filter::default_tokens(), "ETF 토큰");
         auto is_etf_name = [&](const std::string& name)
-        { return etf_filter::is_etf_like(name, ETF_PREFIXES, ETF_TOKENS); };
-        auto is_normal_ticker = [](const std::string& ticker) { return symbol::is_korean_ticker(ticker); };
+        {
+            return etf_filter::is_etf_like(name, ETF_PREFIXES, ETF_TOKENS);
+        };
+        auto is_normal_ticker = [](const std::string& ticker)
+        {
+            return symbol::is_korean_ticker(ticker);
+        };
 
         // volume-rank 응답 배열 키: "output" (표준). output2도 방어적으로 수용.
         auto& array = document.contains("output") ? document["output"] : document["output2"];
@@ -375,9 +396,17 @@ std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking_page(const s
                 ticker = item.value("stck_shrn_iscd", "");
             }
 
-            if (!is_normal_ticker(ticker)) { ++drop_ticker; continue; }
+            if (!is_normal_ticker(ticker))
+            {
+                ++drop_ticker;
+                continue;
+            }
 
-            if (is_etf_name(name)) { ++drop_etf; continue; }
+            if (is_etf_name(name))
+            {
+                ++drop_etf;
+                continue;
+            }
 
             RankingStock stock;
             stock.ticker = std::move(ticker);
@@ -432,7 +461,10 @@ std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking(int count, c
 
         // 두 조회 사이에 가격이 경계를 넘으면 같은 종목이 양쪽에 걸린다 — 먼저 온 쪽만 남긴다.
         std::unordered_set<std::string> seen;
-        std::erase_if(result, [&seen](const RankingStock& stock) { return !seen.insert(stock.ticker).second; });
+        std::erase_if(result, [&seen](const RankingStock& stock)
+        {
+            return !seen.insert(stock.ticker).second;
+        });
 
         LOG_INFO("[KIS] 거래대금랭킹 두 페이지 합침: 유니크 " + std::to_string(result.size()) +
                  "종목 (경계 " + std::to_string(kRankingPriceSplit) + "원)");
@@ -497,7 +529,14 @@ std::vector<KisClient::EstInvestorFlow> KisClient::fetch_est_investor_ranking(
                 return 0;
             }
 
-            try { return std::stoll(text); } catch (...) { return 0; }
+            try
+            {
+                return std::stoll(text);
+            }
+            catch (...)
+            {
+                return 0;
+            }
         };
         auto safe_d = [](const nlohmann::json& node, const char* key) -> double
         {
@@ -508,7 +547,14 @@ std::vector<KisClient::EstInvestorFlow> KisClient::fetch_est_investor_ranking(
                 return 0.0;
             }
 
-            try { return std::stod(text); } catch (...) { return 0.0; }
+            try
+            {
+                return std::stod(text);
+            }
+            catch (...)
+            {
+                return 0.0;
+            }
         };
 
         const nlohmann::json* array = nullptr;
@@ -746,12 +792,29 @@ std::vector<KisClient::RankingStock> KisClient::fetch_sector_ranking(
         }
 
         auto number_of = [](const nlohmann::json& node, const char* key) -> double {
-            try { return std::stod(node.value(key, "0")); } catch (...) { return 0.0; }
+            try
+            {
+                return std::stod(node.value(key, "0"));
+            }
+            catch (...)
+            {
+                return 0.0;
+            }
         };
         auto to_int64 = [](const nlohmann::json& node, const char* key) -> int64_t {
-            try { return std::stoll(node.value(key, "0")); } catch (...) { return 0; }
+            try
+            {
+                return std::stoll(node.value(key, "0"));
+            }
+            catch (...)
+            {
+                return 0;
+            }
         };
-        auto is_normal_ticker = [](const std::string& ticker) { return symbol::is_korean_ticker(ticker); };
+        auto is_normal_ticker = [](const std::string& ticker)
+        {
+            return symbol::is_korean_ticker(ticker);
+        };
 
         auto& array = document.contains("output2") ? document["output2"] : document["output"];
 

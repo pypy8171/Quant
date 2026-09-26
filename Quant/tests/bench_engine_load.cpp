@@ -97,7 +97,10 @@ public:
     {
     }
 
-    uint32_t lanes() const override { return lanes_; }
+    uint32_t lanes() const override
+    {
+        return lanes_;
+    }
 
     void set_callbacks(OrderBookCb on_order_book, TradeCb on_trade) override
     {
@@ -119,7 +122,10 @@ public:
         return true;
     }
 
-    void disconnect() override { connected_.store(false); }
+    void disconnect() override
+    {
+        connected_.store(false);
+    }
 
     bool subscribe_incremental(const WatchSpec& specification) override
     {
@@ -143,9 +149,20 @@ public:
         return false;
     }
 
-    std::vector<WatchSpec> take_overflow_specifications() override { return {}; }
-    bool                   is_connected() const override { return connected_.load(); }
-    bool                   is_stale(int) const override { return false; }
+    std::vector<WatchSpec> take_overflow_specifications() override
+    {
+        return {};
+    }
+
+    bool                   is_connected() const override
+    {
+        return connected_.load();
+    }
+
+    bool                   is_stale(int) const override
+    {
+        return false;
+    }
 
     // 바깥 피드가 이미 만든 체결을 그대로 넘긴다 — 값은 시장이 정하고 하네스는 어느 레인이 낸 것인지만 고른다.
     void emit_trade_data(uint32_t lane, const TradeData& trade)
@@ -202,9 +219,20 @@ public:
     {
     }
 
-    const std::string& id() const override { return identifier_; }
-    std::string        describe() const override { return "부하 하네스 — 체결마다 시장가 1주 매수"; }
-    std::optional<OrderSignal> on_data(const MarketData&) override { return std::nullopt; }
+    const std::string& id() const override
+    {
+        return identifier_;
+    }
+
+    std::string        describe() const override
+    {
+        return "부하 하네스 — 체결마다 시장가 1주 매수";
+    }
+
+    std::optional<OrderSignal> on_data(const MarketData&) override
+    {
+        return std::nullopt;
+    }
 
     void on_start() override
     {
@@ -259,7 +287,10 @@ public:
         return signal;
     }
 
-    uint64_t ticks_seen() const { return ticks_seen_; }
+    uint64_t ticks_seen() const
+    {
+        return ticks_seen_;
+    }
 
 private:
     std::string                   identifier_;

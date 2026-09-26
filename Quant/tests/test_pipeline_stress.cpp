@@ -386,7 +386,12 @@ static void fill_fn(RingBuffer<MockFill>& fill_queue,
 static void print_latency(std::vector<int64_t>& values, const char* label) {
     std::cout << label << " (count=" << values.size() << "):\n";
 
-    if (values.empty()) { std::cout << "  (no samples)\n"; return; }
+    if (values.empty())
+    {
+        std::cout << "  (no samples)\n";
+        return;
+    }
+
     std::sort(values.begin(), values.end());
 
     auto percent = [&](double price) {

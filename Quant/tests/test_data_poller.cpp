@@ -96,7 +96,10 @@ int test_universe()
             asked.push_back(ticker);
             return price.count(ticker) ? price[ticker] : 0.0;
         },
-        [&](const TradeData& trade) { out.push_back(trade); });
+        [&](const TradeData& trade)
+        {
+            out.push_back(trade);
+        });
     data_poller.set_universe_call_interval(std::chrono::milliseconds(0));
 
     // US spec은 건너뛰고, 현재가 0은 틱을 안 흘린다. 시각은 KST HHMMSS.
@@ -108,7 +111,10 @@ int test_universe()
     // 종료 플래그가 내려가면 첫 종목 전에 끊는다.
     asked.clear();
     out.clear();
-    data_poller.set_keep_going([] { return false; });
+    data_poller.set_keep_going([]
+    {
+        return false;
+    });
     CHECK(data_poller.poll_universe({specification("A")}, kT0) == 0 && asked.empty());
     return 0;
 }
@@ -124,7 +130,10 @@ int test_overflow()
             asked.push_back(ticker);
             return ticker == "A" || ticker == "C" ? 100.0 : price_b;
         },
-        [&](const TradeData& trade) { out.push_back(trade); });
+        [&](const TradeData& trade)
+        {
+            out.push_back(trade);
+        });
     data_poller.set_universe_call_interval(std::chrono::milliseconds(0));
 
     // 등록: 같은 채널은 한 번만, 다른 종목은 다른 채널.
@@ -151,14 +160,20 @@ int test_overflow()
     asked.clear();
     out.clear();
     price_b = 50.0;
-    count = data_poller.poll_overflow({}, [](const WatchSpec& specification) { return specification.ticker == "A"; }, kT0);
+    count = data_poller.poll_overflow({}, [](const WatchSpec& specification)
+    {
+        return specification.ticker == "A";
+    }, kT0);
     CHECK(data_poller.overflow_count() == 2 && count == 2);
     CHECK(out.size() == 2 && out[0].ticker == "C" && out[0].price == 100.0 && out[1].ticker == "B" &&
           out[1].price == 50.0);
     CHECK(asked.size() == 2 && asked[0] == "C" && asked[1] == "B");
 
     // 목록이 비면 아무것도 안 한다.
-    DataPoller empty([](const std::string&) { return 1.0; }, [](const TradeData&) {});
+    DataPoller empty([](const std::string&)
+    {
+        return 1.0;
+    }, [](const TradeData&) {});
     CHECK(empty.poll_overflow({}, never, kT0) == 0);
     return 0;
 }
@@ -166,16 +181,28 @@ int test_overflow()
 int test_top_up()
 {
     std::vector<std::pair<std::string, double>> received;
-    DataPoller data_poller([](const std::string& ticker) { return ticker == "A" ? 100.0 : 0.0; }, [](const TradeData&) {});
+    DataPoller data_poller([](const std::string& ticker)
+    {
+        return ticker == "A" ? 100.0 : 0.0;
+    }, [](const TradeData&) {});
     data_poller.set_top_up_call_interval(std::chrono::milliseconds(0));
 
     // 실패(0)도 그대로 넘긴다 — 0을 버릴지는 받는 쪽(set_last_price)이 정한다. 틱은 흘리지 않는다.
-    const int count = data_poller.top_up({"A", "B"}, [&](const std::string& ticker, double price) { received.emplace_back(ticker, price); });
+    const int count = data_poller.top_up({"A", "B"}, [&](const std::string& ticker, double price)
+    {
+        received.emplace_back(ticker, price);
+    });
     CHECK(count == 2 && received.size() == 2 && received[0].first == "A" && received[0].second == 100.0 && received[1].second == 0.0);
 
-    data_poller.set_keep_going([] { return false; });
+    data_poller.set_keep_going([]
+    {
+        return false;
+    });
     received.clear();
-    CHECK(data_poller.top_up({"A"}, [&](const std::string& ticker, double price) { received.emplace_back(ticker, price); }) == 0 && received.empty());
+    CHECK(data_poller.top_up({"A"}, [&](const std::string& ticker, double price)
+    {
+        received.emplace_back(ticker, price);
+    }) == 0 && received.empty());
     return 0;
 }
 
@@ -213,21 +240,36 @@ int test_loop()
             asked.push_back(ticker);
             return 100.0;
         },
-        [&](const TradeData&) { ++sunk; });
+        [&](const TradeData&)
+        {
+            ++sunk;
+        });
     data_poller.set_universe_call_interval(std::chrono::milliseconds(0));
 
     DataPoller::LoopSources sources;
-    sources.rest_mode      = [&] { return rest_mode.load(); };
-    sources.universe       = [] { return std::vector<WatchSpec>{specification("U")}; };
+    sources.rest_mode      = [&]
+    {
+        return rest_mode.load();
+    };
+    sources.universe       = []
+    {
+        return std::vector<WatchSpec>{specification("U")};
+    };
     sources.from_websocket = [&]
     {
         // 첫 바퀴에만 넘침 종목을 준다 — 그 뒤로는 폴러 목록에 남아 매 바퀴 조회돼야 한다.
         return websocket_calls++ == 0 ? std::vector<WatchSpec>{specification("A")} : std::vector<WatchSpec>{};
     };
-    sources.on_ticks = [&](int ticks) { counted += ticks; };
+    sources.on_ticks = [&](int ticks)
+    {
+        counted += ticks;
+    };
     data_poller.start(std::move(sources), std::chrono::milliseconds(5));
 
-    CHECK(wait_until([&] { return counted.load() >= 3; })); // 세 바퀴 이상 A를 조회했다
+    CHECK(wait_until([&]  // 세 바퀴 이상 A를 조회했다
+    {
+        return counted.load() >= 3;
+    }));
     CHECK(sunk.load() >= 3 && data_poller.overflow_count() == 1);
 
     {
@@ -246,7 +288,10 @@ int test_loop()
     data_poller.join();
 
     // 바퀴 주기가 1분이어도 멈춤 요청이 대기를 깨워 곧바로 회수된다.
-    DataPoller slow([](const std::string&) { return 1.0; }, [](const TradeData&) {});
+    DataPoller slow([](const std::string&)
+    {
+        return 1.0;
+    }, [](const TradeData&) {});
     DataPoller::LoopSources idle;
     std::atomic<int> rounds{0};
     idle.from_websocket = [&]
@@ -255,7 +300,10 @@ int test_loop()
         return std::vector<WatchSpec>{};
     };
     slow.start(std::move(idle), std::chrono::minutes(1));
-    CHECK(wait_until([&] { return rounds.load() >= 1; }));
+    CHECK(wait_until([&]
+    {
+        return rounds.load() >= 1;
+    }));
     const auto stop_begin = std::chrono::steady_clock::now();
     slow.request_stop();
     slow.join();

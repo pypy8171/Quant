@@ -219,7 +219,11 @@ bool KisClient::issue_token(std::chrono::seconds reuse_margin)
         {
             int descriptor = ::open(temporary_path.c_str(), O_RDONLY);
 
-            if (descriptor >= 0) { ::fsync(descriptor); ::close(descriptor); }
+            if (descriptor >= 0)
+            {
+                ::fsync(descriptor);
+                ::close(descriptor);
+            }
         }
 
         std::rename(temporary_path.c_str(), cache_path.c_str()); // POSIX atomic

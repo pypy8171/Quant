@@ -304,11 +304,20 @@ void Engine::initialize_ledger_reconciler()
 {
     // 잔고 → 원장 대조기. 브로커·라우터·종목명은 함수로 넘겨 대조기가 KisClient·OrderRouter를 모르게 한다. [why D-061]
     ledger_ = std::make_unique<LedgerReconciler>(order_gate_,
-                                                 [this] { return feed_.paper ? feed_.paper->balance() : feed_.kis->get_balance(); });
+                                                 [this]
+                                                 {
+                                                     return feed_.paper ? feed_.paper->balance() : feed_.kis->get_balance();
+                                                 });
     ledger_->set_account_no(feed_.kis ? feed_.kis->account_no() : std::string("PAPER"));
     ledger_->set_baseline_directory(Logger::instance().base_directory()); // 실행 위치와 무관하게 로그 폴더와 같은 곳
-    ledger_->set_name_sink([this](const std::string& ticker, const std::string& name) { register_ticker_name(ticker, name); });
-    ledger_->set_reconcile_sink([this](const reconcile::Row& row) { order_router_->record_reconcile(row); });
+    ledger_->set_name_sink([this](const std::string& ticker, const std::string& name)
+    {
+        register_ticker_name(ticker, name);
+    });
+    ledger_->set_reconcile_sink([this](const reconcile::Row& row)
+    {
+        order_router_->record_reconcile(row);
+    });
 }
 
 void Engine::initialize_data_poller()
@@ -346,7 +355,10 @@ void Engine::initialize_data_poller()
                 pipeline_.shards[consumer]->wake().notify();
             });
         });
-    poller_->set_keep_going([this] { return running_.load(std::memory_order_acquire); });
+    poller_->set_keep_going([this]
+    {
+        return running_.load(std::memory_order_acquire);
+    });
 }
 
 bool Engine::try_open_ledger_journal()
@@ -444,7 +456,10 @@ void Engine::spawn_threads()
     // 데이터 스레드는 양쪽에 하나씩 둔다 — 보는 일감이 다르다. 전략 쪽은 국면·재스캔·시세 보충이고,
     //  주문 쪽은 원장 대조·선점 정리·하루 초기화다(가르는 선은 docs/DECISIONS.md D-114). [why D-114]
     // jthread는 stop_token을 첫 인자로 넣으므로 멤버 함수 포인터(this가 첫 인자)는 람다로 감싼다.
-    data_thread_ = std::jthread([this](std::stop_token stop_token) { data_thread_fn(stop_token); });
+    data_thread_ = std::jthread([this](std::stop_token stop_token)
+    {
+        data_thread_fn(stop_token);
+    });
     start_rest_poll_loop();
 
     if (runs_strategy_side())
@@ -455,7 +470,10 @@ void Engine::spawn_threads()
         {
             for (uint32_t lane = 0; lane < layout_.feed().lanes(); ++lane)
             {
-                feed_lane_threads_.emplace_back([this, lane](std::stop_token stop_token) { feed_lane_thread_fn(stop_token, lane); });
+                feed_lane_threads_.emplace_back([this, lane](std::stop_token stop_token)
+                {
+                    feed_lane_thread_fn(stop_token, lane);
+                });
             }
 
             LOG_INFO("[Engine] 시세 줄 스레드 " + std::to_string(feed_lane_threads_.size()) + "개 — 통로에서 꺼내 샤드로 나눈다");
@@ -463,21 +481,39 @@ void Engine::spawn_threads()
 
         for (uint32_t shard_index = 0; shard_index < static_cast<uint32_t>(pipeline_.shards.size()); ++shard_index)
         {
-            pipeline_.shard_threads.emplace_back([this, shard_index](std::stop_token stop_token) { shard_thread_fn(stop_token, shard_index); });
+            pipeline_.shard_threads.emplace_back([this, shard_index](std::stop_token stop_token)
+            {
+                shard_thread_fn(stop_token, shard_index);
+            });
         }
 
-        strategy_thread_ = std::jthread([this](std::stop_token stop_token) { strategy_thread_fn(stop_token); });
+        strategy_thread_ = std::jthread([this](std::stop_token stop_token)
+        {
+            strategy_thread_fn(stop_token);
+        });
     }
 
     if (runs_order_side())
     {
-        order_thread_  = std::jthread([this](std::stop_token stop_token) { order_thread_fn(stop_token); });
-        fill_thread_   = std::jthread([this](std::stop_token stop_token) { fill_thread_fn(stop_token); });
-        ledger_thread_ = std::jthread([this](std::stop_token stop_token) { ledger_thread_fn(stop_token); });
+        order_thread_  = std::jthread([this](std::stop_token stop_token)
+        {
+            order_thread_fn(stop_token);
+        });
+        fill_thread_   = std::jthread([this](std::stop_token stop_token)
+        {
+            fill_thread_fn(stop_token);
+        });
+        ledger_thread_ = std::jthread([this](std::stop_token stop_token)
+        {
+            ledger_thread_fn(stop_token);
+        });
     }
 
     // 감시 스레드도 양쪽에 하나씩 — 시세 소켓을 쥔 쪽이 재연결을 보고, 주문 쪽이 마감 종료를 본다.
-    control_thread_ = std::jthread([this](std::stop_token stop_token) { control_thread_fn(stop_token); });
+    control_thread_ = std::jthread([this](std::stop_token stop_token)
+    {
+        control_thread_fn(stop_token);
+    });
 }
 
 void Engine::start()
@@ -661,14 +697,23 @@ void Engine::start_rest_poll_loop()
     }
 
     DataPoller::LoopSources sources;
-    sources.rest_mode = [this] { return feed_.rest_feed_active.load(std::memory_order_relaxed); };
+    sources.rest_mode = [this]
+    {
+        return feed_.rest_feed_active.load(std::memory_order_relaxed);
+    };
     sources.universe  = [this]
     {
         std::lock_guard<std::mutex> specifications_lock(watch_specifications_mutex_);
         return watch_specifications_; // 조회가 락 밖에서 돌도록 사본을 낸다
     };
-    sources.from_websocket = [this] { return feed_.websocket ? feed_.websocket->take_overflow_specifications() : std::vector<WatchSpec>{}; };
-    sources.on_ticks       = [this](int ticks) { data_count_ += static_cast<uint64_t>(ticks); };
+    sources.from_websocket = [this]
+    {
+        return feed_.websocket ? feed_.websocket->take_overflow_specifications() : std::vector<WatchSpec>{};
+    };
+    sources.on_ticks       = [this](int ticks)
+    {
+        data_count_ += static_cast<uint64_t>(ticks);
+    };
     poller_->start(std::move(sources), std::chrono::milliseconds(kRestPollRoundMs));
 }
 

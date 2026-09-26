@@ -174,7 +174,10 @@ void OpsLink::thread_fn()
 
         // backoff 대기. stop()이 깨운다.
         std::unique_lock<std::mutex> lock(queue_mutex_);
-        queue_condition_variable_.wait_for(lock, std::chrono::milliseconds(backoff), [this] { return !running_.load(); });
+        queue_condition_variable_.wait_for(lock, std::chrono::milliseconds(backoff), [this]
+        {
+            return !running_.load();
+        });
         backoff = (backoff * 2 > kBackoffMaxMs) ? kBackoffMaxMs : backoff * 2;
     }
 

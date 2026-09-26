@@ -43,7 +43,14 @@ KisClient::InvestorTrend KisClient::get_investor_trend(const std::string& ticker
         const auto& latest = array[0];
 
         auto to_int64 = [](const nlohmann::json& node, const char* key) -> int64_t {
-            try { return std::stoll(node.value(key, "0")); } catch (...) { return 0; }
+            try
+            {
+                return std::stoll(node.value(key, "0"));
+            }
+            catch (...)
+            {
+                return 0;
+            }
         };
         result.foreign_net = to_int64(latest, "frgn_ntby_qty");  // 외국인 순매수
         result.institution_net    = to_int64(latest, "orgn_ntby_qty");   // 기관 순매수
@@ -177,17 +184,39 @@ KisClient::FuturePrice KisClient::get_future_price(const std::string& issue_code
         }
 
         auto number_of = [&](const char* key) -> double {
-            try { return std::stod((*node).value(key, "0")); } catch (...) { return 0.0; }
+            try
+            {
+                return std::stod((*node).value(key, "0"));
+            }
+            catch (...)
+            {
+                return 0.0;
+            }
         };
         auto sll = [&](const char* key) -> int64_t {
-            try { return std::stoll((*node).value(key, "0")); } catch (...) { return 0; }
+            try
+            {
+                return std::stoll((*node).value(key, "0"));
+            }
+            catch (...)
+            {
+                return 0;
+            }
         };
 
         future_price.price         = number_of("futs_prpr");
         future_price.change        = number_of("futs_prdy_vrss");
         future_price.change_rate   = number_of("futs_prdy_ctrt");
 
-        try { future_price.sign = std::stoi((*node).value("prdy_vrss_sign", "3")); } catch (...) { future_price.sign = 3; }
+        try
+        {
+            future_price.sign = std::stoi((*node).value("prdy_vrss_sign", "3"));
+        }
+        catch (...)
+        {
+            future_price.sign = 3;
+        }
+
         future_price.open          = number_of("futs_oprc");
         future_price.high          = number_of("futs_hgpr");
         future_price.low           = number_of("futs_lwpr");

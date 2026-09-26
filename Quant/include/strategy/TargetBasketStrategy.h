@@ -41,20 +41,39 @@ public:
 
     TargetBasketStrategy(Params parameters, OwnedSink owned_sink);
 
-    const std::string& id() const override { return id_; }
+    const std::string& id() const override
+    {
+        return id_;
+    }
+
     std::string        describe() const override;
-    std::optional<OrderSignal> on_data(const MarketData&) override { return std::nullopt; }
+    std::optional<OrderSignal> on_data(const MarketData&) override
+    {
+        return std::nullopt;
+    }
+
     void on_start() override;
     void on_stop() override;
     void on_trade_batch(const TradeData& trade, std::vector<OrderSignal>& out) override;
 
     // 로더가 기동 때 소유 종목을 LoadPass::scan_covered·DEVSCALE held에 넣으려고 읽는다. on_start 전에도 파일을 읽어 둔다.
-    const std::vector<std::string>& owned_tickers() const { return owned_; }
+    const std::vector<std::string>& owned_tickers() const
+    {
+        return owned_;
+    }
+
     bool load_targets(); // 파일을 읽어 targets_를 바꾼다. 실패면 직전 것을 유지하고 false
 
     // 시험용 — 시각을 바꿔 집행 창을 지난다.
-    void set_clock(Clock clock) { clock_ = std::move(clock); }
-    const Params& parameters() const { return parameters_; }
+    void set_clock(Clock clock)
+    {
+        clock_ = std::move(clock);
+    }
+
+    const Params& parameters() const
+    {
+        return parameters_;
+    }
 
 private:
     struct DayState

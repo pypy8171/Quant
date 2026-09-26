@@ -105,7 +105,10 @@ int main()
         strategies.push_back(std::make_unique<FakeStrategy>("C", std::vector<std::string>{}));
 
         strategy::Router router;
-        router.rebuild(pointers(strategies), [&table](const std::string& ticker) { return table.intern(ticker); });
+        router.rebuild(pointers(strategies), [&table](const std::string& ticker)
+        {
+            return table.intern(ticker);
+        });
         CHECK(router.routes() == 3 && router.all_count() == 1);
         CHECK(table.size() == 2);
 
@@ -114,19 +117,31 @@ int main()
         CHECK(router.watchers(samsung) == 1 && router.watchers(hynix) == 2 && router.watchers(symbol::kNone) == 0);
 
         std::vector<std::string> seen;
-        router.for_each(samsung, [&seen](StrategyBase* strategy) { seen.push_back(strategy->id()); });
+        router.for_each(samsung, [&seen](StrategyBase* strategy)
+        {
+            seen.push_back(strategy->id());
+        });
         CHECK(seen.size() == 2 && seen[0] == "A" && seen[1] == "C");
 
         seen.clear();
-        router.for_each(hynix, [&seen](StrategyBase* strategy) { seen.push_back(strategy->id()); });
+        router.for_each(hynix, [&seen](StrategyBase* strategy)
+        {
+            seen.push_back(strategy->id());
+        });
         CHECK(seen.size() == 3 && seen[0] == "A" && seen[1] == "B" && seen[2] == "C");
 
         // 모르는 id·kNone은 전부 받는 전략만.
         seen.clear();
-        router.for_each(symbol::kNone, [&seen](StrategyBase* strategy) { seen.push_back(strategy->id()); });
+        router.for_each(symbol::kNone, [&seen](StrategyBase* strategy)
+        {
+            seen.push_back(strategy->id());
+        });
         CHECK(seen.size() == 1 && seen[0] == "C");
         seen.clear();
-        router.for_each(999, [&seen](StrategyBase* strategy) { seen.push_back(strategy->id()); });
+        router.for_each(999, [&seen](StrategyBase* strategy)
+        {
+            seen.push_back(strategy->id());
+        });
         CHECK(seen.size() == 1 && seen[0] == "C");
     }
 
@@ -137,12 +152,18 @@ int main()
         strategies.push_back(std::make_unique<FakeStrategy>("D", std::vector<std::string>{"005930", "005930"}));
 
         strategy::Router router;
-        router.rebuild(pointers(strategies), [&table](const std::string& ticker) { return table.intern(ticker); });
+        router.rebuild(pointers(strategies), [&table](const std::string& ticker)
+        {
+            return table.intern(ticker);
+        });
         CHECK(router.routes() == 1 && router.watchers(table.lookup("005930")) == 1);
 
         strategies.clear();
         strategies.push_back(std::make_unique<FakeStrategy>("E", std::vector<std::string>{"000660"}));
-        router.rebuild(pointers(strategies), [&table](const std::string& ticker) { return table.intern(ticker); });
+        router.rebuild(pointers(strategies), [&table](const std::string& ticker)
+        {
+            return table.intern(ticker);
+        });
         CHECK(router.routes() == 1 && router.watchers(table.lookup("005930")) == 0 && router.watchers(table.lookup("000660")) == 1);
         CHECK(router.all_count() == 0);
     }
@@ -154,12 +175,18 @@ int main()
         strategies.push_back(std::make_unique<FakeStrategy>("F", std::vector<std::string>{"005930", "000660"}));
 
         strategy::Router router;
-        router.rebuild(pointers(strategies), [&table](const std::string& ticker) { return table.intern(ticker); });
+        router.rebuild(pointers(strategies), [&table](const std::string& ticker)
+        {
+            return table.intern(ticker);
+        });
         CHECK(table.lookup("005930") != symbol::kNone && table.lookup("000660") == symbol::kNone);
         CHECK(router.routes() == 0 && router.all_count() == 1 && router.watchers(table.lookup("005930")) == 0);
 
         int count = 0;
-        router.for_each(table.lookup("005930"), [&count](StrategyBase*) { ++count; });
+        router.for_each(table.lookup("005930"), [&count](StrategyBase*)
+        {
+            ++count;
+        });
         CHECK(count == 1);
     }
 
@@ -182,7 +209,10 @@ int main()
 
         auto ps = pointers(strategies);
         strategy::Router router;
-        router.rebuild(ps, [&table](const std::string& ticker) { return table.intern(ticker); });
+        router.rebuild(ps, [&table](const std::string& ticker)
+        {
+            return table.intern(ticker);
+        });
         CHECK(router.routes() == kStrats && router.all_count() == 0);
 
         const auto start_time = std::chrono::steady_clock::now();
@@ -202,7 +232,10 @@ int main()
         for (int tick_index = 0; tick_index < kTicks; ++tick_index)
         {
             const auto& trade = ticks[tick_index % kStrats];
-            router.for_each(trade.symbol_id, [&trade](StrategyBase* strategy) { (void)strategy->on_trade(trade); });
+            router.for_each(trade.symbol_id, [&trade](StrategyBase* strategy)
+            {
+                (void)strategy->on_trade(trade);
+            });
         }
 
         const auto later_time = std::chrono::steady_clock::now();

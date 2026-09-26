@@ -42,7 +42,10 @@ public:
         id_ = "MM_" + ticker_;
     }
 
-    const std::string& id() const override { return id_; }
+    const std::string& id() const override
+    {
+        return id_;
+    }
 
     std::string describe() const override;
 
@@ -64,8 +67,15 @@ public:
 
 private:
     // KRX 호가단위/격자 절사는 core/TickSize.h(krx::)로 일원화. 얇은 위임만 유지.
-    static double tick_size(double price) { return krx::tick_size(price); }
-    static double round_to_tick(double price, OrderSide side) { return krx::round_to_tick(price, side); }
+    static double tick_size(double price)
+    {
+        return krx::tick_size(price);
+    }
+
+    static double round_to_tick(double price, OrderSide side)
+    {
+        return krx::round_to_tick(price, side);
+    }
 
     std::string next_order_id(const char* tag)
     {

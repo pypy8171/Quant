@@ -68,12 +68,26 @@ public:
     // 주문 쪽 줄이 비었나 — 주문 스레드가 잠들어도 되는지 볼 때 쓴다.
     bool order_lane_empty() const;
 
-    uint64_t dropped() const { return dropped_.load(std::memory_order_relaxed); }
-    uint64_t relay_dropped() const { return relay_dropped_.load(std::memory_order_relaxed); }
-    uint64_t discarded() const { return discarded_.load(std::memory_order_relaxed); }
+    uint64_t dropped() const
+    {
+        return dropped_.load(std::memory_order_relaxed);
+    }
+
+    uint64_t relay_dropped() const
+    {
+        return relay_dropped_.load(std::memory_order_relaxed);
+    }
+
+    uint64_t discarded() const
+    {
+        return discarded_.load(std::memory_order_relaxed);
+    }
 
     // 전략에 꽂아 주는 보호 주문 창구.
-    risk::ProtectiveOrderRegistry& protective_registry() { return protective_registry_; }
+    risk::ProtectiveOrderRegistry& protective_registry()
+    {
+        return protective_registry_;
+    }
 
 private:
     // 켜고 끄기는 요청으로 주문 스레드에 넘기고, 읽기 둘은 이 프로세스의 표를 그대로 본다 — 표를 고치는 것은

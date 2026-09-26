@@ -13,7 +13,10 @@ struct FieldList
 {
     std::vector<std::string_view> views;
     FieldList(const std::vector<std::string>& fields) : views(fields.begin(), fields.end()) {}
-    operator kis_websocket::Fields() const { return kis_websocket::Fields(views); }
+    operator kis_websocket::Fields() const
+    {
+        return kis_websocket::Fields(views);
+    }
 };
 
 static std::vector<std::string> make_fields(int records, int width, const std::string& tag)

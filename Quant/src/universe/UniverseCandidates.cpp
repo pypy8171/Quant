@@ -377,7 +377,10 @@ void take_full_market(const DevScanCfg& config, const QuoteTable& quotes, Candid
     }
 
     std::sort(listed.begin(), listed.end(),
-              [](const auto& entry_a, const auto& entry_b) { return entry_a.first.view() < entry_b.first.view(); });
+              [](const auto& entry_a, const auto& entry_b)
+              {
+                  return entry_a.first.view() < entry_b.first.view();
+              });
 
     for (const auto& [ticker, symbol] : listed)
     {

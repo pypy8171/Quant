@@ -23,8 +23,13 @@ void FeedMux::set_lane_callbacks(LaneOrderBookCb on_order_book, LaneTradeCb on_t
     {
         const uint32_t lane = static_cast<uint32_t>(source_index);
         sources_[source_index]->set_callbacks([this, lane](const OrderBook& order_book)
-                                              { lane_order_book_(lane, order_book); },
-                                              [this, lane](const TradeData& trade) { lane_trade_(lane, trade); });
+                                              {
+                                                  lane_order_book_(lane, order_book);
+                                              },
+                                              [this, lane](const TradeData& trade)
+                                              {
+                                                  lane_trade_(lane, trade);
+                                              });
     }
 }
 
@@ -38,13 +43,21 @@ void FeedMux::set_callbacks(OrderBookCb on_order_book, TradeCb on_trade)
     {
         Lane* lane = lanes_[source_index].get();
         sources_[source_index]->set_callbacks([this, lane](const OrderBook& order_book)
-                                              { enqueue(*lane, Event{order_book}); },
-                                              [this, lane](const TradeData& trade) { enqueue(*lane, Event{trade}); });
+                                              {
+                                                  enqueue(*lane, Event{order_book});
+                                              },
+                                              [this, lane](const TradeData& trade)
+                                              {
+                                                  enqueue(*lane, Event{trade});
+                                              });
     }
 
     if (!multiplexer_thread_.joinable())
     {
-        multiplexer_thread_ = std::jthread([this](std::stop_token stop_token) { multiplexer_loop(stop_token); });
+        multiplexer_thread_ = std::jthread([this](std::stop_token stop_token)
+        {
+            multiplexer_loop(stop_token);
+        });
     }
 }
 
@@ -447,7 +460,10 @@ void FeedMux::multiplexer_loop(std::stop_token stop_token)
 
         if (!any)
         {
-            wake_.wait_for(std::chrono::milliseconds(5), stop_token, [this] { return all_empty(); });
+            wake_.wait_for(std::chrono::milliseconds(5), stop_token, [this]
+            {
+                return all_empty();
+            });
         }
     }
 }

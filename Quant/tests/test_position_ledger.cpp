@@ -310,7 +310,10 @@ void test_journal_concurrent_writers_flush_in_order()
         // 원장이 살아 있는 채로 읽는다 — 소멸자의 마지막 쓰기에 기대지 않고 호출마다 썼는지 본다.
         std::vector<uint64_t> sequences;
         const auto result = ledger_journal::LedgerJournal::replay(
-            file, [&](const ledger_journal::Record& record) { sequences.push_back(record.sequence); });
+            file, [&](const ledger_journal::Record& record)
+            {
+                sequences.push_back(record.sequence);
+            });
         assert(result.header_ok && !result.truncated_tail);
         assert(sequences.size() == 2 * kPerThread);
 

@@ -77,12 +77,23 @@ public:
     // 조회 스레드 회수. sink가 넣는 행렬보다 먼저 멈춰야 하므로 엔진 stop()이 샤드 join 전에 부른다.
     void join();
 
-    void set_keep_going(KeepGoingFn keep_going) { keep_going_ = std::move(keep_going); }
+    void set_keep_going(KeepGoingFn keep_going)
+    {
+        keep_going_ = std::move(keep_going);
+    }
+
     // 종목 간 호출 간격. 실전 앱키 한도는 초당 20건이고 주문·잔고·스캔도 같은 한도를 쓴다(실계좌는 같은 키).
     //  100ms면 조회 스레드가 초당 10건까지만 쓰고 나머지를 남긴다 — 넘친 종목 10개까지 1초 주기다. [why D-138]
-    void set_universe_call_interval(std::chrono::milliseconds milliseconds) { universe_call_interval_ = milliseconds; }
+    void set_universe_call_interval(std::chrono::milliseconds milliseconds)
+    {
+        universe_call_interval_ = milliseconds;
+    }
+
     // 보유 보충은 모의 도메인(초당 한도가 낮다)에서도 돌아 300ms.
-    void set_top_up_call_interval(std::chrono::milliseconds milliseconds) { top_up_call_interval_ = milliseconds; }
+    void set_top_up_call_interval(std::chrono::milliseconds milliseconds)
+    {
+        top_up_call_interval_ = milliseconds;
+    }
 
     // 폴링 모드: KR 현물 spec마다 현재가를 받아 틱으로 흘린다. 반환 = 흘린 틱 수(data_count_ 가산용).
     int poll_universe(const std::vector<WatchSpec>& specifications, std::time_t now_utc);
@@ -102,7 +113,11 @@ public:
     int top_up(const std::vector<std::string>& tickers, const std::function<void(const std::string&, double)>& on_price);
 
 private:
-    bool keep_going() const { return !keep_going_ || keep_going_(); }
+    bool keep_going() const
+    {
+        return !keep_going_ || keep_going_();
+    }
+
     void loop(std::stop_token stop_token, const LoopSources& sources, std::chrono::milliseconds round_period);
 
     QuoteFn                   quote_;

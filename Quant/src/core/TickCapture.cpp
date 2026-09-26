@@ -140,7 +140,10 @@ TickCapture::TickCapture(std::filesystem::path file, size_t queue_capacity)
     }
 
     running_.store(true, std::memory_order_release);
-    writer_ = std::thread([this] { writer_loop(); });
+    writer_ = std::thread([this]
+    {
+        writer_loop();
+    });
 }
 
 TickCapture::~TickCapture()

@@ -20,7 +20,10 @@ public:
     {
         id_ = "FIXED_INTERVAL_" + ticker_;}
 
-    const std::string& id() const override { return id_; }
+    const std::string& id() const override
+    {
+        return id_;
+    }
 
     std::string describe() const override;
 
@@ -33,7 +36,10 @@ public:
     void on_start() override;
 
     // 일봉 데이터 불필요
-    std::optional<OrderSignal> on_data(const MarketData&) override { return std::nullopt; }
+    std::optional<OrderSignal> on_data(const MarketData&) override
+    {
+        return std::nullopt;
+    }
 
     // 체결 이벤트마다 시간 체크
     std::optional<OrderSignal> on_trade(const TradeData& trade) override;

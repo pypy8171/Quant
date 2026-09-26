@@ -47,7 +47,10 @@ bool Engine::claim_protective_cycle(std::chrono::steady_clock::time_point now)
 
 std::vector<OrderSignal> Engine::build_protective_orders(std::chrono::steady_clock::time_point now)
 {
-    const auto price_of = [this](symbol::SymbolId symbol) { return last_price(symbol); };
+    const auto price_of = [this](symbol::SymbolId symbol)
+    {
+        return last_price(symbol);
+    };
 
     // 원장을 쥔 역할(한 프로세스·주문)은 원장을 바로 본다.
     if (runs_order_side())
@@ -55,7 +58,10 @@ std::vector<OrderSignal> Engine::build_protective_orders(std::chrono::steady_clo
         const auto& ledger = order_gate_.ledger();
         return protective_book_.evaluate(
             ledger.snapshot_positions(), price_of,
-            [&ledger](const std::string& account, symbol::SymbolId symbol) { return ledger.reserved_sell(account, symbol); }, now);
+            [&ledger](const std::string& account, symbol::SymbolId symbol)
+            {
+                return ledger.reserved_sell(account, symbol);
+            }, now);
     }
 
     // 갈라 띄운 전략 역할의 원장은 체결을 받지 않아 늘 비어 있다 — 주문 쪽이 내는 장부 사본을 한 판 읽어 보유·평단·
@@ -208,7 +214,10 @@ void Engine::order_thread_fn(std::stop_token stop_token)
     // 발주 간격과 거부 재시도는 이 스레드 소유라 조절기를 여기에 둔다. pipeline_.requests는 SPSC(생산자=전략 스레드)라
     //  되밀 수 없어 재시도는 조절기의 전용 버퍼에 산다. [why D-065]
     OrderRateLimiter rate_limiter({order_min_interval_ms_, order_max_retries_}, steady_clock::now());
-    rate_limiter.set_position([&ledger](const std::string& argument, const std::string& ticker) { return ledger.position(argument, ticker); });
+    rate_limiter.set_position([&ledger](const std::string& argument, const std::string& ticker)
+    {
+        return ledger.position(argument, ticker);
+    });
 
     // 구간 지연 CSV. 이 스레드만 쓰므로 지역 객체로 두고, 첫 주문 때 파일을 연다. [why D-071]
     trace::LatencyTrace latency_trace(Logger::instance().path_for("latency_trace.csv"));
@@ -237,7 +246,10 @@ void Engine::order_thread_fn(std::stop_token stop_token)
     // 교체 진입 — 최약체 고르기·매도 발주·쿨다운 기록·매수 보류가 여기 한 덩어리로 있다. 전략 쪽에 두면
     //  고르는 시점과 예약하는 시점이 갈려 둘이 같은 종목을 두 번 판다. [why D-114]
     risk::DisplacementDesk displace_desk(order_gate_);
-    displace_desk.set_label([this](const std::string& ticker) { return ticker_label(ticker); });
+    displace_desk.set_label([this](const std::string& ticker)
+    {
+        return ticker_label(ticker);
+    });
     std::vector<OrderSignal> displace_expired;
 
     // 주문 하나 몫 가운데 pop→submit 반환 밖에 있는 몫을 잰다. 재는 자리(latency_trace.record)가 고리

@@ -1025,7 +1025,10 @@ void RegimeFeed::start(const FeedConfig& config)
     }
 
     config_ = config;
-    worker_ = std::thread([this] { run(); });
+    worker_ = std::thread([this]
+    {
+        run();
+    });
 }
 
 void RegimeFeed::stop()

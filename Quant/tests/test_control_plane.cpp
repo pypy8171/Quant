@@ -29,7 +29,10 @@ struct Harness
     int                                     reset_count = 0;
     ipc::SharedSpscRing<ipc::ControlRequest> order_lane;
     ipc::SharedSpscRing<ipc::ControlRequest> feed_lane;
-    ControlPlane plane{gate, book, table, strategy_wake, order_wake, [this] { ++reset_count; }};
+    ControlPlane plane{gate, book, table, strategy_wake, order_wake, [this]
+    {
+        ++reset_count;
+    }};
 
     Harness()
     {

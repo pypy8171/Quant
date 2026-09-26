@@ -214,10 +214,16 @@ symbol::SymbolId Engine::request_symbol_registration(std::string_view ticker)
         control_plane_.relay();
 
         // 답을 따로 받지 않는다 — 주문 쪽이 넣으면 같은 공유 표에 뜬다. 그것을 본다.
-        const symbol::SymbolId id = wait_for_shared_id([this, ticker] { return symbols_.table.lookup(ticker); },
+        const symbol::SymbolId id = wait_for_shared_id([this, ticker]
+        {
+            return symbols_.table.lookup(ticker);
+        },
                                                        start_was_called_.load(std::memory_order_acquire),
                                                        "종목 " + std::string(ticker), register_wait_abandoned_,
-                                                       [this] { return peer_order_beat_ns(); });
+                                                       [this]
+                                                       {
+                                                           return peer_order_beat_ns();
+                                                       });
 
         if (id != symbol::kNone)
         {
@@ -241,9 +247,15 @@ strategy_table::StrategyId Engine::request_strategy_registration(std::string_vie
         control_plane_.relay(); // 종목 등록과 같은 이유로 이 자리에서 직접 옮긴다 [why D-114]
 
         const strategy_table::StrategyId id =
-            wait_for_shared_id([this, name] { return order_gate_.ledger().strategy_table().lookup(name); },
+            wait_for_shared_id([this, name]
+            {
+                return order_gate_.ledger().strategy_table().lookup(name);
+            },
                                start_was_called_.load(std::memory_order_acquire), "전략 " + std::string(name),
-                               register_wait_abandoned_, [this] { return peer_order_beat_ns(); });
+                               register_wait_abandoned_, [this]
+                               {
+                                   return peer_order_beat_ns();
+                               });
 
         if (id != strategy_table::kNone)
         {

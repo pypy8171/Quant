@@ -217,7 +217,9 @@ ProtectiveOrderBook::Entry* ProtectiveOrderBook::find_locked(const std::string& 
 void ProtectiveOrderBook::remove_locked(const std::string& account, symbol::SymbolId symbol)
 {
     entries_.erase(std::remove_if(entries_.begin(), entries_.end(), [&](const Entry& entry)
-                                  { return entry.rule.symbol == symbol && entry.rule.account == account; }),
+                                  {
+                                      return entry.rule.symbol == symbol && entry.rule.account == account;
+                                  }),
                    entries_.end());
 }
 

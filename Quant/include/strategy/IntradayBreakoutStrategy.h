@@ -58,18 +58,32 @@ public:
         id_ = "ITB_" + ticker_;
     }
 
-    const std::string& id() const override { return id_; }
+    const std::string& id() const override
+    {
+        return id_;
+    }
 
     // 표시명(종목명) — 로깅 전용. id()/deduplicate 키는 ticker 기반 유지.
-    void set_name(std::string name) { name_ = std::move(name); }
+    void set_name(std::string name)
+    {
+        name_ = std::move(name);
+    }
 
     // 본전탈출 무장 임계 — 이 깊이만큼 실제로 물려 본 적이 있어야 본전탈출이 켜진다.
     //  0이면 무장 조건 없음(예전 동작). 재기동 직후 평단 -0.2% 보유분이 첫 틱에
     //  전량 청산되던 사고가 여기서 나왔다 — 그건 "물린" 것이 아니라 그냥 본전이다.
-    void set_exit_near_average_arm(double percent) { exit_near_average_arm_percent_ = percent; }
+    void set_exit_near_average_arm(double percent)
+    {
+        exit_near_average_arm_percent_ = percent;
+    }
+
     // 부착 직후 보호구간 — 이 시간 동안은 청산 관리 청산을 내지 않는다. 재기동 첫 틱과
     //  국면 배선(RegimeSelect) 적용 사이의 경합으로 투매가 나가는 것을 막는다.
-    void set_guard_warmup_sec(int guard_warmup_sec) { guard_warmup_sec_ = guard_warmup_sec; }
+    void set_guard_warmup_sec(int guard_warmup_sec)
+    {
+        guard_warmup_sec_ = guard_warmup_sec;
+    }
+
     // 이월 보유분 평단 하드스톱(조합안) — 평단 −hard_percent 아래를 완성 1분봉 종가 confirm_bars 개가 연속 확인하고
     //  from_hhmm 이후일 때만. 부착 때 이미 skip_percent 넘게 물린 구형 보유는 대상에서 뺀다(개장 투매 방지). [why D-082]
     void set_seed_hard_stop(double hard_percent, double skip_percent, int from_hhmm, int confirm_bars)
@@ -80,7 +94,10 @@ public:
         seed_hard_confirm_bars_ = confirm_bars;
     }
 
-    std::string tag() const { return name_.empty() ? ticker_ : (ticker_ + " " + name_); }
+    std::string tag() const
+    {
+        return name_.empty() ? ticker_ : (ticker_ + " " + name_);
+    }
 
     std::string describe() const override;
 
@@ -93,7 +110,10 @@ public:
     void on_start() override;
 
     // 일봉 경로 미사용(라이브 소스는 WS 체결) — 순수가상 요건 충족용 no-op.
-    std::optional<OrderSignal> on_data(const MarketData&) override { return std::nullopt; }
+    std::optional<OrderSignal> on_data(const MarketData&) override
+    {
+        return std::nullopt;
+    }
 
     std::optional<OrderSignal> on_trade(const TradeData& trade) override;
 
@@ -108,7 +128,10 @@ private:
                             std::chrono::system_clock::time_point timestamp,
                             const std::string& reason = "");
 
-    static std::string price_string(double value) { return std::to_string(static_cast<long long>(std::llround(value))); }
+    static std::string price_string(double value)
+    {
+        return std::to_string(static_cast<long long>(std::llround(value)));
+    }
 
     std::string ticker_;
     std::string id_; // 전략 이름, 생성자에서 한 번

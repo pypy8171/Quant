@@ -58,9 +58,15 @@ Plan plan(const std::vector<Entry>& entries, const Rules& rules)
 
     // 받을 쪽은 앞선 순위부터, 내줄 쪽은 뒤진 순위부터 본다. 같은 순위는 들어온 순서를 지킨다.
     std::stable_sort(candidates.begin(), candidates.end(),
-                     [&entries](size_t left, size_t right) { return entries[left].priority < entries[right].priority; });
+                     [&entries](size_t left, size_t right)
+                     {
+                         return entries[left].priority < entries[right].priority;
+                     });
     std::stable_sort(victims.begin(), victims.end(),
-                     [&entries](size_t left, size_t right) { return entries[left].priority > entries[right].priority; });
+                     [&entries](size_t left, size_t right)
+                     {
+                         return entries[left].priority > entries[right].priority;
+                     });
 
     std::vector<bool> released(entries.size(), false);
     int               swaps = 0;

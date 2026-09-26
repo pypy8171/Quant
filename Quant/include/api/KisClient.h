@@ -86,7 +86,10 @@ public:
 
     // 주문/잔고 계좌번호(CANO). 당일손익 기준선을 계좌별로 분리 저장할 때 쓴다
     //  (같은 거래일에 계좌를 바꾸면 옛 기준선 재사용으로 당일손익이 오염되는 것 방지).
-    const std::string& account_no() const { return config_.account_no; }
+    const std::string& account_no() const
+    {
+        return config_.account_no;
+    }
 
     // ── 국내 (KR) ──────────────────────────────────────────────────────────
     // 계측: 이 스레드가 rate_limit_acquire 안에서 기다린 시간의 누적(nanoseconds). 호출자가 호출 전후 차이로
@@ -117,10 +120,18 @@ public:
     // MM-1: 국내 정정 (order-rvsecncl). 성공 시 kis_order_no=새 ODNO(정정접수번호)
     [[nodiscard]] OrderAck revise_order(const std::string& ticker, const std::string& orig_odno,
                                         const std::string& krx_forwarding_org_no, int new_quantity, double new_price) override;
-    [[nodiscard]] bool is_paper() const noexcept override { return config_.is_paper; }
+    [[nodiscard]] bool is_paper() const noexcept override
+    {
+        return config_.is_paper;
+    }
+
     // 미체결(정정취소 가능) 예약주문 조회 — 실전 inquire-psbl-rvsecncl(TTTC0084R), 모의는 VTTC0081R(inquire-daily-ccld)
     [[nodiscard]] KisResult<std::vector<OpenOrder>> get_open_orders() override;
-    [[nodiscard]] std::uint64_t rate_limit_wait_ns_this_thread() const noexcept override { return rate_wait_ns_this_thread(); }
+    [[nodiscard]] std::uint64_t rate_limit_wait_ns_this_thread() const noexcept override
+    {
+        return rate_wait_ns_this_thread();
+    }
+
     // 잔고 — inquire-balance(모의 VTTC8434R / 실전 TTTC8434R). 연속조회로 보유 전 페이지를 합친다.
     //  실패(전송·파싱·rt_cd≠0, 어느 페이지든)는 fail 봉투로 돌려주고 부분 목록은 내지 않는다 — 호출자가 잔고에
     //  없는 원장 보유를 걷어내므로 반쪽 목록은 빈 목록보다 위험하다. [why D-059]

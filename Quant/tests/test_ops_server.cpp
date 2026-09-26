@@ -139,7 +139,10 @@ struct Fake
 
     void wire(OpsServer& ops_server)
     {
-        ops_server.set_status_provider([] { return std::string("{\"running\":true}"); });
+        ops_server.set_status_provider([]
+        {
+            return std::string("{\"running\":true}");
+        });
         ops_server.set_positions_provider(
             [this]
             {

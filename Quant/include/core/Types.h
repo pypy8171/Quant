@@ -65,7 +65,10 @@ public:
 
     OrderSide() = default;
     constexpr OrderSide(Value value) : value_(value) {}
-    constexpr operator Value() const { return value_; }
+    constexpr operator Value() const
+    {
+        return value_;
+    }
 
     // 체결·주문 로그의 "BUY"/"SELL" 문자열 → OrderSide. SELL이 아니면 BUY로 본다
     //  (기존 (s=="SELL")?SELL:BUY 관례 유지 — 오탈자·미지정도 BUY).
@@ -300,7 +303,10 @@ public:
 
     Regime() = default;
     constexpr Regime(Value value) : value_(value) {}
-    constexpr operator Value() const { return value_; }
+    constexpr operator Value() const
+    {
+        return value_;
+    }
 
     // 매칭 실패는 UNKNOWN — 호출자(parse_active_regimes)가 경고 로그로 판단한다.
     //  이름 셋을 컴파일 시점 표로 훑는다 — 해시 맵은 첫 호출에 힙을 잡고 호출마다 문자열 해시를 도는데, 항목 셋에는 비교가 더 싸다.
@@ -330,7 +336,10 @@ public:
 
     StrategyType() = default;
     constexpr StrategyType(Value value) : value_(value) {}
-    constexpr operator Value() const { return value_; }
+    constexpr operator Value() const
+    {
+        return value_;
+    }
 
     // config "type" 문자열 → StrategyType. 디스패치·로그 비교를 문자열이 아닌 enum값으로 하기 위함
     //  (hot path는 아니지만 오탈자 비교·string 해시를 매 로드마다 반복할 이유가 없다). 매칭 실패는 UNKNOWN.

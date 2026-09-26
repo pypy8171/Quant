@@ -75,8 +75,15 @@ public:
     // 완성된 프레임이 있으면 out에 채우고 true. 없거나 bad()면 false.
     bool next(Frame& out);
 
-    bool   bad() const { return bad_; }
-    size_t pending() const { return buffer_.size(); }
+    bool   bad() const
+    {
+        return bad_;
+    }
+
+    size_t pending() const
+    {
+        return buffer_.size();
+    }
 
 private:
     std::vector<uint8_t> buffer_;

@@ -155,6 +155,7 @@ set(HEADER_IMPL_SOURCES
   src/core/UniverseExit.cpp
   src/core/UniverseRescan.cpp
   src/core/ControlPlane.cpp
+  src/core/PrefetchPool.cpp
   src/core/WakeGate.cpp
   src/core/WebSocketSlotPlan.cpp
   src/exchange/MatchingEngine.cpp
@@ -582,7 +583,7 @@ add_executable(bench_snapshot_swap tests/bench_snapshot_swap.cpp)
 target_include_directories(bench_snapshot_swap PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 # ─── 벤치 타겟: 프리페치 풀이 작업 N개를 주기 T로 버티는가 — 스레드 수 스윕 (D-115) ──
-add_executable(bench_prefetch_pool tests/bench_prefetch_pool.cpp)
+add_executable(bench_prefetch_pool tests/bench_prefetch_pool.cpp src/core/PrefetchPool.cpp)
 target_include_directories(bench_prefetch_pool PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 if(UNIX)
     target_link_libraries(bench_prefetch_pool PRIVATE pthread)
@@ -623,8 +624,8 @@ if(UNIX)
 endif()
 
 # ─── 테스트 타겟: TickCapture 왕복·이어 쓰기·잘린 꼬리·큐 넘침 (헤더 전용, D-071) ──
-# ─── 테스트 타겟: prefetch::Pool 고정 스레드·등록·해제·정지 (헤더 전용, D-071) ──
-add_executable(test_prefetch_pool tests/test_prefetch_pool.cpp)
+# ─── 테스트 타겟: prefetch::Pool 고정 스레드·등록·해제·정지 (D-071) ──
+add_executable(test_prefetch_pool tests/test_prefetch_pool.cpp src/core/PrefetchPool.cpp)
 target_include_directories(test_prefetch_pool PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 if(UNIX)
     target_link_libraries(test_prefetch_pool PRIVATE pthread)

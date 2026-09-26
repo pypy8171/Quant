@@ -61,7 +61,10 @@ bool KisWebSocket::connect(const std::vector<WatchSpec>& specifications)
 
     subscribe_all();
 
-    recv_thread_ = std::jthread([this](std::stop_token stop_token) { recv_loop(stop_token); });
+    recv_thread_ = std::jthread([this](std::stop_token stop_token)
+    {
+        recv_loop(stop_token);
+    });
     return true;
 }
 

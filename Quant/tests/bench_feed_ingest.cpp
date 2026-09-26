@@ -627,7 +627,10 @@ static PercentileSummary percentiles(std::vector<int64_t>& values)
     }
 
     std::sort(values.begin(), values.end());
-    auto at = [&](double price) { return values[static_cast<size_t>(price * (values.size() - 1))]; };
+    auto at = [&](double price)
+    {
+        return values[static_cast<size_t>(price * (values.size() - 1))];
+    };
     percentiles.p50 = at(0.50);
     percentiles.p99 = at(0.99);
     percentiles.p999 = at(0.999);
@@ -779,7 +782,10 @@ static RunResult run_self(const std::vector<std::string>& tickers, const ZipfPic
 
     // 별도 스레드에서 accept가 걸리는 동안 메인은 connect.
     socket_t connection = kBadSock;
-    std::thread accept_thread([&] { connection = ::accept(listen_socket, nullptr, nullptr); });
+    std::thread accept_thread([&]
+    {
+        connection = ::accept(listen_socket, nullptr, nullptr);
+    });
 
     socket_t client = kBadSock;
 

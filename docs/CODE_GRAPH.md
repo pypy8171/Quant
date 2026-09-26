@@ -139,6 +139,7 @@ graph LR
     n_core_OrderRateLimiter_h["core/OrderRateLimiter.h"]
     n_core_PaperExecutor_cpp["core/PaperExecutor.cpp"]
     n_core_PaperExecutor_h["core/PaperExecutor.h"]
+    n_core_PrefetchPool_cpp["core/PrefetchPool.cpp"]
     n_core_PrefetchPool_h["core/PrefetchPool.h"]
     n_core_ReconcilePlan_cpp["core/ReconcilePlan.cpp"]
     n_core_ReconcilePlan_h["core/ReconcilePlan.h"]
@@ -498,6 +499,7 @@ graph LR
   n_core_PaperExecutor_h --> n_core_MarketSession_h
   n_core_PaperExecutor_h --> n_core_SymbolTable_h
   n_core_PaperExecutor_h --> n_core_Types_h
+  n_core_PrefetchPool_cpp --> n_core_PrefetchPool_h
   n_core_PrefetchPool_h --> n_core_WakeGate_h
   n_core_PrefetchPool_h --> n_utils_ThreadName_h
   n_core_ReconcilePlan_cpp --> n_core_ReconcilePlan_h

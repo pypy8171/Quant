@@ -54,7 +54,10 @@ int32_t read_hhmmss(std::string_view segment, size_t from)
         return 0;
     }
 
-    const auto    digit  = [&](size_t offset) { return static_cast<int32_t>(segment[from + offset] - '0'); };
+    const auto    digit  = [&](size_t offset)
+    {
+        return static_cast<int32_t>(segment[from + offset] - '0');
+    };
     const int32_t hour   = digit(11) * 10 + digit(12);
     const int32_t minute = digit(14) * 10 + digit(15);
     const int32_t second = digit(17) * 10 + digit(18);
@@ -151,7 +154,10 @@ void HttpQuoteFeed::start()
 
     for (size_t lane = 0; lane < config_.lane_count; ++lane)
     {
-        lanes_.emplace_back([this, lane] { run_lane(lane); });
+        lanes_.emplace_back([this, lane]
+        {
+            run_lane(lane);
+        });
     }
 
     LOG_INFO("[HttpQuoteFeed] 시작 — 종목 " + std::to_string(config_.codes.size()) + "개, 수신 스레드 " +

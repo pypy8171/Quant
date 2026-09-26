@@ -163,7 +163,10 @@ TradeData make_trade(symbol::SymbolId id, const std::string& ticker, uint32_t se
 int main()
 {
     symbol::SymbolTable table;
-    const auto       symbol_id_of = [&](std::string_view ticker) { return table.intern(ticker); };
+    const auto       symbol_id_of = [&](std::string_view ticker)
+    {
+        return table.intern(ticker);
+    };
 
     // 1. 두 샤드 — 각자 다른 전략 집합. 구독 전략은 자기 종목이 자기 샤드로 올 때만, 전부 받는 전략은 그 샤드 종목 전부.
     //  같은 종목의 순서가 지켜지고 봉투는 received_ns·active·전략 id를 싣고 현재가 콜백은 체결마다 온다.
@@ -220,7 +223,10 @@ int main()
                     sink.out.push_back(std::move(emitted));
                     sink.last_tick_ns = tick_ns;
                 },
-                [&](symbol::SymbolId id, double) { priced.push_back(id); }, symbol_id_of))
+                [&](symbol::SymbolId id, double)
+                {
+                    priced.push_back(id);
+                }, symbol_id_of))
             {
             }
         };
@@ -318,7 +324,10 @@ int main()
         {
             order.push_back((signal.action == OrderAction::CANCEL ? "C" : "B") + std::to_string(tick_ns));
         };
-        CHECK(shard.step(emit, [&](symbol::SymbolId received, double price) { priced += (received == id && price == 70000.0) ? 1 : 0; }, symbol_id_of));
+        CHECK(shard.step(emit, [&](symbol::SymbolId received, double price)
+        {
+            priced += (received == id && price == 70000.0) ? 1 : 0;
+        }, symbol_id_of));
         // 호가 2건 → CANCEL 둘(tick은 호가의 received_ns 7·8), 체결 1건 → BUY(tick 55), 봉 하나.
         CHECK(order.size() == 3 && order[0] == "C7" && order[1] == "C8" && order[2] == "B55");
         CHECK(all.books == 2 && all.trades == 1 && all.bars == 1 && priced == 1);
@@ -468,10 +477,16 @@ int main()
 
         // for_each_shard — 낮은 번호부터, 0이면 fallback 하나만.
         std::vector<uint32_t> visited;
-        shard::for_each_shard(shard::mask_of(5) | shard::mask_of(0) | shard::mask_of(63), 9, [&](uint32_t shard_index) { visited.push_back(shard_index); });
+        shard::for_each_shard(shard::mask_of(5) | shard::mask_of(0) | shard::mask_of(63), 9, [&](uint32_t shard_index)
+        {
+            visited.push_back(shard_index);
+        });
         CHECK((visited == std::vector<uint32_t>{0, 5, 63}));
         visited.clear();
-        shard::for_each_shard(0, 9, [&](uint32_t shard_index) { visited.push_back(shard_index); });
+        shard::for_each_shard(0, 9, [&](uint32_t shard_index)
+        {
+            visited.push_back(shard_index);
+        });
         CHECK((visited == std::vector<uint32_t>{9}));
     }
 

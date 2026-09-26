@@ -93,7 +93,7 @@ config에는 **실계좌 인증 정보**가 있다. 모의투자는 `"is_paper":
 [docs/guides/CODE_CONVENTIONS.md](docs/guides/CODE_CONVENTIONS.md) — 코드를 고치기 전에 읽는다.
 헤더에는 선언만 둔다 — 구현은 같은 이름 `.cpp`로 내린다. 헤더에 남는 것은 template·`constexpr`, 5줄 이하 순수
 접근자, 멤버 기본값뿐이다(D-118).
-중괄호는 Allman, 한 줄 본문에도 붙이고 `}` 뒤·제어문 앞에 빈 줄 하나. C스타일 캐스트(`(int)x`)는 금지 — 값은
+중괄호는 Allman, 한 줄 본문에도 붙이고 `{ a; }`처럼 한 줄에 몰지 않으며 `}` 뒤·제어문 앞에 빈 줄 하나. C스타일 캐스트(`(int)x`)는 금지 — 값은
 `static_cast<T>(x)`, 포인터는 `reinterpret_cast<T>(x)`, `(void)x;`만 예외. 안 해도 되는 복사는 만들지 않는다 — 조회 결과는
 `const&`나 `std::string_view`(수명은 `[inv]`), json 노드는 `value(k, json::array())` 대신 `find()` 참조, range-for는
 `const auto&`, 값 전달은 `std::move`로 받는 sink만. **이름에 약어를 쓰지 않는다** — `qty`·`cfg`·`it`·`i` 대신 `quantity`·`config`·

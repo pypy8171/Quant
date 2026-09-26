@@ -102,7 +102,10 @@ static PercentileSummary percentiles(std::vector<int64_t>& values)
     }
 
     std::sort(values.begin(), values.end());
-    auto at = [&](double price) { return values[static_cast<size_t>(price * (values.size() - 1))]; };
+    auto at = [&](double price)
+    {
+        return values[static_cast<size_t>(price * (values.size() - 1))];
+    };
     percentiles.p50 = at(0.50);
     percentiles.p99 = at(0.99);
     percentiles.p999 = at(0.999);
@@ -220,7 +223,12 @@ int main(int argc, char** argv)
         {
             std::ifstream file(sessions_path);
 
-            if (!file) { std::printf("[measure] --sessions 열기 실패: %s\n", sessions_path.c_str()); return 1; }
+            if (!file)
+            {
+                std::printf("[measure] --sessions 열기 실패: %s\n", sessions_path.c_str());
+                return 1;
+            }
+
             nlohmann::json document; file >> document;
             const nlohmann::json& array = document.is_array() ? document : document.at("sessions");
 
@@ -235,7 +243,12 @@ int main(int argc, char** argv)
             {
                 std::ifstream file(path);
 
-                if (!file) { std::printf("[measure] --configs 항목 열기 실패: %s\n", path.c_str()); return 1; }
+                if (!file)
+                {
+                    std::printf("[measure] --configs 항목 열기 실패: %s\n", path.c_str());
+                    return 1;
+                }
+
                 nlohmann::json document; file >> document;
                 creds.push_back(kis_config_from_kis_object(document.at("kis")));
             }
@@ -247,13 +260,23 @@ int main(int argc, char** argv)
 
             for (int index = 1; index < argc; ++index)
             {
-                if (argv[index][0] == '-') { ++index; continue; } // 플래그 + 그 값 건너뜀(모든 플래그가 값 1개)
+                if (argv[index][0] == '-')  // 플래그 + 그 값 건너뜀(모든 플래그가 값 1개)
+                {
+                    ++index;
+                    continue;
+                }
+
                 config_path = argv[index]; break;
             }
 
             std::ifstream file(config_path);
 
-            if (!file) { std::printf("[measure] config 열기 실패: %s\n", config_path.c_str()); return 1; }
+            if (!file)
+            {
+                std::printf("[measure] config 열기 실패: %s\n", config_path.c_str());
+                return 1;
+            }
+
             nlohmann::json document; file >> document;
             creds.push_back(kis_config_from_kis_object(document.at("kis")));
         }
@@ -264,7 +287,11 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    if (creds.empty()) { std::printf("[measure] 세션 자격증명이 없다.\n"); return 1; }
+    if (creds.empty())
+    {
+        std::printf("[measure] 세션 자격증명이 없다.\n");
+        return 1;
+    }
 
     // ---- 2) 종목 리스트 로드 ----
     std::vector<std::string> all_symbols = split_csv(symbol_csv);
@@ -275,7 +302,12 @@ int main(int argc, char** argv)
         {
             std::ifstream file(universe);
 
-            if (!file) { std::printf("[measure] --universe 열기 실패: %s\n", universe.c_str()); return 1; }
+            if (!file)
+            {
+                std::printf("[measure] --universe 열기 실패: %s\n", universe.c_str());
+                return 1;
+            }
+
             nlohmann::json document; file >> document;
 
             if (document.contains("universe") && document.at("universe").is_array())

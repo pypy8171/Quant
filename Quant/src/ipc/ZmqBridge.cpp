@@ -92,6 +92,14 @@ bool ZmqBridge::start()
     return true;
 }
 
+void ZmqBridge::set_bind_address(std::string address)
+{
+    if (!address.empty())
+    {
+        bind_address_ = std::move(address);
+    }
+}
+
 void ZmqBridge::stop()
 {
     // running_ 과 관계없이 joinable 이면 거둔다 — bind 실패 경로는 스레드가 running_ 을 스스로 내려서,
@@ -249,7 +257,10 @@ void ZmqBridge::thread_fn()
         if (!serves_commands)
         {
             send_gate_.wait_for(kReplyPollTimeout,
-                                [this] { return !work_pending_.load(std::memory_order_acquire); });
+                                [this]
+                                {
+                                    return !work_pending_.load(std::memory_order_acquire);
+                                });
             continue;
         }
 

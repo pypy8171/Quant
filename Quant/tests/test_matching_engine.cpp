@@ -116,7 +116,9 @@ int main()
 
         std::vector<exchange::Execution> executions;
         const int64_t matched = book.run_auction([&](const exchange::Execution& execution)
-                                                 { executions.push_back(execution); });
+                                                 {
+                                                     executions.push_back(execution);
+                                                 });
 
         CHECK(matched == 100);
         CHECK(executions.size() == 2);
@@ -160,7 +162,10 @@ int main()
         book.accumulate(make_order(1, 10010, 50, OrderSide::SELL));
 
         std::vector<exchange::Execution> executions;
-        const auto collect = [&](const exchange::Execution& execution) { executions.push_back(execution); };
+        const auto collect = [&](const exchange::Execution& execution)
+        {
+            executions.push_back(execution);
+        };
 
         // 30주만 사면 매도 20주가 남는다.
         CHECK(book.match(make_order(2, 10010, 30, OrderSide::BUY), collect) == 30);
@@ -194,7 +199,10 @@ int main()
         std::vector<exchange::Execution> executions;
         const int64_t matched =
             book.match(make_order(3, exchange::kMarketOrderPrice, 15, OrderSide::BUY),
-                       [&](const exchange::Execution& execution) { executions.push_back(execution); });
+                       [&](const exchange::Execution& execution)
+                       {
+                           executions.push_back(execution);
+                       });
 
         CHECK(matched == 15);
         CHECK(executions.size() == 2);
@@ -218,7 +226,9 @@ int main()
 
         std::vector<exchange::Execution> executions;
         engine.set_execution_callback([&](const exchange::Execution& execution)
-                                      { executions.push_back(execution); });
+                                      {
+                                          executions.push_back(execution);
+                                      });
 
         CHECK(engine.accumulate(make_order(1, 10100, 100, OrderSide::BUY)));
         CHECK(engine.accumulate(make_order(2, 9900, 100, OrderSide::SELL)));

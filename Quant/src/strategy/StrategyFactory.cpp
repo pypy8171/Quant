@@ -477,7 +477,10 @@ static void load_target_basket(LoadPass& context, const json& node)
 
     Engine& engine = context.engine;
     auto    strategy = std::make_unique<TargetBasketStrategy>(
-        std::move(parameters), [&engine](const std::vector<std::string>& tickers) { engine.set_slot_exempt_tickers(tickers); });
+        std::move(parameters), [&engine](const std::vector<std::string>& tickers)
+        {
+            engine.set_slot_exempt_tickers(tickers);
+        });
     strategy->load_targets(); // 기동 때 파일이 있으면 소유 종목을 지금 확정한다(뒤에 도는 DEVSCALE 로더가 본다)
 
     const size_t symbol_capacity = engine.symbols().capacity();

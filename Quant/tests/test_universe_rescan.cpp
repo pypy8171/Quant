@@ -21,11 +21,25 @@ class FakeStrategy : public StrategyBase
 public:
     explicit FakeStrategy(symbol::SymbolId symbol) : symbol_(symbol), id_("fake_" + std::to_string(symbol)) {}
 
-    const std::string& id() const override { return id_; }
-    std::string describe() const override { return id_; }
-    std::optional<OrderSignal> on_data(const MarketData&) override { return std::nullopt; }
+    const std::string& id() const override
+    {
+        return id_;
+    }
 
-    symbol::SymbolId symbol() const { return symbol_; }
+    std::string describe() const override
+    {
+        return id_;
+    }
+
+    std::optional<OrderSignal> on_data(const MarketData&) override
+    {
+        return std::nullopt;
+    }
+
+    symbol::SymbolId symbol() const
+    {
+        return symbol_;
+    }
 
 private:
     symbol::SymbolId symbol_;
@@ -53,7 +67,10 @@ struct Harness
             [this](StrategyBase* pointer, const std::function<std::string(const StrategyBase&)>& make_line)
             {
                 retired_lines.push_back(make_line(*pointer));
-                std::erase_if(live, [pointer](const std::unique_ptr<StrategyBase>& strategy) { return strategy.get() == pointer; });
+                std::erase_if(live, [pointer](const std::unique_ptr<StrategyBase>& strategy)
+                {
+                    return strategy.get() == pointer;
+                });
             });
         rescan->reset_registered();
     }
@@ -61,8 +78,14 @@ struct Harness
     void add_job(size_t max_registered, int block_after_sec, int drop_after_sec, int return_confirm = 2)
     {
         UniverseRescan::Job job;
-        job.universe_fn     = [this](KisClient&) { return next_scan; };
-        job.factory         = [](symbol::SymbolId symbol) { return std::make_unique<FakeStrategy>(symbol); };
+        job.universe_fn     = [this](KisClient&)
+        {
+            return next_scan;
+        };
+        job.factory         = [](symbol::SymbolId symbol)
+        {
+            return std::make_unique<FakeStrategy>(symbol);
+        };
         job.interval_sec    = 10;
         job.max_registered  = max_registered;
         job.block_after_sec = block_after_sec;

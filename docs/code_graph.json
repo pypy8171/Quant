@@ -322,6 +322,7 @@
     "core/MarketSession.cpp": "core",
     "core/OrderRateLimiter.cpp": "core",
     "core/PaperExecutor.cpp": "core",
+    "core/PrefetchPool.cpp": "core",
     "core/ReconcilePlan.cpp": "core",
     "core/RegimeFileJudge.cpp": "core",
     "core/ReplaySource.cpp": "core",
@@ -739,6 +740,9 @@
       "core/MarketSession.h",
       "core/SymbolTable.h",
       "core/Types.h"
+    ],
+    "core/PrefetchPool.cpp": [
+      "core/PrefetchPool.h"
     ],
     "core/PrefetchPool.h": [
       "core/WakeGate.h",
@@ -1529,6 +1533,7 @@
     ],
     "core/PrefetchPool.h": [
       "core/Engine.h",
+      "core/PrefetchPool.cpp",
       "strategy/DeviationScaleStrategy.h"
     ],
     "core/ReconcilePlan.h": [

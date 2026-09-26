@@ -101,11 +101,30 @@ public:
 
     void set_stale_sec(int stale_sec);
 
-    void set_halt_expire_min(int halt_expire_min) { halt_expire_min_ = halt_expire_min; }
-    int  stale_sec() const { return stale_sec_; }
-    bool halt_on() const { return halt_on_; }
-    double scale_now() const { return scale_now_; }
-    Regime selection_now() const { return selection_now_; }
+    void set_halt_expire_min(int halt_expire_min)
+    {
+        halt_expire_min_ = halt_expire_min;
+    }
+
+    int  stale_sec() const
+    {
+        return stale_sec_;
+    }
+
+    bool halt_on() const
+    {
+        return halt_on_;
+    }
+
+    double scale_now() const
+    {
+        return scale_now_;
+    }
+
+    Regime selection_now() const
+    {
+        return selection_now_;
+    }
 
     Outcome step(const Observation& observation, const KstClock& clock);
 

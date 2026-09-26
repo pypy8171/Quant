@@ -48,7 +48,10 @@ struct Logger::Implementation
         base_directories_.push_back(std::make_unique<BaseDirectory>(Logger::default_base_directory()));
         current_base_directory_.store(base_directories_.back().get(), std::memory_order_release);
         running_.store(true, std::memory_order_release);
-        writer_ = std::jthread([this](std::stop_token stop_token) { writer_loop(stop_token); });
+        writer_ = std::jthread([this](std::stop_token stop_token)
+        {
+            writer_loop(stop_token);
+        });
     }
 
     ~Implementation()
@@ -209,7 +212,10 @@ struct Logger::Implementation
 
         if (queue_.empty() && !stop_token.stop_requested())
         {
-            wake_condition_variable_.wait_for(lock, stop_token, kSleepCap, [this] { return !queue_.empty(); });
+            wake_condition_variable_.wait_for(lock, stop_token, kSleepCap, [this]
+            {
+                return !queue_.empty();
+            });
         }
 
         writer_sleeping_.store(false, std::memory_order_relaxed);

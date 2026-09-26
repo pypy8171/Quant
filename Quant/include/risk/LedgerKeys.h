@@ -58,8 +58,15 @@ public:
         symbols_ = table ? table : &own_symbols_;
     }
 
-    [[nodiscard]] symbol::SymbolTable& symbols() noexcept { return *symbols_; }
-    [[nodiscard]] const symbol::SymbolTable& symbols() const noexcept { return *symbols_; }
+    [[nodiscard]] symbol::SymbolTable& symbols() noexcept
+    {
+        return *symbols_;
+    }
+
+    [[nodiscard]] const symbol::SymbolTable& symbols() const noexcept
+    {
+        return *symbols_;
+    }
 
     // 쓰기 경로(체결·시드·선점) — 처음 보는 계좌·종목을 등록한다. 종목 테이블이 가득 차면 던진다.
     Key make(std::string_view account, std::string_view ticker);
@@ -75,7 +82,11 @@ public:
     [[nodiscard]] uint32_t account_index(std::string_view account, bool create);
     // 16바이트 값이라 힙 할당이 없다 — std::string이 필요한 자리(계획·스냅샷)만 .string()으로 만든다.
     [[nodiscard]] symbol::Ticker ticker_of(const Key& key) const;
-    [[nodiscard]] const std::string& account_of(const Key& key) const { return account_name(key.account); }
+    [[nodiscard]] const std::string& account_of(const Key& key) const
+    {
+        return account_name(key.account);
+    }
+
     // 계좌 번호 → 문자열. 모르는 번호(kUnknownAccount 포함)면 0번 = ""을 준다.
     [[nodiscard]] const std::string& account_name(uint32_t account) const;
     // 종목 문자열 목록 → 종목 id 비트(테이블 용량 크기). 유령 정리 두 곳이 쓴다.

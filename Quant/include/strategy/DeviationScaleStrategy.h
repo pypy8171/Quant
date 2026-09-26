@@ -168,9 +168,15 @@ public:
     DeviationScaleStrategy(const DeviationScaleStrategy&)            = delete;
     DeviationScaleStrategy& operator=(const DeviationScaleStrategy&) = delete;
 
-    ~DeviationScaleStrategy() { stop_prefetch(); }
+    ~DeviationScaleStrategy()
+    {
+        stop_prefetch();
+    }
 
-    const std::string& id() const override { return id_; }
+    const std::string& id() const override
+    {
+        return id_;
+    }
 
     // 로그 표시용 "티커(종목명)". 이름 없으면 티커만. id()·데이터키와는 분리.
     std::string display() const
@@ -187,7 +193,10 @@ public:
     }
 
     // 일봉 이벤트 미사용(자가조회) — 순수가상 충족용 no-op.
-    std::optional<OrderSignal> on_data(const MarketData&) override { return std::nullopt; }
+    std::optional<OrderSignal> on_data(const MarketData&) override
+    {
+        return std::nullopt;
+    }
 
     void on_start() override;
 
@@ -300,8 +309,15 @@ private:
     static int quantity_for(double notional, double price);
 
     // ── KRX 호가단위/격자 절사는 core/TickSize.h(krx::)로 일원화. 얇은 위임만 유지. ──
-    static double tick_size(double price) { return krx::tick_size(price); }
-    static double round_to_tick(double price, OrderSide side) { return krx::round_to_tick(price, side); }
+    static double tick_size(double price)
+    {
+        return krx::tick_size(price);
+    }
+
+    static double round_to_tick(double price, OrderSide side)
+    {
+        return krx::round_to_tick(price, side);
+    }
 
     std::string next_order_id(const char* tag)
     {

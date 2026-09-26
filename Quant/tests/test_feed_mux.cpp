@@ -257,8 +257,22 @@ int main()
         CHECK(multiplexer.source_of(specification("A")) == 0 && multiplexer.source_of(specification("B")) == 1 && multiplexer.source_of(specification("E")) == 0);
         CHECK(multiplexer.has_specification(specification("C")) && !multiplexer.has_specification(specification("Z")));
 
-        std::thread thread_a([source_a] { for (int index = 0; index < 1000; ++index) { source_a->emit_trade("A", 1000 + index); } });
-        std::thread thread_b([source_b] { for (int index = 0; index < 1000; ++index) { source_b->emit_trade("B", 2000 + index); } source_b->emit_book("B"); });
+        std::thread thread_a([source_a]
+        {
+            for (int index = 0; index < 1000; ++index)
+            {
+                source_a->emit_trade("A", 1000 + index);
+            }
+        });
+        std::thread thread_b([source_b]
+        {
+            for (int index = 0; index < 1000; ++index)
+            {
+                source_b->emit_trade("B", 2000 + index);
+            }
+
+            source_b->emit_book("B");
+        });
         thread_a.join();
         thread_b.join();
         CHECK(sink.wait_total(2001));
@@ -472,8 +486,22 @@ int main()
             });
         CHECK(multiplexer.connect({specification("A"), specification("B")}));
 
-        std::thread thread_a([source_a] { for (int index = 0; index < 300; ++index) { source_a->emit_trade("A", 1 + index); } source_a->emit_book("A"); });
-        std::thread thread_b([source_b] { for (int index = 0; index < 300; ++index) { source_b->emit_trade("B", 1 + index); } });
+        std::thread thread_a([source_a]
+        {
+            for (int index = 0; index < 300; ++index)
+            {
+                source_a->emit_trade("A", 1 + index);
+            }
+
+            source_a->emit_book("A");
+        });
+        std::thread thread_b([source_b]
+        {
+            for (int index = 0; index < 300; ++index)
+            {
+                source_b->emit_trade("B", 1 + index);
+            }
+        });
         const auto id_a = thread_a.get_id();
         const auto id_b = thread_b.get_id();
         thread_a.join();
@@ -493,7 +521,10 @@ int main()
         CHECK(multiplexer.dropped() == 0 && multiplexer.high_water(0) == 0 && multiplexer.high_water(1) == 0);
 
         bool        fill_sent = false;
-        std::thread tf([source_a, &fill_sent] { fill_sent = source_a->emit_fill("F1"); });
+        std::thread tf([source_a, &fill_sent]
+        {
+            fill_sent = source_a->emit_fill("F1");
+        });
         const auto id_f = tf.get_id();
         tf.join();
         CHECK(fill_sent && fills.load() == 1 && fill_thread == id_f);
@@ -502,8 +533,14 @@ int main()
         FakeSource one(4);
         uint32_t   received_lane = 9;
         CHECK(one.lanes() == 1);
-        one.set_lane_callbacks([&](uint32_t lane, const OrderBook&) { received_lane = lane; },
-                               [&](uint32_t lane, const TradeData&) { received_lane = lane; });
+        one.set_lane_callbacks([&](uint32_t lane, const OrderBook&)
+        {
+            received_lane = lane;
+        },
+                               [&](uint32_t lane, const TradeData&)
+                               {
+                                   received_lane = lane;
+                               });
         one.emit_trade("Z", 1.0);
         CHECK(received_lane == 0);
     }
@@ -526,7 +563,10 @@ int main()
 
         std::atomic<int> fills{0};
         multiplexer.set_lane_callbacks([](uint32_t, const OrderBook&) {}, [](uint32_t, const TradeData&) {});
-        multiplexer.set_fill_callback([&](const FillNotification&) { fills.fetch_add(1); });
+        multiplexer.set_fill_callback([&](const FillNotification&)
+        {
+            fills.fetch_add(1);
+        });
 
         CHECK(!source_a->emit_fill("N1")); // 맡지 않은 소스에는 콜백이 걸리지 않는다
         CHECK(source_b->emit_fill("Y1") && fills.load() == 1);
@@ -540,7 +580,10 @@ int main()
         none.push_back(std::move(fake_source_c));
         feed::FeedMux no_owner(std::move(none), 64);
         no_owner.set_lane_callbacks([](uint32_t, const OrderBook&) {}, [](uint32_t, const TradeData&) {});
-        no_owner.set_fill_callback([&](const FillNotification&) { fills.fetch_add(1); });
+        no_owner.set_fill_callback([&](const FillNotification&)
+        {
+            fills.fetch_add(1);
+        });
         CHECK(no_owner.fill_notice_sources().empty() && !no_owner.owns_fill_notice());
         CHECK(!source_c->emit_fill("N2") && fills.load() == 1);
     }

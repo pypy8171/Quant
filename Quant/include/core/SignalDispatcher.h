@@ -60,10 +60,25 @@ public:
     SignalDispatcher(OrderGate& gate, const ipc::LedgerSnapshot& ledger, Sink sink, Clock::time_point now,
                      SystemIds system_ids);
 
-    void set_label(LabelFn label) { label_ = std::move(label); }
-    void set_exit_managed_check(GuardFn exit_managed_check) { exit_managed_check_ = std::move(exit_managed_check); }
-    void set_liquidation_interval(std::chrono::milliseconds milliseconds) { liquidation_interval_ = milliseconds; }
-    void set_trim_at(Clock::time_point at) { trim_at_ = at; }
+    void set_label(LabelFn label)
+    {
+        label_ = std::move(label);
+    }
+
+    void set_exit_managed_check(GuardFn exit_managed_check)
+    {
+        exit_managed_check_ = std::move(exit_managed_check);
+    }
+
+    void set_liquidation_interval(std::chrono::milliseconds milliseconds)
+    {
+        liquidation_interval_ = milliseconds;
+    }
+
+    void set_trim_at(Clock::time_point at)
+    {
+        trim_at_ = at;
+    }
 
     // 전략이 낸 신호. 비활성 전략의 BUY NEW는 버리고(청산·취소·정정은 통과 — entry_halt와 같은 규약), 청산 관리
     //  보유 종목의 NEW는 청산 관리 전략(exit_manager, ITB_ 계열)이 아니면 종목당 한 번 로그하고 버린다.
@@ -82,14 +97,28 @@ public:
     // 종목당 명목 한도 초과분 정리 — trim_at 이후 한 번만. 매 루프 부른다.
     void trim_excess_once(Clock::time_point now);
 
-    uint64_t sequence() const { return sequence_; }                   // 마지막으로 부여한 순번(0=아직 없음)
-    bool     trim_done() const { return trim_done_; }
+    uint64_t sequence() const  // 마지막으로 부여한 순번(0=아직 없음)
+    {
+        return sequence_;
+    }
+
+    bool     trim_done() const
+    {
+        return trim_done_;
+    }
 
 private:
     // 순번 stamp → 로그 → 싱크. 큐에 넣는 유일한 길. 값으로 받아 그 자리에서 순번을 찍는다(sink).
     void        emit(OrderSignal signal);
-    std::string label(const std::string& ticker) const { return label_ ? label_(ticker) : ticker; }
-    std::string label(symbol::SymbolId symbol) const { return label(gate_.ledger().symbols().name(symbol).string()); }
+    std::string label(const std::string& ticker) const
+    {
+        return label_ ? label_(ticker) : ticker;
+    }
+
+    std::string label(symbol::SymbolId symbol) const
+    {
+        return label(gate_.ledger().symbols().name(symbol).string());
+    }
 
     // 신호의 종목 id — 전략 경로는 이미 찍혀 온다. 안 찍힌 신호(테스트·운영단말)는 모르는 종목이면 kNone이고,
     //  번호를 주는 것은 주문 쪽이다(주문 스레드가 받는 자리에서 등록한다). [why D-114]

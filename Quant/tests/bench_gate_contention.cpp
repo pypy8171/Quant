@@ -207,9 +207,18 @@ void run_case(const char* label, double duration_sec, int fill_rate, int reconci
     }
 
     std::atomic<bool> stop{false};
-    std::thread filler([&] { run_filler(gate, account, fill_rate, stop); });
-    std::thread reconciler([&] { run_reconciler(gate, account, reconcile_ms, stop); });
-    std::thread ops([&] { run_ops(gate, ops_ms, stop); });
+    std::thread filler([&]
+    {
+        run_filler(gate, account, fill_rate, stop);
+    });
+    std::thread reconciler([&]
+    {
+        run_reconciler(gate, account, reconcile_ms, stop);
+    });
+    std::thread ops([&]
+    {
+        run_ops(gate, ops_ms, stop);
+    });
     Result result = run_reader(gate, account, duration_sec, stop);
     filler.join();
     reconciler.join();

@@ -256,7 +256,10 @@ void SignalDispatcher::force_liquidate(Clock::time_point now)
 
     for (auto& liquidation_signal : dispatch::force_liquidation_orders(
              scan_sleeve_positions(),
-             [this](const std::string&, symbol::SymbolId symbol) { return ledger_.row(symbol).reserved_sell; },
+             [this](const std::string&, symbol::SymbolId symbol)
+             {
+                 return ledger_.row(symbol).reserved_sell;
+             },
              force_liquidation_index_))
     {
         submit(std::move(liquidation_signal));
@@ -277,7 +280,10 @@ void SignalDispatcher::trim_excess_once(Clock::time_point now)
 
     for (auto& trim_signal : dispatch::trim_orders(
              scan_sleeve_positions(), ledger_.globals().max_notional_per_ticker,
-             [this](const std::string&, symbol::SymbolId symbol) { return ledger_.row(symbol).reserved_sell; },
+             [this](const std::string&, symbol::SymbolId symbol)
+             {
+                 return ledger_.row(symbol).reserved_sell;
+             },
              limit_trim_index_))
     {
         LOG_WARN("[Engine] 한도 초과분 정리 " + label(trim_signal.ticker) + " 매도 " + std::to_string(trim_signal.quantity) + "주 — " +

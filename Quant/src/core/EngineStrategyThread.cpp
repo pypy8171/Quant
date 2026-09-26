@@ -80,12 +80,21 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
     strategy->set_position_provider_by_id([this](const std::string&, symbol::SymbolId symbol) {
         return ledger_snapshot_->row(symbol).position;
     });
-    strategy->set_entry_halt_provider([this] { return ledger_snapshot_->globals().entry_halted != 0; });
-    strategy->set_entry_scale_provider([this] { return ledger_snapshot_->globals().entry_scale; });
+    strategy->set_entry_halt_provider([this]
+    {
+        return ledger_snapshot_->globals().entry_halted != 0;
+    });
+    strategy->set_entry_scale_provider([this]
+    {
+        return ledger_snapshot_->globals().entry_scale;
+    });
     strategy->set_sellable_provider([this](const std::string& account, const std::string& ticker) {
         return ledger_sellable(account, ticker);
     });
-    strategy->set_symbol_resolver([this](std::string_view ticker) { return register_symbol(ticker); });
+    strategy->set_symbol_resolver([this](std::string_view ticker)
+    {
+        return register_symbol(ticker);
+    });
     strategy->set_protective_registry(&control_plane_.protective_registry());
 
     if (!assign_strategy_identity(*strategy))
@@ -160,12 +169,21 @@ void Engine::start_strategies()
         strategy->set_position_provider_by_id([this](const std::string&, symbol::SymbolId symbol) {
             return ledger_snapshot_->row(symbol).position;
         });
-        strategy->set_entry_halt_provider([this] { return ledger_snapshot_->globals().entry_halted != 0; });
-        strategy->set_entry_scale_provider([this] { return ledger_snapshot_->globals().entry_scale; });
+        strategy->set_entry_halt_provider([this]
+        {
+            return ledger_snapshot_->globals().entry_halted != 0;
+        });
+        strategy->set_entry_scale_provider([this]
+        {
+            return ledger_snapshot_->globals().entry_scale;
+        });
         strategy->set_sellable_provider([this](const std::string& account, const std::string& ticker) {
             return ledger_sellable(account, ticker);
         });
-        strategy->set_symbol_resolver([this](std::string_view ticker) { return register_symbol(ticker); });
+        strategy->set_symbol_resolver([this](std::string_view ticker)
+        {
+            return register_symbol(ticker);
+        });
         strategy->set_protective_registry(&control_plane_.protective_registry());
 
         try
@@ -271,8 +289,14 @@ void Engine::strategy_thread_fn(std::stop_token stop_token)
         },
         std::chrono::steady_clock::now(),
         SignalDispatcher::SystemIds{force_liquidation_index_, limit_trim_index_});
-    dispatcher.set_label([this](const std::string& ticker) { return ticker_label(ticker); });
-    dispatcher.set_exit_managed_check([this](symbol::SymbolId symbol) { return is_exit_managed(symbol); });
+    dispatcher.set_label([this](const std::string& ticker)
+    {
+        return ticker_label(ticker);
+    });
+    dispatcher.set_exit_managed_check([this](symbol::SymbolId symbol)
+    {
+        return is_exit_managed(symbol);
+    });
 
     // 틱은 샤드 스레드가 돌린다(shard_thread_fn). 여기는 샤드가 보낸 봉투를 디스패처 한 곳으로 모아
     //  순번·슬롯·교체·강제청산 같은 종목 횡단 판단을 한 스레드에서 한다(원칙 4). 사람이 낸 수동주문은
@@ -401,7 +425,10 @@ void Engine::strategy_thread_fn(std::stop_token stop_token)
             continue;
         }
 
-        pipeline_.strategy_wake.wait_for(10ms, stop_token, [this] { return pipeline_.shard_out.empty(); });
+        pipeline_.strategy_wake.wait_for(10ms, stop_token, [this]
+        {
+            return pipeline_.shard_out.empty();
+        });
     }
 
     LOG_INFO("[StrategyThread] 종료");
@@ -418,7 +445,10 @@ void Engine::shard_thread_fn(std::stop_token stop_token, uint32_t row)
     // 붙들고 있어 재구성 전의 옛 포인터도 유효하다(reap_retired가 seen 버전을 보고 파기).
     std::vector<StrategyBase*> snapshot;
     uint64_t                   seen_version = static_cast<uint64_t>(-1);
-    const auto                 symbol_id_of   = [this](std::string_view ticker) { return lookup_symbol(ticker); };
+    const auto                 symbol_id_of   = [this](std::string_view ticker)
+    {
+        return lookup_symbol(ticker);
+    };
 
     // 신호 봉투 — 전략 상태(active·id)는 여기서 읽는다. 전략 스레드는 전략 객체를 보지 않는다.
     //  tick_ns는 체결 경로만 0이 아니다 — 봉·호가는 CSV에서 -1(측정 불가)로 남는다.
@@ -455,7 +485,10 @@ void Engine::shard_thread_fn(std::stop_token stop_token, uint32_t row)
         pipeline_.strategy_wake.notify();
     };
     // 운영단말 현재가용 캐시 — id 배열에 relaxed store 둘. 종목은 샤드 하나만 지나므로 쓰는 스레드도 하나다.
-    const auto on_price = [this](symbol::SymbolId id, double price) { set_last_price(id, price); };
+    const auto on_price = [this](symbol::SymbolId id, double price)
+    {
+        set_last_price(id, price);
+    };
 
     // 유휴 전이: 전략 스레드와 같은 정책 — 200us yield 뒤 자기 게이트에서 잔다. [why D-071]
     constexpr auto                        kSpinBudget = std::chrono::microseconds(200);
@@ -529,7 +562,10 @@ void Engine::shard_thread_fn(std::stop_token stop_token, uint32_t row)
             continue;
         }
 
-        shard.wake().wait_for(10ms, stop_token, [&shard] { return shard.empty(); });
+        shard.wake().wait_for(10ms, stop_token, [&shard]
+        {
+            return shard.empty();
+        });
     }
 
     LOG_INFO("[Shard " + std::to_string(row) + "] 종료");

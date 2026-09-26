@@ -22,10 +22,25 @@ struct BarSlot
     int64_t day    = 0;
     int     bucket = -1;
 
-    bool valid() const { return bucket >= 0; }
-    bool operator==(const BarSlot& slot) const { return day == slot.day && bucket == slot.bucket; }
-    bool operator!=(const BarSlot& slot) const { return !(*this == slot); }
-    bool operator<(const BarSlot& slot) const { return day != slot.day ? day < slot.day : bucket < slot.bucket; }
+    bool valid() const
+    {
+        return bucket >= 0;
+    }
+
+    bool operator==(const BarSlot& slot) const
+    {
+        return day == slot.day && bucket == slot.bucket;
+    }
+
+    bool operator!=(const BarSlot& slot) const
+    {
+        return !(*this == slot);
+    }
+
+    bool operator<(const BarSlot& slot) const
+    {
+        return day != slot.day ? day < slot.day : bucket < slot.bucket;
+    }
 };
 
 // 틱 → 봉 자리. 분은 hhmmss(거래소 체결 시각)에서, 날짜는 recv_utc의 KST 거래일에서 온다. hhmmss가 0이면
@@ -61,7 +76,10 @@ public:
     BarAggregator(const BarAggregator&)            = delete; // 종목별 이력을 든다 — 전략 스레드에 하나
     BarAggregator& operator=(const BarAggregator&) = delete;
 
-    void set_sink(BarSink sink) { sink_ = std::move(sink); }
+    void set_sink(BarSink sink)
+    {
+        sink_ = std::move(sink);
+    }
 
     // 틱 한 개. 장 밖·가격 0·id 없음(symbol_id==kNone)·자리를 못 정하면, 이미 닫힌 봉보다 이른 틱이면 버리고 false. 앞 봉을 닫았으면 sink가 그 안에서 불린다.
     bool on_tick(const TradeData& trade);
@@ -86,7 +104,10 @@ public:
     int close_stale(symbol::SymbolId symbol_id, std::time_t now_utc);
 
     void clear(symbol::SymbolId symbol_id);
-    const Config& config() const { return config_; }
+    const Config& config() const
+    {
+        return config_;
+    }
 
 private:
     struct Live

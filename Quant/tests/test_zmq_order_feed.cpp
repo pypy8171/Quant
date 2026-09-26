@@ -92,8 +92,14 @@ int main()
 
     std::vector<TradeData> trades;
     std::vector<OrderBook> order_books;
-    feed.set_lane_callbacks([&](uint32_t, const OrderBook& order_book) { order_books.push_back(order_book); },
-                            [&](uint32_t, const TradeData& trade) { trades.push_back(trade); });
+    feed.set_lane_callbacks([&](uint32_t, const OrderBook& order_book)
+    {
+        order_books.push_back(order_book);
+    },
+                            [&](uint32_t, const TradeData& trade)
+                            {
+                                trades.push_back(trade);
+                            });
 
     std::vector<WatchSpec> specifications;
     specifications.push_back(make_specification("005930"));

@@ -31,7 +31,9 @@ bool ReplaySource::connect(const std::vector<WatchSpec>& specifications)
     finished_.store(false, std::memory_order_relaxed);
     connected_.store(true, std::memory_order_release);
     thread_ = std::jthread([this, reader = std::move(reader)](std::stop_token stop_token) mutable
-                           { run(stop_token, *reader); });
+                           {
+                               run(stop_token, *reader);
+                           });
     return true;
 }
 

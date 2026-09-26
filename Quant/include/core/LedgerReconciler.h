@@ -59,8 +59,15 @@ public:
     // responded = 잔고 응답을 실제로 파싱했는가.
     BreakerOutcome on_result(bool responded);
 
-    int fail_streak() const { return fail_streak_; }
-    int skip_remaining() const { return skip_remaining_; }
+    int fail_streak() const
+    {
+        return fail_streak_;
+    }
+
+    int skip_remaining() const
+    {
+        return skip_remaining_;
+    }
 
 private:
     int fail_streak_    = 0; // 연속 실패 수(성공 시 0)
@@ -87,16 +94,43 @@ public:
 
     LedgerReconciler(OrderGate& gate, FetchBalance fetch);
 
-    void set_name_sink(NameSink name_sink) { name_sink_ = std::move(name_sink); }
-    void set_reconcile_sink(ReconcileSink reconcile_sink) { reconcile_sink_ = std::move(reconcile_sink); }
-    void set_account_no(std::string account) { account_no_ = std::move(account); }
-    void set_baseline_directory(std::filesystem::path directory) { baseline_directory_ = std::move(directory); }
-    void set_post_fill_defer(int seconds, int max_sec) { post_fill_defer_sec_ = seconds; post_fill_defer_max_sec_ = max_sec; }
+    void set_name_sink(NameSink name_sink)
+    {
+        name_sink_ = std::move(name_sink);
+    }
+
+    void set_reconcile_sink(ReconcileSink reconcile_sink)
+    {
+        reconcile_sink_ = std::move(reconcile_sink);
+    }
+
+    void set_account_no(std::string account)
+    {
+        account_no_ = std::move(account);
+    }
+
+    void set_baseline_directory(std::filesystem::path directory)
+    {
+        baseline_directory_ = std::move(directory);
+    }
+
+    void set_post_fill_defer(int seconds, int max_sec)
+    {
+        post_fill_defer_sec_ = seconds;
+        post_fill_defer_max_sec_ = max_sec;
+    }
+
     // 한 사이클이 잔고 응답을 기다려 주는 상한. 넘기면 조회는 뒤에서 계속 돌고 다음 사이클이 결과를 집는다.
-    void set_fetch_wait_budget(std::chrono::milliseconds budget) { fetch_wait_budget_ = budget; }
+    void set_fetch_wait_budget(std::chrono::milliseconds budget)
+    {
+        fetch_wait_budget_ = budget;
+    }
 
     // 체결통보 시각. 체결 소비 스레드가 부르고 reconcile(data_thread)이 읽는다 — 이 값만 원자적이다.
-    void note_fill(std::time_t now_utc) { last_fill_utc_.store(static_cast<long long>(now_utc), std::memory_order_relaxed); }
+    void note_fill(std::time_t now_utc)
+    {
+        last_fill_utc_.store(static_cast<long long>(now_utc), std::memory_order_relaxed);
+    }
 
     // G5: 잔고 보유 행(ticker/quantity/average_price/주문가능)을 OrderGate.seed_position으로 시드. 실패=false → 기동 중단.
     //  기동 직후는 유령주문 취소·유니버스 스캔과 같은 초 안에 겹쳐 한도(초당 5건)에 자주 걸리므로
@@ -111,17 +145,34 @@ public:
     //  응답이 늦으면 다음 사이클이 결과를 집어 적용한다. 원장·게이트 갱신은 여전히 부른 스레드에서만 한다.
     void reconcile(bool resync_positions, std::time_t now_utc);
 
-    bool fetch_in_flight() const { return pending_fetch_.valid(); }
+    bool fetch_in_flight() const
+    {
+        return pending_fetch_.valid();
+    }
 
     // 이번 대조를 체결 직후라서 미루는가. reconcile이 먼저 묻고, 미뤘으면 조회를 안 한다(서킷브레이커 집계 밖).
     bool defer_after_fill(std::time_t now_utc);
 
     // 새 거래일 — 총평가금 기준선을 다음 대조에서 다시 캡처한다.
-    void new_trading_day() { have_baseline_ = false; }
+    void new_trading_day()
+    {
+        have_baseline_ = false;
+    }
 
-    bool   has_baseline() const { return have_baseline_; }
-    double baseline() const { return baseline_; }
-    const ledger::ReconcileBreaker& breaker() const { return breaker_; }
+    bool   has_baseline() const
+    {
+        return have_baseline_;
+    }
+
+    double baseline() const
+    {
+        return baseline_;
+    }
+
+    const ledger::ReconcileBreaker& breaker() const
+    {
+        return breaker_;
+    }
 
 private:
     void resync_holdings(const AccountBalance& balance, bool resync_positions);

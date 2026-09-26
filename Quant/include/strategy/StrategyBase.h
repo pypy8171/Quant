@@ -48,7 +48,10 @@ public:
     //  이벤트로만 동작하고 on_data는 인터페이스 충족용 no-op이다. Engine은 활성 전략 중
     //  하나라도 true일 때만 일봉을 폴링한다. 아무도 안 쓰면 종목 수만큼의 차트 TR 호출이
     //  매 사이클 그대로 버려지고, 그 호출량이 초당 한도를 밀어올려 다른 조회까지 500으로 떨어뜨린다.
-    virtual bool wants_daily_bars() const { return false; }
+    virtual bool wants_daily_bars() const
+    {
+        return false;
+    }
 
     // 호가 이벤트 (국내 전용 — H0STASP0)
     virtual std::optional<OrderSignal> on_order_book(const OrderBook&)
@@ -95,16 +98,35 @@ public:
 
     // 이 전략이 활성화될 시장 국면. 기본값=전 국면(기존 전략 무변경 호환).
     // config "active_regimes"로 set_active_regimes() 오버라이드. Engine::apply_regime_selection 폴백이 참조.
-    const std::vector<Regime>& active_regimes() const { return active_regimes_; }
-    void set_active_regimes(std::vector<Regime> active_regimes) { active_regimes_ = std::move(active_regimes); }
+    const std::vector<Regime>& active_regimes() const
+    {
+        return active_regimes_;
+    }
+
+    void set_active_regimes(std::vector<Regime> active_regimes)
+    {
+        active_regimes_ = std::move(active_regimes);
+    }
 
     // 신규 진입 게이트 두 축. 진입 분기에서 is_active()를 보고 막는다(청산은 무관). 둘 다 기본 true.
     //  - active_: Engine이 국면 판정 뒤 설정(현재 국면 ∈ active_regimes). 재스캔 뒤 재적용된다.
     //  - in_universe_: 재스캔 결과에 이 종목이 있는지. 빠지면 그 주기부터 신규매수를 막고, 돌아오면 푼다.
     //    국면 재적용이 active_만 다시 쓰므로 축을 따로 둔다 [why D-077].
-    void set_active(bool active) { active_.store(active, std::memory_order_relaxed); }
-    void set_in_universe(bool in_universe) { in_universe_.store(in_universe, std::memory_order_relaxed); }
-    bool in_universe() const { return in_universe_.load(std::memory_order_relaxed); }
+    void set_active(bool active)
+    {
+        active_.store(active, std::memory_order_relaxed);
+    }
+
+    void set_in_universe(bool in_universe)
+    {
+        in_universe_.store(in_universe, std::memory_order_relaxed);
+    }
+
+    bool in_universe() const
+    {
+        return in_universe_.load(std::memory_order_relaxed);
+    }
+
     bool is_active() const
     {
         return active_.load(std::memory_order_relaxed) && in_universe_.load(std::memory_order_relaxed);
@@ -112,17 +134,38 @@ public:
 
     // 이 전략 객체를 돌리는 샤드(스레드) 번호. Engine이 등록할 때 정하고(라운드로빈) 그 샤드 스레드만 on_trade 등을
     //  부른다 — 종목이 여러 개여도 객체는 스레드 하나만 만진다. 스레드 시작 전·전략 목록 락 하에서만 바꾼다. [why D-110]
-    uint32_t shard_index() const { return shard_index_; }
-    void     set_shard_index(uint32_t shard_index) { shard_index_ = shard_index; }
+    uint32_t shard_index() const
+    {
+        return shard_index_;
+    }
+
+    void     set_shard_index(uint32_t shard_index)
+    {
+        shard_index_ = shard_index;
+    }
 
     // 전략 번호(OrderGate::strategy_index_of(id())) — Engine이 등록 때 한 번 정한다. 신호 봉투가 이 번호를 싣고,
     //  게이트의 서브원장·중복 신호 키가 문자열 id 대신 이 번호를 쓴다. [why D-112]
-    strategy_table::StrategyId strategy_index() const { return strategy_index_; }
-    void                       set_strategy_index(strategy_table::StrategyId index) { strategy_index_ = index; }
+    strategy_table::StrategyId strategy_index() const
+    {
+        return strategy_index_;
+    }
+
+    void                       set_strategy_index(strategy_table::StrategyId index)
+    {
+        strategy_index_ = index;
+    }
 
     // 청산 관리 전략(ITB_ 계열)인가 — 청산 관리 보유 종목의 신규 차단을 면제받는다. Engine이 등록 때 id로 한 번 정한다.
-    bool is_exit_manager() const { return exit_manager_; }
-    void set_exit_manager(bool exit_manager) { exit_manager_ = exit_manager; }
+    bool is_exit_manager() const
+    {
+        return exit_manager_;
+    }
+
+    void set_exit_manager(bool exit_manager)
+    {
+        exit_manager_ = exit_manager;
+    }
 
     // Engine이 unique_ptr<KisClient>로 수명을 관리한다.
     // set_kis()는 Engine::start_strategies와 register_strategy_runtime에서 on_start 전에 부르며,

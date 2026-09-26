@@ -66,7 +66,10 @@ public:
 
         if (still_idle())
         {
-            condition_variable_.wait_for(lock, stop_token, capture, [&] { return !still_idle(); });
+            condition_variable_.wait_for(lock, stop_token, capture, [&]
+            {
+                return !still_idle();
+            });
         }
 
         sleeping_.store(false, std::memory_order_relaxed);
@@ -81,7 +84,10 @@ public:
 
         if (still_idle())
         {
-            condition_variable_.wait_until(lock, stop_token, deadline, [&] { return !still_idle(); });
+            condition_variable_.wait_until(lock, stop_token, deadline, [&]
+            {
+                return !still_idle();
+            });
         }
 
         sleeping_.store(false, std::memory_order_relaxed);
@@ -106,7 +112,10 @@ bool sleep_unless_stopped(std::stop_token stop_token, std::chrono::duration<Repr
     std::mutex                   mutex;
     std::condition_variable_any  condition_variable;
     std::unique_lock<std::mutex> lock(mutex);
-    return !condition_variable.wait_for(lock, stop_token, duration, [&] { return stop_token.stop_requested(); });
+    return !condition_variable.wait_for(lock, stop_token, duration, [&]
+    {
+        return stop_token.stop_requested();
+    });
 }
 
 // 밀리초 밑의 짧은 잠. 위 sleep_unless_stopped 는 condition_variable 을 타고, 그 밑은 OS 타이머

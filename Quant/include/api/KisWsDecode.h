@@ -44,9 +44,20 @@ struct Records
     size_t width = 0;
     size_t count = 0;
 
-    [[nodiscard]] size_t size() const noexcept { return count; }
-    [[nodiscard]] bool empty() const noexcept { return count == 0; }
-    Fields operator[](size_t result) const noexcept { return all.subspan(result * width, width); }
+    [[nodiscard]] size_t size() const noexcept
+    {
+        return count;
+    }
+
+    [[nodiscard]] bool empty() const noexcept
+    {
+        return count == 0;
+    }
+
+    Fields operator[](size_t result) const noexcept
+    {
+        return all.subspan(result * width, width);
+    }
 };
 
 Records split_records(Fields fields, int count, size_t min_fields) noexcept;

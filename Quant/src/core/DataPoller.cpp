@@ -25,7 +25,9 @@ void DataPoller::start(LoopSources sources, std::chrono::milliseconds round_peri
 
     // sources는 스레드 안으로 옮긴다 — 이 뒤로 다른 스레드가 만지지 않는다.
     loop_thread_ = std::jthread([this, sources = std::move(sources), round_period](std::stop_token stop_token)
-                                { loop(stop_token, sources, round_period); });
+                                {
+                                    loop(stop_token, sources, round_period);
+                                });
 }
 
 void DataPoller::request_stop()

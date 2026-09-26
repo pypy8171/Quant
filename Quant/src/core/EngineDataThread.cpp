@@ -148,7 +148,9 @@ void Engine::data_thread_fn(std::stop_token stop_token)
         using cycle_clock = std::chrono::steady_clock;
         const auto cycle_start = cycle_clock::now();
         auto ms_between = [](cycle_clock::time_point from, cycle_clock::time_point to) -> long long
-        { return std::chrono::duration_cast<std::chrono::milliseconds>(to - from).count(); };
+        {
+            return std::chrono::duration_cast<std::chrono::milliseconds>(to - from).count();
+        };
         long long rescan_ms = 0, reconcile_ms = 0, top_up_ms = 0;
 
         try
@@ -238,7 +240,10 @@ void Engine::data_thread_fn(std::stop_token stop_token)
                     std::chrono::steady_clock::now() - std::chrono::seconds(60));
 
                 const auto top_up_start = cycle_clock::now();
-                poller_->top_up(stale, [this](const std::string& ticker, double price) { set_last_price(ticker, price); });
+                poller_->top_up(stale, [this](const std::string& ticker, double price)
+                {
+                    set_last_price(ticker, price);
+                });
                 top_up_ms = ms_between(top_up_start, cycle_clock::now());
             }
 
@@ -304,7 +309,16 @@ void Engine::data_thread_fn(std::stop_token stop_token)
 
                                 int rank = 0;
 
-                                for (const auto& flow_g : values) { ++rank; if (flow_g.ticker == flow_f.ticker) break; }
+                                for (const auto& flow_g : values)
+                                {
+                                    ++rank;
+
+                                    if (flow_g.ticker == flow_f.ticker)
+                                    {
+                                        break;
+                                    }
+                                }
+
                                 LOG_INFO(std::string("[수급추정] ") + label + " ★" + flow_f.ticker + " " +
                                          flow_f.name + " (전체 " + std::to_string(rank) + "위)" +
                                          " 외인=" + std::to_string(flow_f.foreign_net_quantity) +
@@ -353,7 +367,12 @@ void Engine::data_thread_fn(std::stop_token stop_token)
                             {"0020", "통신업"},     {"0021", "금융업"},   {"0024", "증권"},
                             {"0025", "보험"},       {"0026", "서비스업"}};
 
-                        struct SecRate { std::string name; double rate; double price; };
+                        struct SecRate
+                        {
+                            std::string name;
+                            double rate;
+                            double price;
+                        };
                         std::vector<SecRate> sectors;
 
                         for (const auto& [code, name] : kSectors)

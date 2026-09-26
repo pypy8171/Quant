@@ -14,9 +14,15 @@ struct OrderAck
     std::string krx_forwarding_org_no; // KRX_FWDG_ORD_ORGNO — 정정/취소 시 원주문 조직번호로 재입력
     std::string error_code;  // 실패 사유 코드(kis_error). 성공이면 ""
 
-    [[nodiscard]] bool ok() const noexcept { return !kis_order_no.empty(); }
+    [[nodiscard]] bool ok() const noexcept
+    {
+        return !kis_order_no.empty();
+    }
 
-    static OrderAck fail(const std::string& code) { return OrderAck{std::string(), std::string(), code}; }
+    static OrderAck fail(const std::string& code)
+    {
+        return OrderAck{std::string(), std::string(), code};
+    }
 };
 
 // 미체결(정정취소 가능) 예약주문 1건 — inquire-psbl-rvsecncl 결과.
@@ -64,16 +70,25 @@ public:
 
     // 모의투자 서버 여부. 모의도 get_open_orders는 동작한다(VTTC0081R, D-101). is_paper는 OrderRouter가
     //  모의에서 브로커 대신 라우터 이력을 쓰는 분기(청산차단 예약매도 찾기·기동 시 주문 복원)에 쓴다. 기본 false(실전).
-    [[nodiscard]] virtual bool is_paper() const noexcept { return false; }
+    [[nodiscard]] virtual bool is_paper() const noexcept
+    {
+        return false;
+    }
 
     // 미체결(정정취소 가능) 예약주문 조회 (inquire-psbl-rvsecncl). 기본은 빈 목록.
     //  장중 청산이 "주문가능분 없음"(40240000)으로 막힐 때, 해당 종목의 예약매도를 찾아
     //  취소→재매도로 자가정리하기 위한 조회 경로. 세션 간/수동 예약도 감지 가능.
     //  [inv] 한 쪽이라도 못 받으면 실패다 — 빈 목록은 "브로커가 미체결 없음이라고 답했다"일 때만 돌려준다.
     //  잘린 목록을 성공으로 넘기면 재기동 대조가 빠진 주문의 선점을 "KIS에 없다"로 풀어 같은 수량을 또 낸다. [why 전수조사 B1-2]
-    [[nodiscard]] virtual KisResult<std::vector<OpenOrder>> get_open_orders() { return std::vector<OpenOrder>{}; }
+    [[nodiscard]] virtual KisResult<std::vector<OpenOrder>> get_open_orders()
+    {
+        return std::vector<OpenOrder>{};
+    }
 
     // 계측: 이 스레드가 브로커 초당 한도 버킷에서 기다린 누적 시간(nanoseconds). 호출자가 전송 전후 차이로 자기 몫을 잰다.
     //  한도가 없는 구현(가짜·페이퍼)은 0. [why D-071]
-    [[nodiscard]] virtual std::uint64_t rate_limit_wait_ns_this_thread() const noexcept { return 0; }
+    [[nodiscard]] virtual std::uint64_t rate_limit_wait_ns_this_thread() const noexcept
+    {
+        return 0;
+    }
 };

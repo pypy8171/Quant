@@ -428,6 +428,7 @@
 - [Types.cpp](../Quant/src/core/Types.cpp) — Types.h 구현 — 숫자 문자열 → 정수, 주문번호 채번, Regime·StrategyType·Mode 문자열 변환
 - [UniverseExit.cpp](../Quant/src/core/UniverseExit.cpp) — UniverseExit.h 구현 — 유니버스 이탈·복귀 판정 순수 함수(D-077)
 - [UniverseRescan.cpp](../Quant/src/core/UniverseRescan.cpp) — UniverseRescan.h 구현 — 유니버스 재스캔 장부(D-077·D-087)
+- [PrefetchPool.cpp](../Quant/src/core/PrefetchPool.cpp) — PrefetchPool.h 구현 — 고정 스레드를 띄우는 부분(D-118)
 - [WakeGate.cpp](../Quant/src/core/WakeGate.cpp) — WakeGate.h 구현 — 생산자가 소비자를 깨우는 대기 조각(D-071)
 - [WebSocketSlotPlan.cpp](../Quant/src/core/WebSocketSlotPlan.cpp) — WebSocketSlotPlan.h 구현 — 구독 칸 교체 계획(D-132)
 

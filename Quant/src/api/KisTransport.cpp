@@ -15,8 +15,15 @@ static thread_local int g_fastfail_depth = 0;
 //  바로 다시 보내면 대개 붙으므로 재시도를 유지한다.
 static thread_local bool g_last_attempt_timed_out = false;
 
-KisClient::FastFailScope::FastFailScope() { ++g_fastfail_depth; }
-KisClient::FastFailScope::~FastFailScope() { --g_fastfail_depth; }
+KisClient::FastFailScope::FastFailScope()
+{
+    ++g_fastfail_depth;
+}
+
+KisClient::FastFailScope::~FastFailScope()
+{
+    --g_fastfail_depth;
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  플랫폼 공용 — 헤더 오버레이·초당 한도 판정 (WinHTTP·libcurl 둘 다 쓴다)
@@ -149,7 +156,11 @@ struct WinHttpConn
     std::wstring  host;
     INTERNET_PORT port = 0;
 
-    ~WinHttpConn() { reset(); }
+    ~WinHttpConn()
+    {
+        reset();
+    }
+
     void reset()
     {
         if (connect)
@@ -398,7 +409,11 @@ struct CurlHandle
 {
     CURL* handle = nullptr;
 
-    ~CurlHandle() { reset(); }
+    ~CurlHandle()
+    {
+        reset();
+    }
+
     void reset()
     {
         if (handle)

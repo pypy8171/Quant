@@ -31,8 +31,14 @@ void Engine::start_ops_server()
     ops_.server->set_bind(ops_.bind_address, ops_.port);
     ops_.server->set_token(ops_.token);
     ops_.server->set_paper(kis_config_.is_paper);
-    ops_.server->set_status_provider([this] { return ops_status_json(); });
-    ops_.server->set_positions_provider([this] { return ops_positions_json(); });
+    ops_.server->set_status_provider([this]
+    {
+        return ops_status_json();
+    });
+    ops_.server->set_positions_provider([this]
+    {
+        return ops_positions_json();
+    });
     ops_.server->set_kill_handler(
         [this]
         {
@@ -56,8 +62,14 @@ void Engine::start_ops_server()
             request_manual_halt(side == "SELL" ? OrderSide::SELL : OrderSide::BUY, on);
         });
     ops_.server->set_halt_provider(
-        [this] { return std::make_pair(order_gate_.is_manual_buy_halted(), order_gate_.is_manual_sell_halted()); });
-    ops_.server->set_order_handler([this](const OpsOrderReq& ops_order_request) { return accept_manual_order(ops_order_request); });
+        [this]
+        {
+            return std::make_pair(order_gate_.is_manual_buy_halted(), order_gate_.is_manual_sell_halted());
+        });
+    ops_.server->set_order_handler([this](const OpsOrderReq& ops_order_request)
+    {
+        return accept_manual_order(ops_order_request);
+    });
 
     if (!ops_.server->start())
     {

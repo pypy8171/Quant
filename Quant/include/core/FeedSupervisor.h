@@ -42,15 +42,29 @@ public:
 
     explicit Supervisor(SupervisorConfig config = {}) : config_(config) {}
 
-    const SupervisorConfig& config() const { return config_; }
+    const SupervisorConfig& config() const
+    {
+        return config_;
+    }
 
     Step observe(bool market_open, bool stale, clock::time_point now);
 
     After on_reconnect(bool ok, clock::time_point now);
 
-    int fail_streak() const { return fail_streak_; }
-    int last_backoff_sec() const { return last_backoff_sec_; } // 직전 실패가 정한 대기(초), 로그용
-    clock::time_point next_try() const { return next_try_; }
+    int fail_streak() const
+    {
+        return fail_streak_;
+    }
+
+    int last_backoff_sec() const  // 직전 실패가 정한 대기(초), 로그용
+    {
+        return last_backoff_sec_;
+    }
+
+    clock::time_point next_try() const
+    {
+        return next_try_;
+    }
 
 private:
     SupervisorConfig  config_;

@@ -82,9 +82,14 @@ struct Seen
 
 void hook(feed::ReplaySource& source, Seen& seen)
 {
-    source.set_callbacks([&seen](const OrderBook& order_book) { seen.order.push_back("B:" + order_book.ticker.string()); },
+    source.set_callbacks([&seen](const OrderBook& order_book)
+    {
+        seen.order.push_back("B:" + order_book.ticker.string());
+    },
                       [&seen](const TradeData& trade)
-                      { seen.order.push_back("T:" + trade.ticker.string() + ":" + std::to_string(static_cast<int>(trade.price))); });
+                      {
+                          seen.order.push_back("T:" + trade.ticker.string() + ":" + std::to_string(static_cast<int>(trade.price)));
+                      });
 }
 
 } // namespace

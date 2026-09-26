@@ -50,8 +50,14 @@ std::vector<MarketData> KisClient::get_chart_ohlcv(const std::string& ticker, in
 
     // G1 수정: 날짜 하드코딩(19000101~99991231)은 모의서버 500 → 유한창(오늘−N일 ~ 오늘, KST).
     //  조회창의 초는 KST 자리값을 UTC로 읽은 값(parse_dt와 같은 눈금)이라 옮기지 않고 날짜로 찍는다.
-    auto format_date   = [](time_t time_value) -> std::string { return kst::format_ymd(kst::utc_date(time_value)); };
-    auto parse_date = [](const std::string& date_yyyymmdd) -> time_t { return kis_rest::parse_dt(date_yyyymmdd, "000000"); };
+    auto format_date   = [](time_t time_value) -> std::string
+    {
+        return kst::format_ymd(kst::utc_date(time_value));
+    };
+    auto parse_date = [](const std::string& date_yyyymmdd) -> time_t
+    {
+        return kis_rest::parse_dt(date_yyyymmdd, "000000");
+    };
 
     const time_t end_t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()) + kKstOffsetSec; // KST 오늘
     const std::string today = format_date(end_t);

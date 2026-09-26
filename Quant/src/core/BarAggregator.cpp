@@ -345,7 +345,10 @@ int BarAggregator::seed(symbol::SymbolId symbol_id, const std::vector<MarketData
         }
 
         auto iterator = std::lower_bound(series.slots.begin(), series.slots.end(), slot,
-                                   [](const BarSlot& slot_a, const BarSlot& slot_b) { return slot_b < slot_a; }); // 내림차순
+                                   [](const BarSlot& slot_a, const BarSlot& slot_b)  // 내림차순
+                                   {
+                                       return slot_b < slot_a;
+                                   });
 
         const size_t index = static_cast<size_t>(iterator - series.slots.begin());
 

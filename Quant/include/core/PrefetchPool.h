@@ -50,7 +50,10 @@ public:
 
     // 스레드를 미리 띄운다. Engine이 기동에서 한 번 부르면 장중에 전략이 붙어도 스레드를 새로 만들지 않는다.
     //  여러 번 불러도 안전하다(이미 떠 있으면 아무것도 안 한다).
-    void start() { start_threads(); }
+    void start()
+    {
+        start_threads();
+    }
 
     Pool(std::size_t thread_count, std::chrono::milliseconds period)
         : thread_count_(thread_count < 1u ? 1u : thread_count)
@@ -61,7 +64,10 @@ public:
     Pool(const Pool&)            = delete;
     Pool& operator=(const Pool&) = delete;
 
-    ~Pool() { stop(); }
+    ~Pool()
+    {
+        stop();
+    }
 
     // 작업 등록. 첫 등록에서 스레드가 뜬다(테스트처럼 전략이 없으면 스레드도 없다).
     TaskId add(Work work)
@@ -155,20 +161,7 @@ private:
         bool       removed = false;
     };
 
-    void start_threads()
-    {
-        std::lock_guard<std::mutex> lock(threads_mutex_);
-
-        if (stopped_ || !threads_.empty())
-        {
-            return;
-        }
-
-        for (std::size_t index = 0; index < thread_count_; ++index)
-        {
-            threads_.emplace_back([this, index](std::stop_token stop_token) { worker_loop(stop_token, index); });
-        }
-    }
+    void start_threads();
 
     // 작업은 id로 스레드에 붙는다(id % 스레드 수). id는 안 바뀌므로 등록·해제로 목록 자리가
     //  밀려도 같은 작업이 두 스레드에서 같은 주기에 겹쳐 돌지 않는다.

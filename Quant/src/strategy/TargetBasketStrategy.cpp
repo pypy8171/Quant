@@ -56,7 +56,10 @@ bool write_json_atomic(const std::filesystem::path& path, const json& document)
 } // namespace
 
 TargetBasketStrategy::TargetBasketStrategy(Params parameters, OwnedSink owned_sink)
-    : parameters_(std::move(parameters)), owned_sink_(std::move(owned_sink)), clock_([] { return std::time(nullptr); }),
+    : parameters_(std::move(parameters)), owned_sink_(std::move(owned_sink)), clock_([]
+    {
+        return std::time(nullptr);
+    }),
       id_("BASKET_" + parameters_.label)
 {
 }
@@ -409,7 +412,10 @@ void TargetBasketStrategy::run_pass(std::vector<OrderSignal>& out)
             order.quantity = static_cast<int>(std::floor(order.quantity * scale));
         }
 
-        std::erase_if(plan.buys, [](const basket::PlannedOrder& order) { return order.quantity <= 0; });
+        std::erase_if(plan.buys, [](const basket::PlannedOrder& order)
+        {
+            return order.quantity <= 0;
+        });
         LOG_INFO(std::format("[{}] 국면 매수 비율 {:.1f} 적용 — 매수 {}건", id_, scale, plan.buys.size()));
     }
 

@@ -221,7 +221,17 @@ DailyLookup fetch_daily_lookup(KisClient& kis, const DevScanCfg& config, const s
         return daily_lookup;
     }
 
-    auto simple_moving_average = [&](int count) { double sum = 0.0; for (int index = 0; index < count; ++index) sum += daily_ohlcv[index].close; return sum / count; };
+    auto simple_moving_average = [&](int count)
+    {
+        double sum = 0.0;
+
+        for (int index = 0; index < count; ++index)
+        {
+            sum += daily_ohlcv[index].close;
+        }
+
+        return sum / count;
+    };
     daily_lookup.average_5 = simple_moving_average(5); daily_lookup.average_10 = simple_moving_average(10); daily_lookup.average_20 = simple_moving_average(20);
     daily_lookup.r5 = daily_ohlcv[4].close; daily_lookup.r10 = daily_ohlcv[9].close;
     daily_lookup.r20 = daily_ohlcv[19].close;
@@ -281,7 +291,10 @@ public:
             return;
         }
 
-        worker_ = std::thread([this, kis_config, config] { run(kis_config, config); });
+        worker_ = std::thread([this, kis_config, config]
+        {
+            run(kis_config, config);
+        });
     }
 
     int drain(const std::string& date_yyyymmdd, symbol::SymbolTable& symbols)
@@ -386,7 +399,10 @@ private:
         // 시세판이 목록(요청 44건)과 첫 판을 받는 데 몇 초 걸린다.
         MarketBoard& board = MarketBoard::instance();
 
-        if (!wait_for(kWarmBoardWaitSec, [&board] { return board.listing() && board.snapshot(); }))
+        if (!wait_for(kWarmBoardWaitSec, [&board]
+        {
+            return board.listing() && board.snapshot();
+        }))
         {
             LOG_WARN("[DailyWarm] 시세판 목록·시세를 2분 안에 못 받아 장 전 일봉 캐시 데우기를 건너뛴다");
             return;
@@ -430,7 +446,10 @@ private:
         }
 
         std::sort(targets.begin(), targets.end(),
-                  [](const auto& left, const auto& right) { return left.first > right.first; });
+                  [](const auto& left, const auto& right)
+                  {
+                      return left.first > right.first;
+                  });
 
         KisClient kis(kis_config);
 
