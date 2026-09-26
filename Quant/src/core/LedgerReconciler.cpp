@@ -168,7 +168,7 @@ void LedgerReconciler::resync_holdings(const AccountBalance& balance, bool resyn
     //  수 없어 가드는 남긴다. 빈 응답을 정본으로 믿고 지우면 원장이 통째로 날아가고 엔진은 미보유로
     //  읽어 같은 종목을 다시 산다(09-09 14:04, 재기동 직후 한도 폭주 중에 25종목 전부 정리됨).
     //  진짜로 빈 계좌라면 걷어낼 것도 없으니 건너뛰어 잃는 것이 없다.
-    const auto gone = held.empty() ? std::vector<symbol::SymbolId>{} : position_ledger.prune_positions(held, prune_age_sec_);
+    const auto gone = held.empty() ? std::vector<symbol::SymbolId>{} : position_ledger.prune_positions(held, ledger::kPrunePositionAgeSec);
 
     if (held.empty())
     {

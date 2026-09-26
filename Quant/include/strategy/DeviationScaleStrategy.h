@@ -31,16 +31,15 @@
 //
 //  아이디어:
 //   • "매매할 자리"는 일봉에서 정한다: 정배열(SMA5>10>20, D-141) AND 현재가가 일봉 SMA20
-//     대비 이격 밴드 안. 밴드는 슬리브가 정한다 — 눌림(DEVSCALE)은 −pullback_percent~+entry_upper_percent,
-//     추세확장(TRENDX)은 +entry_lower_percent~+entry_upper_percent(SMA20 위 구간). 존 유지는 진입보다
+//     대비 이격 밴드(−pullback_percent~+entry_upper_percent) 안. 존 유지는 진입보다
 //     zone_hyst_pct만큼 넓다. 이 조건이 참일 때만 오실레이션을 켠다(존 활성).
 //   • 자리 안에서는 3분봉 SMA를 기준선으로 삼아:
 //       - 존 진입 시 무포지션이면 목표수량 절반(base_quantity)을 기준선 근처 지정가로 베이스 매수.
 //       - 이격도가 위로 벌어지는 지점(+deviation_sell%·split_step_count층)에 지정가 매도(분할 익절).
 //       - 평균으로 되돌아오는 지점(−deviation_buy%·buy_split_steps층)에 지정가 매수(재진입). buy_split_steps=0이면
-//         되돌림 매수(물타기)를 깔지 않는다 — 추세확장 슬리브의 기본이다.
+//         되돌림 매수(물타기)를 깔지 않는다.
 //   • 청산: 존 이탈(유지 게이트) · 평단 대비 stop_loss_percent 하드 스탑 · 평단 +trail_arm_percent 무장 뒤
-//     최고가 대비 −trail_percent 트레일(옵션) · 3분봉 기준선 이탈 트레일(옵션) · market_close_hhmm 장 마감(2400이면 안 팔고
+//     최고가 대비 −trail_percent 트레일(옵션) · market_close_hhmm 장 마감(2400이면 안 팔고
 //     다음 날로 넘긴다). 스탑·트레일 뒤에는 stop_cooldown_sec 동안 재진입을 막는다.
 //   • 하루 단위 진입 필터(옵션): 전일 ATR14/SMA20이 entry_atr_max_percent를 넘거나 개장 봉 이격이
 //     entry_open_deviation_[min|max]_percent 밖이면 그날은 새로 사지 않는다(보유분 관리는 그대로).
@@ -113,16 +112,8 @@ public:
         bool   daily_basis_warmup = true;
         int    reprice_move_ticks = 2; // SMA가 이만큼(틱) 이동하면 재호가
         int    min_rebuild_sec = 0;    // 분할 매수 전면 재구성 최소 간격(0=제한 없음). 첫 구성 뒤부터 적용
-        // ── TRENDX(추세확장) 슬리브용. 전부 기본값이 기존 눌림 동작이다. ──
-        //  id_prefix: 같은 클래스를 두 슬리브로 돌릴 때 전략 id를 가른다(regime_strategies
-        //   매칭 키이자 로그 식별자). 유니버스가 이격 밴드로 상호배타라 티커는 겹치지 않는다.
+        //  id_prefix: 전략 id 앞머리(regime_strategies 매칭 키이자 로그 식별자).
         std::string id_prefix = "DEVSCALE";
-        //  entry_lower_percent: >0이면 존 하단을 SMA20 "위" 그 지점으로 올린다. 눌림 슬리브가
-        //   버리는 이격 +5% 초과 구간을 이 슬리브가 받는다(0=기존 -pullback_percent 하단).
-        double entry_lower_percent = 0.0;
-        //  base_on_price: 분할 매수 기준점을 SMA20이 아니라 현재가로 잡는다. 이격이 벌어진
-        //   종목은 SMA20 기준점으로 깔면 매수층이 시장가에서 5~30% 아래에 놓여 영원히 안 붙는다.
-        bool   base_on_price = false;
         //  buy_split_steps: 되돌림 매수(물타기) 층수. -1이면 split_step_count와 같다(기존 동작), 0이면 베이스
         //   매수만 내고 하방 분할 매수를 깔지 않는다. 방향성 이격 게이트에서 하방 분할 매수는 추세
         //   반전에 그대로 노출된다 — 09-08~11 원장에서 매수 수량의 89%가 미청산으로 남았다.
@@ -130,10 +121,6 @@ public:
         //  stop_loss_percent: >0이면 잔고 평단 대비 이만큼(%) 아래에서 미체결 취소+시장가 청산.
         //   [inv] 기준은 진입봉 저가가 아니라 평단이다 — 재기동해도 잔고 조회로 되살아나는 값이다.
         double stop_loss_percent = 0.0;
-        //  trail_simple_moving_average_exit: 보유 중 현재가가 3분봉 기준선의 trail_simple_moving_average_tolerance_percent(%) 아래로 내려오면
-        //   청산한다. 워밍업(기준선=일봉 SMA20) 구간에는 보지 않는다.
-        bool   trail_simple_moving_average_exit = false;
-        double trail_simple_moving_average_tolerance_percent = 1.0;
         //  stop_cooldown_sec: 스탑·트레일 청산 뒤 이 시간 동안 분할 매수를 깔지 않는다. 존이
         //   그대로 열려 있으면 다음 하트비트에 베이스 매수가 도로 나가 같은 자리를 되산다.
         int    stop_cooldown_sec = 900;
@@ -236,7 +223,6 @@ private:
     struct SplitPlan
     {
         std::vector<SplitStep> steps;
-        double base_line = 0.0;         // 분할 매수 기준점(base_on_price면 현재가, 아니면 SMA)
         double base_notional = 0.0;     // 베이스 명목(원)
         double split_step_budget = 0.0; // 물타기 총예산(원)
         double entry_scale_ratio = 1.0; // 국면 매수비율(0.1 단위)
@@ -401,7 +387,7 @@ private:
     static constexpr int kPrefetchWindowOpenHhmm  = 850;   // 프리페치 REST를 부르는 창(KST). 장 마감 청산(15:15)까지 덮는다
     static constexpr int kPrefetchWindowCloseHhmm = 1535;
     static constexpr int kAtrPeriod = 14;
-    static constexpr int kLiquidationBackoffMs = 30000;    // 손절·트레일·기준선 이탈 청산의 재시도 상한(ms)
+    static constexpr int kLiquidationBackoffMs = 30000;    // 손절·트레일 청산의 재시도 상한(ms)
     static constexpr int kMarketCloseBackoffMs = 300000;   // 장 마감 청산의 재시도 상한(ms) — 마감까지 계속 민다
     std::string last_split_buy_signal_;          // 마지막 발주 분할 매수 시그니처(no-change 가드)
     std::chrono::steady_clock::time_point last_work_{};   // 스로틀

@@ -23,7 +23,7 @@ constexpr int32_t kScoreBase  = 1000; // 재스캔 점수 순위 r(0부터)은 k
 constexpr int32_t kUnranked   = std::numeric_limits<int32_t>::max(); // 보유·선점·점수 순위가 모두 없다
 constexpr int32_t kProtected  = kReserved; // 이 값 이하는 다른 종목에 칸을 내주지 않는다
 
-// 칸 배정을 받는 종목인가 — 국내 현물만 나눈다. 선물·미국은 기동 때 건 그대로 둔다. [why D-132]
+// 칸 배정을 받는 종목인가 — 국내 현물만 나눈다. 미국은 기동 때 건 그대로 둔다. [why D-132]
 bool is_managed(const WatchSpec& specification);
 
 // 이 종목이 쓰는 칸 수 — KisWebSocket::specification_channel_count와 같은 규칙(국내 현물만 온다).

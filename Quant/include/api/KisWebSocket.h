@@ -21,7 +21,6 @@ class WsSocket; // 플랫폼 소켓(Quant/src/api/WsSocket.h). 이 헤더는 플
 // KisWebSocket  —  국내 + 미국 실시간 WebSocket
 //
 //  국내      H0STASP0 → OrderBook  /  H0STCNT0 → TradeData(KR)
-//  국내선물  H0IFASP0 → OrderBook  /  H0IFCNT0 → TradeData  (WatchSpec.is_future=true)
 //  미국      HDFSCNT0 → TradeData(US)  (KIS는 미국 호가 미제공)
 //
 // 사용법:
@@ -102,9 +101,8 @@ private:
     void send_subscribe(const std::string& transaction_id, const std::string& tr_key, std::string_view tr_type = kRegister);
     // specifications_ 전체를 순회하며 채널을 구독한다(최초 연결·재연결 공통). 거래ID(transaction_id) 하드코딩
     // 블록이 네 곳(플랫폼×최초/재연결)에 중복돼 있던 것을 한 곳으로 모은다.
-    // 재연결 시 선물 채널이 빠지는 불일치를 막는다.
     void subscribe_all();
-    // specification 하나의 채널을 구독한다(현·선물·미국 분기 한 곳). subscribe_all과 증분 구독이 공유한다.
+    // specification 하나의 채널을 구독한다(국내·미국 분기 한 곳). subscribe_all과 증분 구독이 공유한다.
     void subscribe_specification(const WatchSpec& specification, std::string_view tr_type = kRegister);
     // specification 하나가 소비하는 구독 슬롯 수(호가+체결이면 2, trade_only면 1).
     static int specification_channel_count(const WatchSpec& specification);
@@ -134,8 +132,6 @@ private:
     void parse_orderbook(kis_websocket::Fields fields);
     void parse_kr_trade(kis_websocket::Fields fields);
     void parse_us_trade(kis_websocket::Fields fields);
-    void parse_future_trade(kis_websocket::Fields fields);     // H0IFCNT0 선물 체결
-    void parse_future_orderbook(kis_websocket::Fields fields); // H0IFASP0 선물 호가
     void parse_fill_notification(kis_websocket::Fields fields);
 
     // 체결통보(H0STCNI) 복호화 — base64는 여기, AES-256-CBC는 플랫폼별(websocket_platform::aes_cbc_decrypt)

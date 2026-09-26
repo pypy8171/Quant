@@ -169,7 +169,7 @@ void KisWebSocket::recv_loop(std::stop_token stop_token)
         aes_key_.clear();
         aes_iv_.clear();
 
-        // 채널 재구독 — 최초 연결과 동일 경로(subscribe_all). trade_only·선물 분기가
+        // 채널 재구독 — 최초 연결과 동일 경로(subscribe_all). trade_only 분기가
         // 한 곳에 모여 있어 재연결에서도 동일하게 복원된다.
         subscribe_all();
         LOG_INFO("[WS] 재연결 성공");
@@ -278,20 +278,10 @@ void KisWebSocket::send_subscribe(const std::string& transaction_id, const std::
 
 // specifications_ 전체를 순회해 채널을 구독한다. 최초 연결·재연결에서 공통으로 호출한다.
 // 재연결 시 trade_only를 준수해야 등록 한도(약 41)를 갉아먹지 않는다(호가 미필요 종목은
-// 체결만). 선물은 WatchSpec.is_future로 골라 H0IFASP0/H0IFCNT0을 구독한다.
+// 체결만).
 void KisWebSocket::subscribe_specification(const WatchSpec& specification, std::string_view tr_type)
 {
-    if (specification.is_future)
-    {
-        // 국내 선물: tr_key = 선물 종목코드(예 101W09), 미국과 달리 exchange prefix 없음.
-        if (!specification.trade_only)
-        {
-            send_subscribe("H0IFASP0", specification.ticker, tr_type);
-        }
-
-        send_subscribe("H0IFCNT0", specification.ticker, tr_type);
-    }
-    else if (specification.market == Market::KR)
+    if (specification.market == Market::KR)
     {
         // KRX 전용(H0ST*)이냐 KRX+NXT 통합(H0UN*)이냐는 config.exchange가 정한다 — 필드 배열이 같아
         //  파서는 공유한다. [why D-096]
@@ -316,7 +306,7 @@ void KisWebSocket::subscribe_specification(const WatchSpec& specification, std::
 
 int KisWebSocket::specification_channel_count(const WatchSpec& specification)
 {
-    if (specification.market == Market::KR || specification.is_future)
+    if (specification.market == Market::KR)
     {
         return specification.trade_only ? 1 : 2;
     }
@@ -332,7 +322,7 @@ bool KisWebSocket::subscribe_incremental(const WatchSpec& specification)
         for (const auto& watch : specifications_)
         {
             if (watch.market == specification.market && watch.exchange == specification.exchange &&
-                watch.ticker == specification.ticker && watch.is_future == specification.is_future)
+                watch.ticker == specification.ticker)
             {
                 return false; // 이미 구독 중
             }
@@ -358,7 +348,7 @@ bool KisWebSocket::subscribe_incremental(const WatchSpec& specification)
         for (auto iterator = specifications_.begin(); iterator != specifications_.end(); ++iterator)
         {
             if (iterator->market == specification.market && iterator->exchange == specification.exchange &&
-                iterator->ticker == specification.ticker && iterator->is_future == specification.is_future)
+                iterator->ticker == specification.ticker)
             {
                 specifications_.erase(iterator);
                 break;
@@ -380,7 +370,7 @@ bool KisWebSocket::unsubscribe_incremental(const WatchSpec& specification)
         const auto iterator = std::find_if(specifications_.begin(), specifications_.end(), [&specification](const WatchSpec& watch)
         {
             return watch.market == specification.market && watch.exchange == specification.exchange &&
-                   watch.ticker == specification.ticker && watch.is_future == specification.is_future;
+                   watch.ticker == specification.ticker;
         });
 
         if (iterator == specifications_.end())
@@ -413,7 +403,7 @@ bool KisWebSocket::has_specification(const WatchSpec& specification) const
     for (const auto& watch : specifications_)
     {
         if (watch.market == specification.market && watch.exchange == specification.exchange &&
-            watch.ticker == specification.ticker && watch.is_future == specification.is_future)
+            watch.ticker == specification.ticker)
         {
             return true;
         }
@@ -480,7 +470,7 @@ void KisWebSocket::subscribe_all()
             for (auto iterator = specifications_.begin(); iterator != specifications_.end(); ++iterator)
             {
                 if (iterator->market == specification.market && iterator->exchange == specification.exchange &&
-                    iterator->ticker == specification.ticker && iterator->is_future == specification.is_future)
+                    iterator->ticker == specification.ticker)
                 {
                     specifications_.erase(iterator);
                     break;

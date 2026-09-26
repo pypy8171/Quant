@@ -36,8 +36,6 @@ static std::string kis_reject_code(const json& document)
 //  애프터마켓 주문 자체를 받지 않아 이 경로는 실증된 적이 없었다.
 //  구간 바깥(예: 08:50~09:00)은 OrderGate 세션 창이 막으므로 여기서 다시 보지 않는다.
 //  [why D-097] [why D-122]
-static constexpr int32_t kRegularOpenHhmmss        = 90000;   // 정규장 시작 09:00:00
-static constexpr int32_t kRegularCloseHhmmss       = 153000;  // 정규장 끝 15:30:00
 static constexpr int32_t kClosingAuctionOpenHhmmss = 154000;  // 장후 종가매매 시작 15:40:00
 static constexpr int32_t kAfterMarketOpenHhmmss    = 160000;  // 애프터마켓 시작 16:00:00
 static constexpr int32_t kAfterMarketCloseHhmmss   = 200000;  // 애프터마켓 끝 20:00:00
@@ -136,123 +134,8 @@ static bool kis_parse_order_response(const std::string& response, json& document
     return true;
 }
 
-bool KisClient::send_order(const OrderSignal& signal)
-{
-    bool is_us = (signal.market == Market::US);
-    std::string transaction_id;
-    std::string url;
-
-    if (is_us)
-    {
-        // 해외주식 주문: NAS/NYS
-        if (signal.side == OrderSide::BUY)
-        {
-            transaction_id = config_.is_paper ? "VTTT1002U" : "TTTT1002U";
-        }
-        else
-        {
-            transaction_id = config_.is_paper ? "VTTT1006U" : "TTTT1006U";
-        }
-
-        url = base_url() + "/uapi/overseas-stock/v1/trading/order";
-    }
-    else
-    {
-        // 국내주식 현금 주문
-        if (signal.side == OrderSide::BUY)
-        {
-            transaction_id = config_.is_paper ? "VTTC0012U" : "TTTC0012U";
-        }
-        else
-        {
-            transaction_id = config_.is_paper ? "VTTC0011U" : "TTTC0011U";
-        }
-
-        url = base_url() + "/uapi/domestic-stock/v1/trading/order-cash";
-    }
-
-    json body;
-
-    if (is_us)
-    {
-        body = {{"CANO", config_.account_no},
-                {"ACNT_PRDT_CD", config_.account_type},
-                {"OVRS_EXCG_CD", signal.exchange},
-                {"PDNO", signal.ticker},
-                {"ORD_DVSN", "00"}, // 해외주식은 지정가(00)만 낸다. 시장가도 가격 "0"의 00으로 나간다.
-                {"ORD_QTY", std::to_string(signal.quantity)},
-                {"OVRS_ORD_UNPR", signal.type == OrderType::LIMIT ? std::to_string(signal.price) : "0"}};
-    }
-    else
-    {
-        const MarketSession session        = market_session_now();
-        const char*         order_division = kis_order_division(signal.type, session);
-        int                 order_price    = signal.type == OrderType::LIMIT ? static_cast<int>(signal.price) : 0;
-
-        if (session == MarketSession::ClosingAuction)
-        {
-            order_price = 0; // 장후 종가매매(06)는 종가로 체결된다 — 단가를 실으면 거부된다
-        }
-        else if (session == MarketSession::AfterMarket && signal.type == OrderType::MARKET)
-        {
-            // 애프터마켓 접속매매는 지정가(41)만 받는다. 현재가는 REST로 한 번 묻는다 —
-            //  청산·정정은 드물어 이 왕복이 hot path가 아니다.
-            order_price = offhours_limit_price(get_current_price(signal.ticker), signal.side);
-
-            if (order_price <= 0)
-            {
-                LOG_ERROR("[KIS] 애프터마켓 주문에 실을 현재가를 못 구했다 — 주문하지 않는다 " + signal.ticker);
-                return false;
-            }
-
-            LOG_INFO("[KIS] 애프터마켓이라 시장가를 지정가 " + std::to_string(order_price) + "원으로 바꾼다 " + signal.ticker);
-        }
-
-        const char* order_exchange = kis_session_exchange(config_, session);
-
-        body = {{"CANO", config_.account_no},
-                {"ACNT_PRDT_CD", config_.account_type},
-                {"PDNO", signal.ticker},
-                {"ORD_DVSN", order_division}, // 시간대가 정한다 — 정규장 01/00 · 종가 06 · 애프터 41
-                {"ORD_QTY", std::to_string(signal.quantity)},
-                {"ORD_UNPR", std::to_string(order_price)},
-                {"EXCG_ID_DVSN_CD", order_exchange}};
-    }
-
-    std::string response = http_post(url,
-                                 authentication_headers(transaction_id, {"Content-Type: application/json"}),
-                                 body.dump());
-
-    if (response.empty())
-    {
-        LOG_ERROR("[KIS] 주문 실패: " + signal.ticker);
-        return false;
-    }
-
-    json document;
-
-    if (!kis_parse_order_response(response, document, "send_order"))
-    {
-        return false;
-    }
-
-    bool ok = (document["rt_cd"].get_ref<const std::string&>() == "0");
-
-    if (ok)
-    {
-        LOG_INFO("[KIS] 주문 성공: " + signal.ticker + (signal.side == OrderSide::BUY ? " BUY " : " SELL ") +
-                 std::to_string(signal.quantity) + "주");
-    }
-    else
-    {
-        LOG_ERROR("[KIS] 주문 오류: " + document.value("msg1", std::string("")));
-    }
-
-    return ok;
-}
-
 // ─── MM-1: 신규 주문 + KRX 조직번호 캡처 ──────────────────────────────────
-//  send_order와 본문·tr_id 동일. 응답에서 ODNO에 더해 KRX_FWDG_ORD_ORGNO를
+//  응답에서 ODNO에 더해 KRX_FWDG_ORD_ORGNO를
 //  추출해 반환한다(정정/취소 시 원주문 조직번호로 재입력해야 함).
 //  HTTP 플랫폼 분기(WinHTTP/libcurl)는 http_post 내부에 이미 캡슐화됨.
 OrderAck KisClient::submit_order_acknowledgement(const OrderSignal& signal)
@@ -493,64 +376,4 @@ OrderAck KisClient::revise_order(const std::string& ticker, const std::string& o
     LOG_INFO("[KIS] 정정 접수: " + ticker + " 원ODNO=" + orig_odno +
              " 새ODNO=" + new_order_no + " @" + std::to_string(static_cast<int>(new_price)));
     return OrderAck{std::move(new_order_no), std::string(), std::string()};
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-//  해외 주식 주문
-//  매수: TTTT1002U(실거래) / VTTT1002U(모의)
-//  매도: TTTT1006U(실거래) / VTTT1006U(모의)
-// ═══════════════════════════════════════════════════════════════════════════
-bool KisClient::send_us_order(const OrderSignal& signal)
-{
-    std::string transaction_id;
-
-    if (signal.side == OrderSide::BUY)
-    {
-        transaction_id = config_.is_paper ? "VTTT1002U" : "TTTT1002U";
-    }
-    else
-    {
-        transaction_id = config_.is_paper ? "VTTT1006U" : "TTTT1006U";
-    }
-
-    // KIS 해외주식 주문: 시장가 = ORD_DVSN "00", 가격 "0"
-    json body = {{"CANO", config_.account_no},
-                 {"ACNT_PRDT_CD", config_.account_type},
-                 {"OVRS_EXCG_CD", signal.exchange.empty() ? "NASD" : signal.exchange},
-                 {"PDNO", signal.ticker},
-                 {"ORD_DVSN", "00"}, // 해외주식은 지정가(00)만 낸다. 시장가도 가격 "0"의 00으로 나간다.
-                 {"ORD_QTY", std::to_string(signal.quantity)},
-                 {"OVRS_ORD_UNPR", signal.type == OrderType::LIMIT ? std::to_string(signal.price) : "0"}};
-
-    std::string url = base_url() + "/uapi/overseas-stock/v1/trading/order";
-    std::string response = http_post(url,
-                                 authentication_headers(transaction_id, {"Content-Type: application/json"}),
-                                 body.dump());
-
-    if (response.empty())
-    {
-        LOG_ERROR("[KIS-US] 주문 실패: " + signal.ticker);
-        return false;
-    }
-
-    json document;
-
-    if (!kis_parse_order_response(response, document, "send_us_order"))
-    {
-        return false;
-    }
-
-    bool ok = (document["rt_cd"].get_ref<const std::string&>() == "0");
-
-    if (ok)
-    {
-        LOG_INFO("[KIS-US] 주문 성공: " + signal.ticker + (signal.side == OrderSide::BUY ? " BUY " : " SELL ") +
-                 std::to_string(signal.quantity) + "주");
-    }
-    else
-    {
-        LOG_ERROR("[KIS-US] 주문 오류: " + document.value("msg1", "unknown"));
-    }
-
-    return ok;
 }

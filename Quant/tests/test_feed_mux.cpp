@@ -29,11 +29,10 @@ int g_checks = 0;
         }                                                                                  \
     } while (0)
 
-WatchSpec specification(const std::string& ticker, bool is_future = false)
+WatchSpec specification(const std::string& ticker)
 {
     WatchSpec specification;
-    specification.ticker    = ticker;
-    specification.is_future = is_future;
+    specification.ticker = ticker;
     return specification;
 }
 
@@ -310,9 +309,6 @@ int main()
         CHECK(!multiplexer.subscribe_incremental(specification("D")) && multiplexer.has_specification(specification("D"))); // 중복
         CHECK(!multiplexer.subscribe_incremental(specification("E")) && !multiplexer.has_specification(specification("E")));  // 상한
         CHECK(!multiplexer.source_of(specification("E")).has_value());
-
-        // 선물은 같은 코드라도 다른 키.
-        CHECK(!multiplexer.has_specification(specification("A", true)));
 
         // 넘침: 소스 a에 3개 넣어 1개 넘치게 하고 회수하면 배정에서 빠진다.
         CHECK(multiplexer.connect({specification("A"), specification("C"), specification("F"), specification("G"), specification("H")}));

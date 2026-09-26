@@ -62,7 +62,7 @@ zone_check.exe 005930 000660 047050 036930
   047050 포스코인터           일봉 245개  종가     57050  SMA20   56722.5  이격  +0.58%  정배열 Y
 ```
 
-그 다음 슬리브마다 표가 나온다. `이격%`는 현재가의 SMA20 대비 편차이고,
+그 다음 DEVSCALE 슬리브 표가 나온다. `이격%`는 현재가의 SMA20 대비 편차이고,
 `존`은 `정배열 && SMA20 확보 && 진입밴드 안` 세 조건을 모두 만족했는지다.
 
 ```
@@ -83,7 +83,7 @@ zone_check.exe 005930 000660 047050 036930
 |---|---|
 | 점수 우선순위 기준선 | [OrderGate.cpp](../../Quant/src/risk/OrderGate.cpp) `check` §3c 유효 랭크 |
 | 슬롯 수 | [OrderGate.cpp](../../Quant/src/risk/OrderGate.cpp) `check` §3c 동시 보유 상한 |
-| 명목·총노출 한도 | [OrderGate.cpp](../../Quant/src/risk/OrderGate.cpp) `clamp_buy_qty` |
+| 명목·총노출 한도 | [OrderGate.cpp](../../Quant/src/risk/OrderGate.cpp) `clamp_buy_quantity` |
 | 중복·간격 | `min_action_ms`, `min_rebuild_sec` |
 
 그리고 엔진은 3분봉 현재가를 얹어 SMA를 갱신하지만 여기서는 일봉 종가만 쓴다.
@@ -100,5 +100,5 @@ zone_check.exe 005930 000660 047050 036930
 
 `배수`는 슬리브 총목표를 상위 슬롯 종목들에 나눠 주는 값이다
 (`scale = target_total_pct / (base_pct × Σ상위 raw)`). 3종목만 주면 80%를 셋이 나눠 갖게 되어
-배수가 7 근처까지 뜬다. 엔진에서는 17~25종목이 들어오므로 1 근처에 모인다.
+배수가 7 근처까지 뜬다. 엔진에서는 17종목 안팎이 들어오므로 1 근처에 모인다.
 배수를 실제와 비슷하게 보고 싶으면 종목을 15개 이상 준다.

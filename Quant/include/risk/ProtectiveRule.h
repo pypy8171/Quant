@@ -22,8 +22,6 @@ enum class ProtectiveMode
 
 ProtectiveMode protective_mode_from_string(const std::string& text);
 
-const char* protective_mode_name(ProtectiveMode mode);
-
 // 보호 주문 한 건. 퍼센트는 전부 평단 기준이고 0이면 그 조건을 안 본다.
 struct ProtectiveRule
 {

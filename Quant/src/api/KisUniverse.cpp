@@ -542,7 +542,6 @@ std::vector<KisClient::EstInvestorFlow> KisClient::fetch_est_investor_ranking(
                 est_investor_flow.foreign_net_quantity = safe_i(item, "frgn_ntby_qty");
                 est_investor_flow.institution_net_quantity    = safe_i(item, "orgn_ntby_qty");
                 est_investor_flow.foreign_net_amount = safe_d(item, "frgn_ntby_tr_pbmn");
-                est_investor_flow.institution_net_amount    = safe_d(item, "orgn_ntby_tr_pbmn");
 
                 if (!est_investor_flow.ticker.empty())
                 {

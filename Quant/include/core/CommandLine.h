@@ -7,7 +7,7 @@
 #include <string_view>
 
 // 한 exe가 맡는 자리. Both는 지금까지의 한 프로세스(시세·전략·주문·원장 전부), Order는 주문·원장·체결,
-//  Strategy는 전략·신호, Feed는 WebSocket 소켓 하나와 디코드다. StrategyType·Mode와 같은 스마트enum idiom.
+//  Strategy는 전략·신호, Feed는 WebSocket 소켓 하나와 디코드다. StrategyType과 같은 스마트enum idiom.
 //  값은 뒤에만 더한다 — 앞에 끼우면 저장된 숫자가 다른 역할을 가리킨다.
 class ProcessRole
 {
@@ -31,7 +31,7 @@ public:
         return value_;
     }
 
-    // 인자 문자열 → 역할. **모르는 값은 실패다**(Mode::from_string이 TRADE로 낙하하는 것과 다르다) —
+    // 인자 문자열 → 역할. **모르는 값은 실패다**(기본값으로 넘어가지 않는다) —
     //  오타 하나로 두 프로세스가 같은 자리를 맡으면 같은 계좌에 주문이 두 번 난다(A등급).
     //  대소문자는 가리지 않는다. 성공하면 role에 담고 true.
     [[nodiscard]] static bool from_string(std::string_view text, ProcessRole& role);

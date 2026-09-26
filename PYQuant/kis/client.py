@@ -337,8 +337,8 @@ class KisClient:
         """업종·테마 지수 하나의 일봉(오래된→최신)과 현재 스냅샷. C++ get_index_daily_ohlcv와 같은
         TR(FHKUP03500100)인데 output1에 업종명·현재가·전일대비가 같이 오므로 섹터 카드는 이 한 호출로 끝낸다.
         [wire] 업종 구분별 전체시세(FHPUP02110000)는 실전 시세키로 output2가 비어 와서 쓰지 않는다
-        (check_sector_index.py로 확인, 2026-09-11). 응답 첫 봉은 당일(장중이면 미완성)이다.
-        살아 있는 코드는 check_sector_index.py 훑기 결과를 따른다 — 코스피 0005~0030, 코스닥 1019~1033 등."""
+        (2026-09-11 코드 훑기로 확인, 그때 쓴 일회성 도구는 지웠다). 응답 첫 봉은 당일(장중이면 미완성)이다.
+        살아 있는 코드는 그 훑기 결과를 따른다 — 코스피 0005~0030, 코스닥 1019~1033 등."""
         d2 = datetime.now().strftime("%Y%m%d")
         d1 = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
         data = self._get(
@@ -786,7 +786,7 @@ class KisClient:
     def get_investor_time_by_market(self, iscd: str = "999", iscd2: str = "S001") -> list[dict]:
         """시장별 투자자매매동향(시세) — TR FHPTJ04030000, HTS [0403] 상단 표.
         장중 잠정치. 행마다 frgn/orgn/prsn_ntby_tr_pbmn(순매수 대금) 등이 온다.
-        인자 의미는 KIS 문서에 없고 공식 예제 값(999·S001)뿐이라 check_market_flow.py로 확인한다."""
+        인자 의미는 KIS 문서에 없고 공식 예제 값(999·S001)뿐이다. 실제 응답으로 확인했고, 그때 쓴 일회성 도구는 지웠다."""
         data = self._get(
             "/uapi/domestic-stock/v1/quotations/inquire-investor-time-by-market",
             {"FID_INPUT_ISCD": iscd, "FID_INPUT_ISCD_2": iscd2},

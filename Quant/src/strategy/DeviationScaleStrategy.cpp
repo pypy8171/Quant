@@ -67,12 +67,8 @@ std::string DeviationScaleStrategy::describe() const
            "% split_steps=" + std::to_string(parameters_.split_step_count) + "/buy" +
            std::to_string(parameters_.buy_split_steps) + " zone=" + format_one_decimal(-parameters_.pullback_percent) +
            "~+" + format_one_decimal(parameters_.entry_upper_percent) + "%" +
-           (parameters_.entry_lower_percent > 0.0
-                ? " lower=+" + format_one_decimal(parameters_.entry_lower_percent) + "%"
-                : "") +
            (parameters_.stop_loss_percent > 0.0 ? " stop=-" + format_one_decimal(parameters_.stop_loss_percent) + "%"
                                                 : "") +
-           (parameters_.trail_simple_moving_average_exit ? " trail" : "") +
            (parameters_.sell_base_average ? " sell@avg" : "") +
            (parameters_.trail_arm_percent > 0.0 ? " peak-trail" : "") +
            (parameters_.entry_atr_max_percent > 0.0
@@ -277,12 +273,7 @@ void DeviationScaleStrategy::on_trade_batch(const TradeData& trade, std::vector<
         return;
     }
 
-    // 데드밴드는 분할 주문 기준점 기준이다. 현재가 기준점(base_on_price)에서 SMA로 재면 값이
-    //  틱마다 바뀌는데 데드밴드는 조용하다고 판정해 (b)가 걸리지 않았다(09-11 TRENDX 재구성
-    //  669회 vs DEVSCALE 160회).
-    const double split_buy_reference = parameters_.base_on_price ? plan.base_line : simple_moving_average;
-
-    if (rebuild_suppressed(signal, position, split_buy_reference))
+    if (rebuild_suppressed(signal, position, simple_moving_average))
     {
         return;
     }
@@ -294,17 +285,13 @@ void DeviationScaleStrategy::on_trade_batch(const TradeData& trade, std::vector<
     //  (지연에 민감한 경로 부하 억제 — 매수는 캡을 OrderGate가 처리하므로 클램프 불필요).
     cancel_all(out);
     // G4: 이 분할 매수를 깐 판단 근거 — 존 판정 지표를 신호에 실어 영속(로그 재구성 불필요).
-    // 슬리브에 따라 근거 문구를 바꾼다. 추세확장(TRENDX)은 SMA20 위 과확장 구간을
-    //  일부러 사는 슬리브라 "눌림"이라고 찍으면 운영자가 오독한다(09-08 한미사이언스
-    //  이격 +23.8%가 "정배열눌림진입"으로 남아 눌림목이 아닌데 왜 샀냐는 질문이 나왔다).
-    const std::string entry_kind = parameters_.entry_lower_percent > 0.0 ? "정배열추세확장진입" : "정배열눌림진입";
-    const std::string buy_context = entry_kind + " 이격=" + format_one_decimal(zone_judgement.deviation20_percent) +
+    const std::string buy_context = std::string("정배열눌림진입 이격=") + format_one_decimal(zone_judgement.deviation20_percent) +
                                     "% 일봉SMA20=" + format_one_decimal(zone_judgement.average_20) +
                                     " 현재가=" + format_one_decimal(current_price) +
                                     entry_context_text(trade, current_price);
     place_split_steps(plan, entry_on, buy_context, out);
 
-    last_split_buy_reference_ = split_buy_reference;
+    last_split_buy_reference_ = simple_moving_average;
     last_split_buy_signal_ = std::move(signal);
     last_position_ = position;
     last_rebuild_ = std::chrono::steady_clock::now();
@@ -515,12 +502,8 @@ DeviationScaleStrategy::ZoneJudgement DeviationScaleStrategy::judge_zone(double 
     const double down_threshold = in_zone_
                                       ? parameters_.pullback_percent + parameters_.zone_hysteresis_percent // 유지 하단
                                       : parameters_.pullback_percent;                                      // 진입 하단
-    // 존 하단: 기본은 SMA20 아래 -down_threshold(눌림). entry_lower_percent>0인 추세확장 슬리브는
-    //  하단을 SMA20 위로 올려, 눌림 슬리브의 상단과 맞물리되 겹치지 않게 한다.
-    const double low_threshold =
-        parameters_.entry_lower_percent > 0.0
-            ? parameters_.entry_lower_percent - (in_zone_ ? parameters_.zone_hysteresis_percent : 0.0)
-            : -down_threshold;
+    // 존 하단: SMA20 아래 -down_threshold(눌림).
+    const double low_threshold = -down_threshold;
     const bool band = d_s20 > 0.0 && deviation20_percent <= up_threshold && deviation20_percent >= low_threshold;
     const bool zone = aligned && band; // 진입 게이트
     // [inv] hold_zone은 zone보다 넓어야 한다(정배열 축이 느린 쪽) — 좁아지면 막 산 걸 다음
@@ -704,23 +687,6 @@ DeviationScaleStrategy::resolve_baseline(const std::vector<MarketData>& bars, do
         return std::nullopt;
     }
 
-    // ── 트레일: 3분봉 기준선 아래로 tol만큼 내려오면 청산(워밍업 제외) ────────────
-    if (parameters_.trail_simple_moving_average_exit && !warming &&
-        current_price <
-            simple_moving_average * (1.0 - parameters_.trail_simple_moving_average_tolerance_percent / 100.0))
-    {
-        const int position = confirmed_position(parameters_.account, symbol_id_, parameters_.ticker);
-
-        if (position > 0)
-        {
-            cancel_all(out);
-            emit_liquidation(out, position, now, "3분봉 기준선 이탈(" + format_one_decimal(simple_moving_average) + ")",
-                             kLiquidationBackoffMs);
-            stop_cooldown_until_ = now + std::chrono::seconds(parameters_.stop_cooldown_sec);
-            return std::nullopt;
-        }
-    }
-
     if (warming)
     {
         const int64_t now_ms =
@@ -776,13 +742,9 @@ DeviationScaleStrategy::SplitPlan DeviationScaleStrategy::plan_split_steps(int p
 
     // 분할 매수 기준점. 교차 가드가 켜져 있으면 각 방향 층이 현재가를 넘지 않도록 기준선을
     //  현재가 쪽으로 당긴다. 이격이 벌어진 상태에서도 분할 매수 간격은 그대로 유지된다.
-    //  base_on_price면 기준선을 현재가로 둔다. 이격 +5~30% 구간에서 SMA20을 기준점으로
-    //   쓰면 매수층 전부가 시장가에서 그만큼 아래에 깔려 하루 종일 한 주도 안 붙는다.
-    //   추세 슬리브는 "지금 값에서 한 호가 아래"로 붙어야 추세에 올라탄다.
     const bool guard_on = parameters_.cross_guard && current_price > 0.0;
-    const double base_line = (parameters_.base_on_price && current_price > 0.0) ? current_price : simple_moving_average;
-    const double sell_base_line = guard_on ? (std::max)(base_line, current_price) : base_line;
-    const double buy_base_line = guard_on ? (std::min)(base_line, current_price) : base_line;
+    const double sell_base_line = guard_on ? (std::max)(simple_moving_average, current_price) : simple_moving_average;
+    const double buy_base_line = guard_on ? (std::min)(simple_moving_average, current_price) : simple_moving_average;
 
     // 베이스: 무포지션이면 기준선 근처 지정가 매수(자본의 base_percent). 부분체결로 보유가 목표에 못 미치면
     //  잔량을 같은 자리에 다시 깐다 — 예전엔 1주만 체결돼도 position>0이라 베이스 분할 단계가 빠졌고, 재구성이 잔량
@@ -809,7 +771,7 @@ DeviationScaleStrategy::SplitPlan DeviationScaleStrategy::plan_split_steps(int p
 
     if (position <= 0 || base_short)
     {
-        double buy_price = round_to_tick(base_line, OrderSide::BUY);
+        double buy_price = round_to_tick(simple_moving_average, OrderSide::BUY);
 
         // 교차 가드: 기준선이 현재가 이상이면 이 지정가는 즉시 시장가로 체결된다.
         //  베이스를 건너뛰면 add_below_sma_only가 노리는 눌림 진입에서 가장 큰 레그가
@@ -870,9 +832,6 @@ DeviationScaleStrategy::SplitPlan DeviationScaleStrategy::plan_split_steps(int p
     //  점진 진입: add_below_sma_only면 현재가가 3분봉 기준선 아래(실제 눌림)일 때만 물타기를 깐다.
     //  → 활성 즉시 base+물타기를 한꺼번에 예약해 1분 만에 10% 만재되던 성격을 제거. 기준선 위/근처에선
     //    base(+익절 매도레그)만 유지하고, 진짜 눌림이 와야 평단을 낮춘다.
-    //  추세확장 슬리브(base_on_price)는 add_below_simple_moving_average_only=false로 돌린다 — 이격이 벌어진
-    //   구간에서 "기준선 아래"는 거의 안 오므로 켜 두면 분할 매수가 영영 안 깔린다. 그 슬리브의
-    //   하방 분할 매수 자체는 buy_split_steps=0으로 끈다(2026-09-11 회의 §1-4).
     // 워밍업(기준선=일봉SMA20) 구간에는 물타기를 잠근다. 존 진입 조건이 이격 -pullback_percent~
     //  +entry_upper_pct라 `cur_px < 일봉SMA20`이 거의 항상 참이 되어, 3분봉 기준선이 뜻하던
     //  "단기 눌림에서만 추가"가 사실상 상시 개방으로 바뀐다. 변동성이 가장 큰 첫 60분에
@@ -897,7 +856,6 @@ DeviationScaleStrategy::SplitPlan DeviationScaleStrategy::plan_split_steps(int p
         }
     }
 
-    split_plan.base_line = base_line;
     split_plan.base_notional = base_notional;
     split_plan.split_step_budget = split_step_budget;
     split_plan.entry_scale_ratio = rscale;

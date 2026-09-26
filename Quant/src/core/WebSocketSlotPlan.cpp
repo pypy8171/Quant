@@ -8,7 +8,7 @@ namespace websocket_slot
 {
 bool is_managed(const WatchSpec& specification)
 {
-    return specification.market == Market::KR && !specification.is_future;
+    return specification.market == Market::KR;
 }
 
 int channels_of(const WatchSpec& specification)

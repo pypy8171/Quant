@@ -109,12 +109,12 @@
     {
       "from": "strategy",
       "to": "api",
-      "weight": 5
+      "weight": 3
     },
     {
       "from": "strategy",
       "to": "core",
-      "weight": 24
+      "weight": 19
     },
     {
       "from": "strategy",
@@ -129,7 +129,7 @@
     {
       "from": "strategy",
       "to": "utils",
-      "weight": 11
+      "weight": 8
     },
     {
       "from": "universe",
@@ -240,15 +240,11 @@
     "strategy/IntradayBreakoutStrategy.h": "strategy",
     "strategy/MACrossStrategy.h": "strategy",
     "strategy/MarketMakingStrategy.h": "strategy",
-    "strategy/MomentumStrategy.h": "strategy",
-    "strategy/PriceTargetStrategy.h": "strategy",
     "strategy/SeedPeakStore.h": "strategy",
     "strategy/StrategyBase.h": "strategy",
     "strategy/StrategyFactory.h": "strategy",
-    "strategy/SupplyDemandPullbackStrategy.h": "strategy",
     "strategy/TargetBasketPlan.h": "strategy",
     "strategy/TargetBasketStrategy.h": "strategy",
-    "strategy/ThemeStrategy.h": "strategy",
     "strategy/ValueContraryStrategy.h": "strategy",
     "universe/MaAlign.h": "universe",
     "universe/ScoreWeight.h": "universe",
@@ -356,15 +352,11 @@
     "strategy/IntradayBreakoutStrategy.cpp": "strategy",
     "strategy/MACrossStrategy.cpp": "strategy",
     "strategy/MarketMakingStrategy.cpp": "strategy",
-    "strategy/MomentumStrategy.cpp": "strategy",
-    "strategy/PriceTargetStrategy.cpp": "strategy",
     "strategy/SeedPeakStore.cpp": "strategy",
     "strategy/StrategyBase.cpp": "strategy",
     "strategy/StrategyFactory.cpp": "strategy",
-    "strategy/SupplyDemandPullbackStrategy.cpp": "strategy",
     "strategy/TargetBasketPlan.cpp": "strategy",
     "strategy/TargetBasketStrategy.cpp": "strategy",
-    "strategy/ThemeStrategy.cpp": "strategy",
     "strategy/ValueContraryStrategy.cpp": "strategy",
     "universe/MaAlign.cpp": "universe",
     "universe/ScoreWeight.cpp": "universe",
@@ -1099,20 +1091,6 @@
       "core/TickSize.h",
       "strategy/StrategyBase.h"
     ],
-    "strategy/MomentumStrategy.cpp": [
-      "strategy/MomentumStrategy.h"
-    ],
-    "strategy/MomentumStrategy.h": [
-      "strategy/StrategyBase.h"
-    ],
-    "strategy/PriceTargetStrategy.cpp": [
-      "strategy/PriceTargetStrategy.h"
-    ],
-    "strategy/PriceTargetStrategy.h": [
-      "core/MarketSession.h",
-      "strategy/StrategyBase.h",
-      "utils/Logger.h"
-    ],
     "strategy/SeedPeakStore.cpp": [
       "strategy/SeedPeakStore.h"
     ],
@@ -1131,7 +1109,6 @@
     "strategy/StrategyFactory.cpp": [
       "core/Engine.h",
       "core/KstTime.h",
-      "core/MarketSession.h",
       "core/Types.h",
       "core/UniverseExit.h",
       "strategy/DevScaleRules.h",
@@ -1140,12 +1117,8 @@
       "strategy/IntradayBreakoutStrategy.h",
       "strategy/MACrossStrategy.h",
       "strategy/MarketMakingStrategy.h",
-      "strategy/MomentumStrategy.h",
-      "strategy/PriceTargetStrategy.h",
       "strategy/StrategyFactory.h",
-      "strategy/SupplyDemandPullbackStrategy.h",
       "strategy/TargetBasketStrategy.h",
-      "strategy/ThemeStrategy.h",
       "strategy/ValueContraryStrategy.h",
       "universe/ScoreWeight.h",
       "universe/UniverseScanner.h",
@@ -1154,16 +1127,6 @@
     ],
     "strategy/StrategyFactory.h": [
       "api/KisClient.h"
-    ],
-    "strategy/SupplyDemandPullbackStrategy.cpp": [
-      "strategy/SupplyDemandPullbackStrategy.h"
-    ],
-    "strategy/SupplyDemandPullbackStrategy.h": [
-      "api/KisClient.h",
-      "core/KstTime.h",
-      "core/Types.h",
-      "strategy/StrategyBase.h",
-      "utils/Logger.h"
     ],
     "strategy/TargetBasketPlan.cpp": [
       "strategy/TargetBasketPlan.h"
@@ -1179,15 +1142,6 @@
     "strategy/TargetBasketStrategy.h": [
       "strategy/StrategyBase.h",
       "strategy/TargetBasketPlan.h"
-    ],
-    "strategy/ThemeStrategy.cpp": [
-      "strategy/ThemeStrategy.h"
-    ],
-    "strategy/ThemeStrategy.h": [
-      "api/KisClient.h",
-      "core/MarketSession.h",
-      "strategy/StrategyBase.h",
-      "utils/Logger.h"
     ],
     "strategy/ValueContraryStrategy.cpp": [
       "strategy/ValueContraryStrategy.h"
@@ -1312,8 +1266,6 @@
       "core/Engine.h",
       "strategy/DeviationScaleStrategy.h",
       "strategy/StrategyFactory.h",
-      "strategy/SupplyDemandPullbackStrategy.h",
-      "strategy/ThemeStrategy.h",
       "strategy/ValueContraryStrategy.h",
       "universe/UniverseScanner.h"
     ],
@@ -1442,7 +1394,6 @@
       "strategy/DeviationScaleStrategy.h",
       "strategy/SeedPeakStore.h",
       "strategy/StrategyFactory.cpp",
-      "strategy/SupplyDemandPullbackStrategy.h",
       "strategy/TargetBasketStrategy.cpp",
       "universe/UniverseCandidates.cpp",
       "universe/UniverseFeatures.cpp",
@@ -1476,9 +1427,6 @@
       "core/PaperExecutor.h",
       "core/TickCapture.h",
       "strategy/FixedIntervalStrategy.h",
-      "strategy/PriceTargetStrategy.h",
-      "strategy/StrategyFactory.cpp",
-      "strategy/ThemeStrategy.h",
       "strategy/ValueContraryStrategy.h"
     ],
     "core/MpscQueue.h": [
@@ -1630,7 +1578,6 @@
       "strategy/DevScaleRules.h",
       "strategy/StrategyBase.h",
       "strategy/StrategyFactory.cpp",
-      "strategy/SupplyDemandPullbackStrategy.h",
       "strategy/TargetBasketPlan.h",
       "universe/UniverseCandidates.cpp",
       "universe/UniverseFeatures.cpp",
@@ -1832,14 +1779,6 @@
       "strategy/MarketMakingStrategy.cpp",
       "strategy/StrategyFactory.cpp"
     ],
-    "strategy/MomentumStrategy.h": [
-      "strategy/MomentumStrategy.cpp",
-      "strategy/StrategyFactory.cpp"
-    ],
-    "strategy/PriceTargetStrategy.h": [
-      "strategy/PriceTargetStrategy.cpp",
-      "strategy/StrategyFactory.cpp"
-    ],
     "strategy/SeedPeakStore.h": [
       "strategy/IntradayBreakoutStrategy.h",
       "strategy/SeedPeakStore.cpp"
@@ -1854,21 +1793,13 @@
       "strategy/IntradayBreakoutStrategy.h",
       "strategy/MACrossStrategy.h",
       "strategy/MarketMakingStrategy.h",
-      "strategy/MomentumStrategy.h",
-      "strategy/PriceTargetStrategy.h",
       "strategy/StrategyBase.cpp",
-      "strategy/SupplyDemandPullbackStrategy.h",
       "strategy/TargetBasketStrategy.h",
-      "strategy/ThemeStrategy.h",
       "strategy/ValueContraryStrategy.h"
     ],
     "strategy/StrategyFactory.h": [
       "main.cpp",
       "strategy/StrategyFactory.cpp"
-    ],
-    "strategy/SupplyDemandPullbackStrategy.h": [
-      "strategy/StrategyFactory.cpp",
-      "strategy/SupplyDemandPullbackStrategy.cpp"
     ],
     "strategy/TargetBasketPlan.h": [
       "strategy/TargetBasketPlan.cpp",
@@ -1877,10 +1808,6 @@
     "strategy/TargetBasketStrategy.h": [
       "strategy/StrategyFactory.cpp",
       "strategy/TargetBasketStrategy.cpp"
-    ],
-    "strategy/ThemeStrategy.h": [
-      "strategy/StrategyFactory.cpp",
-      "strategy/ThemeStrategy.cpp"
     ],
     "strategy/ValueContraryStrategy.h": [
       "strategy/StrategyFactory.cpp",
@@ -1971,12 +1898,9 @@
       "strategy/DeviationScaleStrategy.h",
       "strategy/FixedIntervalStrategy.h",
       "strategy/IntradayBreakoutStrategy.h",
-      "strategy/PriceTargetStrategy.h",
       "strategy/SeedPeakStore.h",
       "strategy/StrategyFactory.cpp",
-      "strategy/SupplyDemandPullbackStrategy.h",
       "strategy/TargetBasketStrategy.cpp",
-      "strategy/ThemeStrategy.h",
       "strategy/ValueContraryStrategy.h",
       "universe/UniverseCandidates.cpp",
       "universe/UniverseFeatures.cpp",
@@ -2020,15 +1944,15 @@
   "hubs": [
     {
       "header": "utils/Logger.h",
-      "in_degree": 54
+      "in_degree": 51
     },
     {
       "header": "core/Types.h",
-      "in_degree": 48
+      "in_degree": 47
     },
     {
       "header": "core/KstTime.h",
-      "in_degree": 31
+      "in_degree": 30
     },
     {
       "header": "core/SymbolTable.h",
@@ -2043,10 +1967,6 @@
       "in_degree": 16
     },
     {
-      "header": "strategy/StrategyBase.h",
-      "in_degree": 16
-    },
-    {
       "header": "core/LatencyTrace.h",
       "in_degree": 12
     },
@@ -2055,15 +1975,15 @@
       "in_degree": 12
     },
     {
-      "header": "api/KisClient.h",
-      "in_degree": 11
+      "header": "strategy/StrategyBase.h",
+      "in_degree": 12
     },
     {
       "header": "utils/JsonNode.h",
       "in_degree": 11
     },
     {
-      "header": "core/MarketSession.h",
+      "header": "api/KisClient.h",
       "in_degree": 9
     },
     {
@@ -2081,6 +2001,10 @@
     {
       "header": "ipc/LedgerSnapshot.h",
       "in_degree": 7
+    },
+    {
+      "header": "core/MarketSession.h",
+      "in_degree": 6
     },
     {
       "header": "core/MpscQueue.h",
@@ -2168,46 +2092,30 @@
       "PYQuant/tests/test_strategy_a.py",
       "PYQuant/tools/__init__.py",
       "PYQuant/tools/bench_market_open.py",
-      "PYQuant/tools/check_adjusted.py",
-      "PYQuant/tools/check_datagokr.py",
-      "PYQuant/tools/check_investor_api.py",
-      "PYQuant/tools/check_kis_investor.py",
-      "PYQuant/tools/check_market_flow.py",
-      "PYQuant/tools/check_pykrx.py",
-      "PYQuant/tools/check_pykrx_flow.py",
-      "PYQuant/tools/check_sector_index.py",
       "PYQuant/tools/compare_ws_bars.py",
       "PYQuant/tools/dart_fin_history_fill.py",
       "PYQuant/tools/dart_shares_history_fill.py",
       "PYQuant/tools/fetch_naver_themes.py",
       "PYQuant/tools/full_universe_dump.py",
-      "PYQuant/tools/fullperiod_validate.py",
-      "PYQuant/tools/index_intraday_logger.py",
-      "PYQuant/tools/investor_flow_logger.py",
       "PYQuant/tools/kind_delisted_fill.py",
       "PYQuant/tools/ledger_dump.py",
       "PYQuant/tools/ledger_recorder.py",
       "PYQuant/tools/load_highwater_reader.py",
       "PYQuant/tools/load_injector.py",
       "PYQuant/tools/load_latency_reader.py",
-      "PYQuant/tools/load_status_sampler.py",
       "PYQuant/tools/log_report.py",
       "PYQuant/tools/macro_ingest.py",
       "PYQuant/tools/macro_regime_feed.py",
       "PYQuant/tools/minute_backfill.py",
       "PYQuant/tools/minute_backfill_pairs.py",
-      "PYQuant/tools/month_start_sweep.py",
       "PYQuant/tools/naver_bars_backfill.py",
       "PYQuant/tools/naver_flow_backfill.py",
       "PYQuant/tools/naver_research_fetch.py",
-      "PYQuant/tools/nxt_divergence_check.py",
       "PYQuant/tools/pit_universe_backfill.py",
-      "PYQuant/tools/regime_removal_test_2022.py",
       "PYQuant/tools/sweep.py",
       "PYQuant/tools/universe_feed.py",
       "PYQuant/tools/walkforward.py",
       "scripts/_logdir.py",
-      "scripts/analyze_slot_cost.py",
       "scripts/backfill_fills_db.py",
       "scripts/backfill_studies.py",
       "scripts/build_review_entry.py",
@@ -2412,24 +2320,6 @@
         "core.logger",
         "db.client"
       ],
-      "PYQuant/tools/check_adjusted.py": [
-        "data.datagokr_source"
-      ],
-      "PYQuant/tools/check_datagokr.py": [
-        "data.datagokr_source"
-      ],
-      "PYQuant/tools/check_investor_api.py": [
-        "kis.client"
-      ],
-      "PYQuant/tools/check_kis_investor.py": [
-        "kis.client"
-      ],
-      "PYQuant/tools/check_market_flow.py": [
-        "kis.client"
-      ],
-      "PYQuant/tools/check_sector_index.py": [
-        "kis.client"
-      ],
       "PYQuant/tools/compare_ws_bars.py": [
         "kis.client"
       ],
@@ -2441,17 +2331,6 @@
       ],
       "PYQuant/tools/full_universe_dump.py": [
         "data.datagokr_source"
-      ],
-      "PYQuant/tools/fullperiod_validate.py": [
-        "data.datagokr_source",
-        "main",
-        "tools.month_start_sweep"
-      ],
-      "PYQuant/tools/index_intraday_logger.py": [
-        "kis.client"
-      ],
-      "PYQuant/tools/investor_flow_logger.py": [
-        "kis.client"
       ],
       "PYQuant/tools/ledger_recorder.py": [
         "core.logger",
@@ -2466,19 +2345,9 @@
       "PYQuant/tools/minute_backfill_pairs.py": [
         "features.fundamental"
       ],
-      "PYQuant/tools/month_start_sweep.py": [
-        "data.datagokr_source",
-        "main"
-      ],
-      "PYQuant/tools/nxt_divergence_check.py": [
-        "kis.client"
-      ],
       "PYQuant/tools/pit_universe_backfill.py": [
         "kis.client",
         "tools.universe_feed"
-      ],
-      "PYQuant/tools/regime_removal_test_2022.py": [
-        "main"
       ],
       "PYQuant/tools/sweep.py": [
         "main"
@@ -2489,9 +2358,6 @@
       "PYQuant/tools/walkforward.py": [
         "backtest.engine",
         "main"
-      ],
-      "scripts/analyze_slot_cost.py": [
-        "_logdir"
       ],
       "scripts/backfill_fills_db.py": [
         "_logdir",
@@ -2565,7 +2431,6 @@
     "imported_by": {
       "_logdir": [
         "PYQuant/tools/load_highwater_reader.py",
-        "scripts/analyze_slot_cost.py",
         "scripts/backfill_fills_db.py",
         "scripts/check_runtime_health.py",
         "scripts/dashboard_server.py",
@@ -2640,11 +2505,7 @@
       "data.datagokr_source": [
         "PYQuant/main.py",
         "PYQuant/tests/test_adjust_splits.py",
-        "PYQuant/tools/check_adjusted.py",
-        "PYQuant/tools/check_datagokr.py",
         "PYQuant/tools/full_universe_dump.py",
-        "PYQuant/tools/fullperiod_validate.py",
-        "PYQuant/tools/month_start_sweep.py",
         "PYQuant/tools/universe_feed.py"
       ],
       "data.index_source": [
@@ -2717,15 +2578,8 @@
         "PYQuant/tests/test_backtest_engine.py",
         "PYQuant/tests/test_indicators.py",
         "PYQuant/tests/test_strategy_a.py",
-        "PYQuant/tools/check_investor_api.py",
-        "PYQuant/tools/check_kis_investor.py",
-        "PYQuant/tools/check_market_flow.py",
-        "PYQuant/tools/check_sector_index.py",
         "PYQuant/tools/compare_ws_bars.py",
-        "PYQuant/tools/index_intraday_logger.py",
-        "PYQuant/tools/investor_flow_logger.py",
         "PYQuant/tools/minute_backfill.py",
-        "PYQuant/tools/nxt_divergence_check.py",
         "PYQuant/tools/pit_universe_backfill.py",
         "scripts/check_market_open.py",
         "scripts/dashboard_server.py",
@@ -2752,9 +2606,6 @@
       ],
       "main": [
         "PYQuant/live/forward_trader.py",
-        "PYQuant/tools/fullperiod_validate.py",
-        "PYQuant/tools/month_start_sweep.py",
-        "PYQuant/tools/regime_removal_test_2022.py",
         "PYQuant/tools/sweep.py",
         "PYQuant/tools/walkforward.py"
       ],
@@ -2807,9 +2658,6 @@
       "strategy.value_contrary": [
         "PYQuant/main.py",
         "PYQuant/tests/test_backtest_engine.py"
-      ],
-      "tools.month_start_sweep": [
-        "PYQuant/tools/fullperiod_validate.py"
       ],
       "tools.universe_feed": [
         "PYQuant/tools/pit_universe_backfill.py"
@@ -2974,7 +2822,7 @@
       {
         "from": "PYQuant/tools",
         "to": "PYQuant",
-        "weight": 5
+        "weight": 2
       },
       {
         "from": "PYQuant/tools",
@@ -2994,7 +2842,7 @@
       {
         "from": "PYQuant/tools",
         "to": "PYQuant/data",
-        "weight": 7
+        "weight": 3
       },
       {
         "from": "PYQuant/tools",
@@ -3009,7 +2857,7 @@
       {
         "from": "PYQuant/tools",
         "to": "PYQuant/kis",
-        "weight": 10
+        "weight": 3
       },
       {
         "from": "PYQuant/tools",
@@ -3123,7 +2971,6 @@
         "PYQuant/main.py",
         "PYQuant/tools/full_universe_dump.py",
         "PYQuant/tools/load_injector.py",
-        "PYQuant/tools/nxt_divergence_check.py",
         "PYQuant/tools/universe_feed.py",
         "Quant/src/universe/UniverseCandidates.cpp",
         "scripts/exit_ev_dashboard.py",
@@ -3136,7 +2983,6 @@
         "PYQuant/main.py",
         "PYQuant/tools/full_universe_dump.py",
         "PYQuant/tools/load_injector.py",
-        "PYQuant/tools/nxt_divergence_check.py",
         "PYQuant/tools/universe_feed.py",
         "Quant/include/universe/UniverseScanner.h",
         "Quant/src/api/KisUniverse.cpp",

@@ -1,7 +1,6 @@
 #include "strategy/StrategyFactory.h"
 #include "core/Engine.h"
 #include "core/KstTime.h"
-#include "core/MarketSession.h"
 #include "core/Types.h"
 #include "core/UniverseExit.h"
 #include "strategy/DevScaleRules.h"
@@ -10,11 +9,7 @@
 #include "strategy/IntradayBreakoutStrategy.h"
 #include "strategy/MACrossStrategy.h"
 #include "strategy/MarketMakingStrategy.h"
-#include "strategy/MomentumStrategy.h"
-#include "strategy/PriceTargetStrategy.h"
-#include "strategy/SupplyDemandPullbackStrategy.h"
 #include "strategy/TargetBasketStrategy.h"
-#include "strategy/ThemeStrategy.h"
 #include "strategy/ValueContraryStrategy.h"
 #include "universe/ScoreWeight.h"
 #include "universe/UniverseScanner.h"
@@ -43,8 +38,8 @@ struct LoadPass : StrategyLoadCtx
 {
     explicit LoadPass(const StrategyLoadCtx& base) : StrategyLoadCtx(base) {}
 
-    // 활성 국면 부착 — Engine은 직전 전략 하나에만 국면을 붙일 수 있다(set_last_active_regimes). 한 config 항목이
-    //  N개를 등록하는 로더(유니버스·보유 전 종목)에서 N-1개가 빠지지 않도록, 추가 지점마다 붙인다.
+    // 활성 국면 부착 — 한 config 항목이 N개를 등록하는 로더(유니버스·보유 전 종목)에서 하나도 빠지지 않도록,
+    //  전략을 추가하는 지점마다 붙인다.
     //  로더를 부르는 동안만 값이 있다(그 밖에서는 nullptr).
     const std::vector<Regime>* pending_regimes = nullptr;
 
@@ -313,20 +308,6 @@ static void load_intraday_breakout(LoadPass& context, const json& node)
     }
 }
 
-// ─── MOMENTUM ───────────────────────────────────────────────────────────────
-static void load_momentum(LoadPass& context, const json& node)
-{
-    int quantity = node.value("quantity", 1);
-    std::string ticker;
-
-    if (!require_ticker(node, "Momentum", ticker))
-    {
-        return;
-    }
-
-    add_gated(context, std::make_unique<MomentumStrategy>(std::move(ticker), node.value("period", 20), quantity));
-}
-
 // ─── VALUE_CONTRARY ─────────────────────────────────────────────────────────
 static void load_value_contrary(LoadPass& context, const json& node)
 {
@@ -362,76 +343,6 @@ static void load_fixed_interval(LoadPass& context, const json& node)
     int sell_quantity         = node.value("sell_qty", 1);
     int interval_sec     = node.value("interval_sec", 300);
     add_gated(context, std::make_unique<FixedIntervalStrategy>(std::move(ticker), buy_quantity, sell_quantity, interval_sec));
-}
-
-// ─── PRICE_TARGET ───────────────────────────────────────────────────────────
-static void load_price_target(LoadPass& context, const json& node)
-{
-    std::vector<PriceTargetStrategy::PriceTarget> price_targets;
-
-    if (node.contains("price_targets"))
-    {
-        for (const auto& price_target_node : node["price_targets"])
-        {
-            PriceTargetStrategy::PriceTarget price_target;
-            price_target.ticker       = price_target_node.value("ticker", std::string());
-
-            if (price_target.ticker.empty())
-            {
-                continue;
-            }
-
-            price_target.buy_price    = price_target_node.value("buy_price",  0.0);
-            price_target.sell_price   = price_target_node.value("sell_price", 0.0);
-            price_target.quantity     = price_target_node.value("quantity",   1);
-            price_target.cooldown_sec = price_target_node.value("cooldown_sec", 60);
-            price_targets.push_back(std::move(price_target));
-        }
-    }
-
-    std::vector<PriceTargetStrategy::LimitOrder> limit_orders;
-
-    if (node.contains("limit_orders"))
-    {
-        for (const auto& low : node["limit_orders"])
-        {
-            PriceTargetStrategy::LimitOrder limit_order;
-            limit_order.ticker   = low.value("ticker", std::string());
-
-            if (limit_order.ticker.empty())
-            {
-                continue;
-            }
-
-            limit_order.side     = OrderSide::from_string(low.value("side", "BUY"));
-            limit_order.price    = low.value("price",    0.0);
-            limit_order.quantity = low.value("quantity", 1);
-            limit_orders.push_back(std::move(limit_order));
-        }
-    }
-
-    add_gated(context, std::make_unique<PriceTargetStrategy>(
-        std::move(price_targets), std::move(limit_orders)));
-}
-
-// ─── SUPPLY_DEMAND_PULLBACK ─────────────────────────────────────────────────
-static void load_supply_demand_pullback(LoadPass& context, const json& node)
-{
-    SupplyDemandPullbackStrategy::Params short_period;
-    short_period.market_div        = node.value("market_div",        "J");
-    short_period.universe_size     = node.value("universe_size",     50);
-    short_period.lookback_days     = node.value("lookback_days",     5);
-    short_period.min_dual_days     = node.value("min_dual_days",     3);
-    short_period.min_consec_days   = node.value("min_consec_days",   0);
-    short_period.net_buy_threshold = node.value("net_buy_threshold", (int64_t)0);
-    short_period.moving_average_period         = node.value("ma_period",         5);
-    short_period.pullback_band     = node.value("pullback_band",     0.01);
-    short_period.require_previous_above= node.value("require_prev_above",true);
-    short_period.quantity          = node.value("quantity",          10);
-    short_period.market_close_exit_hhmm     = node.value("market_close_exit_hhmm",    std::string("1500"));
-    short_period.stop_below_moving_average     = node.value("stop_below_ma",    0.0);
-    short_period.mode = SupplyDemandPullbackStrategy::EntryMode::from_string(node.value("entry_mode", "DAILY"));
-    add_gated(context, std::make_unique<SupplyDemandPullbackStrategy>(std::move(short_period)));
 }
 
 // ─── MARKET_MAKING ──────────────────────────────────────────────────────────
@@ -712,12 +623,8 @@ static void load_deviation_scale(LoadPass& context, const json& node)
     base.reprice_move_ticks = node.value("reprice_move_ticks", 2);
     base.min_rebuild_sec    = node.value("min_rebuild_sec", 0);
     base.id_prefix          = node.value("id_prefix", std::string("DEVSCALE"));
-    base.entry_lower_percent    = node.value("entry_lower_pct", 0.0);
-    base.base_on_price    = node.value("base_on_price", false);
     base.buy_split_steps          = node.value("buy_split_steps", -1);
     base.stop_loss_percent      = node.value("stop_loss_pct", 0.0);
-    base.trail_simple_moving_average_exit     = node.value("trail_sma_exit", false);
-    base.trail_simple_moving_average_tolerance_percent  = node.value("trail_sma_tol_pct", 1.0);
     base.stop_cooldown_sec  = node.value("stop_cooldown_sec", 900);
     base.reentry_cooldown_sec = node.value("reentry_cooldown_sec", 600); // 전량 청산 뒤 재진입 대기(0=끄기)
     base.dust_krw           = node.value("dust_krw", 250000.0);     // 평가금 이 아래 잔존 보유는 시장가 정리(0=끄기)
@@ -869,7 +776,6 @@ static void load_deviation_scale(LoadPass& context, const json& node)
         //  기존 동작(재스캔마다 새로 수집)이 유지된다.
         scan_config.union_refresh_sec = node.value("union_refresh_sec", 0);
         scan_config.max_deviation_percent     = node.value("max_dev_pct", 0.0);       // 과확장 컷(일봉 이격 상한, 0=비활성)
-        scan_config.min_deviation_percent     = node.value("min_dev_pct", 0.0);       // 과확장 하한(추세확장 슬리브용, 0=비활성)
         scan_config.universe_file   = node.value("universe_file", std::string()); // data.go.kr 유니버스 피드(ETF-free·30행캡 우회), 비면 KIS 랭킹만
         scan_config.prices_file     = node.value("prices_file", std::string());  // 전 종목 장중 시세 파일(네이버 벌크 보조 프로세스)
         scan_config.min_turnover    = node.value("min_turnover", 0.0);           // 거래대금 하한(원), 0=비활성
@@ -880,7 +786,6 @@ static void load_deviation_scale(LoadPass& context, const json& node)
         scan_config.score_top_n      = node.value("score_top_n", 0);
         scan_config.score_weight_trend    = node.value("score_w_trend", 1.0);
         scan_config.score_weight_pullback = node.value("score_w_pullback", 1.0);
-        scan_config.score_weight_supply   = node.value("score_w_supply", 0.0); // 수급 로거 데이터 확보 후 제거실험
         // 변동성은 감점 축 — 같은 추세·눌림이면 덜 흔들리는 쪽에 비중을 준다.
         scan_config.score_weight_volume      = node.value("score_w_vol", 0.5);
         // 거래대금 축(기본 0=비활성). 켜면 같은 조건에서 두꺼운 종목이 위로 올라온다.
@@ -1103,7 +1008,7 @@ static void load_deviation_scale(LoadPass& context, const json& node)
 
     // 보유분 청산 관리 — 스캔에 안 잡힌 잔고 보유분에 청산 전용 ITB 부착(옵션).
     //  여기서 바로 붙이지 않고 전 슬리브 로드가 끝난 뒤에 붙인다. 이 슬리브의 covered만 보면
-    //  뒤에 로드되는 슬리브(TRENDX)가 방금 산 종목이 "스캔 밖 보유분"으로 보여 청산 관리가
+    //  뒤에 로드되는 슬리브가 방금 산 종목이 "스캔 밖 보유분"으로 보여 청산 관리가
     //  겹쳐 붙고, 그 청산 관리의 seed-trail 매도가 슬리브의 잔여 매도와 같은 주식을 두고
     //  경합한다(09-11 09:26~ ITB_112610·267250·014530 매도가능수량 0 거부 반복).
     if (context.scan_covered.size() < covered.size())
@@ -1125,34 +1030,6 @@ static void load_deviation_scale(LoadPass& context, const json& node)
         context.guard_gated           = (context.pending_regimes != nullptr);
         context.guard_regimes         = context.guard_gated ? *context.pending_regimes : std::vector<Regime>{};
     }
-}
-
-// ─── THEME ──────────────────────────────────────────────────────────────────
-static void load_theme(LoadPass& context, const json& node)
-{
-    int quantity = node.value("quantity", 1);
-    std::vector<std::string> sector_codes;
-
-    if (node.contains("sector_codes") && node["sector_codes"].is_array())
-    {
-        sector_codes = node["sector_codes"].get<std::vector<std::string>>();
-    }
-
-    int top_n            = node.value("top_n_sectors", 2);
-    double volume_surge     = node.value("volume_surge_mult", 2.0);
-    bool institution_filter     = node.value("inst_filter", true);
-    int market_close_hhmm         = node.value("market_close_exit_hhmm", 1520);
-
-    // 청산 시각이 정규장(09:00~15:30) 밖이면 사고 나서 팔지 않는다(청산 분기가 세션 판정 뒤에 있다) — 등록하지 않는다.
-    if (!krx::in_session(market_close_hhmm))
-    {
-        LOG_ERROR("[Main] Theme 설정 오류: market_close_exit_hhmm " + std::to_string(market_close_hhmm) +
-                  "이 정규장 밖이라 청산이 나가지 않는다 — 등록 건너뜀");
-        return;
-    }
-
-    add_gated(context, std::make_unique<ThemeStrategy>(
-        std::move(sector_codes), top_n, volume_surge, institution_filter, quantity, market_close_hhmm));
 }
 
 // ─── 전략-국면 매핑 ────────────────────────────────────────────────────────
@@ -1239,20 +1116,16 @@ static void load_target_basket(LoadPass& context, const json& node)
 void load_strategies(StrategyLoadCtx& context, const json& strategies)
 {
     // 운영 설정 현황(2026-09-25 확인): Quant/config/config_dev_paper.json과 config_live.json은 DEVIATION_SCALE 하나만
-    //  등록한다(눌림 DEVSCALE, TRENDX는 D-101로 꺼짐). TARGET_BASKET(D-109)은 로더만 있고 지금 어느 설정에도 없다.
+    //  등록한다. TARGET_BASKET(D-109)은 로더만 있고 지금 어느 설정에도 없다.
     // INTRADAY_BREAKOUT은 운영에서는 이 표가 아니라 attach_holding_exit_managers()가 승계 보유분에만 붙이는 청산 전용이다.
     // 나머지 유형은 시험용 모의 설정(config_mm_paper.json의 MARKET_MAKING 등)에서만 쓴다.
     static const std::map<StrategyType, void (*)(LoadPass&, const json&)> LOADERS = {
         {StrategyType::MA_CROSS, load_moving_average_cross},
         {StrategyType::INTRADAY_BREAKOUT, load_intraday_breakout},
-        {StrategyType::MOMENTUM, load_momentum},
         {StrategyType::VALUE_CONTRARY, load_value_contrary},
         {StrategyType::FIXED_INTERVAL, load_fixed_interval},
-        {StrategyType::PRICE_TARGET, load_price_target},
-        {StrategyType::SUPPLY_DEMAND_PULLBACK, load_supply_demand_pullback},
         {StrategyType::MARKET_MAKING, load_market_making},
         {StrategyType::DEVIATION_SCALE, load_deviation_scale},
-        {StrategyType::THEME, load_theme},
         {StrategyType::TARGET_BASKET, load_target_basket},
     };
 

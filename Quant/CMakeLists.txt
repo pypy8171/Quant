@@ -175,10 +175,7 @@ set(HEADER_IMPL_SOURCES
   src/strategy/FixedIntervalStrategy.cpp
   src/strategy/IntradayBreakoutStrategy.cpp
   src/strategy/MarketMakingStrategy.cpp
-  src/strategy/PriceTargetStrategy.cpp
   src/strategy/SeedPeakStore.cpp
-  src/strategy/SupplyDemandPullbackStrategy.cpp
-  src/strategy/ThemeStrategy.cpp
   src/strategy/ValueContraryStrategy.cpp
   src/universe/MaAlign.cpp
   src/universe/ScoreWeight.cpp
@@ -223,7 +220,6 @@ set(ENGINE_SOURCES
   ${KIS_CLIENT_SOURCES}
   ${KIS_WS_SOURCES}
   src/strategy/MACrossStrategy.cpp
-  src/strategy/MomentumStrategy.cpp
   src/strategy/TargetBasketPlan.cpp
   src/strategy/TargetBasketStrategy.cpp
   src/risk/OrderGate.cpp

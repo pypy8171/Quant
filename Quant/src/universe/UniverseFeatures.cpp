@@ -63,9 +63,9 @@ void DailyLookupCache::load_today(const std::string& date_yyyymmdd, symbol::Symb
 
         for (auto iterator = document.begin(); iterator != document.end(); ++iterator)
         {
-            // 13칸이 지금 형식(D-141에서 60일선 칸을, 재조회 경로를 걷으며 조회 시각 칸을 뺐다). 다른 칸수는 옛 파일 —
-            //  건너뛰면 캐시 미스와 같아서 그 종목만 다시 받는다.
-            if (!iterator.value().is_array() || iterator.value().size() != 13)
+            // 9칸이 지금 형식(D-141에서 60일선 칸을, 재조회 경로를 걷으며 조회 시각 칸을, 읽는 곳이 없던 저항·거래량
+            //  네 칸을 뺐다). 다른 칸수는 옛 파일 — 건너뛰면 캐시 미스와 같아서 그 종목만 다시 받는다.
+            if (!iterator.value().is_array() || iterator.value().size() != 9)
             {
                 continue;
             }
@@ -89,10 +89,6 @@ void DailyLookupCache::load_today(const std::string& date_yyyymmdd, symbol::Symb
             daily_lookup.r10     = value[6].get<double>();
             daily_lookup.r20     = value[7].get<double>();
             daily_lookup.atr_percent = value[8].get<double>();
-            daily_lookup.hi250     = value[9].get<double>();
-            daily_lookup.pivot_high  = value[10].get<double>();
-            daily_lookup.average_vol20 = value[11].get<double>();
-            daily_lookup.close21   = value[12].get<double>();
 
             by_symbol_[symbol] = std::move(daily_lookup);
             ++count;
@@ -112,8 +108,8 @@ void DailyLookupCache::load_today(const std::string& date_yyyymmdd, symbol::Symb
 
 void DailyLookupCache::save_today(const std::string& date_yyyymmdd, const symbol::SymbolTable& symbols) const
 {
-    // [wire] 값 순서: bars, average_5, average_10, average_20, close, r5, r10, r20, atr_percent,
-    //  hi250, pivot_high, average_vol20, close21 — 13칸 고정(읽는 쪽이 칸수로 형식을 가린다)
+    // [wire] 값 순서: bars, average_5, average_10, average_20, close, r5, r10, r20, atr_percent
+    //  — 9칸 고정(읽는 쪽이 칸수로 형식을 가린다)
     nlohmann::json document = nlohmann::json::object();
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -129,8 +125,7 @@ void DailyLookupCache::save_today(const std::string& date_yyyymmdd, const symbol
 
             document[symbols.name(symbol).string()] = nlohmann::json::array({daily_lookup.bars, daily_lookup.average_5, daily_lookup.average_10, daily_lookup.average_20,
                                                  daily_lookup.close, daily_lookup.r5, daily_lookup.r10, daily_lookup.r20,
-                                                 daily_lookup.atr_percent,
-                                                 daily_lookup.hi250, daily_lookup.pivot_high, daily_lookup.average_vol20, daily_lookup.close21});
+                                                 daily_lookup.atr_percent});
         }
     }
 
@@ -247,42 +242,6 @@ DailyLookup fetch_daily_lookup(KisClient& kis, const DevScanCfg& config, const s
     }
 
     daily_lookup.atr_percent = (true_range_count > 0 && daily_lookup.close > 0.0) ? (true_range_sum / true_range_count) / daily_lookup.close : 0.0;
-
-    // 저항·거래량 축. 일봉은 전일까지(include_today=false)라 d[0]이 전일이다.
-    for (const auto& bar : daily_ohlcv)
-    {
-        if (bar.high > daily_lookup.hi250)
-        {
-            daily_lookup.hi250 = bar.high;
-        }
-    }
-
-    // [formula] 스윙 고점 = 좌우 5봉의 고가보다 모두 높은 봉. 가장 최근 것 하나만 쓴다.
-    for (size_t index = 5; index + 5 < daily_ohlcv.size(); ++index)
-    {
-        bool peak = true;
-
-        for (size_t innermost_index = 1; innermost_index <= 5 && peak; ++innermost_index)
-        {
-            peak = daily_ohlcv[index].high > daily_ohlcv[index - innermost_index].high && daily_ohlcv[index].high > daily_ohlcv[index + innermost_index].high;
-        }
-
-        if (peak)
-        {
-            daily_lookup.pivot_high = daily_ohlcv[index].high;
-            break;
-        }
-    }
-
-    double volume_sum = 0.0;
-
-    for (int index = 0; index < 20; ++index)
-    {
-        volume_sum += static_cast<double>(daily_ohlcv[index].volume);
-    }
-
-    daily_lookup.average_vol20 = volume_sum / 20.0;
-    daily_lookup.close21   = daily_ohlcv.size() > 21 ? daily_ohlcv[21].close : 0.0;
     return daily_lookup;
 }
 } // namespace
@@ -400,13 +359,6 @@ std::vector<Features> lookup_and_filter(KisClient& kis, const DevScanCfg& config
 
         // 과확장 컷 — 이격 상한 초과는 존 밴드 진입이 불가한 폭등주라 슬롯만 낭비한다.
         if (config.max_deviation_percent > 0.0 && pull > config.max_deviation_percent)
-        {
-            ++statistics.overext;
-            continue;
-        }
-
-        // 과확장 하한 — 밴드 아래(덜 벌어진 종목)는 눌림 슬리브 몫이다.
-        if (config.min_deviation_percent > 0.0 && pull < config.min_deviation_percent)
         {
             ++statistics.overext;
             continue;

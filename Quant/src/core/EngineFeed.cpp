@@ -136,7 +136,7 @@ bool Engine::add_watch_specification(const WatchSpec& specification)
     for (const auto& watch_specification : watch_specifications_)
     {
         if (watch_specification.market == specification.market && watch_specification.exchange == specification.exchange &&
-            watch_specification.ticker == specification.ticker && watch_specification.is_future == specification.is_future)
+            watch_specification.ticker == specification.ticker)
         {
             return false;
         }
@@ -161,7 +161,6 @@ void Engine::send_watch_request(const WatchSpec& specification, ipc::ControlKind
     request.ticker     = std::string_view(specification.ticker);
     request.market     = static_cast<uint8_t>(specification.market);
     request.trade_only = specification.trade_only ? 1 : 0;
-    request.is_future  = specification.is_future ? 1 : 0;
     ipc::set_exchange(request, specification.exchange);
 
     if (!control_plane_.send(request))
@@ -703,7 +702,7 @@ int32_t Engine::websocket_slot_priority(const WatchSpec& specification) const
 {
     if (!websocket_slot::is_managed(specification))
     {
-        return websocket_slot::kHeld; // 칸 배정 밖(선물·미국)은 기동 때처럼 먼저 건다
+        return websocket_slot::kHeld; // 칸 배정 밖(미국)은 기동 때처럼 먼저 건다
     }
 
     const symbol::SymbolId symbol = symbols_.table.lookup(specification.ticker);

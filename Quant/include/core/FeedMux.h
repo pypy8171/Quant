@@ -127,7 +127,7 @@ private:
 
     static std::string key(const WatchSpec& specification)
     {
-        return specification.is_future ? specification.ticker + "/F" : specification.ticker;
+        return specification.ticker;
     }
 
     // 수신 스레드에서. 링이 차면 버린다 — 여기서 기다리면 그 소켓의 전 종목이 밀린다.
@@ -153,7 +153,7 @@ private:
     bool            lane_mode_ = false; // 수신 스레드가 돌기 전(connect 전)에 정해진다
 
     mutable std::mutex                      assign_mutex_;
-    // 문자열 키인 이유: 소스 계층은 종목 테이블 앞이라 id가 아직 없고, 키에 선물 접미사("/F")가 붙는 구독 스펙이다.
+    // 문자열 키인 이유: 소스 계층은 종목 테이블 앞이라 id가 아직 없다.
     //  연결·증분 구독 때만 만진다(틱 경로 아님).
     std::unordered_map<std::string, size_t> assign_; // key(specification) → 소스 index. 한 종목은 한 소스에만
 

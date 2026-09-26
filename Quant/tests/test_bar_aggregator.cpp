@@ -169,7 +169,7 @@ int main()
         CHECK(aggregator.snapshot(kSamsung).empty() && aggregator.snapshot(kHynix).size() == 1);
     }
 
-    // ── accumulated_volume 없는 틱(REST 대체·선물)은 quantity 합산으로 뒷걸음 ────────────────────────
+    // ── accumulated_volume 없는 틱(REST 대체)은 quantity 합산으로 뒷걸음 ────────────────────────
     {
         BarAggregator aggregator(BarAggregator::Config{});
         CHECK(aggregator.on_tick(tick("100000", 10.0, 3, 0)));

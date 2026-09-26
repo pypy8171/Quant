@@ -37,11 +37,6 @@ struct DailyLookup
     //  s_n_live = (s_n*n - roll_n + price_live) / n — REST 없이 정배열을 장중 갱신한다.
     double r5 = 0.0, r10 = 0.0, r20 = 0.0;
     double atr_percent = 0.0;                  // ATR(14)/종가. 정배열 판정용 일봉 재활용(추가 REST 0)
-    // 저항·거래량 축(2026-09-11 회의 §3). 봉이 모자라면 있는 만큼으로 잰다. 0=미산출.
-    double hi250    = 0.0;                 // 확보 봉 안 최고가(align_daily_n=250이면 52주 고가)
-    double pivot_high = 0.0;                 // 최근 스윙 고점 — 좌우 5봉보다 높은 고가 중 가장 최근(당일 제외)
-    double average_vol20 = 0.0;                // 20일 평균 거래량(주). 장중 누적거래량 배율의 분모
-    double close21  = 0.0;                 // 21봉 전 종가(≈1개월 수익률 분모)
 };
 
 // 일봉 요약 캐시 — 종목 id 인덱스 배열(date_yyyymmdd가 비면 없음). 표는 락으로 감싼다. [inv] 프로세스 안 종목 테이블은 하나다(Engine의 symbols_.table, OrderGate에도 주입된다) — id는 지워지지

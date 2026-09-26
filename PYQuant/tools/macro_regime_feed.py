@@ -12,15 +12,12 @@
   파이프라인이 결정론적으로 검증된 뒤 ZMQ PUB/SUB로 업그레이드(목표 아키텍처).
   regime.json 스키마(=C++ 리더 계약)는 아래 build_regime() 반환부 주석 참조.
 
-데이터(무료): FinanceDataReader(FDR).
-  이 게이트는 "전일 종가 대비 당일 %"를 하루 단위로 계산한다. 그래서 장중 실시간 틱이
-  필요한 선물이 아니라, 완료된 간밤 미국 종가(코스피 시가가 반응하는 신호)면 충분하고
-  오히려 더 잘 정의된다. yfinance는 이 환경에서 Yahoo 크럼 SSL 차단으로 전 심볼 no_data라
-  폐기하고(2026-09-04 확인), FDR로 교체했다:
-    US500(S&P500) IXIC(나스닥) VIX / USD/KRW / FRED:DGS10(10Y 국채금리, %).
-  참고(표 없음): FRED:DGS30(30Y) FRED:DGS2(2Y) FRED:BAMLH0A0HYM2(HY 스프레드) FRED:DCOILWTICO(WTI).
-  수준 평가는 assess_levels().
-  FDR는 소스별 라우팅(naver·stooq·FRED)이라 Yahoo 단일 장애에 덜 취약하다.
+데이터(무료): Yahoo chart API가 먼저, FinanceDataReader(FDR)는 폴백.
+  fetch_yahoo()가 urllib로 Yahoo chart API를 직접 불러 장중 현재가와 전일 종가를 받는다(D-081).
+  FDR 일봉은 T-1 종가끼리의 변화라 한국 장중에 움직이는 미국 선물을 못 보므로, Yahoo가 막혔을 때만
+  FDR로 내려간다(코스피·코스닥은 FDR 폴백 없음, D-083). yfinance 라이브러리는 이 환경에서 Yahoo 크럼
+  SSL 차단으로 전 심볼 no_data라 쓰지 않는다(2026-09-04 확인) — chart API 직접 호출은 이와 별개다.
+  표결 지표 8개와 참고 지표(표 없음)는 아래 SYMBOLS·INFO_SYMBOLS가 정본이다. 수준 평가는 assess_levels().
 
 ⚠️ 임계값은 전부 **검증 필요 가정**(STRATEGIES.md 회의 §검증 필요 가정 3).
    과최적화·국면 표본 부족 위험 — 라이브로 관찰하며 보정할 것.
@@ -543,7 +540,6 @@ def build_regime(changes: dict, open_ref: dict | None = None) -> dict:
         regime = "NEUTRAL"
 
     return {
-        "schema": 1,
         "ts": now_kst_iso(),
         "regime": regime,
         "entry_halt": entry_halt,
@@ -552,13 +548,10 @@ def build_regime(changes: dict, open_ref: dict | None = None) -> dict:
         "entry_scale": (0.0 if force_liquidate else entry_scale(score)) if valid else None,
         "open_ref_ts": (open_ref or {}).get("ts"),
         "valid": valid,
-        "valid_count": valid_count,
         "stale_after_sec": 600,
         "thresholds": {"halt_score": HALT_SCORE, "liq_score": LIQ_SCORE, "on_score": ON_SCORE},
         "components": components,
         "assessment": assessment,
-        "source": ("Yahoo chart(장중 현재가)" if any(c.get("src") == "yahoo" for c in components.values())
-                   else "FinanceDataReader"),
     }
 
 

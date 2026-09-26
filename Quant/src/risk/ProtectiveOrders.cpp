@@ -143,7 +143,6 @@ std::vector<OrderSignal> ProtectiveOrderBook::evaluate(const std::vector<OrderGa
         out.push_back(std::move(signal));
 
         entry.fired_unread = true;
-        ++entry.fired_count;
         ++statistics_.fired;
         LOG_WARN("[보호주문] 청산 " + entry.rule.ticker + " " + reason + " 보유=" + std::to_string(position) +
                  " 미체결매도=" + std::to_string(sell_pending) + " 발주=" + std::to_string(quantity));

@@ -87,8 +87,8 @@ public:
         return lanes_;
     }
 
-    // 보내는 쪽. 거짓이면 그 건은 버려진다 — 큐가 찼으면 overflow_trades()·overflow_order_books()가 하나 늘고,
-    //  lane이 범위 밖이면 세지 않는다. 수신 스레드는 기다리지 않는다.
+    // 보내는 쪽. 거짓이면 그 건은 버려진다 — 체결 큐가 찼으면 overflow_trades()가 하나 늘고, 호가와
+    //  범위 밖 lane은 세지 않는다(호가는 다음 스냅샷이 덮는다). 수신 스레드는 기다리지 않는다.
     [[nodiscard]] bool push_trade(uint32_t lane, const TradeData& trade) noexcept;
     [[nodiscard]] bool push_order_book(uint32_t lane, const OrderBook& order_book) noexcept;
 
@@ -101,11 +101,6 @@ public:
     [[nodiscard]] uint64_t overflow_trades() const noexcept
     {
         return overflow_trades_.load(std::memory_order_relaxed);
-    }
-
-    [[nodiscard]] uint64_t overflow_order_books() const noexcept
-    {
-        return overflow_order_books_.load(std::memory_order_relaxed);
     }
 
     // 값이 말이 안 돼 버린 수. 0이 아니면 건너편 프로세스를 의심한다.
@@ -127,7 +122,6 @@ public:
 
     // 보내는 쪽이 보는 대기 칸 수(어림값). 적체 판정이 줄마다 본다.
     [[nodiscard]] size_t pending_trades(uint32_t lane) const;
-    [[nodiscard]] size_t pending_order_books(uint32_t lane) const;
 
     [[nodiscard]] std::string_view last_error() const noexcept
     {
@@ -150,7 +144,6 @@ private:
     // 줄이 여럿이면 세는 스레드도 여럿이다(보내는 쪽은 소켓 수신 스레드, 받는 쪽은 줄 스레드) — 감시 스레드가
     //  같은 값을 읽어 로그에 싣는 자리라 원자로 센다. 실패했을 때만 오르므로 hot path 비용은 없다. [why D-114]
     std::atomic<uint64_t>                  overflow_trades_      = 0;
-    std::atomic<uint64_t>                  overflow_order_books_ = 0;
     std::atomic<uint64_t>                  discarded_            = 0;
     std::string                            last_error_;
 };

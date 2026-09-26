@@ -81,29 +81,6 @@ static void test_orderbook()
     assert(partial.bids[4].price == 94.0);
 }
 
-static void test_future_orderbook()
-{
-    auto fields = blank(kis_websocket::kMinFieldsFutOrderbook);
-    fields[0] = "101W09";
-    put_levels(fields, 2, 22, 7, 27);
-    OrderBook order_book;
-    assert(kis_websocket::decode_future_orderbook(FieldList(fields), order_book) == Decode::kOk);
-    assert(order_book.ticker == "101W09");
-    check_levels(order_book);
-
-    // 건수 블록(12-21)은 읽지 않는다 — 비어 있어도 kOk.
-    for (size_t index = 12; index <= 21; ++index)
-    {
-        fields[index] = "";
-    }
-
-    OrderBook ob2;
-    assert(kis_websocket::decode_future_orderbook(FieldList(fields), ob2) == Decode::kOk);
-
-    fields.resize(31);
-    assert(kis_websocket::decode_future_orderbook(FieldList(fields), ob2) == Decode::kShort);
-}
-
 static void test_kr_trade()
 {
     auto fields = blank(kis_websocket::kMinFieldsKrTrade);
@@ -189,22 +166,6 @@ static void test_us_trade()
     assert(kis_websocket::decode_us_trade(FieldList(fields_g), trade_two) == Decode::kShort);
 }
 
-static void test_future_trade()
-{
-    auto fields = blank(kis_websocket::kMinFieldsFutTrade);
-    fields[0] = "101W09";
-    fields[5] = "412.35";
-    fields[9] = "3";
-    TradeData trade;
-    trade.direction = 7; // 채널이 방향을 안 주므로 0으로 덮어써야 한다
-    assert(kis_websocket::decode_future_trade(FieldList(fields), trade) == Decode::kOk);
-    assert(trade.price == 412.35 && trade.quantity == 3 && trade.direction == 0);
-    assert(trade.market == Market::KR);
-
-    fields.resize(18);
-    assert(kis_websocket::decode_future_trade(FieldList(fields), trade) == Decode::kShort);
-}
-
 static std::vector<std::string> fill_record(const std::string& side, const std::string& cntg_yn)
 {
     auto fields = blank(kis_websocket::kMinFieldsFill);
@@ -272,10 +233,8 @@ static void test_fill()
 int main()
 {
     test_orderbook();
-    test_future_orderbook();
     test_kr_trade();
     test_us_trade();
-    test_future_trade();
     test_fill();
     std::cout << "test_ws_decode: all passed" << std::endl;
     return 0;

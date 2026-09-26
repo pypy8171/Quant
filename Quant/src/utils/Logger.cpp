@@ -253,10 +253,7 @@ struct Logger::Implementation
     //  소멸자 drain도 부르고, file_은 initialize()가 메인 스레드에서 연다.
     void write_unlocked(const std::string& line)
     {
-        if (console_enabled_.load(std::memory_order_relaxed))
-        {
-            std::cout << line << '\n';
-        }
+        std::cout << line << '\n';
 
         if (file_.is_open())
         {
@@ -309,8 +306,6 @@ struct Logger::Implementation
     std::vector<std::unique_ptr<BaseDirectory>> base_directories_;
     // [lock-order] set_base_directory가 판을 다 만든 뒤 release로 공개하고, 읽는 쪽은 acquire로 받아 path를 본다.
     std::atomic<BaseDirectory*> current_base_directory_{nullptr};
-
-    std::atomic<bool> console_enabled_{true};
 
     static constexpr size_t kQueueCapacity = 1u << 16; // 슬롯 수(2의 거듭제곱). 가득 차면 새 레코드 드롭
     static constexpr int kIdleSpins = 64;              // 빈 큐에서 yield 횟수, 넘으면 condvar 잠
@@ -412,11 +407,6 @@ std::filesystem::path Logger::path_for(const std::string& name) const
     Implementation::BaseDirectory& base_directory = *implementation_->current_base_directory_.load(std::memory_order_acquire);
     Implementation::ensure_created(base_directory);
     return base_directory.path / name;
-}
-
-void Logger::set_console_enabled(bool enabled)
-{
-    implementation_->console_enabled_.store(enabled, std::memory_order_relaxed);
 }
 
 void Logger::log(LogLevel level, const std::string& message)

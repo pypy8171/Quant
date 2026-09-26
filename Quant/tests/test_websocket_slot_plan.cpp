@@ -179,10 +179,6 @@ int test_managed_and_channels()
     stock.trade_only = true;
     CHECK(websocket_slot::channels_of(stock) == 1);
 
-    WatchSpec future = stock;
-    future.is_future = true;
-    CHECK(!websocket_slot::is_managed(future));
-
     WatchSpec overseas = stock;
     overseas.market = Market::US;
     CHECK(!websocket_slot::is_managed(overseas));
@@ -190,7 +186,7 @@ int test_managed_and_channels()
     // 같은 구독인가는 체결만 여부를 보지 않는다.
     WatchSpec both = stock;
     both.trade_only = false;
-    CHECK(same_watch(stock, both) && !same_watch(stock, future) && !same_watch(stock, overseas));
+    CHECK(same_watch(stock, both) &&!same_watch(stock, overseas));
     return 0;
 }
 } // namespace

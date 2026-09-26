@@ -82,16 +82,16 @@ std::vector<KisConfig> parse_feed_keys(const json& document, KisConfig& base)
     return keys;
 }
 
-// G1: "regime_strategies": {"BULL":[id...], "NEUTRAL":[...], "BEAR":[...]}. id가 '*'로 끝나면 접두 매칭.
-//  키는 regime.json 라벨(RISK_ON·NEUTRAL·RISK_OFF)이고, 09-14까지 쓰던 BULL·BEAR도 같은 뜻으로 받는다. [why D-084]
+// G1: "regime_strategies": {"RISK_ON":[id...], "NEUTRAL":[...], "RISK_OFF":[...]}. id가 '*'로 끝나면 접두 매칭.
+//  키는 regime.json 라벨(RISK_ON·NEUTRAL·RISK_OFF)만 받는다. [why D-084]
 Regime regime_of_key(const std::string& key)
 {
-    if (key == "BULL" || key == "RISK_ON")
+    if (key == "RISK_ON")
     {
         return Regime::BULL;
     }
 
-    if (key == "BEAR" || key == "RISK_OFF")
+    if (key == "RISK_OFF")
     {
         return Regime::BEAR;
     }

@@ -86,11 +86,11 @@ else
 $fix = @{
     'Quant Basket Targets'  = 'py PYQuant\main.py basket'
     'Quant Market Close AutoDoc'     = 'py scripts\market_close_autodoc.py'
-    'Quant Maintain Daily'  = 'py scripts\maintain.py --daily'
+    'Quant Maintain Daily'  = 'py ..\quant-devtools\maintain.py --daily'
     'Quant Minute Backfill' = 'py scripts\market_close_minute_backfill.py'
     'claude_stock_study'    = '/stock-study'
     'claude_dashboard_sync' = '/dashboard-sync'
-    'Quant Maintain Weekly' = 'py scripts\maintain.py --weekly'
+    'Quant Maintain Weekly' = 'py ..\quant-devtools\maintain.py --weekly'
 }
 
 if ($Lines)

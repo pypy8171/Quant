@@ -589,7 +589,7 @@ def _fetch_kr_flow(quote: KisClient):
     return out
 
 
-# 섹터 카드에 싣는 업종·테마 지수. 코드는 PYQuant/tools/check_sector_index.py 훑기(2026-09-11)에서 이름이
+# 섹터 카드에 싣는 업종·테마 지수. 코드는 2026-09-11 코드 훑기(일회성 도구, 지금은 지움)에서 이름이
 #  돌아온 것만 골랐다. 코스닥 1005~1018은 코스피 업종과 같은 값이 돌아와(별칭) 뺐다. [why D-050]
 KR_SECTOR_GROUPS = [
     ("코스피 업종", [f"{n:04d}" for n in range(5, 31)]),
@@ -1130,7 +1130,7 @@ def build_criteria(cfg: dict):
         "regime_strategies": cfg.get("regime_strategies", {}),
         "fetch_interval_sec": cfg.get("fetch_interval_sec"),
         "regime_stale_sec": cfg.get("regime_stale_sec"),
-        "kosdaq_enabled": cfg.get("kosdaq_enabled", False),
+        "kosdaq_enabled": dev.get("kosdaq_enabled", False),  # 전략 블록 안의 키다(StrategyFactory.cpp도 전략 노드에서 읽는다)
         "rest_price_feed": cfg.get("rest_price_feed", False),
         "risk": cfg.get("risk", {}),
         "strategies": [],
@@ -1311,15 +1311,16 @@ class Handler(BaseHTTPRequestHandler):
             f = REPO / "_private" / "session_board.html"
             try:
                 if not f.exists() or time.time() - f.stat().st_mtime > 30:
-                    subprocess.run([sys.executable, str(REPO / "scripts" / "session_board.py"), "--quiet"],
-                                   timeout=10, capture_output=True)
+                    # 도구는 저장소 밖 ../quant-devtools에 있고(D-107), 저장소 루트를 현재 폴더로 찾는다.
+                    subprocess.run([sys.executable, str(REPO.parent / "quant-devtools" / "session_board.py"), "--quiet"],
+                                   cwd=REPO, timeout=10, capture_output=True)
             except Exception:
                 pass  # 못 만들면 있는 파일을 그대로 내보낸다
             if f.exists():
                 self._send(200, "text/html; charset=utf-8", f.read_bytes())
             else:
                 self._send(404, "text/plain; charset=utf-8",
-                           "세션 현황판 없음 — py scripts\\session_board.py 를 한 번 돌릴 것".encode("utf-8"))
+                           "세션 현황판 없음 — 저장소 루트에서 py ..\\quant-devtools\\session_board.py 를 한 번 돌릴 것".encode("utf-8"))
         else:
             self._send(404, "text/plain; charset=utf-8", b"not found")
 
@@ -1713,7 +1714,7 @@ async function tick(){
   const c=s.criteria||{}; const st=(c.strategies&&c.strategies[0])||{};
   const rs=c.regime_strategies||{}; const rk=c.risk||{};
   document.getElementById('criteria').innerHTML=`
-    <div><span class="k">국면별 전략</span> BULL=[${eb((rs.BULL||[]).join(', '))}] · NEUTRAL=[${eb((rs.NEUTRAL||[]).join(', '))}] · BEAR=[${eb((rs.BEAR||[]).join(', '))||'없음(청산)'}]</div>
+    <div><span class="k">국면별 전략</span> RISK_ON=[${eb((rs.RISK_ON||[]).join(', '))}] · NEUTRAL=[${eb((rs.NEUTRAL||[]).join(', '))}] · RISK_OFF=[${eb((rs.RISK_OFF||[]).join(', '))||'없음(신규 진입 안 함)'}]</div>
     <div><span class="k">진입 로직</span> 시총상위∪거래대금상위 스캔 → 일봉 정배열(SMA5&gt;10&gt;20)${st.require_aligned?' 필수':''} + 눌림 존</div>
     <div><span class="k">스캔 규모</span> 시총 top ${eb(st.scan_top_n)} ∪ 거래대금 top ${eb(st.value_top_n)} → 등록상한 ${eb(st.max_universe)}종목</div>
     <div><span class="k">가격 필터</span> ${won(st.min_price)}원 이상${st.max_price?(' ~ '+won(st.max_price)+'원'):' (상한 무제한)'} · 과확장컷 ${eb(st.max_dev_pct)}</div>
@@ -1738,7 +1739,7 @@ async function tick(){
   const u=s.universe||{}; const ub=document.querySelector('#uni tbody');
   if(u.__error__){ document.getElementById('uninote').innerHTML='<small class="err">'+eb(u.__error__)+'</small>'; ub.innerHTML=''; }
   else{
-    document.getElementById('uninote').textContent=`종목목록 기준일 ${u.basDt||'?'}(data.go.kr, 상장목록용) · 가격 ${u.mktcap_source||u.turnover_source||'?'} · ${u.market||''} · ${u.count||0}종목 · ${u.source||''}`;
+    document.getElementById('uninote').textContent=`종목목록 기준일 ${u.basDt||'?'}(data.go.kr, 상장목록용) · 시총·거래대금은 네이버 실행 시점 값(장 전 거래대금은 data.go.kr) · ${u.market||''} · ${u.count||0}종목 · ${u.source||''}`;
     const uni=(u.universe||[]).slice(0,120);
     ub.innerHTML=uni.map((x,i)=>`<tr class="tickrow clk" data-tk="${eb(x.ticker)}" data-nm="${eb(x.name)}"><td>${i+1}</td><td class="l">${eb(x.name)}</td><td class="l mut">${eb(x.ticker)}</td><td>${won(x.close)}</td><td class="l mut">${eb(x.market)}</td></tr>`).join('');
   }

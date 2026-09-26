@@ -80,10 +80,8 @@ def build(on_date: str) -> dict | None:
     print(f"[full_universe_dump] 기준일 {served}: 상장 보통주 전종목 {len(codes)}개 ({breakdown}). "
           f"ETF/ETN 미포함.")
     return {
-        "schema":    1,
         "source":    "data.go.kr:getStockPriceInfo (보통주 전종목, ETF/ETN 제외)",
         "basDt":     served,
-        "requested_date": on_date,
         "count":     len(codes),
         "by_market": by_market,
         "codes":     codes,

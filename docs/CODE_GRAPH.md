@@ -37,11 +37,11 @@ graph LR
   risk -->|12| core
   risk -->|2| ipc
   risk -->|4| utils
-  strategy -->|5| api
-  strategy -->|24| core
+  strategy -->|3| api
+  strategy -->|19| core
   strategy --> risk
   strategy -->|3| universe
-  strategy -->|11| utils
+  strategy -->|8| utils
   universe --> api
   universe -->|16| core
   universe -->|21| utils
@@ -55,14 +55,14 @@ graph LR
 
 | 헤더 | 유입 수 |
 |---|---|
-| `utils/Logger.h` | 54 |
-| `core/Types.h` | 48 |
-| `core/KstTime.h` | 31 |
+| `utils/Logger.h` | 51 |
+| `core/Types.h` | 47 |
+| `core/KstTime.h` | 30 |
 | `core/SymbolTable.h` | 22 |
 | `utils/ThreadName.h` | 21 |
 | `core/Engine.h` | 16 |
-| `strategy/StrategyBase.h` | 16 |
 | `core/LatencyTrace.h` | 12 |
+| `core/WakeGate.h` | 12 |
 
 ## 파일 단위 상세
 
@@ -237,24 +237,16 @@ graph LR
     n_strategy_MACrossStrategy_h["strategy/MACrossStrategy.h"]
     n_strategy_MarketMakingStrategy_cpp["strategy/MarketMakingStrategy.cpp"]
     n_strategy_MarketMakingStrategy_h["strategy/MarketMakingStrategy.h"]
-    n_strategy_MomentumStrategy_cpp["strategy/MomentumStrategy.cpp"]
-    n_strategy_MomentumStrategy_h["strategy/MomentumStrategy.h"]
-    n_strategy_PriceTargetStrategy_cpp["strategy/PriceTargetStrategy.cpp"]
-    n_strategy_PriceTargetStrategy_h["strategy/PriceTargetStrategy.h"]
     n_strategy_SeedPeakStore_cpp["strategy/SeedPeakStore.cpp"]
     n_strategy_SeedPeakStore_h["strategy/SeedPeakStore.h"]
     n_strategy_StrategyBase_cpp["strategy/StrategyBase.cpp"]
     n_strategy_StrategyBase_h["strategy/StrategyBase.h"]
     n_strategy_StrategyFactory_cpp["strategy/StrategyFactory.cpp"]
     n_strategy_StrategyFactory_h["strategy/StrategyFactory.h"]
-    n_strategy_SupplyDemandPullbackStrategy_cpp["strategy/SupplyDemandPullbackStrategy.cpp"]
-    n_strategy_SupplyDemandPullbackStrategy_h["strategy/SupplyDemandPullbackStrategy.h"]
     n_strategy_TargetBasketPlan_cpp["strategy/TargetBasketPlan.cpp"]
     n_strategy_TargetBasketPlan_h["strategy/TargetBasketPlan.h"]
     n_strategy_TargetBasketStrategy_cpp["strategy/TargetBasketStrategy.cpp"]
     n_strategy_TargetBasketStrategy_h["strategy/TargetBasketStrategy.h"]
-    n_strategy_ThemeStrategy_cpp["strategy/ThemeStrategy.cpp"]
-    n_strategy_ThemeStrategy_h["strategy/ThemeStrategy.h"]
     n_strategy_ValueContraryStrategy_cpp["strategy/ValueContraryStrategy.cpp"]
     n_strategy_ValueContraryStrategy_h["strategy/ValueContraryStrategy.h"]
   end
@@ -686,12 +678,6 @@ graph LR
   n_strategy_MarketMakingStrategy_cpp --> n_strategy_MarketMakingStrategy_h
   n_strategy_MarketMakingStrategy_h --> n_core_TickSize_h
   n_strategy_MarketMakingStrategy_h --> n_strategy_StrategyBase_h
-  n_strategy_MomentumStrategy_cpp --> n_strategy_MomentumStrategy_h
-  n_strategy_MomentumStrategy_h --> n_strategy_StrategyBase_h
-  n_strategy_PriceTargetStrategy_cpp --> n_strategy_PriceTargetStrategy_h
-  n_strategy_PriceTargetStrategy_h --> n_core_MarketSession_h
-  n_strategy_PriceTargetStrategy_h --> n_strategy_StrategyBase_h
-  n_strategy_PriceTargetStrategy_h --> n_utils_Logger_h
   n_strategy_SeedPeakStore_cpp --> n_strategy_SeedPeakStore_h
   n_strategy_SeedPeakStore_h --> n_core_KstTime_h
   n_strategy_SeedPeakStore_h --> n_utils_Logger_h
@@ -701,7 +687,6 @@ graph LR
   n_strategy_StrategyBase_h --> n_risk_ProtectiveRule_h
   n_strategy_StrategyFactory_cpp --> n_core_Engine_h
   n_strategy_StrategyFactory_cpp --> n_core_KstTime_h
-  n_strategy_StrategyFactory_cpp --> n_core_MarketSession_h
   n_strategy_StrategyFactory_cpp --> n_core_Types_h
   n_strategy_StrategyFactory_cpp --> n_core_UniverseExit_h
   n_strategy_StrategyFactory_cpp --> n_strategy_DevScaleRules_h
@@ -710,24 +695,14 @@ graph LR
   n_strategy_StrategyFactory_cpp --> n_strategy_IntradayBreakoutStrategy_h
   n_strategy_StrategyFactory_cpp --> n_strategy_MACrossStrategy_h
   n_strategy_StrategyFactory_cpp --> n_strategy_MarketMakingStrategy_h
-  n_strategy_StrategyFactory_cpp --> n_strategy_MomentumStrategy_h
-  n_strategy_StrategyFactory_cpp --> n_strategy_PriceTargetStrategy_h
   n_strategy_StrategyFactory_cpp --> n_strategy_StrategyFactory_h
-  n_strategy_StrategyFactory_cpp --> n_strategy_SupplyDemandPullbackStrategy_h
   n_strategy_StrategyFactory_cpp --> n_strategy_TargetBasketStrategy_h
-  n_strategy_StrategyFactory_cpp --> n_strategy_ThemeStrategy_h
   n_strategy_StrategyFactory_cpp --> n_strategy_ValueContraryStrategy_h
   n_strategy_StrategyFactory_cpp --> n_universe_ScoreWeight_h
   n_strategy_StrategyFactory_cpp --> n_universe_UniverseScanner_h
   n_strategy_StrategyFactory_cpp --> n_utils_JsonNode_h
   n_strategy_StrategyFactory_cpp --> n_utils_Logger_h
   n_strategy_StrategyFactory_h --> n_api_KisClient_h
-  n_strategy_SupplyDemandPullbackStrategy_cpp --> n_strategy_SupplyDemandPullbackStrategy_h
-  n_strategy_SupplyDemandPullbackStrategy_h --> n_api_KisClient_h
-  n_strategy_SupplyDemandPullbackStrategy_h --> n_core_KstTime_h
-  n_strategy_SupplyDemandPullbackStrategy_h --> n_core_Types_h
-  n_strategy_SupplyDemandPullbackStrategy_h --> n_strategy_StrategyBase_h
-  n_strategy_SupplyDemandPullbackStrategy_h --> n_utils_Logger_h
   n_strategy_TargetBasketPlan_cpp --> n_strategy_TargetBasketPlan_h
   n_strategy_TargetBasketPlan_h --> n_core_Types_h
   n_strategy_TargetBasketStrategy_cpp --> n_core_KstTime_h
@@ -735,11 +710,6 @@ graph LR
   n_strategy_TargetBasketStrategy_cpp --> n_utils_Logger_h
   n_strategy_TargetBasketStrategy_h --> n_strategy_StrategyBase_h
   n_strategy_TargetBasketStrategy_h --> n_strategy_TargetBasketPlan_h
-  n_strategy_ThemeStrategy_cpp --> n_strategy_ThemeStrategy_h
-  n_strategy_ThemeStrategy_h --> n_api_KisClient_h
-  n_strategy_ThemeStrategy_h --> n_core_MarketSession_h
-  n_strategy_ThemeStrategy_h --> n_strategy_StrategyBase_h
-  n_strategy_ThemeStrategy_h --> n_utils_Logger_h
   n_strategy_ValueContraryStrategy_cpp --> n_strategy_ValueContraryStrategy_h
   n_strategy_ValueContraryStrategy_h --> n_api_KisClient_h
   n_strategy_ValueContraryStrategy_h --> n_core_MarketSession_h
@@ -859,14 +829,14 @@ graph LR
   p_PYQuant_tests --> p_PYQuant_features
   p_PYQuant_tests -->|3| p_PYQuant_kis
   p_PYQuant_tests -->|4| p_PYQuant_strategy
-  p_PYQuant_tools -->|5| p_PYQuant
+  p_PYQuant_tools -->|2| p_PYQuant
   p_PYQuant_tools --> p_PYQuant__logdir
   p_PYQuant_tools --> p_PYQuant_backtest
   p_PYQuant_tools -->|2| p_PYQuant_core
-  p_PYQuant_tools -->|7| p_PYQuant_data
+  p_PYQuant_tools -->|3| p_PYQuant_data
   p_PYQuant_tools -->|2| p_PYQuant_db
   p_PYQuant_tools --> p_PYQuant_features
-  p_PYQuant_tools -->|10| p_PYQuant_kis
+  p_PYQuant_tools -->|3| p_PYQuant_kis
   p_PYQuant_tools --> p_PYQuant_naver
   p_scripts -->|3| p_PYQuant_backtest
   p_scripts --> p_PYQuant_db
@@ -917,31 +887,18 @@ graph LR
 | `PYQuant/tests/test_stats.py` | `backtest`, `exit_ev` |
 | `PYQuant/tests/test_strategy_a.py` | `kis.client`, `strategy.strategy_a` |
 | `PYQuant/tools/bench_market_open.py` | `core.logger`, `db.client` |
-| `PYQuant/tools/check_adjusted.py` | `data.datagokr_source` |
-| `PYQuant/tools/check_datagokr.py` | `data.datagokr_source` |
-| `PYQuant/tools/check_investor_api.py` | `kis.client` |
-| `PYQuant/tools/check_kis_investor.py` | `kis.client` |
-| `PYQuant/tools/check_market_flow.py` | `kis.client` |
-| `PYQuant/tools/check_sector_index.py` | `kis.client` |
 | `PYQuant/tools/compare_ws_bars.py` | `kis.client` |
 | `PYQuant/tools/dart_shares_history_fill.py` | `data.keys` |
 | `PYQuant/tools/fetch_naver_themes.py` | `naver.theme` |
 | `PYQuant/tools/full_universe_dump.py` | `data.datagokr_source` |
-| `PYQuant/tools/fullperiod_validate.py` | `data.datagokr_source`, `main`, `tools.month_start_sweep` |
-| `PYQuant/tools/index_intraday_logger.py` | `kis.client` |
-| `PYQuant/tools/investor_flow_logger.py` | `kis.client` |
 | `PYQuant/tools/ledger_recorder.py` | `core.logger`, `db.client` |
 | `PYQuant/tools/load_highwater_reader.py` | `_logdir` |
 | `PYQuant/tools/minute_backfill.py` | `kis.client` |
 | `PYQuant/tools/minute_backfill_pairs.py` | `features.fundamental` |
-| `PYQuant/tools/month_start_sweep.py` | `data.datagokr_source`, `main` |
-| `PYQuant/tools/nxt_divergence_check.py` | `kis.client` |
 | `PYQuant/tools/pit_universe_backfill.py` | `kis.client`, `tools.universe_feed` |
-| `PYQuant/tools/regime_removal_test_2022.py` | `main` |
 | `PYQuant/tools/sweep.py` | `main` |
 | `PYQuant/tools/universe_feed.py` | `data.datagokr_source` |
 | `PYQuant/tools/walkforward.py` | `backtest.engine`, `main` |
-| `scripts/analyze_slot_cost.py` | `_logdir` |
 | `scripts/backfill_fills_db.py` | `_logdir`, `db.client` |
 | `scripts/backfill_studies.py` | `backtest.report` |
 | `scripts/build_review_entry.py` | `market_close_collect` |
@@ -970,7 +927,7 @@ C++ 엔진·Python 보조 프로세스·스크립트가 파일로 주고받는 �
 | `regime.json` | `PYQuant/tools/macro_regime_feed.py`, `Quant/src/core/EngineRegime.cpp` | `PYQuant/tools/macro_regime_feed.py`, `Quant/src/core/AppConfig.cpp`, `Quant/src/core/EngineDataThread.cpp`, `Quant/src/core/EngineRegime.cpp`, `Quant/src/core/RegimeFileJudge.cpp`, `scripts/dashboard_server.py`, `scripts/notify_trades.py` | `Quant/include/core/AppConfig.h`, `Quant/include/core/Engine.h`, `Quant/include/core/RegimeFileJudge.h`, `Quant/src/core/EngineConfigure.cpp`, `Quant/src/ipc/ZmqBridge.cpp` |
 | `prices_live.json` | `scripts/live_prices_feed.py` | `PYQuant/tools/universe_feed.py`, `scripts/live_prices_feed.py` |  |
 | `trades_*.csv` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/backfill_fills_db.py`, `scripts/exit_ev_dashboard.py` | `PYQuant/dashboard/backfill_live.py`, `PYQuant/tests/test_stats.py`, `Quant/src/ipc/OrderRouter.cpp`, `Quant/src/strategy/StrategyFactory.cpp`, `scripts/backfill_fills_db.py`, `scripts/check_runtime_health.py`, `scripts/exit_ev.py`, `scripts/exit_ev_dashboard.py`, `scripts/parse_quant_log.py`, `scripts/trade_costs.py` | `scripts/_logdir.py`, `scripts/notify_trades.py` |
-| `universe*.json` | `PYQuant/tools/load_injector.py`, `scripts/make_load_test_config.py` | `PYQuant/main.py`, `PYQuant/tools/full_universe_dump.py`, `PYQuant/tools/load_injector.py`, `PYQuant/tools/nxt_divergence_check.py`, `PYQuant/tools/universe_feed.py`, `Quant/src/universe/UniverseCandidates.cpp`, `scripts/exit_ev_dashboard.py`, `scripts/live_prices_feed.py`, `scripts/make_load_test_config.py`, `scripts/market_close_minute_backfill.py`, `scripts/notify_trades.py` | `Quant/include/universe/UniverseScanner.h`, `Quant/src/api/KisUniverse.cpp`, `Quant/src/strategy/StrategyFactory.cpp`, `scripts/dashboard_server.py` |
+| `universe*.json` | `PYQuant/tools/load_injector.py`, `scripts/make_load_test_config.py` | `PYQuant/main.py`, `PYQuant/tools/full_universe_dump.py`, `PYQuant/tools/load_injector.py`, `PYQuant/tools/universe_feed.py`, `Quant/src/universe/UniverseCandidates.cpp`, `scripts/exit_ev_dashboard.py`, `scripts/live_prices_feed.py`, `scripts/make_load_test_config.py`, `scripts/market_close_minute_backfill.py`, `scripts/notify_trades.py` | `Quant/include/universe/UniverseScanner.h`, `Quant/src/api/KisUniverse.cpp`, `Quant/src/strategy/StrategyFactory.cpp`, `scripts/dashboard_server.py` |
 | `open_orders.txt` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/seed_open_orders.py` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/seed_open_orders.py` |  |
 | `quant_trader.log` | `PYQuant/tools/log_report.py`, `scripts/build_review_entry.py`, `scripts/dashboard_server.py`, `scripts/summarize_trading_day.py` | `PYQuant/tools/compare_ws_bars.py`, `scripts/check_runtime_health.py`, `scripts/dashboard_server.py`, `scripts/extract_swap_what_if.py`, `scripts/notify_trades.py`, `scripts/parse_quant_log.py`, `scripts/seed_open_orders.py`, `scripts/summarize_trading_day.py` | `Quant/src/core/CommandLine.cpp`, `scripts/_logdir.py`, `scripts/exit_ev_dashboard.py` |
 | `kis_token_*.json` |  |  | `PYQuant/kis/client.py`, `Quant/src/api/KisAuth.cpp` |

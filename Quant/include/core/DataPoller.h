@@ -20,10 +20,10 @@
 
 namespace poller
 {
-// 같은 구독인가 — 종목·시장·선물 여부가 같으면 채널이 같다. 넘침 목록의 중복 판정에 쓴다.
+// 같은 구독인가 — 종목·시장이 같으면 채널이 같다. 넘침 목록의 중복 판정에 쓴다.
 inline bool same_specification(const WatchSpec& specification_a, const WatchSpec& specification_b)
 {
-    return specification_a.ticker == specification_b.ticker && specification_a.market == specification_b.market && specification_a.is_future == specification_b.is_future;
+    return specification_a.ticker == specification_b.ticker && specification_a.market == specification_b.market;
 }
 
 // REST 현재가 한 건을 WS 체결 틱과 같은 모양으로. quantity·direction·strength는 REST에 없어 0이다.

@@ -249,13 +249,7 @@ bool MarketFeedChannel::push_order_book(uint32_t lane, const OrderBook& order_bo
         return false;
     }
 
-    if (!order_books_[lane].push(order_book))
-    {
-        overflow_order_books_.fetch_add(1, std::memory_order_relaxed);
-        return false;
-    }
-
-    return true;
+    return order_books_[lane].push(order_book);
 }
 
 bool MarketFeedChannel::pop_trade(uint32_t lane, const MarketLimits& limits, TradeData& out) noexcept
@@ -358,11 +352,6 @@ uint64_t MarketFeedChannel::received_order_books() const
 size_t MarketFeedChannel::pending_trades(uint32_t lane) const
 {
     return lane < lanes_ ? trades_[lane].pending() : 0;
-}
-
-size_t MarketFeedChannel::pending_order_books(uint32_t lane) const
-{
-    return lane < lanes_ ? order_books_[lane].pending() : 0;
 }
 
 } // namespace ipc

@@ -2,8 +2,7 @@
 
 bool same_watch(const WatchSpec& left, const WatchSpec& right)
 {
-    return left.market == right.market && left.exchange == right.exchange && left.ticker == right.ticker &&
-           left.is_future == right.is_future;
+    return left.market == right.market && left.exchange == right.exchange && left.ticker == right.ticker;
 }
 
 uint64_t digits_to_number(std::string_view digits) noexcept
@@ -58,14 +57,10 @@ StrategyType StrategyType::from_string(std::string_view text)
     static constexpr std::pair<std::string_view, Value> kNames[] = {
         {"MA_CROSS", MA_CROSS},
         {"INTRADAY_BREAKOUT", INTRADAY_BREAKOUT},
-        {"MOMENTUM", MOMENTUM},
         {"VALUE_CONTRARY", VALUE_CONTRARY},
         {"FIXED_INTERVAL", FIXED_INTERVAL},
-        {"PRICE_TARGET", PRICE_TARGET},
-        {"SUPPLY_DEMAND_PULLBACK", SUPPLY_DEMAND_PULLBACK},
         {"MARKET_MAKING", MARKET_MAKING},
         {"DEVIATION_SCALE", DEVIATION_SCALE},
-        {"THEME", THEME},
         {"TARGET_BASKET", TARGET_BASKET},
     };
 

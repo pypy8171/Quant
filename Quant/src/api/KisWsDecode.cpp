@@ -186,36 +186,6 @@ Decode decode_us_trade(Fields fields, TradeData& trade)
     return ok ? Decode::kOk : Decode::kBadNumber;
 }
 
-Decode decode_future_trade(Fields fields, TradeData& trade)
-{
-    if (fields.size() < kMinFieldsFutTrade)
-    {
-        return Decode::kShort;
-    }
-
-    trade.ticker = fields[0];
-    trade.hhmmss = krx::parse_hhmmss(fields[1]);
-    trade.market = Market::KR; // 선물도 국내 세션. 소비 측은 종목코드로 현·선을 구분한다.
-    trade.direction = 0;
-    trade.timestamp = std::chrono::system_clock::now();
-    bool ok = detail::to_double(fields[5], trade.price);
-    ok &= detail::to_i64(fields[9], trade.quantity);
-    return ok ? Decode::kOk : Decode::kBadNumber;
-}
-
-Decode decode_future_orderbook(Fields fields, OrderBook& order_book)
-{
-    if (fields.size() < kMinFieldsFutOrderbook)
-    {
-        return Decode::kShort;
-    }
-
-    order_book.ticker = fields[0];
-    order_book.hhmmss = krx::parse_hhmmss(fields[1]);
-    order_book.timestamp = std::chrono::system_clock::now();
-    return detail::fill_levels(fields, 2, 22, 7, 27, order_book) ? Decode::kOk : Decode::kBadNumber;
-}
-
 Decode decode_fill(Fields fields, FillNotification& fill_notification)
 {
     if (fields.size() < kMinFieldsFill)

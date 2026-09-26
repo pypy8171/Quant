@@ -367,8 +367,10 @@ auto sells = held
            | std::ranges::to<std::vector>();                       // to<>는 C++23
 ```
 
-`views::`는 지연 평가 뷰다(복사 없이 순회). `Quant/src/universe/UniverseScanner.cpp` 정렬 7곳, `Quant/src/core/SignalDispatcher.cpp`
-`force_liquidation_orders`/`trim_orders`의 "필터 뒤 변환" 루프에 쓴다.
+`views::`는 지연 평가 뷰다(복사 없이 순회). 지금 코드에서 `std::ranges::sort`+투영은 `Quant/src/api/KisUniverse.cpp`
+순위 정렬 셋, `Quant/src/core/EngineDataThread.cpp` 업종 정렬, `Quant/src/universe/UniverseScoring.cpp` 점수 정렬에 쓴다.
+`Quant/src/universe/UniverseCandidates.cpp`·`ScoreWeight.cpp`와 `UniverseScoring.cpp`의 나머지 한 곳은
+아직 `std::sort(begin, end, …)`다. `views::` 파이프라인은 지금 코드에 없다(위 `sells`는 설명용 예).
 
 ---
 

@@ -158,8 +158,8 @@ C++ 2,588줄과 Python 657줄이 같은 API를 각자 구현한다. tr_id·필�
 같은 일을 따로 한다. `utils/KstTime.h`(신설) 하나로 모은다.
 
 ### R3. 섹터 테이블 중복
-`Engine.cpp`의 인라인 `kSectors`가 `ThemeStrategy.h`의 `KOSPI_SECTORS`와 겹친다. 소스 주석도 중복임을 적어 두었다.
-한쪽을 지운다.
+`Engine.cpp`의 인라인 `kSectors`가 `ThemeStrategy.h`의 `KOSPI_SECTORS`와 겹쳤다. 2026-09-26에 THEME 전략을 지우면서
+중복이 없어졌다.
 
 ### R4. 멤버 함수 안의 `static` 카운터
 `data_thread_fn()` 안의 `static int est_flow_tick / sector_tick / macro_tick`. 밖에서 안 보이고, 테스트에서 초기화할 수 없고,

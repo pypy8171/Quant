@@ -892,14 +892,6 @@ void Engine::set_entry_priority(const std::vector<OrderGate::PriorityEntry>& ent
     }
 }
 
-void Engine::set_last_active_regimes(const std::vector<Regime>& last_active_regimes)
-{
-    if (!strategy_.list.empty())
-    {
-        strategy_.list.back()->set_active_regimes(last_active_regimes);
-    }
-}
-
 void Engine::set_session_end(int close_min, int grace_sec)
 {
     session_end::Config config;

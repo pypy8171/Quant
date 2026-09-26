@@ -35,12 +35,11 @@ int g_checks = 0;
 // 2027-01-15 08:00:00 UTC = KST 17:00:00.
 constexpr std::time_t kT0 = 1800000000;
 
-WatchSpec specification(const char* ticker, Market market = Market::KR, bool is_future = false)
+WatchSpec specification(const char* ticker, Market market = Market::KR)
 {
     WatchSpec specification;
-    specification.ticker    = ticker;
-    specification.market    = market;
-    specification.is_future = is_future;
+    specification.ticker = ticker;
+    specification.market = market;
     return specification;
 }
 
@@ -57,7 +56,7 @@ int test_pure()
 {
     CHECK(poller::same_specification(specification("A"), specification("A")));
     CHECK(!poller::same_specification(specification("A"), specification("A", Market::US)));
-    CHECK(!poller::same_specification(specification("A"), specification("A", Market::KR, true)));
+    CHECK(!poller::same_specification(specification("A"), specification("C")));
 
     const auto timestamp = std::chrono::system_clock::now();
     const auto trade = poller::make_tick("005930", 71000.0, 93001, timestamp);
@@ -123,13 +122,13 @@ int test_overflow()
         [&](const std::string& ticker)
         {
             asked.push_back(ticker);
-            return ticker == "A" ? 100.0 : price_b;
+            return ticker == "A" || ticker == "C" ? 100.0 : price_b;
         },
         [&](const TradeData& trade) { out.push_back(trade); });
     data_poller.set_universe_call_interval(std::chrono::milliseconds(0));
 
-    // 등록: 같은 채널은 한 번만, 선물은 다른 채널.
-    CHECK(data_poller.add_overflow(specification("A")) && !data_poller.add_overflow(specification("A")) && data_poller.add_overflow(specification("A", Market::KR, true)));
+    // 등록: 같은 채널은 한 번만, 다른 종목은 다른 채널.
+    CHECK(data_poller.add_overflow(specification("A")) && !data_poller.add_overflow(specification("A")) && data_poller.add_overflow(specification("C")));
     CHECK(data_poller.overflow_count() == 2);
 
     // 빼기: 있던 것만 빠지고, 없는 것은 거짓. 다시 넣어 아래 흐름을 그대로 둔다.
@@ -143,20 +142,20 @@ int test_overflow()
         ++resub_calls;
         return false;
     };
-    int count = data_poller.poll_overflow({specification("A"), specification("B")}, never, kT0); // A·A(선물)은 100, B는 0
+    int count = data_poller.poll_overflow({specification("A"), specification("B")}, never, kT0); // A·C는 100, B는 0
     CHECK(data_poller.overflow_count() == 3 && resub_calls == 3);
-    CHECK(count == 2 && out.size() == 2 && out[0].ticker == "A" && out[0].hhmmss == 170000 && out[1].ticker == "A");
-    CHECK(asked.size() == 3); // A·A(선물)·B — 선물도 market은 KR이라 REST를 물어본다(종전과 같다)
+    CHECK(count == 2 && out.size() == 2 && out[0].ticker == "C" && out[0].hhmmss == 170000 && out[1].ticker == "A");
+    CHECK(asked.size() == 3); // C·A·B
 
     // A만 재구독 성공 → 목록에서 빠지고 REST도 안 물어본다. B가 살아나면 틱이 나온다.
     asked.clear();
     out.clear();
     price_b = 50.0;
-    count = data_poller.poll_overflow({}, [](const WatchSpec& specification) { return specification.ticker == "A" && !specification.is_future; }, kT0);
+    count = data_poller.poll_overflow({}, [](const WatchSpec& specification) { return specification.ticker == "A"; }, kT0);
     CHECK(data_poller.overflow_count() == 2 && count == 2);
-    CHECK(out.size() == 2 && out[0].ticker == "A" && out[0].price == 100.0 && out[1].ticker == "B" &&
+    CHECK(out.size() == 2 && out[0].ticker == "C" && out[0].price == 100.0 && out[1].ticker == "B" &&
           out[1].price == 50.0);
-    CHECK(asked.size() == 2 && asked[0] == "A" && asked[1] == "B");
+    CHECK(asked.size() == 2 && asked[0] == "C" && asked[1] == "B");
 
     // 목록이 비면 아무것도 안 한다.
     DataPoller empty([](const std::string&) { return 1.0; }, [](const TradeData&) {});

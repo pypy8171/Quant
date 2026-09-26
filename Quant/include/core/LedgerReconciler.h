@@ -91,7 +91,6 @@ public:
     void set_reconcile_sink(ReconcileSink reconcile_sink) { reconcile_sink_ = std::move(reconcile_sink); }
     void set_account_no(std::string account) { account_no_ = std::move(account); }
     void set_baseline_directory(std::filesystem::path directory) { baseline_directory_ = std::move(directory); }
-    void set_prune_age_sec(int prune_age_sec) { prune_age_sec_ = prune_age_sec; }
     void set_post_fill_defer(int seconds, int max_sec) { post_fill_defer_sec_ = seconds; post_fill_defer_max_sec_ = max_sec; }
     // 한 사이클이 잔고 응답을 기다려 주는 상한. 넘기면 조회는 뒤에서 계속 돌고 다음 사이클이 결과를 집는다.
     void set_fetch_wait_budget(std::chrono::milliseconds budget) { fetch_wait_budget_ = budget; }
@@ -134,7 +133,6 @@ private:
     ReconcileSink reconcile_sink_;
     std::string   account_no_;
     std::filesystem::path baseline_directory_;      // 비어 있으면 기준선을 영속하지 않는다(시험용)
-    int    prune_age_sec_ = ledger::kPrunePositionAgeSec;
     int    post_fill_defer_sec_     = ledger::kPostFillDeferSec;
     int    post_fill_defer_max_sec_ = ledger::kPostFillDeferMaxSec;
     std::atomic<long long> last_fill_utc_{0};

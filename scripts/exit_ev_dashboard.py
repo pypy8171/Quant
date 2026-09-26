@@ -3,7 +3,7 @@
 
 scripts/exit_ev.py 의 적재·통계 함수를 그대로 쓰고, 표 한 줄마다 "왜 이 숫자가 나왔나"를 날짜별·종목별·레그별로
 펼쳐 볼 수 있게 한다. 판정이 안 된 셀도 이유와 근거 레그를 같이 보인다 — 판정 결과보다 근거를 보는 화면이다.
-규칙 탭은 실행 중인 config 값을 읽어 TRENDX·DEVSCALE·승계분(ITB)이 어떤 지표의 어떤 수치로 사고 파는지 적고,
+규칙 탭은 실행 중인 config 값을 읽어 DEVSCALE·승계분(ITB)이 어떤 지표의 어떤 수치로 사고 파는지 적고,
 각 청산 규칙이 원장에서 어떤 결과를 냈는지 같은 표의 셀로 잇는다. 백테스트 탭은 research/studies/**/metrics.json.
 
     py scripts/exit_ev_dashboard.py                      # 마지막 날 = 원장 최신 파일. research/studies/17_exit_ev/exit_ev_dashboard.html
@@ -74,38 +74,25 @@ CLAIMS = (
 # 지표 정의 — 규칙 탭 머리. 코드 정본은 Quant/include/strategy/DeviationScaleStrategy.h 설계 주석(25~57행).
 INDICATORS = (
     ("정배열", "일봉 종가 단순이동평균 SMA5 > SMA10 > SMA20 (60일선 조건은 D-141에서 뺐다). 마지막 조건(SMA10>SMA20)만 align_ma_tol_pct 허용오차. 전일까지의 일봉 250개(daily_lookback)에 오늘 현재가를 최신 봉 자리로 접어 넣어 재스캔마다 다시 본다."),
-    ("이격(%)", "(현재가 ÷ 일봉 SMA20 − 1) × 100. 진입 존은 이 값의 구간이다 — DEVSCALE은 SMA20 아래로 눌린 쪽(−pullback_pct ~ +entry_upper_pct), TRENDX는 SMA20 위로 늘어난 쪽(entry_lower_pct ~ entry_upper_pct)."),
+    ("이격(%)", "(현재가 ÷ 일봉 SMA20 − 1) × 100. 진입 존은 이 값의 구간이다 — DEVSCALE은 SMA20 아래로 눌린 쪽(−pullback_pct ~ +entry_upper_pct)."),
     ("존 히스테리시스", "존 경계에 zone_hyst_pct 를 더한 폭을 벗어나야 '존 이탈'로 본다. 경계에서 들락거리며 사고팔기를 막는다."),
-    ("3분봉 SMA", "주문 가격 기준. interval_min 분봉 sma_period 개의 단순이동평균. base_on_price 가 참이면 SMA 대신 현재가에 기준점한다."),
+    ("3분봉 SMA", "주문 가격 기준. interval_min 분봉 sma_period 개의 단순이동평균."),
     ("스캔 점수", "장중 유니버스는 거래대금·등락률·섹터 순위로 점수를 매겨 score_top_n 까지 가져온다(score_w_vol·score_w_liquidity 가중). 가격 min_price 원 미만·거래대금 min_turnover 원 미만은 뺀다."),
 )
 
 # 전략별 규칙 — {키}는 실행 config 값으로 채운다. exit_category 가 있으면 원장 탭의 그 셀 결과를 옆에 붙인다.
 RULES = (
     {
-        "family": "TRENDX", "index": 1, "title": "TRENDX — 추세 확장", "one_line": "일봉 정배열이면서 SMA20 위로 크게 늘어난 종목을 현재가에 한 번 사고, 평단 기준 좁은 익절·손절로 짧게 탄다.",
+        "family": "DEVSCALE", "index": 0, "title": "DEVSCALE — 눌림 되돌림", "one_line": "일봉 정배열 종목이 SMA20 근처로 눌렸을 때 3분봉 SMA 기준으로 사고, 평단 위에서 판다. 평단 대비 손절과 존 이탈로 나가고, 장 마감 청산 시각이 2400이면 팔지 않고 다음 날로 넘긴다.",
         "steps": (
-            {"phase": "후보", "what": "장중 스캔 점수 상위 {score_top_n}종목(max_universe {max_universe}). 가격 {min_price}원 이상, 거래대금 {min_turnover}원 이상, 코스닥 포함({kosdaq_enabled}). 지수가 {risk_off_index_pct}% 아래면 신규 진입 안 함."},
-            {"phase": "진입 조건", "what": "정배열(require_aligned {require_aligned}) 이고 이격이 +{entry_lower_pct}% ~ +{entry_upper_pct}% 안(존). 존은 ±{zone_hyst_pct}% 히스테리시스로 유지 → 실제 보유 구간 약 +{zone_low}% ~ +{zone_high}%."},
-            {"phase": "매수 주문", "what": "존에 들어오고 포지션이 없으면 현재가 기준점(base_on_price {base_on_price}) 지정가 1회. 추가 매수 없음(buy_split_steps {buy_split_steps}). 금액 = 자산 × {base_pct} (바닥 {notional_floor_krw}원 ~ 상한 {notional_cap_krw}원). 가격이 {reprice_move_ticks}틱 움직이면 {min_rebuild_sec}초 뒤 주문을 다시 짠다."},
-            {"phase": "익절", "what": "평단(sell_base_average {sell_base_average}) + {dev_sell_pct}% 지정가 매도 {split_step_count}단. 체결되면 그 종목은 {reentry_cooldown_sec}초 재진입 금지.", "exit_category": "익절밴드"},
-            {"phase": "손절", "what": "평단 − {stop_loss_pct}% 에 닿으면 시장가 전량. 뒤 {stop_cooldown_sec}초 재진입 금지(D-053).", "exit_category": "손절"},
-            {"phase": "존 이탈", "what": "정배열이 깨지거나 이격이 존±히스테리시스 밖으로 나가면 시장가 청산.", "exit_category": "존이탈"},
-            {"phase": "SMA 트레일", "what": "trail_sma_exit {trail_sma_exit} — 꺼져 있다. 켜면 3분봉 SMA − {trail_sma_tol_pct}% 아래로 내려올 때 청산(09-11 회의, 리플레이 뒤 결정)."},
-            {"phase": "장 마감", "what": "{market_close_exit_hhmm} 에 남은 포지션 전량 청산.", "exit_category": "장마감"},
-            {"phase": "먼지", "what": "평가금액 {dust_krw}원 미만 잔량은 정리.", "exit_category": "먼지정리"},
-        ),
-    },
-    {
-        "family": "DEVSCALE", "index": 0, "title": "DEVSCALE — 눌림 되돌림", "one_line": "일봉 정배열 종목이 SMA20 근처로 눌렸을 때 3분봉 SMA 기준으로 사고, 위로 되돌리면 단계적으로 판다. 손절 없이 존 이탈·장 마감으로 나간다.",
-        "steps": (
-            {"phase": "후보", "what": "장중 스캔 상위 {scan_top_n} → 점수 상위 {score_top_n}(max_universe {max_universe}). 가격 {min_price}원 이상, 거래대금 {min_turnover}원 이상. 지수가 {risk_off_index_pct}% 아래면 신규 진입 안 함."},
+            {"phase": "후보", "what": "장중 스캔 상위 {scan_top_n} → 점수 상위 {score_top_n}(max_universe {max_universe}). 가격 {min_price}원 이상, 거래대금 {min_turnover}원 이상, 코스닥 포함({kosdaq_enabled}). 지수가 {risk_off_index_pct}% 아래면 신규 진입 안 함."},
+            {"phase": "하루 진입 필터", "what": "전일 ATR14/SMA20이 {entry_atr_max_pct}%를 넘거나 개장 봉 이격이 {entry_open_dev_min_pct}% 아래인 날은 새로 사지 않는다(보유분 관리는 그대로)."},
             {"phase": "진입 조건", "what": "정배열이고 이격이 −{pullback_pct}% ~ +{entry_upper_pct}% 안(존, max_dev_pct {max_dev_pct}). 존 히스테리시스 {zone_hyst_pct}%."},
             {"phase": "매수 주문", "what": "3분봉(interval_min {interval_min}) SMA{sma_period} 기준 지정가. SMA 아래에서만(add_below_sma_only {add_below_sma_only}). 추가 매수 없음(buy_split_steps {buy_split_steps}). 금액 = 자산 × {base_pct} (바닥 {notional_floor_krw}원 ~ 상한 {notional_cap_krw}원, 스프레드 가중 {weight_spread})."},
-            {"phase": "익절", "what": "SMA 기준 +{dev_sell_pct}% × 단계, {split_step_count}단 지정가 매도. 체결 뒤 {reentry_cooldown_sec}초 재진입 금지.", "exit_category": "익절밴드"},
-            {"phase": "손절", "what": "없음(stop_loss_pct {stop_loss_pct}). 존 이탈이 손절 역할."},
+            {"phase": "익절", "what": "기준점 + {dev_sell_pct}% × 단계, {split_step_count}단 지정가 매도. 기준점은 sell_base_average {sell_base_average}(켬 = 평단, 끔 = 3분봉 SMA). 체결 뒤 {reentry_cooldown_sec}초 재진입 금지.", "exit_category": "익절밴드"},
+            {"phase": "손절", "what": "평단 − {stop_loss_pct}% 에 닿으면 존 상태와 무관하게 시장가 전량(0이면 끔). 뒤 {stop_cooldown_sec}초 재진입 금지.", "exit_category": "손절"},
             {"phase": "존 이탈", "what": "정배열이 깨지거나 이격이 존±히스테리시스 밖 → 시장가 청산.", "exit_category": "존이탈"},
-            {"phase": "장 마감", "what": "{market_close_exit_hhmm} 에 전량 청산.", "exit_category": "장마감"},
+            {"phase": "장 마감", "what": "{market_close_exit_hhmm} 에 전량 청산. 2400이면 팔지 않고 다음 날로 넘긴다(D-111).", "exit_category": "장마감"},
             {"phase": "먼지", "what": "평가금액 {dust_krw}원 미만 잔량 정리.", "exit_category": "먼지정리"},
         ),
     },
@@ -344,11 +331,6 @@ def rules_payload(config_path: Path) -> dict:
             strategy = strategies[rule["index"]] if rule["index"] < len(strategies) else {}
             values = dict(strategy.get(rule["sub"], {})) if rule.get("sub") else dict(strategy)
 
-        # 파생값 — 실제 보유 구간(존 ± 히스테리시스)
-        if "entry_lower_pct" in values and "zone_hyst_pct" in values:
-            values["zone_low"] = format_config_value(values["entry_lower_pct"] - values["zone_hyst_pct"])
-            values["zone_high"] = format_config_value(values["entry_upper_pct"] + values["zone_hyst_pct"])
-
         class Filler(dict):
             def __missing__(self, key):
                 return "없음"
@@ -356,7 +338,7 @@ def rules_payload(config_path: Path) -> dict:
         filled = Filler({key: (value if isinstance(value, str) else format_config_value(value)) for key, value in values.items()})
         steps = []
         for step in rule["steps"]:
-            keys = sorted(set(re.findall(r"\{(\w+)\}", step["what"])) - {"zone_low", "zone_high"})
+            keys = sorted(set(re.findall(r"\{(\w+)\}", step["what"])))
             steps.append({
                 "phase": step["phase"],
                 "what": step["what"].format_map(filled),

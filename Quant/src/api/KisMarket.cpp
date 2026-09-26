@@ -8,11 +8,6 @@ std::vector<MarketData> KisClient::get_daily_ohlcv(const std::string& ticker, in
     return get_chart_ohlcv(ticker, count, include_today, 'D');
 }
 
-std::vector<MarketData> KisClient::get_weekly_ohlcv(const std::string& ticker, int count, bool include_this_week)
-{
-    return get_chart_ohlcv(ticker, count, include_this_week, 'W');
-}
-
 // 일봉·주봉 공통. FHKST03010100은 날짜창 하나에 최대 100행을 돌려주므로 100을 넘는 요청은
 //  가장 오래된 행의 전날을 새 종료일로 두고 뒤로 넘긴다(역페이지네이션). 페이지가 비거나
 //  같은 날짜에서 멈추면 더 없는 것으로 보고 끝낸다.
@@ -311,103 +306,6 @@ std::vector<MarketData> KisClient::get_minute_ohlcv(const std::string& ticker, i
     return kis_rest::aggregate_minutes(raw_minutes, ticker, interval_min, count);
 }
 
-// 지정 날짜(과거일 포함)의 분봉. TR FHKST03010230 (inquire-time-dailychartprice).
-//  당일 분봉 TR(FHKST03010200)은 날짜 인자가 없어 오늘에 갇힌다. 이 TR은 FID_INPUT_DATE_1을 받아
-//  과거 날짜를 조회할 수 있고 1콜에 1분봉 120개(=120분)를 준다.
-//  주의: 이 TR의 output1은 요청 날짜가 아니라 실시간 현재 스냅샷이라 쓰지 않는다. output2만 쓴다.
-std::vector<MarketData> KisClient::get_daily_minute_ohlcv(const std::string& ticker,
-                                                          const std::string& yyyymmdd,
-                                                          int count, int interval_min,
-                                                          const std::string& end_hhmmss)
-{
-    ensure_authenticated();
-    std::vector<MarketData> result;
-
-    if (count <= 0 || yyyymmdd.size() != 8)
-    {
-        return result;
-    }
-
-    if (interval_min < 1)
-    {
-        interval_min = 1;
-    }
-
-    std::string hour = end_hhmmss.size() == 6 ? end_hhmmss : std::string("153000");
-
-    std::vector<std::string> headers = authentication_headers("FHKST03010230", {"custtype: P"});
-
-    // 1콜당 최대 120봉. 09:00~15:30이 390분이라 하루치 전체도 4콜이면 찬다.
-    const int need_1min = count * interval_min;
-    const int kMaxPages = (std::min)(6, need_1min / 110 + 2); // (): windows.h min 매크로 회피
-
-    std::vector<kis_rest::RawMinute> raw_minutes;
-    std::unordered_set<uint64_t> seen; // 날짜·시각 정수 키 — 페이지 경계 중복 제거
-
-    for (int page = 0; page < kMaxPages && static_cast<int>(raw_minutes.size()) < need_1min; ++page)
-    {
-        std::string url = base_url() +
-            "/uapi/domestic-stock/v1/quotations/inquire-time-dailychartprice"
-            "?FID_COND_MRKT_DIV_CODE=J"
-            "&FID_INPUT_ISCD=" + ticker +
-            "&FID_INPUT_HOUR_1=" + hour +
-            "&FID_INPUT_DATE_1=" + yyyymmdd +
-            "&FID_PW_DATA_INCU_YN=Y"
-            "&FID_FAKE_TICK_INCU_YN=N";
-
-        std::string response = http_get(url, headers);
-
-        if (response.empty())
-        {
-            break;
-        }
-
-        auto document = json::parse(response, nullptr, false);
-
-        if (document.is_discarded() || !document.contains("output2"))
-        {
-            break;
-        }
-
-        auto& array = document["output2"];
-
-        if (array.empty())
-        {
-            break;
-        }
-
-        int added = 0;
-        std::string page_earliest = kis_rest::parse_minute_page(array, raw_minutes, seen, yyyymmdd, added);
-
-        if (page_earliest.empty())
-        {
-            break;
-        }
-
-        if (page_earliest <= "090000")
-        {
-            break; // 그날 장 시작에 도달
-        }
-
-        std::string previous = kis_hhmmss_minus_minutes(page_earliest, 1);
-
-        if (previous.empty())
-        {
-            break;
-        }
-
-        if (previous < "090000")
-        {
-            previous = "090000";
-        }
-
-        hour = std::move(previous);
-        std::this_thread::sleep_for(std::chrono::milliseconds(120));
-    }
-
-    return kis_rest::aggregate_minutes(raw_minutes, ticker, interval_min, count);
-}
-
 double KisClient::get_current_price(const std::string& ticker)
 {
     std::string url = base_url() + "/uapi/domestic-stock/v1/quotations/inquire-price" + "?FID_COND_MRKT_DIV_CODE=J" +
@@ -437,7 +335,6 @@ Fundamentals KisClient::get_fundamentals(const std::string& ticker)
                       "&FID_INPUT_ISCD=" + ticker;
 
     Fundamentals fundamentals;
-    fundamentals.ticker = ticker;
 
     std::string response = http_get(url, authentication_headers("FHKST01010100"));
 
@@ -468,20 +365,9 @@ Fundamentals KisClient::get_fundamentals(const std::string& ticker)
                 return 0.0;
             }
         };
-        fundamentals.last = parse_d("stck_prpr"); // 현재가
-        fundamentals.difference = parse_d("prdy_vrss"); // 전일대비
-        fundamentals.rate = parse_d("prdy_ctrt"); // 등락률(%)
         fundamentals.open = parse_d("stck_oprc"); // 시가
-        fundamentals.high = parse_d("stck_hgpr"); // 고가
-        fundamentals.low = parse_d("stck_lwpr");  // 저가
-        fundamentals.pbr        = parse_d("pbr");
-        fundamentals.per        = parse_d("per");
-        fundamentals.market_cap = parse_d("hts_avls"); // 시가총액 (억원)
-        // [wire] FHKST01010100 output: w52_hgpr=52주 최고가, w52_hgpr_vrss_prpr_ctrt=현재가의 52주고가
-        //  대비 등락률(%, 고가 아래면 음수), bstp_kor_isnm=업종명(한글). 저항 판단·업종 분산용.
-        fundamentals.week52_high          = parse_d("w52_hgpr");
-        fundamentals.week52_high_distance_percent = parse_d("w52_hgpr_vrss_prpr_ctrt");
-        fundamentals.sector_name       = out.value("bstp_kor_isnm", std::string());
+        fundamentals.pbr  = parse_d("pbr");
+        fundamentals.per  = parse_d("per");
     }
     catch (...)
     {
@@ -598,7 +484,6 @@ Fundamentals KisClient::get_us_fundamentals(const std::string& ticker, const std
         base_url() + "/uapi/overseas-price/v1/quotations/price-detail" + "?AUTH=&EXCD=" + exchange + "&SYMB=" + ticker;
 
     Fundamentals fundamentals;
-    fundamentals.ticker = ticker;
 
     std::string response = http_get(url, authentication_headers("HHDFS00000300", {"custtype: P"}));
 
@@ -641,24 +526,6 @@ Fundamentals KisClient::get_us_fundamentals(const std::string& ticker, const std
                 return 0.0;
             }
         };
-        auto parse_i64 = [&](const char* key) -> int64_t
-        {
-            std::string text = out.value(key, "");
-
-            if (text.empty())
-            {
-                return 0;
-            }
-
-            try
-            {
-                return std::stoll(text);
-            }
-            catch (...)
-            {
-                return 0;
-            }
-        };
         fundamentals.per = parse_dbl("per");
         fundamentals.pbr = parse_dbl("pbr");
 
@@ -666,17 +533,6 @@ Fundamentals KisClient::get_us_fundamentals(const std::string& ticker, const std
         {
             fundamentals.pbr = parse_dbl("p_b_rate");
         }
-
-        fundamentals.last = parse_dbl("last");
-        fundamentals.open = parse_dbl("open");
-        fundamentals.high = parse_dbl("high");
-        fundamentals.low = parse_dbl("low");
-        fundamentals.bid_price = parse_dbl("pbid");
-        fundamentals.ask_price = parse_dbl("pask");
-        fundamentals.bid_quantity = parse_i64("vbid");
-        fundamentals.ask_quantity = parse_i64("vask");
-        fundamentals.difference = parse_dbl("diff");
-        fundamentals.rate = parse_dbl("rate");
     }
     catch (const std::exception& exception)
     {

@@ -97,7 +97,6 @@ private:
         double            peak_price = 0.0; // 보유 구간 최고가. 보유가 0이 되면 비운다
         Clock::time_point next_try{};       // 이 시각 전에는 다시 내지 않는다
         bool              fired_unread = false; // 전략이 아직 안 가져간 발사 사실
-        uint64_t          fired_count  = 0;
     };
 
     // 팔 이유. 빈 문자열이면 팔 이유가 없다. 손절을 먼저 본다 — 둘 다 걸리면 더 아픈 쪽을 사유로 남긴다.

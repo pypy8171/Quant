@@ -130,8 +130,8 @@ int test_entry_scale()
 int test_parse_snapshot()
 {
     Snapshot parsed_snapshot = parse_snapshot(json{{"valid", true}, {"entry_halt", true}, {"force_liquidate", false},
-                                     {"regime", "BEAR"}, {"risk_score", 3}});
-    CHECK(parsed_snapshot.valid && parsed_snapshot.entry_halt && !parsed_snapshot.force_liquidate && parsed_snapshot.regime == "BEAR" && parsed_snapshot.risk_score == 3);
+                                     {"regime", "RISK_OFF"}, {"risk_score", 3}});
+    CHECK(parsed_snapshot.valid && parsed_snapshot.entry_halt && !parsed_snapshot.force_liquidate && parsed_snapshot.regime == "RISK_OFF" && parsed_snapshot.risk_score == 3);
 
     // 키 없음·형 불량은 기본값 — "true" 문자열·"3" 문자열은 없는 것으로 본다(예외 없음).
     Snapshot snapshot = parse_snapshot(json{{"valid", "true"}, {"entry_halt", 1}, {"regime", 7}, {"risk_score", "3"}});

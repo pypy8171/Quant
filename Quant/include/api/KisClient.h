@@ -25,7 +25,7 @@ struct KisConfig
     std::string hts_id;       // H0STCNI0/9 체결통보 구독 키(HTS ID). 비어 있으면 구독을 건너뛴다 — account_no로 대체하지 않는다
     bool is_paper = false;
     // 일봉 캐시 유효시간(초). 0이면 캐시 끔. 일봉을 매 사이클 다시 받아야 하는 전략
-    //  (MA_CROSS·MOMENTUM처럼 on_data로 도는 것)을 쓸 때는 짧게 두거나 0으로 끈다.
+    //  (MA_CROSS처럼 on_data로 도는 것)을 쓸 때는 짧게 두거나 0으로 끈다.
     int daily_cache_ttl_sec = 600;
     // 국내 주문을 어느 거래소로 내나 — "KRX"(한국거래소만), "NXT"(넥스트레이드만), "SOR"(증권사 최선집행이
     //  KRX/NXT 중 유리한 쪽으로). KRX가 아니면 실시간 체결·호가도 KRX+NXT 통합 채널(H0UN*)로 받는다.
@@ -76,11 +76,6 @@ public:
     // 만료 margin 안이면 재발급, 아니면 아무 것도 안 한다. 제어 스레드가 넉넉한 margin(30분)으로 주기 호출해
     //  전략·데이터 스레드의 http_get이 5분 margin에 걸려 발급 왕복을 떠안는 일을 없앤다. [why D-073]
     bool refresh_token(std::chrono::seconds margin);
-    bool is_authenticated() const
-    {
-        std::lock_guard<std::mutex> lock(token_mutex_);
-        return !access_token_.empty();
-    }
 
     // 계좌번호 보유 여부(주문/잔고 계좌). 시세전용(quote) 클라이언트는 account_no가 비어
     // 잔고·주문가능 조회가 불가 — 호출측 가드용.
@@ -107,24 +102,11 @@ public:
     //   100봉을 넘는 count는 날짜창을 뒤로 넘겨 이어 받는다(ceil(count/100)콜).
     std::vector<MarketData> get_daily_ohlcv(const std::string& ticker, int count,
                                             bool include_today = false) override;
-    // 주봉 조회. 같은 TR(FID_PERIOD_DIV_CODE=W). 기본값은 진행 중인 이번 주를 뺀 '지난주까지'.
-    //   반환 순서·캐시 규약은 일봉과 같다(캐시 키에 주기가 들어가 서로 섞이지 않는다).
-    std::vector<MarketData> get_weekly_ohlcv(const std::string& ticker, int count,
-                                             bool include_this_week = false);
     // 당일 분봉 → interval_min 집계봉(기본 3분봉). FHKST03010200 역페이지네이션 후 1분봉 집계.
     //   반환: 최신→과거(result[0]=최신), 최대 count봉. interval_min=1이면 1분봉 그대로.
     std::vector<MarketData> get_minute_ohlcv(const std::string& ticker, int count, int interval_min = 3) override;
-    // 지정 날짜(과거일 포함)의 분봉 → interval_min 집계봉. TR FHKST03010230.
-    //   당일 분봉 TR은 날짜 인자가 없어 오늘에 갇힌다. 이쪽은 1콜에 1분봉 120개(=120분)를 준다.
-    //   end_hhmmss에서 과거로 역페이징. 반환: 최신→과거(result[0]=최신), 최대 count봉.
-    //   라이브 신호용이 아니라 과거 분봉 캐시·오프라인 백테스트 입력용이다(docs/DECISIONS.md D-004).
-    std::vector<MarketData> get_daily_minute_ohlcv(const std::string& ticker,
-                                                   const std::string& yyyymmdd,
-                                                   int count, int interval_min = 3,
-                                                   const std::string& end_hhmmss = "153000");
     double get_current_price(const std::string& ticker) override;
     Fundamentals get_fundamentals(const std::string& ticker);
-    bool send_order(const OrderSignal& signal);
     // submit·revise는 order_thread가 부른다. cancel_order는 OrderRouter의 재조회·오래된 주문 정리 스레드도 부른다.
     //  실패 사유는 반환값 error_code에 있다(D-039).
     // MM-1: 신규 주문 + KRX 조직번호(정정/취소용) 캡처
@@ -215,9 +197,6 @@ public:
     // 전체 시장 PBR 기반 Universe 조회 (ticker만 반환)
     std::vector<std::string> fetch_universe_by_pbr(double max_pbr, const std::string& market_div = "J");
 
-    // 업종 지수 일봉 (sector_code: 코스피 업종 "0001"~"0026" 등)
-    std::vector<MarketData> get_index_daily_ohlcv(const std::string& sector_code, int count = 6) override;
-
     // 업종별 등락률 순위 — 업종 내 상승 종목 스캔
     std::vector<RankingStock> fetch_sector_ranking(const std::string& sector_code, int count = 30);
 
@@ -233,7 +212,6 @@ public:
         int64_t foreign_net_quantity = 0;    // frgn_ntby_qty (외국인 추정 순매수 수량, +담기/-던지기)
         int64_t institution_net_quantity    = 0;    // orgn_ntby_qty (기관 추정)
         double  foreign_net_amount = 0.0;  // frgn_ntby_tr_pbmn (금액, 원)
-        double  institution_net_amount    = 0.0;  // orgn_ntby_tr_pbmn
     };
     // market: "0000"=전체 "0001"=코스피 "1001"=코스닥. sort: "0"=순매수상위 "1"=순매도상위.
     // etc_cls: "0"=전체 "1"=외국인 "2"=기관계 (필드가 한 행에 동거 안 하면 분리 조회).
@@ -250,17 +228,11 @@ public:
     };
     InvestorTrend get_investor_trend(const std::string& ticker);
 
-    // 투자자별 매매동향 일자별 시계열 (수급 전략용 — 최대 30거래일)
-    // flows[0] = 가장 최근 거래일, look-ahead 방지는 호출측 책임
-    std::vector<InvestorFlow> get_investor_flow(const std::string& ticker,
-                                                const std::string& market_div = "J");
-
     // ── 해외 (US) ──────────────────────────────────────────────────────────
     // exchange: "NAS"(NASDAQ), "NYS"(NYSE)
     std::vector<MarketData> get_us_daily_ohlcv(const std::string& ticker, int count,
                                                const std::string& exchange = "NAS") override;
     Fundamentals get_us_fundamentals(const std::string& ticker, const std::string& exchange = "NAS");
-    bool send_us_order(const OrderSignal& signal);
 
     // S&P 500 주요 종목 내장 리스트 — PBR 필터 적용 후 반환
     std::vector<std::string> fetch_us_universe_by_pbr(double max_pbr, const std::string& exchange = "NAS");
@@ -308,7 +280,7 @@ private:
     mutable std::mutex token_mutex_;
     std::mutex         refresh_mutex_;
 
-    // 일봉·주봉 공통 조회(페이지네이션·절단·캐시). period='D'|'W'.
+    // 일봉 조회 본체(페이지네이션·절단·캐시). period는 FID_PERIOD_DIV_CODE 값이고 지금은 'D'만 쓴다.
     std::vector<MarketData> get_chart_ohlcv(const std::string& ticker, int count, bool include_current,
                                             char period);
 

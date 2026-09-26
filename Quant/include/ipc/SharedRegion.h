@@ -36,8 +36,8 @@ struct SharedParticipant
     uint32_t process_id      = 0; // 0 = 아무도 안 붙었다
     uint32_t shutdown_reason = 0; // SharedShutdownReason. 0 = 안 적혔다 = 크래시
     uint64_t start_time      = 0;
-    int64_t  attached_at_ns  = 0;
-    uint64_t reserved0       = 0;
+    uint64_t reserved0       = 0; // 붙은 시각을 적던 칸. 읽는 곳이 없어 비웠다 — 크기는 그대로 둔다
+    uint64_t reserved1       = 0;
 };
 
 static_assert(sizeof(SharedParticipant) == 32, "붙은 쪽 한 자리는 32바이트여야 머리가 캐시라인 두 줄로 떨어진다");

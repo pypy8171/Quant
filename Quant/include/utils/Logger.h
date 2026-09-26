@@ -60,9 +60,6 @@ public:
     // 기준 디렉터리 하위 파일의 전체 경로(기준 폴더가 없으면 처음 한 번 만든다).
     [[nodiscard]] std::filesystem::path path_for(const std::string& name) const;
 
-    // 화면 표시 모드일 때 콘솔 출력을 끄고 파일에만 기록
-    void set_console_enabled(bool enabled);
-
     // hot path: 임계값 아래면 바로 돌아가고, 아니면 시각 스탬프만 찍어 큐에 넘긴다(포맷팅은 writer가 한다).
     void log(LogLevel level, const std::string& message);
 

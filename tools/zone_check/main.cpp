@@ -4,10 +4,10 @@
 // 순위·비중배수 → 존 판정. 계좌에 접속하지 않고 발주도 하지 않는다.
 //
 // 원본 대응:
-//   정배열·피처   Quant/src/universe/UniverseScanner.cpp L971-1010
-//   횡단면 점수   Quant/src/universe/UniverseScanner.cpp L1028-1122
+//   정배열·피처   Quant/src/universe/UniverseFeatures.cpp lookup_and_filter
+//   횡단면 점수   Quant/src/universe/UniverseScoring.cpp score_cross_section
 //   비중 배수     Quant/include/universe/ScoreWeight.h
-//   존 판정       Quant/include/strategy/DeviationScaleStrategy.h L264-283
+//   존 판정       Quant/src/strategy/DeviationScaleStrategy.cpp judge_zone
 
 #include <windows.h>
 #include <winhttp.h>
@@ -29,18 +29,18 @@ struct Bar
     double open = 0.0, high = 0.0, low = 0.0, close = 0.0, volume = 0.0;
 };
 
-struct Feat
+struct SymbolFeature
 {
     std::string ticker;
     std::string name;
-    double px = 0.0;
-    double s5 = 0.0, s10 = 0.0, s20 = 0.0, s60 = 0.0, s120 = 0.0;
-    double trend = 0.0;     // (s5 - s60) / s60
-    double pull = 0.0;      // (px - s20) / s20  — 부호 유지
-    double vol = 0.0;       // ATR 대용: 20일 (고-저)/종가 평균, %
-    double turnover = 0.0;  // log(거래대금)
+    double price = 0.0;
+    double average_5 = 0.0, average_10 = 0.0, average_20 = 0.0;
+    double trend = 0.0;       // (average_5 - average_20) / average_20
+    double pullback = 0.0;    // (price - average_20) / average_20  — 부호 유지
+    double volatility = 0.0;  // ATR 대용: 20일 (고-저)/종가 평균, %
+    double turnover = 0.0;    // log(거래대금)
     double score = 0.0;
-    double mult = 0.0;
+    double multiplier = 0.0;
     bool aligned = false;
     int bars = 0;
 };
@@ -49,83 +49,81 @@ struct Feat
 struct Sleeve
 {
     const char* id;
-    double entry_lower_pct;   // 존 하단(>0이면 SMA20 위)
-    double entry_upper_pct;   // 존 상단
-    double pullback_pct;      // entry_lower_pct<=0일 때의 하단 깊이
-    double zone_hyst_pct;     // 히스테리시스
-    double min_dev_pct;       // 프리필터 하한(비율)
-    double max_dev_pct;       // 프리필터 상한(비율)
-    double base_pct;          // 1회차 명목 비중
-    double target_total_pct;  // 슬리브 총 명목 목표
-    int    slots;             // 슬리브 슬롯 수
-    double w_liq;             // 거래대금 가중
+    double entry_upper_percent;      // 존 상단
+    double pullback_percent;         // 존 하단 깊이(SMA20 아래 %)
+    double zone_hysteresis_percent;  // 히스테리시스
+    double max_deviation_ratio;      // 프리필터 상한(비율)
+    double base_ratio;               // 1회차 명목 비중
+    double target_total_ratio;       // 슬리브 총 명목 목표
+    int    slots;                    // 슬리브 슬롯 수
+    double liquidity_weight;         // 거래대금 가중
 };
 
-const Sleeve kDevscale{"DEVSCALE", 0.0, 5.0, 8.0, 4.0, -0.12, 0.09, 0.05, 0.80, 17, 0.0};
-const Sleeve kTrendx{"TRENDX", 5.0, 35.0, 0.0, 4.0, 0.01, 0.39, 0.015, 0.10, 25, 0.7};
+const Sleeve kDevscale{"DEVSCALE", 5.0, 8.0, 4.0, 0.09, 0.05, 0.80, 17, 0.0};
 
-std::wstring widen(const std::string& s)
+std::wstring widen(const std::string& text)
 {
-    if (s.empty())
+    if (text.empty())
     {
         return std::wstring();
     }
 
-    int n = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), nullptr, 0);
-    std::wstring w(n, L' ');
-    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), &w[0], n);
-    return w;
+    const int text_length = static_cast<int>(text.size());
+    const int wide_length = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), text_length, nullptr, 0);
+    std::wstring wide(wide_length, L' ');
+    MultiByteToWideChar(CP_UTF8, 0, text.c_str(), text_length, &wide[0], wide_length);
+    return wide;
 }
 
 bool http_get(const std::string& host, const std::string& path, std::string& out)
 {
     out.clear();
-    HINTERNET ses = WinHttpOpen(L"zone_check/1.0", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
-                                WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    HINTERNET session = WinHttpOpen(L"zone_check/1.0", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
+                                    WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
 
-    if (!ses)
+    if (!session)
     {
         return false;
     }
 
-    HINTERNET con = WinHttpConnect(ses, widen(host).c_str(), INTERNET_DEFAULT_HTTPS_PORT, 0);
+    HINTERNET connection = WinHttpConnect(session, widen(host).c_str(), INTERNET_DEFAULT_HTTPS_PORT, 0);
 
-    if (!con)
+    if (!connection)
     {
-        WinHttpCloseHandle(ses);
+        WinHttpCloseHandle(session);
         return false;
     }
 
-    HINTERNET req = WinHttpOpenRequest(con, L"GET", widen(path).c_str(), nullptr,
-                                       WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES,
-                                       WINHTTP_FLAG_SECURE);
-    bool ok = false;
+    HINTERNET request = WinHttpOpenRequest(connection, L"GET", widen(path).c_str(), nullptr,
+                                           WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES,
+                                           WINHTTP_FLAG_SECURE);
+    bool succeeded = false;
 
-    if (req &&
-        WinHttpSendRequest(req, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0) &&
-        WinHttpReceiveResponse(req, nullptr))
+    if (request &&
+        WinHttpSendRequest(request, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0) &&
+        WinHttpReceiveResponse(request, nullptr))
     {
-        DWORD avail = 0;
+        DWORD available = 0;
 
-        while (WinHttpQueryDataAvailable(req, &avail) && avail > 0)
+        while (WinHttpQueryDataAvailable(request, &available) && available > 0)
         {
-            std::string buf(avail, ' ');
-            DWORD got = 0;
-            WinHttpReadData(req, &buf[0], avail, &got);
-            out.append(buf.data(), got);
+            std::string buffer(available, ' ');
+            DWORD bytes_read = 0;
+            WinHttpReadData(request, &buffer[0], available, &bytes_read);
+            out.append(buffer.data(), bytes_read);
         }
 
-        ok = !out.empty();
+        succeeded = !out.empty();
     }
 
-    if (req)
+    if (request)
     {
-        WinHttpCloseHandle(req);
+        WinHttpCloseHandle(request);
     }
 
-    WinHttpCloseHandle(con);
-    WinHttpCloseHandle(ses);
-    return ok;
+    WinHttpCloseHandle(connection);
+    WinHttpCloseHandle(session);
+    return succeeded;
 }
 
 // 네이버 siseJson 응답은 JSON이 아니라 홑따옴표가 섞인 배열 문자열이다.
@@ -133,54 +131,54 @@ bool http_get(const std::string& host, const std::string& path, std::string& out
 std::vector<Bar> parse_sise(const std::string& body)
 {
     std::vector<Bar> bars;
-    size_t i = 0;
+    size_t row_start = 0;
 
-    while ((i = body.find("[\"", i)) != std::string::npos)
+    while ((row_start = body.find("[\"", row_start)) != std::string::npos)
     {
-        size_t j = body.find(']', i);
+        const size_t row_end = body.find(']', row_start);
 
-        if (j == std::string::npos)
+        if (row_end == std::string::npos)
         {
             break;
         }
 
-        std::string row = body.substr(i + 1, j - i - 1);
-        std::vector<std::string> cell;
-        size_t p = 0;
+        const std::string row = body.substr(row_start + 1, row_end - row_start - 1);
+        std::vector<std::string> cells;
+        size_t cell_start = 0;
 
-        while (p <= row.size())
+        while (cell_start <= row.size())
         {
-            size_t q = row.find(',', p);
-            std::string c = row.substr(p, q == std::string::npos ? std::string::npos : q - p);
-            size_t a = c.find_first_not_of(" \t\"");
-            size_t b = c.find_last_not_of(" \t\"");
-            cell.push_back(a == std::string::npos ? std::string() : c.substr(a, b - a + 1));
+            const size_t comma = row.find(',', cell_start);
+            const std::string cell = row.substr(cell_start, comma == std::string::npos ? std::string::npos : comma - cell_start);
+            const size_t first = cell.find_first_not_of(" \t\"");
+            const size_t last = cell.find_last_not_of(" \t\"");
+            cells.push_back(first == std::string::npos ? std::string() : cell.substr(first, last - first + 1));
 
-            if (q == std::string::npos)
+            if (comma == std::string::npos)
             {
                 break;
             }
 
-            p = q + 1;
+            cell_start = comma + 1;
         }
 
-        if (cell.size() >= 6 && cell[0].size() == 8 && cell[0][0] == '2')
+        if (cells.size() >= 6 && cells[0].size() == 8 && cells[0][0] == '2')
         {
-            Bar b;
-            b.date   = cell[0];
-            b.open   = atof(cell[1].c_str());
-            b.high   = atof(cell[2].c_str());
-            b.low    = atof(cell[3].c_str());
-            b.close  = atof(cell[4].c_str());
-            b.volume = atof(cell[5].c_str());
+            Bar bar;
+            bar.date   = cells[0];
+            bar.open   = atof(cells[1].c_str());
+            bar.high   = atof(cells[2].c_str());
+            bar.low    = atof(cells[3].c_str());
+            bar.close  = atof(cells[4].c_str());
+            bar.volume = atof(cells[5].c_str());
 
-            if (b.close > 0.0)
+            if (bar.close > 0.0)
             {
-                bars.push_back(b);
+                bars.push_back(bar);
             }
         }
 
-        i = j + 1;
+        row_start = row_end + 1;
     }
 
     // 네이버는 과거→최근 순으로 준다. 엔진은 [0]이 최신이라 뒤집는다.
@@ -188,214 +186,218 @@ std::vector<Bar> parse_sise(const std::string& body)
     return bars;
 }
 
-double sma_close(const std::vector<Bar>& d, int n)
+double average_close(const std::vector<Bar>& bars, int count)
 {
-    if (n <= 0 || (int)d.size() < n)
+    if (count <= 0 || static_cast<int>(bars.size()) < count)
     {
         return 0.0;
     }
 
-    double s = 0.0;
+    double sum = 0.0;
 
-    for (int k = 0; k < n; ++k)
+    for (int index = 0; index < count; ++index)
     {
-        s += d[k].close;
+        sum += bars[index].close;
     }
 
-    return s / n;
+    return sum / count;
 }
 
 std::string ymd_offset(int days_back)
 {
-    SYSTEMTIME st;
-    GetLocalTime(&st);
-    FILETIME ft;
-    SystemTimeToFileTime(&st, &ft);
-    ULARGE_INTEGER u;
-    u.LowPart  = ft.dwLowDateTime;
-    u.HighPart = ft.dwHighDateTime;
-    u.QuadPart -= (ULONGLONG)days_back * 24ULL * 3600ULL * 10000000ULL;
-    ft.dwLowDateTime  = u.LowPart;
-    ft.dwHighDateTime = u.HighPart;
-    FileTimeToSystemTime(&ft, &st);
-    char b[16];
-    sprintf_s(b, "%04d%02d%02d", st.wYear, st.wMonth, st.wDay);
-    return b;
+    SYSTEMTIME system_time;
+    GetLocalTime(&system_time);
+    FILETIME file_time;
+    SystemTimeToFileTime(&system_time, &file_time);
+    ULARGE_INTEGER ticks;
+    ticks.LowPart  = file_time.dwLowDateTime;
+    ticks.HighPart = file_time.dwHighDateTime;
+    ticks.QuadPart -= static_cast<ULONGLONG>(days_back) * 24ULL * 3600ULL * 10000000ULL;
+    file_time.dwLowDateTime  = ticks.LowPart;
+    file_time.dwHighDateTime = ticks.HighPart;
+    FileTimeToSystemTime(&file_time, &system_time);
+    char text[16];
+    sprintf_s(text, "%04d%02d%02d", system_time.wYear, system_time.wMonth, system_time.wDay);
+    return text;
 }
 
 // 횡단면 z-score. 표준편차가 사실상 0이면 전부 0(동일가중 폴백). 원본과 같이 ±2로 자른다.
-void zscore(std::vector<Feat>& v, double Feat::*f, bool invert, std::vector<double>& z)
+void zscore(const std::vector<SymbolFeature>& features, double SymbolFeature::*member, bool invert,
+            std::vector<double>& scores)
 {
-    const size_t n = v.size();
-    z.assign(n, 0.0);
+    const size_t count = features.size();
+    scores.assign(count, 0.0);
 
-    if (n < 2)
+    if (count < 2)
     {
         return;
     }
 
     double mean = 0.0;
 
-    for (auto& e : v)
+    for (const auto& feature : features)
     {
-        mean += e.*f;
+        mean += feature.*member;
     }
 
-    mean /= (double)n;
-    double var = 0.0;
+    mean /= static_cast<double>(count);
+    double variance = 0.0;
 
-    for (auto& e : v)
+    for (const auto& feature : features)
     {
-        const double d0 = e.*f - mean;
-        var += d0 * d0;
+        const double deviation = feature.*member - mean;
+        variance += deviation * deviation;
     }
 
-    var /= (double)n;
-    const double sd = std::sqrt(var);
+    variance /= static_cast<double>(count);
+    const double standard_deviation = std::sqrt(variance);
 
-    if (!(sd > 1e-12))
+    if (!(standard_deviation > 1e-12))
     {
         return;
     }
 
-    for (size_t i = 0; i < n; ++i)
+    for (size_t index = 0; index < count; ++index)
     {
-        double x = (v[i].*f - mean) / sd;
-        x = (std::max)(-2.0, (std::min)(2.0, x));
-        z[i] = invert ? -x : x;
+        double value = (features[index].*member - mean) / standard_deviation;
+        value = (std::max)(-2.0, (std::min)(2.0, value));
+        scores[index] = invert ? -value : value;
     }
 }
 
-void run_sleeve(const Sleeve& s, std::vector<Feat> all)
+void run_sleeve(const Sleeve& sleeve, const std::vector<SymbolFeature>& all_features)
 {
-    printf("\n================ %s ================\n", s.id);
+    printf("\n================ %s ================\n", sleeve.id);
     printf("진입밴드 %.1f%% ~ %.1f%%  히스테리시스 %.1f%%  슬롯 %d  base %.1f%%  총목표 %.0f%%\n",
-           s.entry_lower_pct > 0.0 ? s.entry_lower_pct : -s.pullback_pct,
-           s.entry_upper_pct, s.zone_hyst_pct, s.slots,
-           s.base_pct * 100.0, s.target_total_pct * 100.0);
+           -sleeve.pullback_percent,
+           sleeve.entry_upper_percent, sleeve.zone_hysteresis_percent, sleeve.slots,
+           sleeve.base_ratio * 100.0, sleeve.target_total_ratio * 100.0);
 
-    std::vector<Feat> pass;
-    int cut_align = 0, cut_ext = 0, cut_bars = 0;
+    std::vector<SymbolFeature> passed;
+    int cut_aligned = 0, cut_extended = 0, cut_bars = 0;
 
-    for (auto& f : all)
+    for (const auto& feature : all_features)
     {
-        if (f.bars < 60)
+        if (feature.bars < 20)
         {
             ++cut_bars;
             continue;
         }
 
-        if (!f.aligned)
+        if (!feature.aligned)
         {
-            ++cut_align;
+            ++cut_aligned;
             continue;
         }
 
-        if (s.max_dev_pct > 0.0 && f.pull > s.max_dev_pct)
+        if (sleeve.max_deviation_ratio > 0.0 && feature.pullback > sleeve.max_deviation_ratio)
         {
-            ++cut_ext;
+            ++cut_extended;
             continue;
         }
 
-        if (s.min_dev_pct > 0.0 && f.pull < s.min_dev_pct)
-        {
-            ++cut_ext;
-            continue;
-        }
-
-        pass.push_back(f);
+        passed.push_back(feature);
     }
 
     printf("프리필터: 입력=%d 역배열컷=%d 데이터부족=%d 과확장컷=%d 통과=%d\n",
-           (int)all.size(), cut_align, cut_bars, cut_ext, (int)pass.size());
+           static_cast<int>(all_features.size()), cut_aligned, cut_bars, cut_extended,
+           static_cast<int>(passed.size()));
 
-    if (pass.empty())
+    if (passed.empty())
     {
         return;
     }
 
-    // S = 1.0*z(trend) + 1.0*z(-pull) - 0.0*z(vol) + w_liq*z(log 거래대금)
-    std::vector<double> zt, zp, zv, zl;
-    zscore(pass, &Feat::trend, false, zt);
-    zscore(pass, &Feat::pull, true, zp);
-    zscore(pass, &Feat::vol, false, zv);
+    // S = 1.0*z(trend) + 1.0*z(-pullback) - 0.0*z(volatility) + liquidity_weight*z(log 거래대금)
+    std::vector<double> z_trend, z_pullback, z_volatility, z_liquidity;
+    zscore(passed, &SymbolFeature::trend, false, z_trend);
+    zscore(passed, &SymbolFeature::pullback, true, z_pullback);
+    zscore(passed, &SymbolFeature::volatility, false, z_volatility);
 
-    if (s.w_liq != 0.0)
+    if (sleeve.liquidity_weight != 0.0)
     {
-        zscore(pass, &Feat::turnover, false, zl);
+        zscore(passed, &SymbolFeature::turnover, false, z_liquidity);
     }
     else
     {
-        zl.assign(pass.size(), 0.0);
+        z_liquidity.assign(passed.size(), 0.0);
     }
 
-    for (size_t i = 0; i < pass.size(); ++i)
+    for (size_t index = 0; index < passed.size(); ++index)
     {
-        pass[i].score = 1.0 * zt[i] + 1.0 * zp[i] - 0.0 * zv[i] + s.w_liq * zl[i];
+        passed[index].score = 1.0 * z_trend[index] + 1.0 * z_pullback[index] - 0.0 * z_volatility[index] +
+                              sleeve.liquidity_weight * z_liquidity[index];
     }
 
-    std::sort(pass.begin(), pass.end(),
-              [](const Feat& a, const Feat& b) { return a.score > b.score; });
+    std::sort(passed.begin(), passed.end(),
+              [](const SymbolFeature& left, const SymbolFeature& right)
+              {
+                  return left.score > right.score;
+              });
 
     // 비중 배수(ScoreWeight.h):
-    //  z = clamp((S-mu)/sd, +-2), raw = 1 + 0.6*z/2, scale = target / (base * sum(상위 raw))
-    double mu = 0.0;
+    //  z = clamp((S-mean)/sd, +-2), raw = 1 + 0.6*z/2, scale = target / (base * sum(상위 raw))
+    double mean = 0.0;
 
-    for (auto& f : pass)
+    for (const auto& feature : passed)
     {
-        mu += f.score;
+        mean += feature.score;
     }
 
-    mu /= (double)pass.size();
-    double var = 0.0;
+    mean /= static_cast<double>(passed.size());
+    double variance = 0.0;
 
-    for (auto& f : pass)
+    for (const auto& feature : passed)
     {
-        var += (f.score - mu) * (f.score - mu);
+        variance += (feature.score - mean) * (feature.score - mean);
     }
 
-    const double sd = std::sqrt(var / (double)pass.size());
-    std::vector<double> raw(pass.size(), 1.0);
+    const double standard_deviation = std::sqrt(variance / static_cast<double>(passed.size()));
+    std::vector<double> raw_weights(passed.size(), 1.0);
 
-    for (size_t i = 0; i < pass.size(); ++i)
+    for (size_t index = 0; index < passed.size(); ++index)
     {
-        double z = sd > 1e-12 ? (pass[i].score - mu) / sd : 0.0;
-        z = (std::max)(-2.0, (std::min)(2.0, z));
-        raw[i] = 1.0 + 0.6 * z / 2.0;
+        double z_value = standard_deviation > 1e-12 ? (passed[index].score - mean) / standard_deviation : 0.0;
+        z_value = (std::max)(-2.0, (std::min)(2.0, z_value));
+        raw_weights[index] = 1.0 + 0.6 * z_value / 2.0;
     }
 
-    const int take = (std::min)((int)pass.size(), s.slots);
+    const int passed_count = static_cast<int>(passed.size());
+    const int take_count = (std::min)(passed_count, sleeve.slots);
     double sum_top = 0.0;
 
-    for (int i = 0; i < take; ++i)
+    for (int index = 0; index < take_count; ++index)
     {
-        sum_top += raw[i];
+        sum_top += raw_weights[index];
     }
 
-    const double scale = sum_top > 0.0 ? s.target_total_pct / (s.base_pct * sum_top) : 1.0;
+    const double scale = sum_top > 0.0 ? sleeve.target_total_ratio / (sleeve.base_ratio * sum_top) : 1.0;
 
-    for (size_t i = 0; i < pass.size(); ++i)
+    for (size_t index = 0; index < passed.size(); ++index)
     {
-        pass[i].mult = raw[i] * scale;
+        passed[index].multiplier = raw_weights[index] * scale;
     }
 
     // 존 판정. 신규 진입 시점(in_zone_=false) 기준이라 히스테리시스는 붙지 않는다.
-    const double up_th  = s.entry_upper_pct;
-    const double low_th = s.entry_lower_pct > 0.0 ? s.entry_lower_pct : -s.pullback_pct;
+    const double upper_threshold = sleeve.entry_upper_percent;
+    const double lower_threshold = -sleeve.pullback_percent;
 
     printf("%-6s %-8s %-16s %10s %10s %8s %8s %6s %6s\n",
            "순위", "종목", "이름", "현재가", "SMA20", "이격%", "점수", "배수", "존");
     printf("-------------------------------------------------------------------------------------\n");
 
-    for (int i = 0; i < (int)pass.size(); ++i)
+    for (int index = 0; index < passed_count; ++index)
     {
-        const Feat& f = pass[i];
-        const double s_dev = f.s20 > 0.0 ? (f.px - f.s20) / f.s20 * 100.0 : 999.0;
-        const bool zone = f.aligned && f.s20 > 0.0 && s_dev <= up_th && s_dev >= low_th;
+        const SymbolFeature& feature = passed[index];
+        const double deviation_percent = feature.average_20 > 0.0
+                                             ? (feature.price - feature.average_20) / feature.average_20 * 100.0
+                                             : 999.0;
+        const bool zone = feature.aligned && feature.average_20 > 0.0 && deviation_percent <= upper_threshold &&
+                          deviation_percent >= lower_threshold;
         printf("%2d/%-3d %-8s %-16s %10.0f %10.1f %8.2f %8.3f %6.2f %6s%s\n",
-               i + 1, (int)pass.size(), f.ticker.c_str(), f.name.c_str(),
-               f.px, f.s20, s_dev, f.score, f.mult,
-               zone ? "활성" : "대기", i < take ? "" : "  (슬롯밖)");
+               index + 1, passed_count, feature.ticker.c_str(), feature.name.c_str(),
+               feature.price, feature.average_20, deviation_percent, feature.score, feature.multiplier,
+               zone ? "활성" : "대기", index < take_count ? "" : "  (슬롯밖)");
     }
 
     printf("\n존 활성이어도 발주까지는 OrderGate를 더 지난다 — 점수 우선순위 기준선,\n");
@@ -423,89 +425,91 @@ int main(int argc, char** argv)
         {"030200", "KT"},           {"034020", "두산에너빌리티"}, {"003550", "LG"},
     };
 
-    std::vector<Target> cli;
+    std::vector<Target> argument_targets;
 
-    for (int i = 1; i < argc; ++i)
+    for (int index = 1; index < argc; ++index)
     {
-        cli.push_back({argv[i], argv[i]});
+        argument_targets.push_back({argv[index], argv[index]});
     }
 
-    if (!cli.empty())
+    if (!argument_targets.empty())
     {
-        targets = cli;
+        targets = argument_targets;
     }
 
     const std::string start = ymd_offset(400);
     const std::string end   = ymd_offset(0);
-    printf("네이버 일봉 수집: %s ~ %s, %d종목\n", start.c_str(), end.c_str(), (int)targets.size());
+    printf("네이버 일봉 수집: %s ~ %s, %d종목\n", start.c_str(), end.c_str(), static_cast<int>(targets.size()));
 
-    std::vector<Feat> all;
+    std::vector<SymbolFeature> all_features;
 
-    for (const auto& t : targets)
+    for (const auto& target : targets)
     {
-        const std::string path = "/siseJson.naver?symbol=" + std::string(t.code) +
+        const std::string path = "/siseJson.naver?symbol=" + std::string(target.code) +
                                  "&requestType=1&startTime=" + start +
                                  "&endTime=" + end + "&timeframe=day";
         std::string body;
 
         if (!http_get("api.finance.naver.com", path, body))
         {
-            printf("  %s 수집 실패\n", t.code);
+            printf("  %s 수집 실패\n", target.code);
             continue;
         }
 
-        std::vector<Bar> bars = parse_sise(body);
+        const std::vector<Bar> bars = parse_sise(body);
+        const int bar_count = static_cast<int>(bars.size());
 
-        if (bars.size() < 60)
+        if (bar_count < 20)
         {
-            printf("  %s 일봉 %d개 — 60개 미만이라 제외\n", t.code, (int)bars.size());
+            printf("  %s 일봉 %d개 — 20개 미만이라 제외\n", target.code, bar_count);
             continue;
         }
 
-        Feat f;
-        f.ticker  = t.code;
-        f.name    = t.name;
-        f.bars    = (int)bars.size();
-        f.px      = bars[0].close;
-        f.s5      = sma_close(bars, 5);
-        f.s10     = sma_close(bars, 10);
-        f.s20     = sma_close(bars, 20);
-        f.s60     = sma_close(bars, 60);
-        f.s120    = sma_close(bars, 120);
-        f.aligned = f.s5 > f.s10 && f.s10 > f.s20 && f.s20 > f.s60;
-        f.trend   = f.s60 > 0.0 ? (f.s5 - f.s60) / f.s60 : 0.0;
-        f.pull    = f.s20 > 0.0 ? (f.px - f.s20) / f.s20 : 0.0;
+        SymbolFeature feature;
+        feature.ticker     = target.code;
+        feature.name       = target.name;
+        feature.bars       = bar_count;
+        feature.price      = bars[0].close;
+        feature.average_5  = average_close(bars, 5);
+        feature.average_10 = average_close(bars, 10);
+        feature.average_20 = average_close(bars, 20);
+        feature.aligned    = feature.average_5 > feature.average_10 && feature.average_10 > feature.average_20;
+        feature.trend      = feature.average_20 > 0.0
+                                 ? (feature.average_5 - feature.average_20) / feature.average_20
+                                 : 0.0;
+        feature.pullback   = feature.average_20 > 0.0
+                                 ? (feature.price - feature.average_20) / feature.average_20
+                                 : 0.0;
 
-        double v = 0.0;
-        int vn = 0;
+        double range_sum = 0.0;
+        int range_count = 0;
 
-        for (int k = 0; k < 20 && k < (int)bars.size(); ++k)
+        for (int index = 0; index < 20 && index < bar_count; ++index)
         {
-            if (bars[k].close > 0.0)
+            if (bars[index].close > 0.0)
             {
-                v += (bars[k].high - bars[k].low) / bars[k].close;
-                ++vn;
+                range_sum += (bars[index].high - bars[index].low) / bars[index].close;
+                ++range_count;
             }
         }
 
-        f.vol = vn > 0 ? v / vn * 100.0 : 0.0;
+        feature.volatility = range_count > 0 ? range_sum / range_count * 100.0 : 0.0;
         const double turnover = bars[0].close * bars[0].volume;
-        f.turnover = turnover > 0.0 ? std::log(turnover) : 0.0;
+        feature.turnover = turnover > 0.0 ? std::log(turnover) : 0.0;
 
         printf("  %s %-16s 일봉 %3d개  종가 %9.0f  SMA20 %9.1f  이격 %+7.2f%%  정배열 %s\n",
-               f.ticker.c_str(), f.name.c_str(), f.bars, f.px, f.s20,
-               f.pull * 100.0, f.aligned ? "Y" : "N");
-        all.push_back(f);
+               feature.ticker.c_str(), feature.name.c_str(), feature.bars, feature.price, feature.average_20,
+               feature.pullback * 100.0, feature.aligned ? "Y" : "N");
+        all_features.push_back(feature);
         Sleep(120);  // 네이버 호출 간격
     }
 
-    if (all.empty())
+    if (all_features.empty())
     {
         printf("수집된 종목이 없다. 네트워크나 종목코드를 확인한다.\n");
         return 1;
     }
 
-    run_sleeve(kDevscale, all);
-    run_sleeve(kTrendx, all);
+    run_sleeve(kDevscale, all_features);
     return 0;
 }

@@ -64,7 +64,6 @@ WatchSpec watch_specification_of(const ControlRequest& request)
     specification.market     = request.market == static_cast<uint8_t>(Market::US) ? Market::US : Market::KR;
     specification.exchange   = std::string(exchange_of(request));
     specification.trade_only = request.trade_only != 0;
-    specification.is_future  = request.is_future != 0;
     return specification;
 }
 

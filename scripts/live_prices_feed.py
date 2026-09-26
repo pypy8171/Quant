@@ -11,8 +11,9 @@ KIS REST는 초당 한도가 좁아 2,700종목을 2분마다 훑을 수 없다.
 PRICES_PERIOD_SEC 환경변수로.
 
 산출: Quant/config/prices_live.json
-  {"ts": <epoch>, "hhmm": "1503", "count": N,
-   "prices": {"005930": {"px": 270000.0, "vol": 1234567, "val": 3.3e11, "mcap": 4.5e14}, ...}}
+  {"ts": <epoch>,
+   "prices": {"005930": {"px": 270000.0, "nm": "삼성전자", "vol": 1234567, "val": 3.3e11, "mcap": 4.5e14}, ...}}
+  ts = 기록 시각(엔진이 "N초 전 갱신" 로그에 쓴다)
   px = 현재가, nm = 종목명, vol = 누적거래량(주), val = 누적거래대금(원), mcap = 시가총액(원)
   mcap은 universe_feed.py가 재랭킹할 때 이 파일을 재사용하려고 담는다.
 """
@@ -53,7 +54,7 @@ def load_codes():
     codes = [c for c in mm if len(c) == 6 and c.isdigit()]
     if not codes:  # market_map이 없으면 universe 배열로 폴백
         codes = [e.get('ticker') for e in j.get('universe', []) if e.get('ticker')]
-    return sorted(set(codes)), mm
+    return sorted(set(codes))
 
 
 def fetch(codes):
@@ -98,7 +99,7 @@ def cycle(codes):
 
 
 def main():
-    codes, _ = load_codes()
+    codes = load_codes()
     print('전 종목 시세 보조 프로세스 시작: %d종목, %d초 주기 → %s' % (len(codes), PERIOD, OUT), flush=True)
     while True:
         t0 = time.time()
@@ -107,8 +108,6 @@ def main():
         tmp = OUT + '.tmp'
         with io.open(tmp, 'w', encoding='utf-8') as f:
             json.dump({'ts': int(time.time()),
-                       'hhmm': time.strftime('%H%M'),
-                       'count': len(prices),
                        'prices': prices}, f, ensure_ascii=False)
         os.replace(tmp, OUT)
         print('%s  %d종목 갱신 (실패 %d, %.1fs)' % (time.strftime('%H:%M:%S'), len(prices), miss, time.time() - t0), flush=True)

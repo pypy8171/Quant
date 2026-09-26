@@ -7009,3 +7009,28 @@ D-137에서 이미 1,000 → 200,000으로 올렸고 그래도 천장은 그대�
 **연결**: D-005 · D-141 · `Quant/src/universe/UniverseFeatures.cpp` `lookup_and_filter`.
 
 ---
+
+### D-145 개발을 따라 고치지 못하고 남은 코드·도구·문서를 한 번에 걷는다 (2026-09-26)
+
+**배경**: D-143을 하다 보니 같은 종류가 더 있었다 — 설정은 바뀌었는데 코드·주석·문서·config가 옛 모양 그대로인 곳.
+전수 조사(문서·파이썬·config·C++ 네 갈래)에서 "부르는 곳 0건", "쓰기만 하고 읽지 않음", "어느 config에도 없는 키",
+"지운 도구·옛 경로를 가리키는 문서"를 모았다.
+
+**결정**:
+- C++: 부르는 곳 없는 함수(`send_order`·`send_us_order`·`get_weekly_ohlcv`·`get_daily_minute_ohlcv`·`get_index_daily_ohlcv`·
+  `get_investor_flow`·`set_last_active_regimes`·`Logger::set_console_enabled` 등)와 읽지 않는 필드를 지운다.
+  DailyLookup 캐시 칸은 13→9(옛 칸수 파일은 건너뛰고 다시 받는다). 기본값 0이던 `score_w_supply`, TRENDX(D-101로 꺼짐)만
+  쓰던 DEVSCALE 파라미터와 `min_dev_pct`, config에 없는 전략 MOMENTUM·PRICE_TARGET·SUPPLY_DEMAND_PULLBACK·THEME,
+  설정하는 곳이 없던 선물 실시간 구독 경로, regime 라벨 별칭 BULL/BEAR를 지운다(config는 RISK_ON/RISK_OFF로 바꿨다).
+- 파이썬·스크립트: 한 번 쓰고 끝난 점검·실험 도구 17개를 지우고, 쓰지 않는 반환값·필드·스위치(`-Split`)를 걷는다.
+  `../quant-devtools`로 옮긴 도구(D-107)를 옛 `scripts/` 경로로 부르던 곳을 고친다.
+- 문서: 지운 것을 가리키던 문단·링크·색인 줄을 맞춘다.
+
+**남긴 것**: TARGET_BASKET(D-109, 예약작업이 매일 목표표를 쓴다), 물타기·사이징 키 전부(물타기를 다시 켤 수 있다),
+REST 선물 조회(`get_future_price`·`get_future_board`), 데이터 적재에 쓰는 백필 도구.
+
+**동작 변화**: 운영 config 기준 없다. ctest 65/65.
+
+**연결**: D-101 · D-107 · D-109 · D-143.
+
+---

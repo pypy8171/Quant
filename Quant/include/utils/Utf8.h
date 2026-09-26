@@ -4,22 +4,7 @@
 #include <string>
 #include <string_view>
 
-// UTF-8 문자열 터미널 표시폭 계산 및 패딩 유틸
-// CJK 문자는 2칸, ASCII는 1칸으로 계산
-//
-// 선두 바이트 값으로 문자 길이를 판별한다(UTF-8 규격):
-//   <0x80  = ASCII 1바이트(폭 1)
-//   <0xE0  = 2바이트 시퀀스(폭 2 — 라틴 확장·그리스·키릴·히브리·아랍 등)
-//   <0xF0  = 3바이트 시퀀스(폭 2 — 한글 완성형·CJK 등)
-//   그 외  = 4바이트 시퀀스(폭 2 — 이모지·보조평면)
-
 namespace utf8 {
-
-int display_width(const std::string& text);
-
-std::string pad_right(const std::string& text, int target);
-
-std::string truncate(const std::string& text, int max_width);
 
 // 바이트열이 제대로 된 UTF-8인지 본다 — 이어지는 바이트 개수·과다 인코딩·서러게이트·U+10FFFF 초과를 거른다.
 bool is_valid_utf8(std::string_view text);

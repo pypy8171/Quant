@@ -63,7 +63,6 @@ void test_multi_producer_no_loss()
     static constexpr int kThreads = 4;
     static constexpr int kPerThread = 20000;
     auto& logger = Logger::instance();
-    logger.set_console_enabled(false);
     logger.initialize(kFile, LogLevel::INFO);
 
     const uint64_t dropped_before = logger.dropped();

@@ -158,7 +158,7 @@ fix_cmd = "py ../quant-devtools/gen_runbook.py"
 note = "운영 런북 HTML 은 RUNBOOK.md 에서 통째로 렌더(gitignore). 코드 블록의 스크립트 경로가 없으면 --check 가 잡는다"
 
 [[rule]]
-src = ["scripts/auto_trade_day.ps1", "scripts/auto_trade_guard.ps1", "scripts/dashboard_server.py", "scripts/parse_quant_log.py", "scripts/notify_trades.py", "PYQuant/tools/macro_regime_feed.py", "PYQuant/tools/universe_feed.py", "PYQuant/tools/investor_flow_logger.py", "PYQuant/tools/index_intraday_logger.py", "docs/guides/OPS_TERMINAL.md", "docs/guides/MFC_TERMINAL.md"]
+src = ["scripts/auto_trade_day.ps1", "scripts/auto_trade_guard.ps1", "scripts/dashboard_server.py", "scripts/parse_quant_log.py", "scripts/notify_trades.py", "PYQuant/tools/macro_regime_feed.py", "PYQuant/tools/universe_feed.py", "docs/guides/OPS_TERMINAL.md", "docs/guides/MFC_TERMINAL.md"]
 deps = ["docs/RUNBOOK.md"]
 check = "stamp"
 note = "런북이 인용하는 스크립트 인자·옵션. 절 머리 도장이 낡으면 그 절의 명령을 맞추고 --restamp docs/RUNBOOK.md"

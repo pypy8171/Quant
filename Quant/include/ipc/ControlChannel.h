@@ -76,7 +76,6 @@ struct ControlRequest
     uint8_t                    halt_side         = 0;   // kManualHalt — OrderSide::Value 를 담는다
     uint8_t                    market            = 0;   // kWatchSubscribe — Market 을 담는다
     uint8_t                    trade_only        = 0;   // kWatchSubscribe — 호가 빼고 체결만 구독
-    uint8_t                    is_future         = 0;   // kWatchSubscribe — 국내 선물 채널로 구독
     double                     score_z           = 0.0; // kEntryPriorityEntry
     double                     entry_scale       = 0.0; // kEntryScale
     double                     stop_loss_percent = 0.0; // kArmProtective

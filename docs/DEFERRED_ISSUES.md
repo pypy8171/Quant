@@ -36,13 +36,6 @@
 - 미룬 이유: 현재 주문 경로는 국내 위주다.
 - 재개 조건: 해외 주문을 실제로 낼 때 별도 tr_id/URL로 구현한다.
 
-### D-5. send_order와 submit_order_acknowledgement의 본문 중복
-- 위치: [Quant/src/api/KisOrder.cpp](../Quant/src/api/KisOrder.cpp#L138)의 `send_order()`, `submit_order_acknowledgement()`
-- 현상: 두 함수가 본문·tr_id를 거의 그대로 복제한다. `submit_order_acknowledgement`가 응답에서
-  조직번호까지 더 캡처하는 점만 다르다.
-- 미룬 이유: 동작은 정확하고, 지금 리팩터해도 기능 변화가 없다.
-- 재개 조건: 주문 전문 필드가 늘어 양쪽을 같이 고쳐야 하는 부담이 커지면 공통 본문으로 합친다.
-
 ### D-18. 주문·취소가 KIS 초당 거래건수 한도(EGW00201)를 넘겨 거부된다
 - 위치: [Quant/src/ipc/OrderRouter.cpp](../Quant/src/ipc/OrderRouter.cpp) 발주·취소 경로, 분당 20건 자체 제한은
   [Quant/src/risk/OrderGate.cpp](../Quant/src/risk/OrderGate.cpp).
@@ -72,13 +65,6 @@
 - 재개 조건: 다른 WS 서버(검증하는 구현)에 붙일 필요가 생기면 임의 nonce 생성으로 바꾼다.
 
 ## 전략
-
-### D-8. SupplyDemandPullback의 무의미 삼항 (자리표시)
-- 위치: [SupplyDemandPullbackStrategy.h](../Quant/include/strategy/SupplyDemandPullbackStrategy.h)
-- 현상: `int start = (bars[0].volume == 0) ? 1 : 1;` — 두 분기 값이 같아 항상 1이다. 당일봉 처리
-  분기 지점만 남겨둔 자리다.
-- 미룬 이유: 현재는 당일봉 유무를 구분하지 않고 항상 1부터 쓰는 보수적 동작이 의도대로다.
-- 재개 조건: 당일 미완성봉을 실제로 다르게 처리하기로 하면 그때 분기 값을 채운다.
 
 ### D-9. IntradayBreakout 생성자 기본 매직넘버
 - 위치: [IntradayBreakoutStrategy.h](../Quant/include/strategy/IntradayBreakoutStrategy.h)

@@ -17,7 +17,7 @@ data.go.kr 는 전영업일 시세를 당일 오전 늦게 올려 08시 스캔�
 
 실행:
   set PYTHONIOENCODING=utf-8
-  python PYQuant/tools/universe_feed.py [--n-mktcap 100] [--n-turnover 100] [--date YYYY-MM-DD] [--market KOSPI|KOSDAQ|ALL]
+  python PYQuant/tools/universe_feed.py [--n-mktcap 100] [--n-turnover 100] [--date YYYY-MM-DD] [--market ALL|KOSPI|KOSDAQ]
   --market ALL: 코스피·코스닥 각각 시총∪거래대금 top-N을 union하고 종목별 "market" 태그를 부여
     → C++ UniverseScanner가 종목 시장별로 코스피(0001)/코스닥(1001) risk_off 게이트를 분기.
 키: 환경변수 DATA_GO_KR_KEY (없으면 즉시 에러). [[data-source-constraints]] 참조.
@@ -222,14 +222,9 @@ def build(on_date: str, n_mktcap: int, n_turnover: int,
     print(f"[universe_feed] 기준일 {served}: 시총 top{n_mktcap} ∪ 거래대금 top{n_turnover} "
           f"= {len(universe)}종목 ({breakdown}). ETF-free.")
     doc = {
-        "schema":   1,
         "source":   "data.go.kr:getStockPriceInfo",
         "market":   market,
         "basDt":    served,
-        "requested_date": on_date,
-        "mktcap_source":   mcap_src,
-        "turnover_source": val_src,
-        "scanned_at":      time.strftime("%Y-%m-%d %H:%M:%S"),
         "count":    len(universe),
         "universe": universe,
     }
@@ -256,8 +251,8 @@ def main() -> int:
     ap.add_argument("--n-turnover", type=int, default=100, help="거래대금 상위 N")
     ap.add_argument("--date", default=None, help="기준일 YYYY-MM-DD (기본 T-1, 백오프 자동)")
     ap.add_argument("--min-turnover", type=float, default=1e9, help="최소 거래대금(원)")
-    ap.add_argument("--market", default="KOSPI", choices=["KOSPI", "KOSDAQ", "ALL"],
-                    help="유니버스 시장(기본 KOSPI). ALL=코스피·코스닥 각각 top-N union, 종목별 market 태그 부여.")
+    ap.add_argument("--market", default="ALL", choices=["KOSPI", "KOSDAQ", "ALL"],
+                    help="유니버스 시장(기본 ALL). ALL=코스피·코스닥 각각 top-N union, 종목별 market 태그 부여.")
     ap.add_argument("--out", default=str(_OUT_PATH), help="출력 JSON 경로")
     ap.add_argument("--no-live", action="store_true",
                     help="네이버 시세로 시총·거래대금을 바꾸지 않고 data.go.kr 스냅샷 값만 쓴다(백필·점검용).")
@@ -276,8 +271,7 @@ def main() -> int:
     tmp = out.with_suffix(out.suffix + ".tmp")
     tmp.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
     os.replace(tmp, out)
-    print(f"[universe_feed] 기록 완료 → {out} ({doc['count']}종목, 목록 기준일 {doc['basDt']}, "
-          f"시총 축 {doc['mktcap_source']}, 거래대금 축 {doc['turnover_source']})")
+    print(f"[universe_feed] 기록 완료 → {out} ({doc['count']}종목, 목록 기준일 {doc['basDt']})")
     return 0
 
 

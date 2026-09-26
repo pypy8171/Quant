@@ -7,7 +7,7 @@
 
 | 플랫폼 | 받는 것 | 규모·주기 | 만드는 파일 / 쓰는 코드 |
 |---|---|---|---|
-| **data.go.kr** (금융위 `getStockPriceInfo`) | 전 종목 T-1 시세 스냅샷 — 시총·거래대금·종가. ETF/ETN은 구조적으로 없음 | 코스피+코스닥 2,765종목 스냅샷에서 시장별 시총 top100 ∪ 거래대금 top100 → 오늘 277종목. 장 전 하루 1회(`scripts/auto_trade_day.ps1`가 돌림). 공시가 1~3영업일 늦어 08시 스캔은 T-2를 받기도 한다 | `PYQuant/tools/universe_feed.py` → `Quant/config/universe_scan.json`(`universe` 277 + `market_map` 2,765). 전 종목 코드 덤프는 `PYQuant/tools/full_universe_dump.py` → `Quant/config/universe_full.json` |
+| **data.go.kr** (금융위 `getStockPriceInfo`) | 전 종목 T-1 시세 스냅샷 — 시총·거래대금·종가. ETF/ETN은 구조적으로 없음 | 코스피+코스닥 2,765종목 스냅샷에서 시장별 시총 top100 ∪ 거래대금 top100 → 오늘 277종목. data.go.kr 조회는 하루 1회(parquet 캐시), `universe_feed.py` 재랭킹은 장 전 1회 + 장중 1분마다(`scripts/auto_trade_day.ps1`가 돌림, D-142). 공시가 1~3영업일 늦어 08시 스캔은 T-2를 받기도 한다 | `PYQuant/tools/universe_feed.py` → `Quant/config/universe_scan.json`(`universe` 277 + `market_map` 2,765). 전 종목 코드 덤프는 `PYQuant/tools/full_universe_dump.py` → `Quant/config/universe_full.json` |
 | **네이버 증권** (비공식, 키 없음) | ① 전 종목 장중 시세 — 현재가·누적거래량·누적거래대금 ② 테마(인포스탁 분류) 목록·구성 종목 | ① `market_map`의 2,683종목을 900개씩 요청 3개(병렬)로 5초마다 — 한 요청 1,000종목까지 받고 1,500부터 HTTP 400(09-26 실측, D-142) ② 하루 1회 | ① `scripts/live_prices_feed.py` → `Quant/config/prices_live.json`(엔진 재스캔의 현재가, 09:30 뒤 `universe_feed.py --live-prices`가 거래대금 축을 이 값으로 바꿈) ② `PYQuant/tools/fetch_naver_themes.py`·`PYQuant/naver/theme.py` → `PYQuant/data/themes/latest.json` |
 | **KIS REST** | 순위 3축(시총 `FHPST01720000`·거래대금 `FHPST01710000`·업종별 등락률 `FHPST01700000`, 축마다 30행 상한), 종목 일봉·분봉·현재가, 지수 일봉·현재값, 잔고·미체결·주문 | 순위는 기동·재스캔마다, 일봉은 종목·일 1회 캐시(`align_lookup_max` 800), 현재가 폴링은 WS에서 밀린 종목만 | `Quant/src/api/KisUniverse.cpp`(순위·업종), `KisMarket.cpp`(봉·현재가), `KisIndex.cpp`(지수), `KisAccount.cpp`·`KisOrder.cpp`. 폴링은 `Quant/include/core/DataPoller.h` |
 | **KIS WebSocket** | 실시간 체결(`H0STCNT0`, 통합 `H0UNCNT0`)·호가(`H0STASP0`, 통합 `H0UNASP0`)·체결통보 | 세션당 구독 40건(`kMaxWsSubs`, 문서상 41). 오늘: 구독 대상 57종목 중 체결통보 1 + 시세 39, 나머지 18종목은 REST 폴링으로 대체 | `Quant/src/api/WebSocketClient.cpp`. 소켓을 더 달면(`feed_keys`) `FeedMux`가 상한을 소켓 수만큼 늘린다 |
@@ -15,14 +15,14 @@
 
 ## 기억과 다른 점
 
-- **yfinance는 "제거"가 아니라 "라이브 경로에서 빠짐"이다.** 이 환경에서 야후 크럼 SSL이 막혀 전 심볼 실패라 `macro_regime_feed.py`는 FDR로 바꿨다.
+- **yfinance는 "제거"가 아니라 "라이브 경로에서 빠짐"이다.** 이 환경에서 야후 크럼 SSL이 막혀 yfinance 라이브러리는 전 심볼 실패라, `macro_regime_feed.py`는 Yahoo chart API를 직접 부르고 실패하면 FDR로 넘어간다(D-081).
   파일은 남아 있다 — `PYQuant/data/yfinance_source.py`(백테스트 `PYQuant/main.py`가 import), `PYQuant/data/index_source.py`(백테스트 `PYQuant/backtest/engine.py`의 지수 국면).
   백테스트 어댑터는 FDR로 옮기지 않았다(메모리 `project_yfinance_dead_fdr`). 라이브 매매에는 yfinance 호출이 없다.
 - **네이버 2,700종목**은 맞다(오늘 2,683). 다만 "섹터군별 종목"은 네이버가 아니라 **KIS 업종별 등락률 순위**(`sector_codes` 28업종, 축당 30행)가 준다. 네이버가 주는 분류는 **테마**(인포스탁)이고 유니버스 후보 축이 아니라 조회·리포트용이다.
 - **data.go.kr**는 "거래대금 상위 100 ∪ 시총 100"이 맞고, 시장별로 따로 뽑아 합친다(`--market ALL`). 그래서 후보는 최대 400이 아니라 오늘 277이다.
   ETF가 없는 게 이 축을 넣은 이유다(KIS 순위는 ETF가 절반을 먹었다).
 - **KIS 구독은 "40종목"이 아니라 "구독 40건"**이다. 체결통보가 1건을 먹고, 호가까지 받는 종목은 2건을 쓴다. 지금은 시세를 체결만 받아(`trade_only`) 39종목이 실시간이고 넘친 종목은 REST 현재가 폴링(`DataPoller`)으로 간다.
-- 실시간 지수는 KIS만 준다. 장중 지수 히스토리는 어디에도 없어 `PYQuant/tools/index_intraday_logger.py`가 KIS로 직접 쌓는다.
+- 실시간 지수는 KIS만 준다. 장중 지수 히스토리는 어디에도 없다(KIS로 쌓던 로거는 예약된 적이 없어 지웠다).
 
 ## 유니버스가 만들어지는 순서
 

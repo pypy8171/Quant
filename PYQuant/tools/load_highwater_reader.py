@@ -5,7 +5,7 @@
 
 왜 로그인가. 갈라 띄우면(D-114) 요청·응답 소켓은 **주문 쪽만** 연다 — 전략·시세 프로세스는 PUB·REP·운영단말
 어느 포트도 바인드하지 않는다(Quant/src/core/Engine.cpp 의 `zmq_enabled_ && runs_order_side()`).
-그래서 tools.load_status_sampler 로는 그 둘을 못 읽는다. 대신 프로세스마다 실행 로그를 제 파일에
+그래서 요청·응답 소켓으로 상태를 묻는 방식(옛 load_status_sampler, 지웠다)으로는 그 둘을 못 읽는다. 대신 프로세스마다 실행 로그를 제 파일에
 따로 쓰고(quant_trader.order.log · quant_trader.strategy.log · quant_trader.feed.log), 1분마다 나오는 `[큐 고수위]` 줄에
 분리판 안전성 계수기가 그대로 실려 있다.
 

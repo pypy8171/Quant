@@ -246,16 +246,6 @@ size_t KisWebSocket::min_fields_for(std::string_view transaction_id) noexcept
         return 22;
     }
 
-    if (transaction_id == "H0IFASP0")
-    {
-        return 32;
-    }
-
-    if (transaction_id == "H0IFCNT0")
-    {
-        return 19;
-    }
-
     if (transaction_id == "HDFSCNT0")
     {
         return 9;
@@ -278,14 +268,6 @@ void KisWebSocket::dispatch_record(std::string_view transaction_id, kis_websocke
     else if (transaction_id == "H0STCNT0" || transaction_id == "H0UNCNT0")
     {
         parse_kr_trade(fields);
-    }
-    else if (transaction_id == "H0IFASP0")
-    {
-        parse_future_orderbook(fields);
-    }
-    else if (transaction_id == "H0IFCNT0")
-    {
-        parse_future_trade(fields);
     }
     else if (transaction_id == "HDFSCNT0")
     {
@@ -389,50 +371,6 @@ void KisWebSocket::parse_us_trade(kis_websocket::Fields fields)
     if (on_trade_)
     {
         on_trade_(trade);
-    }
-}
-
-// 선물 체결엔 매수/매도 구분 코드가 없어 direction=0으로 나간다.
-void KisWebSocket::parse_future_trade(kis_websocket::Fields fields)
-{
-    static bool first_logged = false;
-    TradeData trade;
-
-    if (kis_websocket::decode_future_trade(fields, trade) == kis_websocket::Decode::kShort)
-    {
-        return;
-    }
-
-    trade.received_ns = recv_now_ns();
-
-    log_first_record(first_logged, "H0IFCNT0", fields, 19, "\n  ");
-
-    if (on_trade_)
-    {
-        on_trade_(trade);
-    }
-}
-
-void KisWebSocket::parse_future_orderbook(kis_websocket::Fields fields)
-{
-    static bool first_logged = false;
-    OrderBook order_book;
-    const auto result_code = kis_websocket::decode_future_orderbook(fields, order_book);
-
-    if (result_code == kis_websocket::Decode::kShort)
-    {
-        LOG_WARN("[WS] H0IFASP0 필드 부족: " + std::to_string(fields.size()) + " (" +
-                 std::to_string(kis_websocket::kMinFieldsFutOrderbook) + " 필요)");
-        return;
-    }
-
-    order_book.received_ns = recv_now_ns();
-
-    log_first_record(first_logged, "H0IFASP0", fields, 0, " ");
-
-    if (on_orderbook_)
-    {
-        on_orderbook_(order_book);
     }
 }
 

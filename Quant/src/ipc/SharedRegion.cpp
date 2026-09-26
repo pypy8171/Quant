@@ -428,7 +428,6 @@ bool SharedRegion::attach(std::string_view name, size_t bytes, uint32_t layout_v
     const ProcessIdentity identity = current_process_identity();
     SharedParticipant&    slot     = mutable_header()->attached[static_cast<size_t>(role)];
     slot.start_time                = identity.start_time;
-    slot.attached_at_ns            = now_ns();
     std::atomic_ref<uint32_t>(slot.shutdown_reason)
         .store(static_cast<uint32_t>(SharedShutdownReason::kNone), std::memory_order_relaxed);
 

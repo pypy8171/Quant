@@ -64,8 +64,6 @@ enum class Decode
 constexpr size_t kMinFieldsOrderbook    = 38; // BIDP_RSQN5 = f[37]
 constexpr size_t kMinFieldsKrTrade      = 22; // 체결구분 = f[21]
 constexpr size_t kMinFieldsUsTrade      = 9;  // 체결량 = f[8]
-constexpr size_t kMinFieldsFutTrade     = 19; // H0IFCNT0 레코드 길이 가드. 지금 읽는 마지막 인덱스는 f[9]
-constexpr size_t kMinFieldsFutOrderbook = 32; // 매수잔량5 = f[31]
 constexpr size_t kMinFieldsFill         = 14; // CNTG_YN = f[13] — 체결 한 건을 만드는 데 꼭 있어야 하는 폭
 
 // 체결통보의 보조 필드 위치. 최소 폭에는 넣지 않는다 — 여기까지 없는 전문이 와도 체결 자체는 만들어야 한다.
@@ -120,7 +118,7 @@ inline bool to_int(std::string_view text, int& out) noexcept
     return to_integer<int>(text, out);
 }
 
-// 5단계 호가 블록. 현물·선물이 시작 위치만 다르고 배열 규칙은 같다.
+// 5단계 호가 블록. 필드 시작 위치를 받아 매도·매수 5단계를 채운다.
 bool fill_levels(Fields fields, size_t ask_price, size_t ask_quantity, size_t bid_price,
                         size_t bid_quantity, OrderBook& order_book);
 
@@ -139,15 +137,6 @@ Decode decode_kr_trade(Fields fields, TradeData& trade);
 // ─── 미국 체결 (HDFSCNT0) ────────────────────────────────────────────────
 // [wire] [0]종목코드 [1]체결시간(KST) [2]현재가 [8]체결량 [20]방향(미검증 — 20필드 이하면 0)
 Decode decode_us_trade(Fields fields, TradeData& trade);
-
-// ─── 국내 선물 체결 (H0IFCNT0) ───────────────────────────────────────────
-// [wire] 읽는 필드: [0]종목코드 [1]체결시각 [5]현재가 [9]단위체결량. [10]누적거래량·[18]미결제약정은 읽지 않는다.
-//  방향 코드가 없어 direction=0.
-Decode decode_future_trade(Fields fields, TradeData& trade);
-
-// ─── 국내 선물 호가 (H0IFASP0) ───────────────────────────────────────────
-// [wire] [0]종목코드 [1]시각 [2-6]매도호가 [7-11]매수호가 [12-21]호가건수(건너뜀) [22-26]매도잔량 [27-31]매수잔량
-Decode decode_future_orderbook(Fields fields, OrderBook& order_book);
 
 // ─── 체결통보 (H0STCNI0 실거래 / H0STCNI9 모의) ──────────────────────────
 // [wire] 전문 26칸. KIS 공식 예제 ccnl_notice.py의 열 순서다(2026-09-23 대조). ●=읽는 칸.

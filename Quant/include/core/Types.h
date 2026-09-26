@@ -26,12 +26,9 @@ struct WatchSpec
     Market market = Market::KR;
     std::string exchange;      // US only: "NAS", "NYS"
     bool trade_only = false;   // true: H0STCNT0만 구독 (호가 제외, 구독 한도 절약)
-    // true: 국내 선물 채널(H0IFCNT0 체결·H0IFASP0 호가)로 구독. market은 KR로 두되
-    // 이 플래그로 선물 transaction_id를 고른다(주문/엔진 경로의 Market enum은 건드리지 않음).
-    bool is_future = false;
 };
 
-// 같은 종목 구독인가 — 시장·거래소·종목·선물 여부로 본다. 체결만(trade_only)인지는 칸 수만 바꾸므로 보지 않는다.
+// 같은 종목 구독인가 — 시장·거래소·종목으로 본다. 체결만(trade_only)인지는 칸 수만 바꾸므로 보지 않는다.
 bool same_watch(const WatchSpec& left, const WatchSpec& right);
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -149,17 +146,6 @@ struct OrderSignal
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 포지션 관리
-// ─────────────────────────────────────────────────────────────────────────────
-struct Position
-{
-    std::string ticker;
-    int quantity = 0;
-    double average_price = 0.0;
-    double unrealized_pnl = 0.0;
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
 // 실시간 호가 (KIS WebSocket H0STASP0) — 국내 전용
 // ─────────────────────────────────────────────────────────────────────────────
 struct OrderBookLevel
@@ -191,10 +177,10 @@ struct TradeData
     int32_t       hhmmss = 0;       // KST 체결 시각 정수(093001 → 93001). 0이면 모름. 디코더가 한 번 파싱한다. [why D-071]
     double price = 0.0;
     int64_t quantity = 0;
-    int direction = 0; // 1=매수, 5=매도, 0=모름(선물·REST 틱)
+    int direction = 0; // 1=매수, 5=매도, 0=모름(REST 틱)
     Market market = Market::KR;
     std::chrono::system_clock::time_point timestamp;
-    // 아래 둘은 국내 현물 체결(H0STCNT0)에만 있다. REST 폴링·선물·미국 틱은 0.
+    // 아래 둘은 국내 현물 체결(H0STCNT0)에만 있다. REST 폴링·미국 틱은 0.
     double  strength = 0.0;   // 체결강도(CTTR, %) — 100 위면 매수 체결이 우세
     int64_t accumulated_volume = 0;  // 당일 누적 거래량
     // 수신 스레드가 디코드 직후 찍는 steady_clock nanoseconds(호가 OrderBook.received_ns와 같은 시계). 구간 지연 측정의 출발점이고
@@ -286,41 +272,13 @@ struct ManagedOrder
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 투자자별 매매동향 일자별 시계열 (KIS inquire-investor, FHKST01010900)
-// 부호 규약: 양수=순매수, 음수=순매도
-// 주의: 당일 데이터는 장 종료 후 제공 — on_start에서 조회 시 자연히 전일까지만 유효
-// ─────────────────────────────────────────────────────────────────────────────
-struct InvestorFlow
-{
-    std::string date;             // "YYYYMMDD" (stck_bsop_date)
-    int64_t     foreign_net = 0;  // 외국인 순매수 수량 (frgn_ntby_qty)
-    int64_t     institution_net    = 0;  // 기관 순매수 수량   (orgn_ntby_qty)
-    int64_t     individual_net   = 0;  // 개인 순매수 수량   (prsn_ntby_qty)
-    double      close       = 0.0;// 해당일 종가 (stck_clpr)
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 종목 펀더멘털 + 현재가/호가 (KIS inquire-price 응답 output1)
+// 종목 펀더멘털 — 현재가 조회 응답 중 읽는 곳이 있는 값만 담는다
 // ─────────────────────────────────────────────────────────────────────────────
 struct Fundamentals
 {
-    std::string ticker;
-    double pbr = 0.0;
-    double per = 0.0;
-    double last = 0.0; // 현재가
-    double open = 0.0; // 시가
-    double high = 0.0; // 고가
-    double low = 0.0;  // 저가
-    double bid_price = 0.0; // 매수호가
-    double ask_price = 0.0; // 매도호가
-    int64_t bid_quantity = 0;  // 매수잔량
-    int64_t ask_quantity = 0;  // 매도잔량
-    double difference = 0.0;         // 전일 대비
-    double rate = 0.0;         // 등락율(%)
-    double market_cap = 0.0;   // 시가총액 (억원)
-    double week52_high = 0.0;          // 52주 최고가(원). 0=미제공
-    double week52_high_distance_percent = 0.0; // 현재가의 52주고가 대비 등락률(%, 고가 아래면 음수)
-    std::string sector_name;        // 업종명(KIS bstp_kor_isnm). 업종 분산·상관 캡용
+    double pbr  = 0.0;
+    double per  = 0.0;
+    double open = 0.0; // 당일 시가(원)
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -363,14 +321,10 @@ public:
         UNKNOWN,
         MA_CROSS,
         INTRADAY_BREAKOUT,
-        MOMENTUM,
         VALUE_CONTRARY,
         FIXED_INTERVAL,
-        PRICE_TARGET,
-        SUPPLY_DEMAND_PULLBACK,
         MARKET_MAKING,
         DEVIATION_SCALE,
-        THEME,
         TARGET_BASKET // 목표 비중표(파일)를 원장과 맞추는 바스켓 슬리브 [why D-109]
     };
 

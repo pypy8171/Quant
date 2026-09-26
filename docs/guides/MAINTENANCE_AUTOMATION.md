@@ -58,7 +58,7 @@
 | `../quant-devtools/check_code_refs.py` | 문서의 경로·`파일::심볼` 실재 검사, `파일:숫자` 줄번호 참조 신규 금지. 심볼 매칭은 `\b심볼\b`만 보고 시그니처·오버로드는 보지 않는다. `auto 이름 = [`(람다)·`#define 이름`도 정의로 인정 | docs-gate |
 | `../quant-devtools/check_plain_language.py` | 기존 + 코드 모드에서 `re.*(` 인자·dict 키·비교식 우변·키워드 인자 값 보호, `--fix`는 보호 줄을 건너뛰고 경고 | lexicon-gate, committer(승인 후) |
 | `scripts/log_patterns.py` | C++ 로그 문구 정규식의 단일 소유자. 구·신 문구 양쪽 허용 | market_close_autodoc, market_close_collect, notify_trades, summarize_trading_day, check_runtime_health |
-| `scripts/_logdir.py` | 로그·원장 폴더 해석 한 곳(`QUANT_LOG_DIR` 최우선, 원장은 행 수 최대 → 동률 mtime) | market_close_autodoc, summarize, dashboard_server, parse_quant_log, analyze_slot_cost |
+| `scripts/_logdir.py` | 로그·원장 폴더 해석 한 곳(`QUANT_LOG_DIR` 최우선, 원장은 행 수 최대 → 동률 mtime) | market_close_autodoc, summarize, dashboard_server, parse_quant_log |
 | `../quant-devtools/maintain.py` | 위를 순서대로 부르는 진입점(`--daily`, `--weekly`, `--check`). 단계마다 `subprocess.run`으로 격리하고 rc는 로그에 남긴다(`market_close_autodoc.py`와 같은 패턴) | 예약작업, committer |
 | `docs/sync_map.json` | 소스 glob → 봐야 할 문서의 역인덱스. `review-reminder.ps1`이 이미 부르는 `git diff HEAD --name-only` 결과에 PS 네이티브(`ConvertFrom-Json`)로 매칭해 문서 이름을 지목한다. `py` 위임 금지(응답마다 0.8초) | Stop 훅 |
 

@@ -261,7 +261,7 @@ void Engine::data_thread_fn(std::stop_token stop_token)
 
                 // ── 섹터(업종) 강약 모니터(관측용) ─────────────────────────────────
                 //  업종 지수 등락률을 강→약으로 로깅해 "오늘 어느 섹터가 주도하나"를 눈으로 본다.
-                //  코드는 Quant/include/strategy/ThemeStrategy.h KOSPI_SECTORS와 동일(실전 시세키로 조회, 10사이클 주기).
+                //  실전 시세키로 조회하고 10사이클마다 한 번 돈다.
                 //  get_index_price(업종코드): inquire-index-price(FID_MRKT_DIV=U) → 등락률.
                 {
                     static int sector_tick = 0;
@@ -343,10 +343,9 @@ void Engine::data_thread_fn(std::stop_token stop_token)
 
                 // ── 매크로 지표 모니터(관측용) ─────────────────────────────────────
                 //  환율·미국지수·미국채10Y금리는 도메스틱 KIS 밖 → 보조 프로세스(PYQuant/tools/macro_regime_feed.py)가
-                //  FinanceDataReader로 계산해 regime.json에 쓴 components를 그대로 로깅한다.
-                //  키 이름은 NQ_F·ES_F지만 실제 소스는 현물지수 일봉(IXIC·US500)이다. 이 환경에서
-                //  yfinance가 전 심볼 실패해 2026-09-04에 FDR로 갈아탄 결과다. 그래서 5개 중 4개는
-                //  KST 09:00~15:30 내내 값이 고정된다 — 이 줄들을 장중 신호로 읽지 않는다. [why D-033]
+                //  regime.json components에 8개(KOSPI·KOSDAQ·NQ_F·ES_F·TNX10·VIX·USDKRW·WTI)를 쓰고, 여기서는
+                //  그중 해외 5개(USDKRW·NQ_F·TNX10·ES_F·VIX)를 로깅한다. 값은 Yahoo 장중 현재가가 먼저이고
+                //  받지 못하면 FDR 일봉(전일 종가끼리)으로 채운다 — 그 경우 장중 내내 값이 고정된다. [why D-033·D-081]
                 //  regime.json 미존재(보조 프로세스 미실행) 시 조용히 스킵. entry_halt 게이트와 독립.
                 {
                     static int macro_tick = 0;

@@ -76,7 +76,7 @@ void score_cross_section(const DevScanCfg& config, std::vector<Features>& passed
     };
     std::vector<double> z_trend, z_pull, z_atr_percent, z_liquidity;
     zscore(&Features::trend, false, z_trend);
-    zscore(&Features::pull,  true,  z_pull);   // 눌림은 음수(SMA20 아래)일수록 좋아 부호를 뒤집는다. 추세확장 슬리브(min_deviation_percent>0)에선 전부 양수라 "덜 벌어진 쪽 우대"(과확장 감점)로 작동한다
+    zscore(&Features::pull,  true,  z_pull);   // 눌림은 음수(SMA20 아래)일수록 좋아 부호를 뒤집는다.
     zscore(&Features::atr_percent, false, z_atr_percent);
 
     if (config.score_weight_liquidity != 0.0)
@@ -164,7 +164,7 @@ ScanResult rank_and_truncate(const DevScanCfg& config, std::vector<Features>& pa
                  " → 상위 " + std::to_string(take_n) + " 선정 (w_trend=" +
                  std::to_string(config.score_weight_trend) + " w_pull=" + std::to_string(config.score_weight_pullback) +
                  " w_liq=" + std::to_string(config.score_weight_liquidity) +
-                 " w_supply=" + std::to_string(config.score_weight_supply) + "(미적용) w_vol=" + std::to_string(config.score_weight_volume) + ")");
+                 " w_vol=" + std::to_string(config.score_weight_volume) + ")");
     }
 
     return out;

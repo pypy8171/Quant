@@ -223,9 +223,6 @@ public:
     // ── 전략 등록 ────────────────────────────────────────────────────────────
     void add_strategy(std::unique_ptr<StrategyBase> strategy);
 
-    // 직전 추가된 전략에 활성 국면 설정 (main.cpp config 파싱용)
-    void set_last_active_regimes(const std::vector<Regime>& last_active_regimes);
-
     size_t strategy_count() const { return strategy_.list.size(); }
 
     // ── 피드 설정(스레드 시작 전에만) ───────────────────────────────────────

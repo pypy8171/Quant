@@ -18,7 +18,6 @@ void IntradayBreakoutStrategy::on_start()
     current_hhmm_ = -1;
     current_bucket_last_ = 0.0;
     day_base_price_ = 0.0;
-    last_ = 0.0;
     in_position_ = start_in_position_;
     position_is_seed_ = start_in_position_; // 기동 보유분 = 물린 시드분
     // 시드분은 잔고에서 읽어 온 것이라 원장이 이미 인정한 보유다. false로 두면 교체 진입이
@@ -53,8 +52,6 @@ std::optional<OrderSignal> IntradayBreakoutStrategy::on_trade(const TradeData& t
     {
         return std::nullopt; // 방어: 잘못된 틱
     }
-
-    last_ = price;
 
     int hhmmss = trade.hhmmss;
     int hhmm = hhmmss / 100;

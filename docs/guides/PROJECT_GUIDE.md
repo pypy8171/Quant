@@ -52,7 +52,7 @@ OpsServer(내부 스레드)           운영단말 TCP — 조회·수동주문�
 지금까지처럼 `logs/quant_trader.log`다. 종목 번호 표는 공유 메모리 위의 표 하나를 셋이 같이 본다 — 넣는 쪽은 주문
 하나이고, 전략은 등록을 부탁하고 시세는 찾기만 한다(표에 없는 티커는 버리고 센다). 실시간 소켓은 시세 역할이 쥐고,
 그 소켓에 같이 실려 오는 체결통보는 시세 → 주문 통로로 건너간다. 감시견은 기본으로 `both`를 띄우고,
-`-Roles order,strategy,feed`(옛 이름 `-Split`)를 주면 셋을 따로 띄운다 — 셋 중 하나라도 빠진 조합은 거절한다.
+`-Roles order,strategy,feed`를 주면 셋을 따로 띄운다 — 셋 중 하나라도 빠진 조합은 거절한다.
 
 | 스레드 | 하는 일 | 큐 |
 |---|---|---|
@@ -123,10 +123,10 @@ D-130에서 지웠다. config의 `"mode"`는 없어도 되고, TRADE 밖의 값�
 ### 단위 테스트
 
 <!-- gen:test-targets -->
-단위 테스트는 `Quant/tests/`에 있고 ctest에 등록돼 있습니다 — 실행 타깃 `56`개.
+단위 테스트는 `Quant/tests/`에 있고 ctest에 등록돼 있습니다 — 실행 타깃 `61`개.
 
 ```bash
-cmake --build out/build/x64-release --target test_order_gate test_order_router test_ws_frame test_ws_decode test_kis_decode test_ops_server test_ops_protocol test_market_session test_reconcile_plan test_ledger_reconciler test_data_poller test_signal_dispatcher test_bar_aggregator test_order_rate_limiter test_kis_rate_bucket test_devscale_rules test_regime_file_judge test_target_basket_plan test_target_basket_strategy test_ringbuffer test_ringbuffer_stress test_pipeline_stress test_wake_gate test_symbol_table test_prefetch_pool test_tick_capture test_replay_source test_paper_executor test_matching_engine test_zmq_order_feed test_feed_mux test_engine test_app_config test_feed_supervisor test_session_end test_shard_matrix test_strategy_shard test_strategy_router test_latency_trace test_mpsc test_account_ledger test_protective_orders test_order_channel test_displacement_desk test_control_channel test_command_line test_shared_region test_shared_spsc_ring test_shared_symbol_dictionary test_shared_strategy_dictionary test_market_feed_channel test_shared_layout test_fill_channel test_ledger_snapshot test_heartbeat test_logger
+cmake --build out/build/x64-release --target test_order_gate test_position_ledger test_order_router test_ws_frame test_ws_decode test_kis_decode test_ops_server test_ops_protocol test_market_session test_reconcile_plan test_ledger_reconciler test_data_poller test_websocket_slot_plan test_signal_dispatcher test_bar_aggregator test_order_rate_limiter test_kis_rate_bucket test_devscale_rules test_regime_file_judge test_target_basket_plan test_target_basket_strategy test_ringbuffer test_ringbuffer_stress test_pipeline_stress test_wake_gate test_symbol_table test_prefetch_pool test_tick_capture test_replay_source test_paper_executor test_matching_engine test_zmq_order_feed test_feed_mux test_engine test_app_config test_universe_scoring test_universe_rescan test_control_plane test_feed_supervisor test_session_end test_shard_matrix test_strategy_shard test_strategy_router test_latency_trace test_mpsc test_account_ledger test_protective_orders test_order_channel test_displacement_desk test_control_channel test_command_line test_shared_region test_shared_spsc_ring test_shared_symbol_dictionary test_shared_strategy_dictionary test_market_feed_channel test_shared_layout test_fill_channel test_ledger_snapshot test_heartbeat test_logger
 ```
 <!-- /gen -->
 테스트 이름은 각각 원장·게이트·라우터·큐·WS 디코더·REST 분봉 디코더·정규장 시각·잔고 대조 계산·잔고 대조기·REST 현재가 폴러·신호 디스패처·발주 조절기·운영단말 프로토콜/서버·비동기 로거·매크로 국면 파일 판정기·N분봉 집계기·소비자 깨우기 조각·구간 지연 CSV·종목 id 테이블·틱 캡처·캡처 리플레이 소스·모의 체결기·피드 소스 mux·수신 N×샤드 M 링 행렬·전략 샤드·종목 id 전략 라우터·WS 피드 감독기·시험용 시세로 도는 Engine 한 바퀴(수신 스레드 1×샤드 1, 2×2, 캡처 리플레이)·단일가와 연속매매를 붙이는 오더북 체결기·바깥에서 온 주문을 받아 피드 자리에 들어가는 부하시험 수신단을 가리킨다.
@@ -630,7 +630,7 @@ docker compose run --rm quant-engine ./quant_trader config/config.json TRADE
 현재 `live/trader.py`는 Python에서 직접 REST를 폴링. 장기적으로 ZMQ를 통해 C++ Engine에 주문 위임:
 
 ```
-Python LiveTrader → ZmqOperator → C++ Engine → KIS send_order()
+Python LiveTrader → ZmqOperator → C++ Engine → OrderRouter → KIS 주문 REST(submit_order_acknowledgement)
 ```
 
 #### Step 5. 실거래 전환 체크리스트

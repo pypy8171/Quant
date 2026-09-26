@@ -167,10 +167,10 @@ int main()
         CHECK(replay.replay_speed == 1.0);
     }
 
-    // 6. regime_strategies — RISK_ON/RISK_OFF와 BULL/BEAR를 같은 국면으로 받고, 모르는 키는 버린다.
+    // 6. regime_strategies — RISK_ON/RISK_OFF 라벨만 받고, 옛 BULL/BEAR와 모르는 키는 버린다.
     {
         json document = minimal_document();
-        document["regime_strategies"] = {{"RISK_ON", {"DevScale_*"}}, {"BEAR", {"ITB"}}, {"SIDEWAYS", {"x"}}};
+        document["regime_strategies"] = {{"RISK_ON", {"DevScale_*"}}, {"RISK_OFF", {"ITB"}}, {"BEAR", {"y"}}, {"SIDEWAYS", {"x"}}};
         document["strategies"]        = json::array({{{"type", "DEVSCALE"}}});
         const AppConfig app = parse_config(document);
         CHECK(app.has_regime_strategies);

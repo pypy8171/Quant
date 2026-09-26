@@ -63,8 +63,8 @@ TRADE 모드의 데이터 흐름:
 ### 1.3 전략 등록 루프
 `for (auto& s : cfg["strategies"])` (`StrategyFactory.cpp::load_strategies`)에서 `type` 분기로 전략 객체를 생성해 `engine.add_strategy()`로 등록. 지원 타입:
 - `MA_CROSS` (`StrategyFactory.cpp::load_moving_average_cross`) — `short_period`, `long_period`, `quantity`. **`universe_from_balance=true`** 모드가 특수(`StrategyFactory.cpp::load_moving_average_cross`): 별도 `KisClient balance_kis`로 인증 후 `get_balance()`로 모의계좌 보유종목을 읽어(`StrategyFactory.cpp::load_moving_average_cross`), `output1` 배열의 `pdno`(종목)·`hldg_qty`(보유수량)마다 `MACrossStrategy(code, sp, lp, hq, start_in_position=true)`를 등록한다 (`StrategyFactory.cpp::load_moving_average_cross`). 즉 보유분을 "이미 진입한 상태"로 시드해 데드크로스에 실제 보유수량을 매도할 수 있게 한다.
-- `MOMENTUM` (`StrategyFactory.cpp::load_momentum`), `VALUE_CONTRARY` (`StrategyFactory.cpp::load_value_contrary`), `FIXED_INTERVAL` (`StrategyFactory.cpp::load_fixed_interval`), `PRICE_TARGET` (`StrategyFactory.cpp::load_price_target`), `SUPPLY_DEMAND_PULLBACK` (`StrategyFactory.cpp::load_supply_demand_pullback`), `MARKET_MAKING` (`StrategyFactory.cpp::load_market_making`), `THEME` (`StrategyFactory.cpp::load_theme`). 미지원 타입은 경고 (`StrategyFactory.cpp::load_strategies`).
-- **전략-국면 매핑**: 방금 추가된 전략에 `active_regimes` 배열(BULL/NEUTRAL/BEAR)을 파싱해 `engine.set_last_active_regimes()`로 주입 (`StrategyFactory.cpp::add_gated`). 키가 있는데 파싱 결과가 비면 "게이트 무효" 경고 (`StrategyFactory.cpp::load_strategies`).
+- `INTRADAY_BREAKOUT` (`StrategyFactory.cpp::load_intraday_breakout`), `DEVIATION_SCALE` (`StrategyFactory.cpp::load_deviation_scale`), `VALUE_CONTRARY` (`StrategyFactory.cpp::load_value_contrary`), `FIXED_INTERVAL` (`StrategyFactory.cpp::load_fixed_interval`), `MARKET_MAKING` (`StrategyFactory.cpp::load_market_making`). 미지원 타입은 경고 (`StrategyFactory.cpp::load_strategies`).
+- **전략-국면 매핑**: 방금 추가된 전략에 `active_regimes` 배열(BULL/NEUTRAL/BEAR)을 파싱해(`StrategyFactory.cpp::parse_active_regimes`) 전략마다 `set_active_regimes()`로 넣는다 (`StrategyFactory.cpp::add_gated`·`gate_factory`). 키가 있는데 파싱 결과가 비면 "게이트 무효" 경고 (`StrategyFactory.cpp::load_strategies`).
 
 전략 등록이 끝나면 `engine.start()` 후 `is_running()`이 false가 될 때까지 1초 슬립 루프로 메인 스레드가 대기한다 (`main.cpp::main`).
 
@@ -331,7 +331,7 @@ MACross의 `make_signal` (`MACrossStrategy.h::make_signal`)은 `type=MARKET`, `q
 
 ## 확인 못 한 부분 (본 문서 범위 밖)
 
-- 다른 전략 헤더의 내부 로직 상세: `MomentumStrategy`, `ValueContraryStrategy`, `FixedIntervalStrategy`, `PriceTargetStrategy`, `SupplyDemandPullbackStrategy`, `MarketMakingStrategy`, `ThemeStrategy` (StrategyFactory.cpp의 등록·파라미터 파싱만 확인, on_data/on_order_book 내부 미정독). 특히 MM의 `on_order_book_batch` 다건 발주 실제 로직은 미확인.
+- 다른 전략 헤더의 내부 로직 상세: `ValueContraryStrategy`, `FixedIntervalStrategy`, `MarketMakingStrategy` (StrategyFactory.cpp의 등록·파라미터 파싱만 확인, on_data/on_order_book 내부 미정독). 특히 MM의 `on_order_book_batch` 다건 발주 실제 로직은 미확인.
 - `ZmqBridge`(HAS_ZMQ 경로) 구현 — 기본 빌드 비활성이라 미정독.
 - `KisClient::get_index_daily_ohlcv`의 실제 모의서버 500 여부는 코드상 페이지네이션·정렬만 확인했고 런타임 실측 로그로는 검증 못 함(G4는 코드 구조와 모의서버 제약 정황 기반 추정).
 - 빌드 산출물(`build_win/`, `build/`)과 CMake 설정 파일은 미검토.

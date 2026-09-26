@@ -57,7 +57,6 @@ struct DevScanCfg
     int    align_daily_n   = 70;   // 봉, 한 종목당 받는 일봉 길이
     int    union_refresh_sec = 0;    // 초, 후보 합집합 재수집 주기. 0=매 재스캔 새로 수집 [why D-028]
     double max_deviation_percent     = 0.0;    // 이격 (price-SMA20)/SMA20 상한. 0=비활성 [why D-022]
-    double min_deviation_percent     = 0.0;    // 같은 이격의 하한. max와 짝지어 슬리브 밴드를 만든다 [why D-022]
     // 정배열 마지막 조건(SMA10>SMA20)의 허용오차. 0=엄격(기존). tol을 주면 SMA10이 SMA20보다
     //  tol만큼 아래인 종목까지 통과한다 — 경계에서 판정이 진동하는 것을 막을 때 쓴다.
     //  1.0 이상이면 이 조건 자체가 사라져 2조건(SMA5>SMA10)만 남는다.
@@ -73,7 +72,6 @@ struct DevScanCfg
     int    score_top_n      = 0;   // 0=비활성(전체 등록), N=상위 N만
     double score_weight_trend    = 1.0; // (SMA5-SMA20)/SMA20 의 z에 곱한다(D-141부터 20일 기준)
     double score_weight_pullback = 1.0; // -(price-SMA20)/SMA20 의 z에 곱한다
-    double score_weight_supply   = 0.0; // 로거 데이터 확보 후 활성 (D-014)
     double score_weight_volume      = 0.5; // ATR(14)/종가 z의 감점 가중
     // 거래대금 축 — log(거래대금)의 z에 곱한다. 0=비활성(기존). 추세·눌림이 비슷하면 더 두꺼운
     //  종목을 위로 올린다. 알파 축이 아니라 체결비용 축이다(얇은 종목의 청산 슬리피지 회피).

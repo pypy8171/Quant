@@ -15,7 +15,7 @@
   powershell -ExecutionPolicy Bypass -File scripts\auto_trade_day.ps1 -Config Quant\config\config.json -Until 15:35
   powershell -ExecutionPolicy Bypass -File scripts\auto_trade_day.ps1 -DryRun
   powershell -ExecutionPolicy Bypass -File scripts\auto_trade_day.ps1 -NoTrader   # 트레이더는 리눅스(WSL)에서 손으로 띄우는 날
-  powershell -ExecutionPolicy Bypass -File scripts\auto_trade_day.ps1 -Roles order,strategy,feed   # 역할 셋으로 갈라 띄운다(-Split 과 같다)
+  powershell -ExecutionPolicy Bypass -File scripts\auto_trade_day.ps1 -Roles order,strategy,feed   # 역할 셋으로 갈라 띄운다
 #>
 [CmdletBinding()]
 param(
@@ -30,7 +30,6 @@ param(
   [switch]$NoMarketClose,                    # 마감 뒤 사실 문서·대시보드 갱신을 건너뛴다
   [switch]$NoBuild,                  # 기동 전 재빌드를 건너뛴다(exe를 손으로 바꾼 날). 이때는 소스가 exe보다 새면 중단
   [switch]$NoTrader,                 # 트레이더를 이 창이 띄우지 않는다(리눅스 등 다른 곳이 띄우는 날). 부속 창·유니버스 갱신·마감 정리는 그대로
-  [switch]$Split,                    # (옛 이름) -Roles order,strategy,feed 와 같다. 이 이름을 쓰던 부름자가 그대로 돌게 남겨 둔다
   [string[]]$Roles = @('both'),      # 트레이더를 어떤 역할로 띄울지. both 하나이거나 order,strategy,feed 셋이다(D-114 단계 5)
   [switch]$DryRun
 )
@@ -351,7 +350,6 @@ Say "자동매매 하루 루프 시작 — config=$Config until=$Until$(if($DryR
 #  체결통보도 안 들어오는데 프로세스는 멀쩡히 떠 있어 아무도 못 알아챈다 — 그 조합은 뜨기 전에 거절한다.
 #  체결통보가 안 들어오면 주문 쪽 reserved_ 가 안 풀려 총노출을 이중계상한다. [why D-114 단계 5]
 $SplitRoles = @('order', 'strategy', 'feed')
-if ($Split) { $Roles = $SplitRoles }
 $Roles = @($Roles | ForEach-Object { "$_".Trim().ToLower() } | Where-Object { $_ })
 if ($Roles.Count -eq 0) { $Roles = @('both') }
 

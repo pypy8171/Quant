@@ -31,9 +31,6 @@ public:
     // 당일 분봉을 interval_min 분으로 묶은 봉.
     virtual std::vector<MarketData> get_minute_ohlcv(const std::string& ticker, int count, int interval_min = 3) = 0;
 
-    // 업종·지수 일봉 (sector_code: 코스피 "0001", 업종 "0002"~"0026" 등)
-    virtual std::vector<MarketData> get_index_daily_ohlcv(const std::string& sector_code, int count = 6) = 0;
-
     virtual IndexPrice get_index_price(const std::string& ticker) = 0;
 
     // 해외 일봉. exchange: "NAS"(NASDAQ), "NYS"(NYSE)

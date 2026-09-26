@@ -21,7 +21,7 @@ $env:PYTHONUTF8 = "1"
 
 ## 1. 자동매매 하루 루프 (한 창으로 끝내기)
 
-<!-- sync: scripts/auto_trade_day.ps1@aa89e38 scripts/auto_trade_guard.ps1@6a54b80 -->
+<!-- sync: scripts/auto_trade_day.ps1@dd2bd31 scripts/auto_trade_guard.ps1@6a54b80 -->
 
 감시견 하나가 국면 보조 프로세스·유니버스·대시보드·알림·트레이더를 순서대로 띄우고, 장 마감까지 트레이더가 멈추면 다시
 띄운다. 띄우기 전에 그날 장이 열리는지 KIS에 물어(`scripts/check_market_open.py`) 휴장일이면 아무것도 안 띄우고 끝낸다 —
@@ -29,7 +29,7 @@ $env:PYTHONUTF8 = "1"
 손으로 따로 띄우면 엔진이 둘이 된다. 기동 전에 이미 떠 있는 `quant_trader`가 있으면 중단하는데, **발주하는 계좌가 같을 때만**
 센다 — 떠 있는 프로세스의 명령줄에서 config를 찾아 `kis.account_no`와 `is_paper`를 열쇠로 만든다. config에 `replay_file`이
 있는 프로세스(워크트리의 리플레이 측정)는 증권사에 주문을 내지 않으므로 세지 않고, 열쇠를 읽지 못하면 막는 쪽으로 남긴다.
-`-Roles order,strategy,feed`(옛 이름 `-Split`)를 주면 트레이더가 주문·전략·시세 세 프로세스다(D-114 단계 5) —
+`-Roles order,strategy,feed`를 주면 트레이더가 주문·전략·시세 세 프로세스다(D-114 단계 5) —
 이날은 `quant_trader`가 셋인 것이 정상이고, 하나가 내려가면 감시견이 나머지도 내려 셋을 같이 다시 띄운다.
 셋 중 하나라도 빠진 역할 목록은 뜨기 전에 거절한다 — 실시간 소켓을 쥐는 것이 시세 역할이라, 시세가 없으면
 시세도 체결통보도 안 들어오는데 나머지는 멀쩡히 떠 있다. 먼저 나간 쪽이 정상 종료였으면 짝이 스스로 나가기를 20초 기다렸다가 그래도 안 나가면 강제로 내리고, 크래시였으면 기다리지 않는다 — 기다리는 동안 짝이 `stop()`을 돌려 공유 쪽지에 종료 사유를 남긴다(D-114).
@@ -115,7 +115,7 @@ wsl -e docker ps -a --filter name=quant-tsdb
 
 ## 2. 장중 매매를 창 5개로 손으로 띄우기
 
-<!-- sync: PYQuant/tools/macro_regime_feed.py@712c14b PYQuant/tools/universe_feed.py@d9f1925 scripts/notify_trades.py@41177d1 -->
+<!-- sync: PYQuant/tools/macro_regime_feed.py@ba04c66 PYQuant/tools/universe_feed.py@17110bf scripts/notify_trades.py@41177d1 -->
 
 1절 감시견이 도는 날에는 쓰지 않는다(트레이더가 둘이 된다). 대상은 DevScale 모의계좌 `Quant\config\config_dev_paper.json` —
 `Quant\config\config.json`은 실계좌라 장중 시험에 쓰지 않는다. 각 창은 별도 프로세스이고 닫으면 그 부분만 멈춘다.
@@ -128,14 +128,14 @@ $env:PYTHONUTF8 = "1"
 .\PYQuant\.venv-win\Scripts\python.exe PYQuant\tools\macro_regime_feed.py --interval 180 --out Quant\config\regime.json
 ```
 
-창 2 — 유니버스 갱신(장 전 1회, 끝나면 닫아도 된다). 코스피+코스닥 시총 500 ∪ 거래대금 500. 실패해도 KIS 랭킹 폴백으로 매매는 된다.
+창 2 — 유니버스 갱신(장 전 1회, 끝나면 닫아도 된다). 코스피+코스닥 시총 100 ∪ 거래대금 100(기본값). 이 파일은 후보 목록이고, 장중 재랭킹은 엔진이 1분마다 따로 한다(D-142). 실패해도 KIS 랭킹 폴백으로 매매는 된다.
 종목 목록은 T-1 data.go.kr, 시총·거래대금은 실행 시점 네이버 값이다(`--no-live`면 스냅샷 값). `[universe_feed] 기록 완료 → … (N종목, 목록 기준일 …)`이 찍히면 성공.
 
 ```powershell
 cd {ROOT}
 $env:PYTHONUTF8 = "1"
 $env:DATA_GO_KR_KEY = "<발급키>"
-.\PYQuant\.venv-win\Scripts\python.exe PYQuant\tools\universe_feed.py --market ALL --n-mktcap 500 --n-turnover 500 --out Quant\config\universe_scan.json
+.\PYQuant\.venv-win\Scripts\python.exe PYQuant\tools\universe_feed.py --market ALL --n-mktcap 100 --n-turnover 100 --out Quant\config\universe_scan.json
 ```
 
 창 3 — 트레이더 엔진(09:00 직전). 항상 저장소 루트에서 띄운다 — `build_win\` 안에서 띄우면 config 상대경로가 어긋나
@@ -159,7 +159,7 @@ config별 전략: `config_dev_paper.json` DEVIATION_SCALE(일봉 정배열+눌�
 
 ## 3. 실시간 대시보드
 
-<!-- sync: scripts/dashboard_server.py@c4831bc -->
+<!-- sync: scripts/dashboard_server.py@215e6c5 -->
 
 엔진 재빌드 없이 이미 있는 데이터(KIS 잔고·`regime.json`·`universe_scan.json`·로그·체결원장)를 브라우저에 3초마다
 표시한다. 종목 행 클릭 → 일/주/5분/3분봉 차트. 종목 뉴스·속보(네이버, 보유 종목 전부 + 유니버스 순환)와 증권사 리서치(매시간 갱신) 카드도 같은 화면에 있다. 라이브 데이터는 이 로컬 서버가 있어야 뜬다(발행 URL 하나로는 안 된다).
@@ -238,23 +238,13 @@ $env:TEMP = "C:\build_tmp"; $env:TMP = "C:\build_tmp"
 
 ## 7. forward 데이터 적재 (조회 전용 · 주문 없음)
 
-<!-- sync: PYQuant/tools/investor_flow_logger.py@9986905 PYQuant/tools/index_intraday_logger.py@89dbbb5 -->
-
-외국인·기관 확정 수급(장 마감 후 18:10 KST 이후):
+외국인·기관 수급 이력은 네이버에서 한꺼번에 받는다(2019년부터, `investor_flow_pit.parquet`에 쌓인다). KIS로 날마다 쌓던
+로거와 장중 지수 로거는 예약된 적이 없어 지웠다. 소스별 상태는 [DATA_SOURCES.md](DATA_SOURCES.md).
 
 ```powershell
 cd {ROOT}
 $env:PYTHONUTF8 = "1"
-.\PYQuant\.venv-win\Scripts\python.exe PYQuant\tools\investor_flow_logger.py --top 50      # 시총 상위 50
-.\PYQuant\.venv-win\Scripts\python.exe PYQuant\tools\investor_flow_logger.py --volume-rank
-.\PYQuant\.venv-win\Scripts\python.exe PYQuant\tools\investor_flow_logger.py 005930 000660  # 지정 종목
-```
-
-장중 지수 스냅샷(코스피/코스닥/코스피200) 30초 주기:
-
-```powershell
-.\PYQuant\.venv-win\Scripts\python.exe PYQuant\tools\index_intraday_logger.py --interval 30 --codes 0001 1001 2001
-.\PYQuant\.venv-win\Scripts\python.exe PYQuant\tools\index_intraday_logger.py --once       # 점검용 1회
+.\PYQuant\.venv-win\Scripts\python.exe PYQuant\tools\naver_flow_backfill.py --since 2019-01-01
 ```
 
 ## 8. 리포트·게이트 (커밋 전 점검)
@@ -276,9 +266,6 @@ py ../quant-devtools\check_plain_language.py                                    
 ```powershell
 cd {ROOT}
 $env:PYTHONUTF8 = "1"
-.\PYQuant\.venv-win\Scripts\python.exe PYQuant\tools\check_kis_investor.py 005930   # 투자자별 매매동향 깊이
-.\PYQuant\.venv-win\Scripts\python.exe PYQuant\tools\check_datagokr.py              # data.go.kr 인증/OHLCV/PIT (DATA_GO_KR_KEY 필요)
-.\PYQuant\.venv-win\Scripts\python.exe PYQuant\tools\check_adjusted.py 005930       # 수정주가 vs 원주가 갭
 .\PYQuant\.venv-win\Scripts\python.exe PYQuant\tools\full_universe_dump.py          # 전종목 코드 덤프(부하 시험, DATA_GO_KR_KEY 필요)
 ```
 
@@ -372,7 +359,7 @@ cd {ROOT}
 ## 14. 환경·참고
 
 - cwd는 항상 저장소 루트. 한글 깨짐은 `$env:PYTHONUTF8 = "1"`(data.go.kr 계열은 `$env:PYTHONIOENCODING = "utf-8"`).
-- `DATA_GO_KR_KEY`: `universe_feed` / `check_datagokr` / `full_universe_dump`에 필요한 환경변수.
+- `DATA_GO_KR_KEY`: `universe_feed` / `full_universe_dump`에 필요한 환경변수.
 - 백그라운드 실행: `Start-Process py -ArgumentList 'scripts\dashboard_server.py' -WindowStyle Hidden`(종료는 11절). 평소엔 전용 창 포그라운드 + Ctrl+C.
 - 예약작업(마감 문서·스터디·대시보드 동기화)의 시각·등록·복구 명령은 [AUTOMATION.md](AUTOMATION.md) 1절 — 여기 적지 않는다.
 - 마감 후 세션 스킬: `/market-close-review` → `/trade-log` → `/dashboard-sync` → `/stock-study` → `/daily`.

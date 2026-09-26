@@ -183,41 +183,26 @@
 - [__init__.py](../PYQuant/tools/__init__.py) — 빈 패키지 초기화 파일
 - [bench_market_open.py](../PYQuant/tools/bench_market_open.py) — 개장 동시호가 부하를 재현해 틱·신호·주문·체결을 bench_* 테이블에 적재하는 벤치마크
 - [bench_recorder.py](../PYQuant/tools/bench_recorder.py) — 적재기 한 프로세스의 구간별 초당 행 수 측정(json.loads·버퍼·행 변환·DB 쓰기, D-144)
-- [check_adjusted.py](../PYQuant/tools/check_adjusted.py) — data.go.kr 수정주가 여부 검증 점검
-- [check_datagokr.py](../PYQuant/tools/check_datagokr.py) — DataGoKrSource 인증·조회 확인용 점검
-- [check_investor_api.py](../PYQuant/tools/check_investor_api.py) — 수급·일봉 API 가용성 검증 스크립트
-- [check_kis_investor.py](../PYQuant/tools/check_kis_investor.py) — KIS 투자자매매동향 TR 깊이 점검
-- [check_market_flow.py](../PYQuant/tools/check_market_flow.py) — 시장 수급·프로그램·선물 TR 점검
-- [check_pykrx.py](../PYQuant/tools/check_pykrx.py) — pykrx 런타임 데이터 가용성 확인
-- [check_pykrx_flow.py](../PYQuant/tools/check_pykrx_flow.py) — pykrx 수급 데이터 검증 스크립트
-- [check_sector_index.py](../PYQuant/tools/check_sector_index.py) — 업종 지수 TR 라이브 점검
 - [compare_ws_bars.py](../PYQuant/tools/compare_ws_bars.py) — WS 1분봉과 REST 분봉 비교표 생성
 - [dart_fin_history_fill.py](../PYQuant/tools/dart_fin_history_fill.py) — DART 주요계정(fnlttMultiAcnt) 2015~ 전 상장사를 100종목 묶음으로 받아 원본·정리본 parquet(PYQuant/data/fin/)에 append-only 적재, 발효일은 rcept_no 앞 8자리
 - [dart_shares_history_fill.py](../PYQuant/tools/dart_shares_history_fill.py) — 상장주식수 시점 고정 표 적재: 2015~2019 DART stockTotqySttus 사업보고서(B) + 2020~ data.go.kr 월말 스냅샷(A) → `PYQuant/data/fin/shares_point_in_time.parquet`
 - [fetch_naver_themes.py](../PYQuant/tools/fetch_naver_themes.py) — 네이버 테마 스냅샷 수집 도구
 - [full_universe_dump.py](../PYQuant/tools/full_universe_dump.py) — KRX 상장 전종목 코드 덤프 도구
-- [fullperiod_validate.py](../PYQuant/tools/fullperiod_validate.py) — 시작월 스윕 결론 전기간 재검증
-- [index_intraday_logger.py](../PYQuant/tools/index_intraday_logger.py) — 장중 지수 스냅샷 forward 적재 로거
-- [investor_flow_logger.py](../PYQuant/tools/investor_flow_logger.py) — 수급 장마감 확정치 forward 적재 로거
 - [kind_delisted_fill.py](../PYQuant/tools/kind_delisted_fill.py) — KIND 상장폐지 목록(2000~) 적재·종목코드 붙이기·패널에 없는 상폐사 일봉 보강(--fill-bars)
 - [ledger_dump.py](../PYQuant/tools/ledger_dump.py) — 원장 저널 파일을 DB 없이 읽는 도구: 레코드 표·CSV·보유 재구성·미결 주문(D-113)
 - [ledger_recorder.py](../PYQuant/tools/ledger_recorder.py) — 원장 저널 꼬리를 따라 읽어 TimescaleDB ledger_events에 적재, 읽은 위치는 ledger_offsets(D-113)
 - [load_highwater_reader.py](../PYQuant/tools/load_highwater_reader.py) — 부하시험 큐 고수위 판독기 — 역할별 실행 로그의 `[큐 고수위]` 줄을 CSV 로 펴고, 0 이어야 하는 칸이 0 인지로 분리판 안전성을 판정한다
 - [load_injector.py](../PYQuant/tools/load_injector.py) — 부하시험 주문 인젝터 — 동시호가·연속매매 주문을 난수로 만들어 32바이트 전문으로 ZMQ PUSH, 난수 시드를 고정하면 같은 주문열이 다시 나온다
 - [load_latency_reader.py](../PYQuant/tools/load_latency_reader.py) — 부하시험 구간 지연 판독기 — `latency_trace.csv` 를 시세 수신 → 전략 판단 → 주문 전송 → 응답 열두 칸으로 펴 분위수 표를 내고, 회차 둘을 칸별로 견줘 분리가 어느 칸에 얼마를 얹었는지를 한 줄로 낸다
-- [load_status_sampler.py](../PYQuant/tools/load_status_sampler.py) — 부하시험 상태 표본기 — 요청·응답 소켓의 STATUS 로 버린 건수를 원인별·역할별로 읽어 CSV 로 남긴다, 발행 큐가 포화해도 답한다
 - [log_report.py](../PYQuant/tools/log_report.py) — quant_trader 로그 운용 리포트 생성기
 - [macro_ingest.py](../PYQuant/tools/macro_ingest.py) — FRED(ALFRED 판본, A)·ECOS(B)·관세청 10일 잠정치(B) 거시 시계열을 시점 고정 스키마로 PYQuant/data/macro/<source>_<series>.parquet에 append-only 적재
 - [macro_regime_feed.py](../PYQuant/tools/macro_regime_feed.py) — 매크로 지표 기반 국면 게이트 발행기
 - [minute_backfill.py](../PYQuant/tools/minute_backfill.py) — 거래일별 1분봉 백필 도구
 - [minute_backfill_pairs.py](../PYQuant/tools/minute_backfill_pairs.py) — 리플레이용 1분봉 백필 — (종목, 날짜) 짝 목록(json)을 받아 없는 날만 KIS에서 받아 parquet에 붙인다
-- [month_start_sweep.py](../PYQuant/tools/month_start_sweep.py) — 매매 시작월 민감도 스윕 도구
 - [naver_bars_backfill.py](../PYQuant/tools/naver_bars_backfill.py) — 네이버 siseJson 일봉 1990~ 전량 백필 → bars_all_pit_v2.parquet(v1 스키마 + 외인보유율), 끝에 005930 종가 v1 일치 검사
 - [naver_flow_backfill.py](../PYQuant/tools/naver_flow_backfill.py) — 네이버 모바일 trend API 수급 이력(외인·기관·개인 순매수 주식수·외인보유율) 백필 → investor_flow_pit.parquet, 종목별 캐시로 재실행 안전
 - [naver_research_fetch.py](../PYQuant/tools/naver_research_fetch.py) — 네이버 증권 리서치 목록·PDF 본문·컨센서스를 받아 PYQuant/data/research/·consensus/에 저장(장중 대시보드 리서치 패널 입력, 등급 B·C)
-- [nxt_divergence_check.py](../PYQuant/tools/nxt_divergence_check.py) — KRX·NXT 시세 괴리 측정 도구
 - [pit_universe_backfill.py](../PYQuant/tools/pit_universe_backfill.py) — 거래일별 PIT 유니버스 재구성 도구
-- [regime_removal_test_2022.py](../PYQuant/tools/regime_removal_test_2022.py) — 2022 폭락장 국면필터 제거실험
 - [sweep.py](../PYQuant/tools/sweep.py) — 전략 파라미터 강건성 스윕 도구
 - [universe_feed.py](../PYQuant/tools/universe_feed.py) — 시총·거래대금 유니버스 피드 생성기
 - [walkforward.py](../PYQuant/tools/walkforward.py) — 전진검증 표본외 성과 검증 도구
@@ -345,15 +330,11 @@
 - [IntradayBreakoutStrategy.h](../Quant/include/strategy/IntradayBreakoutStrategy.h) — 장중 채널 돌파 전략(ITB v2)
 - [MACrossStrategy.h](../Quant/include/strategy/MACrossStrategy.h) — 골든/데드크로스 이평 전략
 - [MarketMakingStrategy.h](../Quant/include/strategy/MarketMakingStrategy.h) — 미니 시장조성기(MM-1) 전략
-- [MomentumStrategy.h](../Quant/include/strategy/MomentumStrategy.h) — 돈치안 채널 브레이크아웃 전략
-- [PriceTargetStrategy.h](../Quant/include/strategy/PriceTargetStrategy.h) — 가격 도달 시장가+예약 지정가 주문 전략
 - [SeedPeakStore.h](../Quant/include/strategy/SeedPeakStore.h) — 청산관리 시드분 당일 고점 재기동 간 보존(D-052)
 - [StrategyBase.h](../Quant/include/strategy/StrategyBase.h) — 전략 기반 인터페이스
 - [StrategyFactory.h](../Quant/include/strategy/StrategyFactory.h) — config strategies 배열 파싱·등록 로더
-- [SupplyDemandPullbackStrategy.h](../Quant/include/strategy/SupplyDemandPullbackStrategy.h) — 수급 선별+5일선 눌림목 진입 전략
 - [TargetBasketPlan.h](../Quant/include/strategy/TargetBasketPlan.h) — 목표 비중표 파일 계약(schema·슬리브·행)과 "목표 − 보유 = 주문" 계획 구조체 (D-109)
 - [TargetBasketStrategy.h](../Quant/include/strategy/TargetBasketStrategy.h) — 바스켓 슬리브 전략 — 집행 창·두 레그·상태 파일·소유 종목 sink 선언 (D-109)
-- [ThemeStrategy.h](../Quant/include/strategy/ThemeStrategy.h) — 3단 필터 테마 모멘텀 전략
 - [ValueContraryStrategy.h](../Quant/include/strategy/ValueContraryStrategy.h) — 저PBR 3일 연속 하락 반전 매수 전략
 
 ### Quant/include/universe/
@@ -488,15 +469,11 @@
 - [IntradayBreakoutStrategy.cpp](../Quant/src/strategy/IntradayBreakoutStrategy.cpp) — IntradayBreakoutStrategy.h 구현 — 장중 채널 돌파 전략(ITB v2)
 - [MACrossStrategy.cpp](../Quant/src/strategy/MACrossStrategy.cpp) — MACrossStrategy.h 구현 — 골든/데드크로스 이평 전략
 - [MarketMakingStrategy.cpp](../Quant/src/strategy/MarketMakingStrategy.cpp) — MarketMakingStrategy.h 구현 — 미니 시장조성기(MM-1) 전략
-- [MomentumStrategy.cpp](../Quant/src/strategy/MomentumStrategy.cpp) — MomentumStrategy.h 구현 — 돈치안 채널 브레이크아웃 전략
-- [PriceTargetStrategy.cpp](../Quant/src/strategy/PriceTargetStrategy.cpp) — PriceTargetStrategy.h 구현 — 가격 도달 시장가+예약 지정가 주문 전략
 - [SeedPeakStore.cpp](../Quant/src/strategy/SeedPeakStore.cpp) — SeedPeakStore.h 구현 — 청산관리 시드분 당일 고점 재기동 간 보존(D-052)
 - [StrategyBase.cpp](../Quant/src/strategy/StrategyBase.cpp) — StrategyBase.h 구현 — 원장 보유·매도가능 조회, 보호 주문 무장·해제, 종목 비교
 - [StrategyFactory.cpp](../Quant/src/strategy/StrategyFactory.cpp) — 전략 로더 구현 — config 파싱·국면 부착
-- [SupplyDemandPullbackStrategy.cpp](../Quant/src/strategy/SupplyDemandPullbackStrategy.cpp) — SupplyDemandPullbackStrategy.h 구현 — 수급 선별+5일선 눌림목 진입 전략
 - [TargetBasketPlan.cpp](../Quant/src/strategy/TargetBasketPlan.cpp) — 목표 비중표 파싱·검증과 밴드·DROP·liquidate_all 규칙으로 매도/매수 계획을 만든다
 - [TargetBasketStrategy.cpp](../Quant/src/strategy/TargetBasketStrategy.cpp) — 파일 재읽기, 14:40~15:00 매도→매수 레그, 종목:방향 하루 한 번(상태 파일 먼저 쓰기), 남의 틱을 심장박동으로
-- [ThemeStrategy.cpp](../Quant/src/strategy/ThemeStrategy.cpp) — ThemeStrategy.h 구현 — 3단 필터 테마 모멘텀 전략
 - [ValueContraryStrategy.cpp](../Quant/src/strategy/ValueContraryStrategy.cpp) — ValueContraryStrategy.h 구현 — 저PBR 3일 연속 하락 반전 매수 전략
 
 ### Quant/src/universe/
@@ -607,7 +584,6 @@
 ### Quant/tools/
 
 - [bench_rest_pool.cpp](../Quant/tools/bench_rest_pool.cpp) — REST 커넥션 풀링 효과 측정 벤치
-- [check_daily_truncation.py](../Quant/tools/check_daily_truncation.py) — 일봉 당일봉 절단 전후 이동평균 비교 검증 스크립트(D-005)
 - [feed_latency_measure.cpp](../Quant/tools/feed_latency_measure.cpp) — 실 KIS WS 다세션 시세 수신 지연 측정 도구
 - [future_quote_check.cpp](../Quant/tools/future_quote_check.cpp) — 국내 선물 시세 조회 점검 도구(필드명 확정용)
 - [manual_order.cpp](../Quant/tools/manual_order.cpp) — 수동 주문 도구(모의계좌 접수-체결 확인)
@@ -1164,7 +1140,6 @@
 ### scripts/
 
 - [_logdir.py](../scripts/_logdir.py) — 로그·원장 경로 탐색 헬퍼
-- [analyze_slot_cost.py](../scripts/analyze_slot_cost.py) — 보유 슬롯 한도 비용 분석 스크립트
 - [auto_trade_day.ps1](../scripts/auto_trade_day.ps1) — 일일 자동매매 기동 스크립트
 - [auto_trade_day.sh](../scripts/auto_trade_day.sh) — 리눅스(WSL2) 쪽 하루 루프 — 트레이더만 띄우고 마감까지 재기동(부속 창·마감 정리는 `auto_trade_day.ps1 -NoTrader`). 상태 `_private/_auto_trade_linux.json`, 절차 `docs/RUNBOOK.md` 1.1절
 - [auto_trade_guard.ps1](../scripts/auto_trade_guard.ps1) — 자동매매 감시견 스크립트
