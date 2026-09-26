@@ -2,6 +2,7 @@
 #include "detail/Pipeline.h"
 #include "utils/JsonNode.h"
 #include "universe/MaAlign.h"
+#include "universe/MarketBoard.h"
 #include "core/KstTime.h"
 #include "core/Types.h"
 #include "utils/EtfFilter.h"
@@ -48,7 +49,17 @@ ScanResult scan_devscale(KisClient& kis, const DevScanCfg& config, symbol::Symbo
     const std::string date_yyyymmdd = local_ymd();   // 일봉 캐시·후보 집합 캐시의 거래일 키
     g_lookup_cache.load_today(date_yyyymmdd, symbols); // 장중 재기동 시 일봉 재조회를 막는다
 
-    load_quote_table(config.prices_file, quotes, symbols);
+    const std::shared_ptr<const BoardSnapshot> board =
+        config.market_board ? MarketBoard::instance().snapshot() : nullptr;
+
+    if (board)
+    {
+        load_quote_table(*board, quotes, symbols);
+    }
+    else
+    {
+        load_quote_table(config.prices_file, quotes, symbols);   // 시세판 꺼짐, 또는 첫 판 받기 전
+    }
 
     const MarketGate gate = build_market_gate(kis, config);
     const long long gate_ms = ms_since(scan_start);   // 시세 파일 적재 + 지수 조회(REST)

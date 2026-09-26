@@ -63,6 +63,9 @@ struct DevScanCfg
     double align_moving_average_tolerance_percent = 0.0;
     std::string universe_file;       // data.go.kr 거래대금 상위 피드 경로. 비면 KIS 랭킹 축만 [why D-015]
     std::string prices_file;         // 전 종목 장중 시세 파일(`scripts/live_prices_feed.py` 산출) [why D-029]
+    // 엔진 안 시세판(universe/MarketBoard.h)에서 시세·유니버스를 받는다. 켜져 있으면 위 두 파일은 시세판이
+    //  아직 첫 판을 못 받았을 때만 읽는다(장 전 기동 직후) [why D-147]
+    bool   market_board = false;
     double min_turnover = 0.0;       // 원, 거래대금 하한. 0=비활성 [why D-029]
     bool   full_market = false;      // 후보 풀을 시세 파일의 전 종목으로 넓힌다 [why D-015]
     std::vector<std::string> sector_codes;   // 업종 등락률 축. 비면 끄기 [why D-029]
@@ -112,6 +115,10 @@ using QuoteTable = std::vector<MarketQuote>;
 //  표는 호출자가 재스캔 사이에 들고 있다 — 매번 새로 잡지 않고, 이름은 바뀐 때만 다시 복사한다.
 //  파일이 없거나 깨졌으면 전 칸이 비워진 채로 돌아온다.
 void load_quote_table(const std::string& prices_file, QuoteTable& quotes, symbol::SymbolTable& symbols);
+
+// 같은 일을 시세판(universe/MarketBoard.h)의 판으로 한다. market_board가 켜져 있으면 스캐너가 이쪽을 부른다.
+struct BoardSnapshot;
+void load_quote_table(const BoardSnapshot& board, QuoteTable& quotes, symbol::SymbolTable& symbols);
 
 // 초기 등록·주기적 재스캔이 공용으로 호출한다(config는 값 복사 캡처라 std::function 저장이 안전).
 //  레짐 위험회피면 빈 결과를 돌려준다. 실패도 예외가 아니라 빈 결과다.

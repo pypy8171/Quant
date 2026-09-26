@@ -4,6 +4,7 @@
 #include "detail/Pipeline.h"
 #include "utils/JsonNode.h"
 #include "universe/MaAlign.h"
+#include "universe/MarketBoard.h"
 #include "core/KstTime.h"
 #include "core/Types.h"
 #include "utils/EtfFilter.h"
@@ -137,14 +138,12 @@ void load_quote_file(const std::string& prices_file, QuoteTable& quotes, symbol:
 }
 } // namespace
 
-// 전 종목 장중 시세 파일. 네이버 벌크를 묶어오므로 KIS 초당 한도를 쓰지 않고 후보 전체의
-//  현재가를 얻는다. 이게 있어야 정배열·이격을 매 재스캔마다 다시 판정한다. 표에는 시장 전체가 들어가고
-//  (전 종목 확장 축이 이 표를 후보 원천으로 쓴다), 뒤이어 랭킹 축 스냅샷가가 덮인다.
-//  실패는 경고만 내고 표를 비운 채 돌아간다 — 그러면 랭킹 축 스냅샷가만 쓰게 된다.
-void load_quote_table(const std::string& prices_file, QuoteTable& quotes, symbol::SymbolTable& symbols)
+namespace
 {
-    // 표는 재스캔 사이에 이어 쓴다. 먼저 전 칸의 숫자를 비워 이번 파일에 없는 종목이 옛 값을 들고 있지 않게 하고,
-    //  이름은 끝에서 가격이 없는 칸만 비운다(문자열 버퍼는 남겨 다음 복사 때 다시 잡지 않는다).
+// 표를 재스캔 사이에 이어 쓴다. 먼저 전 칸의 숫자를 비워 이번 판에 없는 종목이 옛 값을 들고 있지 않게 하고,
+//  이름은 finish_table이 가격이 없는 칸만 비운다(문자열 버퍼는 남겨 다음 복사 때 다시 잡지 않는다).
+void clear_numbers(QuoteTable& quotes, const symbol::SymbolTable& symbols)
+{
     if (quotes.size() < symbols.capacity())
     {
         quotes.resize(symbols.capacity());
@@ -156,15 +155,74 @@ void load_quote_table(const std::string& prices_file, QuoteTable& quotes, symbol
         market_quote.value  = 0.0;
         market_quote.volume = 0.0;
     }
+}
 
-    load_quote_file(prices_file, quotes, symbols);
-
+void finish_table(QuoteTable& quotes)
+{
     for (MarketQuote& market_quote : quotes)
     {
         if (market_quote.price <= 0.0 && !market_quote.name.empty())
         {
             market_quote.name.clear();
         }
+    }
+}
+} // namespace
+
+// 전 종목 장중 시세 파일. 네이버 벌크를 묶어오므로 KIS 초당 한도를 쓰지 않고 후보 전체의
+//  현재가를 얻는다. 이게 있어야 정배열·이격을 매 재스캔마다 다시 판정한다. 표에는 시장 전체가 들어가고
+//  (전 종목 확장 축이 이 표를 후보 원천으로 쓴다), 뒤이어 랭킹 축 스냅샷가가 덮인다.
+//  실패는 경고만 내고 표를 비운 채 돌아간다 — 그러면 랭킹 축 스냅샷가만 쓰게 된다.
+void load_quote_table(const std::string& prices_file, QuoteTable& quotes, symbol::SymbolTable& symbols)
+{
+    clear_numbers(quotes, symbols);
+    load_quote_file(prices_file, quotes, symbols);
+    finish_table(quotes);
+}
+
+// 시세판(MarketBoard)의 판을 표에 붓는다. 파일 판과 같은 칸을 같은 규칙으로 채우고, 낡음 경고도 같은 문구로
+//  낸다(scripts/check_runtime_health.py가 이 문구를 센다). [why D-147]
+void load_quote_table(const BoardSnapshot& board, QuoteTable& quotes, symbol::SymbolTable& symbols)
+{
+    clear_numbers(quotes, symbols);
+    int loaded = 0;
+
+    for (const BoardQuote& quote : board.quotes)
+    {
+        const symbol::SymbolId symbol = symbols.intern(quote.code); // 판의 문자열 코드 — 여기서 id가 된다
+
+        if (symbol == symbol::kNone)
+        {
+            continue;
+        }
+
+        if (quotes.size() <= symbol)
+        {
+            quotes.resize(symbols.capacity());
+        }
+
+        MarketQuote& market_quote = quotes[symbol];
+        market_quote.price  = quote.price;
+        market_quote.value  = quote.value;
+        market_quote.volume = quote.volume;
+
+        if (market_quote.name != quote.name)
+        {
+            market_quote.name = quote.name; // 이름이 바뀐 때만 복사한다
+        }
+
+        ++loaded;
+    }
+
+    finish_table(quotes);
+    const std::time_t age = std::time(nullptr) - board.received_at;
+    LOG_INFO("[Main] 전 종목 시세: " + std::to_string(loaded) + "종목 (시세판, " +
+             std::to_string(static_cast<long long>(age)) + "초 전 갱신)");
+
+    if (age > kPricesStaleWarnSec)
+    {
+        LOG_WARN("[Main] 전 종목 시세가 " + std::to_string(static_cast<long long>(age)) +
+                 "초 지났다 — 시세판 스레드 확인 필요([MarketBoard] 경고). 정배열 판정이 전일 종가로 고정된다");
     }
 }
 } // namespace universe

@@ -1739,7 +1739,7 @@ async function tick(){
   const u=s.universe||{}; const ub=document.querySelector('#uni tbody');
   if(u.__error__){ document.getElementById('uninote').innerHTML='<small class="err">'+eb(u.__error__)+'</small>'; ub.innerHTML=''; }
   else{
-    document.getElementById('uninote').textContent=`종목목록 기준일 ${u.basDt||'?'}(data.go.kr, 상장목록용) · 시총·거래대금은 네이버 실행 시점 값(장 전 거래대금은 data.go.kr) · ${u.market||''} · ${u.count||0}종목 · ${u.source||''}`;
+    document.getElementById('uninote').textContent=`종목목록 기준일 ${u.basDt||'?'}(${(u.source||'').startsWith('engine:')?'네이버 목록':'data.go.kr'}, 상장목록용) · 시총·거래대금은 네이버 실행 시점 값${(u.source||'').startsWith('engine:')?'':'(장 전 거래대금은 data.go.kr)'} · ${u.market||''} · ${u.count||0}종목 · ${u.source||''}`;
     const uni=(u.universe||[]).slice(0,120);
     ub.innerHTML=uni.map((x,i)=>`<tr class="tickrow clk" data-tk="${eb(x.ticker)}" data-nm="${eb(x.name)}"><td>${i+1}</td><td class="l">${eb(x.name)}</td><td class="l mut">${eb(x.ticker)}</td><td>${won(x.close)}</td><td class="l mut">${eb(x.market)}</td></tr>`).join('');
   }

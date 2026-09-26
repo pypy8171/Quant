@@ -11,6 +11,7 @@
 #include "strategy/MarketMakingStrategy.h"
 #include "strategy/TargetBasketStrategy.h"
 #include "strategy/ValueContraryStrategy.h"
+#include "universe/MarketBoard.h"
 #include "universe/ScoreWeight.h"
 #include "universe/UniverseScanner.h"
 #include "utils/JsonNode.h"
@@ -778,6 +779,20 @@ static void load_deviation_scale(LoadPass& context, const json& node)
         scan_config.max_deviation_percent     = node.value("max_dev_pct", 0.0);       // 과확장 컷(일봉 이격 상한, 0=비활성)
         scan_config.universe_file   = node.value("universe_file", std::string()); // data.go.kr 유니버스 피드(ETF-free·30행캡 우회), 비면 KIS 랭킹만
         scan_config.prices_file     = node.value("prices_file", std::string());  // 전 종목 장중 시세 파일(네이버 벌크 보조 프로세스)
+        scan_config.market_board    = node.value("market_board", false);         // 엔진 안 시세판이 시세·재랭킹을 맡는다(D-147)
+
+        if (scan_config.market_board)
+        {
+            universe::MarketBoard::Config board_config;
+            board_config.period_sec     = node.value("market_board_period_sec", board_config.period_sec);
+            board_config.rerank_sec     = node.value("market_board_rerank_sec", board_config.rerank_sec);
+            board_config.n_market_value = node.value("market_board_n_market_value", board_config.n_market_value);
+            board_config.n_turnover     = node.value("market_board_n_turnover", board_config.n_turnover);
+            board_config.min_turnover   = node.value("market_board_min_turnover", board_config.min_turnover);
+            board_config.universe_out   = scan_config.universe_file; // 알림·대시보드·백필 스크립트가 이 파일을 읽는다
+            universe::MarketBoard::instance().start(board_config);   // 슬리브가 여럿이어도 한 번만 뜬다
+        }
+
         scan_config.min_turnover    = node.value("min_turnover", 0.0);           // 거래대금 하한(원), 0=비활성
         scan_config.full_market     = node.value("full_market", false);          // 후보 풀을 전 종목으로
         scan_config.align_daily_n   = base.daily_lookback;               // 정배열 판정용 일봉 개수(≥20)

@@ -47,10 +47,16 @@ BREAKEVEN_RE = re.compile(r"본전탈출\)")
 FILL_RE = re.compile(r"체결통보 ODNO=\d+ (\d{6}) (BUY|SELL) (\d+)주")
 RATE_RE = re.compile(r"EGW00201|초당 거래건수")
 WSFALL_RE = re.compile(r"WS → REST 폴링 폴백")
-# 전 종목 시세 보조 프로세스(scripts/live_prices_feed.py)가 죽거나 밀리면 엔진이 재스캔마다 이 경고를
-#  찍는다 — 그동안 정배열·이격 판정이 전일 종가로 얼어붙는 가장 조용한 실패다(UniverseQuotes.cpp).
-#  09-26에 주기를 20초→5초로 당겼으니 이 줄은 0건이어야 정상이다.
+# 전 종목 시세가 10분 넘게 안 바뀌면 엔진이 재스캔마다 이 경고를 찍는다 — 그동안 정배열·이격 판정이
+#  전일 종가로 얼어붙는 가장 조용한 실패다(UniverseQuotes.cpp). 시세는 엔진 안 시세판(MarketBoard, 5초)이나
+#  보조 프로세스(scripts/live_prices_feed.py, 시세판을 끈 config)가 받는다. 이 줄은 0건이어야 정상이다.
 PRICES_STALE_RE = re.compile(r"전 종목 시세가 (\d+)초 지났다")
+# 시세판 한 바퀴(5초)의 모든 요청이 빈 본문으로 끝난 줄. 몇 번은 네이버 쪽 일시 오류지만 1분치(12번)를
+#  넘으면 판이 멈춘 것이다. 재랭킹 보류는 장 시작 직후(누적 거래대금이 비어 가는 동안)에만 정상이다. [why D-147]
+BOARD_SWEEP_FAIL_RE = re.compile(r"\[MarketBoard\] 시세 한 바퀴 전부 실패")
+BOARD_RERANK_HOLD_RE = re.compile(r"\[MarketBoard\] 재랭킹 보류")
+MAX_BOARD_SWEEP_FAILS = 12
+BOARD_RERANK_HOLD_UNTIL = 9 * 3600 + 10 * 60   # 09:10 뒤의 보류는 이상
 # 거래대금 랭킹: 축·ETF드롭·생존 행수. ETF드롭이 0이 아니면 API단 제외 마스크가 안 먹는 것이다.
 VALUE_RANK_DIAG_RE = re.compile(r"거래대금랭킹 진단\(축=(\d).*?ETF드롭=(\d+).*?생존=(\d+)")
 VALUE_RANK_DONE_RE = re.compile(r"거래대금 랭킹 조회 완료: (\d+)종목 \(요청 count=(\d+)\)")
@@ -1616,7 +1622,9 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
     untracked_opens: list[tuple[int, str]] = []
     blocked_sells: list[tuple[int, str]] = []
     ws_fallbacks = 0
-    prices_stale_ages: list[int] = []   # 전 종목 시세 낡음 경고의 초 수 — 보조 프로세스 사망·지연 흔적
+    prices_stale_ages: list[int] = []   # 전 종목 시세 낡음 경고의 초 수 — 시세판·보조 프로세스 멈춤 흔적
+    board_sweep_fails = 0
+    board_late_holds: list[int] = []    # 09:10 뒤 재랭킹 보류 시각(초)
     rtts: list[int] = []
     bucket_waits: list[int] = []
     recon_slow: list[tuple[int, int]] = []   # (ms, 사이클)
@@ -1848,6 +1856,10 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
             found = PRICES_STALE_RE.search(line)
             if found:
                 prices_stale_ages.append(int(found.group(1)))
+            if BOARD_SWEEP_FAIL_RE.search(line):
+                board_sweep_fails += 1
+            if BOARD_RERANK_HOLD_RE.search(line) and second >= BOARD_RERANK_HOLD_UNTIL:
+                board_late_holds.append(second)
             found = RTT_RE.search(line)
             if found:
                 rtts.append(int(found.group(1)))
@@ -2318,7 +2330,13 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
         ("전 종목 시세 낡음", not prices_stale_ages, "WARN",
          f"시세 파일 낡음 경고 {len(prices_stale_ages)}건"
          + (f" (최대 {max(prices_stale_ages)}초 전 갱신)" if prices_stale_ages else "")
-         + " — 보조 프로세스(live_prices_feed.py, 5초 주기)가 죽으면 정배열·이격 판정이 전일 종가로 얼어붙는다"),
+         + " — 시세판(엔진 안, 5초 주기)이나 보조 프로세스가 멈추면 정배열·이격 판정이 전일 종가로 얼어붙는다"),
+        ("시세판 받기 실패", board_sweep_fails <= MAX_BOARD_SWEEP_FAILS, "WARN",
+         f"시세판 한 바퀴 전부 실패 {board_sweep_fails}회 (허용 {MAX_BOARD_SWEEP_FAILS} = 1분치) — 넘으면 네이버 응답이 끊긴 것"),
+        ("시세판 재랭킹 보류", not board_late_holds, "WARN",
+         f"09:10 뒤 재랭킹 보류 {len(board_late_holds)}회"
+         + (f" — {', '.join(hhmm(second) for second in board_late_holds[:5])}" if board_late_holds else "")
+         + " (기대 0 — 거래대금이 절반 넘는 종목에 잡힌 뒤에도 보류면 시세 응답의 거래대금 칸이 비는 것)"),
         ("주문 접수 지연", orders_ok, "WARN", order_detail),
         ("잔고 조회 지연", http_timeouts <= MAX_HTTP_TIMEOUTS, "WARN", recon_detail),
         ("TRENDX 정지", max(trendx_registered, default=0) == 0, "FAIL",

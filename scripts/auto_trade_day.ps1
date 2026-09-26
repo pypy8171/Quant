@@ -316,13 +316,16 @@ function Restore-Windows {
 # 09-26: 재랭킹 한 번의 외부 조회가 0이 됐다 — 종목 목록은 data.go.kr 하루치 parquet 캐시, 시세는
 #  prices_live.json(5초 주기 보조 프로세스) 재사용. 외부 조회가 없으니 시간대별로 아낄 이유도 없어져
 #  1분 고정으로 당긴다(옛 3/10분, 같은 날 잠깐 뒀던 10:00 전 1분/뒤 2분도 걷음).
+# 09-26 D-147: config에 "market_board": true 가 있으면 엔진 안 시세판이 시세(5초)·재랭킹(1분)·
+#  universe_scan.json 쓰기를 한다. 그때는 이 재스캔과 시세 창을 띄우지 않는다(같은 파일을 둘이 쓰지 않게).
+$script:BoardInEngine = [bool](Select-String -Path $Config -Pattern '"market_board"\s*:\s*true' -Quiet)
 function Get-UnivIntervalMin {
   return 1
 }
 $script:UnivNext = (Get-Date).AddMinutes((Get-UnivIntervalMin))   # 장중 재기동이면 첫 카운터도 같은 규칙
 $script:UnivOpenRetryDone = $false
 function Refresh-Universe {
-  if ($DryRun -or $NoUniverse) { return }
+  if ($DryRun -or $NoUniverse -or $script:BoardInEngine) { return }
   $now = Get-Date
   if ($now.ToString("HHmm") -ge "1530") { return }
   if (-not $script:UnivOpenRetryDone -and $now.ToString("HHmm") -ge "0900" -and $now.ToString("HHmm") -lt "0905") {
@@ -530,14 +533,17 @@ if (-not $DryRun) { [void](Run-Native "py scripts\gen_tuning_sheet.py --config $
 
 # ─────────────── 부속 창 ───────────────
 if (-not $NoRegimeFeed)   { Start-Window "quant-regime"   "& '$py' PYQuant\tools\macro_regime_feed.py --interval 180 --out Quant\config\regime.json" "macro_regime_feed.py" }
-if (-not $NoUniverse)  {
+if ($script:BoardInEngine) {
+  Say "시세·유니버스는 엔진 안 시세판이 받는다(market_board, D-147) — 유니버스 스캔·시세 창을 띄우지 않는다."
+}
+if (-not $NoUniverse -and -not $script:BoardInEngine)  {
   Say "유니버스 스캔(ALL) — 완료까지 기다린다. 이게 없으면 전략이 붙을 종목이 없다."
   if (-not $DryRun) {
     $rc = Run-Native "`"$py`" PYQuant\tools\universe_feed.py --market ALL --out Quant\config\universe_scan.json"
     if ($rc -ne 0) { Say "유니버스 스캔 실패(rc=$rc) — 직전 스캔 파일로 진행한다." "WARN" }
   }
 }
-if (-not $NoPrices)    { Start-Window "quant-prices"    "& '$py' scripts\live_prices_feed.py" "live_prices_feed.py" }
+if (-not $NoPrices -and -not $script:BoardInEngine)    { Start-Window "quant-prices"    "& '$py' scripts\live_prices_feed.py" "live_prices_feed.py" }
 if (-not $NoDashboard)
 {
   # --config·--port 를 안 넘기면 dashboard_server.py 는 기본값(config_dev_paper.json·8787)을 읽는다.

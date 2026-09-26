@@ -9,7 +9,7 @@
 - [(루트)](#루트) — 11개
 - [.vscode](#vscode) — 4개
 - [PYQuant](#pyquant) — 120개
-- [Quant](#quant) — 334개
+- [Quant](#quant) — 337개
 - [docs](#docs) — 132개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 245개
@@ -169,7 +169,7 @@
 - [test_adjust_splits.py](../PYQuant/tests/test_adjust_splits.py) — 수정주가 분할 보정 회귀 테스트
 - [test_backtest_engine.py](../PYQuant/tests/test_backtest_engine.py) — 백테스트 엔진 리팩터 회귀 테스트
 - [test_costs_golden.py](../PYQuant/tests/test_costs_golden.py) — costs·ledger 골든 테스트 10케이스. C++ OrderGate 수식·원장 CSV 실제 행과 0원 오차, 상수는 C++ 소스에서 다시 읽어 대조
-- [test_db_client.py](../PYQuant/tests/test_db_client.py) — DbClient의 COPY 글자 변환과 WSL 직결 주소 조회 검사(DB가 떠 있으면 실제 왕복까지)
+- [test_db_client.py](../PYQuant/tests/test_db_client.py) — (설명 필요)
 - [test_indicators.py](../PYQuant/tests/test_indicators.py) — 지표 함수 pytest 검증
 - [test_metrics.py](../PYQuant/tests/test_metrics.py) — 경로 시뮬레이션 손계산 검증
 - [test_point_in_time.py](../PYQuant/tests/test_point_in_time.py) — `as_of_join` 테스트 5건: 미래 행 차단·정정 우선·첫 공시 전 결측·max_age·왼쪽 순서 보존
@@ -340,6 +340,7 @@
 ### Quant/include/universe/
 
 - [MaAlign.h](../Quant/include/universe/MaAlign.h) — 일봉 이동평균 정배열 판정 공용 함수(D-005)
+- [MarketBoard.h](../Quant/include/universe/MarketBoard.h) — 전 종목 시세판 선언: 네이버 목록·시세를 받는 엔진 안 스레드, 응답 읽기·재랭킹 순수 함수(D-147)
 - [ScoreWeight.h](../Quant/include/universe/ScoreWeight.h) — 종합 점수 → 종목별 비중 배수 변환
 - [UniverseScanner.h](../Quant/include/universe/UniverseScanner.h) — 유니버스 스캐너 — 국면 게이트·랭킹·필터 선언
 
@@ -479,6 +480,7 @@
 ### Quant/src/universe/
 
 - [MaAlign.cpp](../Quant/src/universe/MaAlign.cpp) — MaAlign.h 구현 — 일봉 이동평균 정배열 판정 공용 함수(D-005)
+- [MarketBoard.cpp](../Quant/src/universe/MarketBoard.cpp) — 시세판 구현: 목록 하루 한 번·시세 5초·재랭킹 1분·universe_scan.json 원자적 쓰기
 - [ScoreWeight.cpp](../Quant/src/universe/ScoreWeight.cpp) — ScoreWeight.h 구현 — 종합 점수 → 종목별 비중 배수 변환
 - [UniverseCandidates.cpp](../Quant/src/universe/UniverseCandidates.cpp) — DevScale 스캔 2단 — 후보 합집합 수집(랭킹·업종·유니버스 파일·전 종목, D-028)
 - [UniverseFeatures.cpp](../Quant/src/universe/UniverseFeatures.cpp) — DevScale 스캔 3단 — 일봉 요약 캐시·정배열 프리필터·지표 산출
@@ -537,6 +539,7 @@
 - [test_ledger_reconciler.cpp](../Quant/tests/test_ledger_reconciler.cpp) — 잔고-원장 대조기 단위 테스트(D-038·D-061)
 - [test_ledger_snapshot.cpp](../Quant/tests/test_ledger_snapshot.cpp) — 장부 사본 단위 테스트: 지난 판 값이 안 남는지, 쓰는 중에 읽어도 반쪽 판이 안 나오는지 두 스레드로 검증(D-114 단계 2.5)
 - [test_logger.cpp](../Quant/tests/test_logger.cpp) — 비동기 Logger 무손실·flush·드롭 계수 검증(D-045)
+- [test_market_board.cpp](../Quant/tests/test_market_board.cpp) — 시세판 순수 함수 검사: 맨 위 Raw 칸만 읽기·개별주만·시장별 시총∪거래대금·절반 규칙·파일 스키마
 - [test_market_feed_channel.cpp](../Quant/tests/test_market_feed_channel.cpp) — 시세 → 전략 시세 통로 단위 테스트: 보낸 순서·줄 가르기·붙기 거절·넘침 세기·망가진 칸 버리기·두 스레드를 검증(D-114 단계 4·5)
 - [test_market_session.cpp](../Quant/tests/test_market_session.cpp) — 정규장 시각 판정·KST 시각 분해 단위 테스트(D-037·D-070)
 - [test_matching_engine.cpp](../Quant/tests/test_matching_engine.cpp) — 오더북 단위 테스트 — 단일가 규칙·체결 우선순위·호가 격자

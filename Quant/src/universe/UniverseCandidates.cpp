@@ -5,12 +5,14 @@
 #include "detail/Pipeline.h"
 #include "utils/JsonNode.h"
 #include "universe/MaAlign.h"
+#include "universe/MarketBoard.h"
 #include "core/KstTime.h"
 #include "core/Types.h"
 #include "utils/EtfFilter.h"
 #include "utils/Logger.h"
 #include <algorithm>
 #include <functional>
+#include <memory>
 #include <chrono>
 #include <cmath>
 #include <ctime>
@@ -38,6 +40,7 @@ constexpr int kSectorCallIntervalMs = 250;
 CandidateSet g_kis_axes_cache;
 CandidateSet g_file_axis_cache;
 std::filesystem::file_time_type g_file_axis_written{};
+std::shared_ptr<const RankedUniverse> g_board_axis_source; // g_file_axis_cache가 시세판의 어느 결과로 만든 것인가
 std::mutex   g_candidate_mutex;
 
 // ETF/ETN·리츠 배제(개별주만). ETF는 브랜드 접두사(경계검사)∪상품 토큰, 리츠는 접미사·정확일치다.
@@ -106,6 +109,43 @@ void take_ranking(const std::vector<KisClient::RankingStock>& rank, const DevSca
     }
 }
 
+// 유니버스 한 줄을 후보에 붓는다 — 파일 축과 시세판 축이 같은 규칙(ETF·리츠 이름 필터·가격 구간)을 쓴다.
+//  결과: 1=새로 넣음, 0=걸러짐, -1=중복.
+int add_universe_entry(const DevScanCfg& config, const std::string& ticker, std::string name, double price,
+                       std::string_view market, CandidateSet& candidates, symbol::SymbolTable& symbols)
+{
+    if (ticker.empty() || excluded_by_name(name, candidates.etf_drop, candidates.reit_drop))
+    {
+        return 0;
+    }
+
+    // close(0=미제공)면 가격필터는 뒤 정배열 프리필터의 일봉이 대신 검증한다.
+    if (price > 0.0 && price < config.min_price)
+    {
+        return 0;
+    }
+
+    if (config.max_price > 0.0 && price > config.max_price)
+    {
+        return 0;
+    }
+
+    const symbol::SymbolId symbol = symbols.intern(ticker); // 문자열 티커 — 여기서 id가 된다
+
+    if (symbol == symbol::kNone)
+    {
+        return 0;
+    }
+
+    if (!candidates.add(symbol, std::move(name)))
+    {
+        return -1;
+    }
+
+    candidates.set_market(symbol, market_from_text(market));   // 시장별 risk_off 게이트용
+    return 1;
+}
+
 // data.go.kr 종목 목록 기반 거래대금 상위 유니버스 피드(시총 축은 D-146부터 0). KIS 30행캡·ETF 잠식을 우회한 개별주 깊은 집합이라
 //  후보 집합 맨 앞에 넣어 일봉 조회 우선순위를 준다. 파일이 없으면 조용히 스킵한다(하위호환).
 //  전종목 코드→시장 사전(market_map)을 top-N보다 먼저 적재해, KIS 랭킹축 티커의 시장도
@@ -158,48 +198,11 @@ void take_universe_file(const DevScanCfg& config, CandidateSet& candidates, symb
 
         for (const auto& element : array)
         {
-            const std::string ticker = element.value("ticker", std::string());
-
-            if (ticker.empty())
-            {
-                continue;
-            }
-
-            std::string name = element.value("name", std::string());
-
-            if (excluded_by_name(name, candidates.etf_drop, candidates.reit_drop))
-            {
-                continue;
-            }
-
-            const double price = element.value("close", 0.0);
-
-            // close(0=미제공)면 가격필터는 뒤 정배열 프리필터의 일봉이 대신 검증한다.
-            if (price > 0.0 && price < config.min_price)
-            {
-                continue;
-            }
-
-            if (config.max_price > 0.0 && price > config.max_price)
-            {
-                continue;
-            }
-
-            const symbol::SymbolId symbol = symbols.intern(ticker); // 파일의 문자열 티커 — 여기서 id가 된다
-
-            if (symbol == symbol::kNone)
-            {
-                continue;
-            }
-
-            if (!candidates.add(symbol, std::move(name)))
-            {
-                ++duplicate;
-                continue;
-            }
-
-            candidates.set_market(symbol, market_from_text(element.value("market", std::string())));   // 시장별 risk_off 게이트용
-            ++added_file;
+            const int outcome = add_universe_entry(config, element.value("ticker", std::string()),
+                                                   element.value("name", std::string()), element.value("close", 0.0),
+                                                   element.value("market", std::string()), candidates, symbols);
+            added_file += outcome > 0 ? 1 : 0;
+            duplicate  += outcome < 0 ? 1 : 0;
         }
 
         LOG_INFO("[Main] DEVSCALE data.go.kr 축(기준일 " + basDt + "): 파일 " +
@@ -213,11 +216,67 @@ void take_universe_file(const DevScanCfg& config, CandidateSet& candidates, symb
     }
 }
 
+// 시세판 재랭킹 축 — 파일 축과 같은 자리·같은 규칙이다. 코드→시장 사전은 시세판의 전 종목 목록이다. [why D-147]
+void take_board_axis(const DevScanCfg& config, const RankedUniverse& ranked, CandidateSet& candidates,
+                     symbol::SymbolTable& symbols)
+{
+    for (const ListedStock& listed : ranked.listing)
+    {
+        const symbol::SymbolId symbol = symbols.intern(listed.code);
+
+        if (symbol != symbol::kNone)
+        {
+            candidates.set_market(symbol, market_from_text(listed.market));
+        }
+    }
+
+    candidates.have_market_map = !candidates.market_listed.empty();
+    int added = 0, duplicate = 0;
+
+    for (const RankedStock& stock : ranked.stocks)
+    {
+        const int outcome = add_universe_entry(config, stock.code, stock.name, stock.close, stock.market, candidates, symbols);
+        added     += outcome > 0 ? 1 : 0;
+        duplicate += outcome < 0 ? 1 : 0;
+    }
+
+    LOG_INFO("[Main] DEVSCALE 시세판 재랭킹 축(" + kst::hhmmss(ranked.ranked_at) + " 산출): " +
+             std::to_string(ranked.stocks.size()) + "종목 → 신규 " + std::to_string(added) + " union (중복 " +
+             std::to_string(duplicate) + ")");
+}
+
 // 유니버스 파일 축을 붓되, 파일이 지난번 파싱 뒤로 다시 쓰이지 않았으면 그때 결과를 쓴다.
 //  재스캔(20초)이 파일 갱신(1분)보다 잦아 세 번 중 두 번은 같은 내용을 다시 파싱하게 되기 때문이다.
 //  candidates는 비어 있어야 한다 — 파일 축이 맨 앞 축이다.
 void take_universe_file_cached(const DevScanCfg& config, CandidateSet& candidates, symbol::SymbolTable& symbols)
 {
+    // 시세판이 켜져 있고 한 번이라도 뽑았으면 그 결과를 쓴다. 결과가 같은 판이면(1분에 한 번 바뀐다) 지난번 사본을 쓴다.
+    //  아직 못 뽑았으면(장 전 기동 직후) 아래 파일 축으로 간다 — 전날 시세판이 써 둔 파일이다.
+    if (config.market_board)
+    {
+        const std::shared_ptr<const RankedUniverse> ranked = MarketBoard::instance().ranked();
+
+        if (ranked)
+        {
+            {
+                std::lock_guard<std::mutex> lock(g_candidate_mutex);
+
+                if (ranked == g_board_axis_source && !g_file_axis_cache.symbols.empty())
+                {
+                    candidates = g_file_axis_cache;   // 복사가 맞다 — 호출자가 이 위에 다른 축을 더 붓는다
+                    return;
+                }
+            }
+
+            take_board_axis(config, *ranked, candidates, symbols);
+            std::lock_guard<std::mutex> lock(g_candidate_mutex);
+            g_file_axis_cache   = candidates;   // 복사가 맞다 — 호출자가 candidates에 다른 축을 계속 붓는다
+            g_board_axis_source = ranked;
+            g_file_axis_written = {};
+            return;
+        }
+    }
+
     std::error_code error;
     const auto written = config.universe_file.empty()
                              ? std::filesystem::file_time_type{}
@@ -243,6 +302,7 @@ void take_universe_file_cached(const DevScanCfg& config, CandidateSet& candidate
     std::lock_guard<std::mutex> lock(g_candidate_mutex);
     g_file_axis_cache   = candidates;   // 복사가 맞다 — 호출자가 candidates에 다른 축을 계속 붓는다
     g_file_axis_written = written;
+    g_board_axis_source.reset();
 }
 
 // 업종 등락률 축 — 다른 축과 data.go.kr 축이 전부 전일 이전 상태를 보는 것과 달리 이 축만

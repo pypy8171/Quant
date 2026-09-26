@@ -189,6 +189,7 @@ set(HEADER_IMPL_SOURCES
 set(ENGINE_SOURCES
   src/universe/UniverseCandidates.cpp
   src/universe/UniverseFeatures.cpp
+  src/universe/MarketBoard.cpp
   src/universe/UniverseItb.cpp
   src/universe/UniverseQuotes.cpp
   src/universe/UniverseRiskGate.cpp
@@ -646,6 +647,10 @@ target_link_libraries(test_app_config PRIVATE quant_engine)
 add_executable(test_universe_scoring tests/test_universe_scoring.cpp)
 target_link_libraries(test_universe_scoring PRIVATE quant_engine)
 
+# ─── 테스트 타깃: 시세판 — 네이버 목록·시세 응답 읽기(맨 위 Raw 칸만)·시장별 시총∪거래대금 재랭킹·파일 문서 (D-147) ──
+add_executable(test_market_board tests/test_market_board.cpp)
+target_link_libraries(test_market_board PRIVATE quant_engine)
+
 # ─── 테스트 타깃: 유니버스 재스캔 장부 — 신규 등록·주기·상한 교체·빈 스캔 무시·차단→해제·복귀 확인 (가짜 스캔·전략, D-077·D-087) ──
 add_executable(test_universe_rescan tests/test_universe_rescan.cpp)
 target_link_libraries(test_universe_rescan PRIVATE quant_engine)
@@ -951,6 +956,7 @@ set(QUANT_ASSERT_TARGETS
     test_heartbeat
     test_ledger_snapshot
     test_universe_scoring
+    test_market_board
     test_universe_rescan
     test_control_plane
 )
