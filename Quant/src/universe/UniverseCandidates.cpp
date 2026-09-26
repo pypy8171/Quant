@@ -1,5 +1,5 @@
 // 후보 합집합 수집 — KIS 랭킹·업종 순위·유니버스 파일·전 종목 확장 축을 한 집합으로 모은다. 스캔에서 KIS REST를
-//  쓰는 단계는 이것 하나라 union_refresh_sec 동안 지난 집합을 그대로 재사용한다.
+//  쓰는 단계는 이것 하나라 KIS 축만 union_refresh_sec 동안 재사용하고, 유니버스 파일은 다시 쓰일 때마다 읽는다.
 //  스캔 스레드 전용. [why D-028]
 
 #include "detail/Pipeline.h"
@@ -32,7 +32,12 @@ namespace
 //  초당 한도에 걸린다(09-23: 100ms 일 때 이 축에서만 되보냄 452건, 전날 0건).
 constexpr int kSectorCallIntervalMs = 250;
 
-CandidateSet g_candidate_cache;
+// 캐시는 둘로 나눈다. KIS 축(랭킹 3개·업종 23콜, 약 6.5초)은 union_refresh_sec마다 새로 받고, 유니버스 파일 축은
+//  파일이 다시 쓰일 때마다(감시견이 1분마다, D-142) 읽는다. 둘을 한 캐시에 묶으면 파일의 1분 재랭킹이
+//  KIS 주기(120초)만큼 늦게 들어온다.
+CandidateSet g_kis_axes_cache;
+CandidateSet g_file_axis_cache;
+std::filesystem::file_time_type g_file_axis_written{};
 std::mutex   g_candidate_mutex;
 
 // ETF/ETN·리츠 배제(개별주만). ETF는 브랜드 접두사(경계검사)∪상품 토큰, 리츠는 접미사·정확일치다.
@@ -206,6 +211,38 @@ void take_universe_file(const DevScanCfg& config, CandidateSet& candidates, symb
         LOG_WARN("[Main] DEVSCALE 유니버스 파일 파싱 실패(" + config.universe_file +
                  "): " + std::string(exception.what()) + " — data.go.kr 축 스킵");
     }
+}
+
+// 유니버스 파일 축을 붓되, 파일이 지난번 파싱 뒤로 다시 쓰이지 않았으면 그때 결과를 쓴다.
+//  재스캔(20초)이 파일 갱신(1분)보다 잦아 세 번 중 두 번은 같은 내용을 다시 파싱하게 되기 때문이다.
+//  candidates는 비어 있어야 한다 — 파일 축이 맨 앞 축이다.
+void take_universe_file_cached(const DevScanCfg& config, CandidateSet& candidates, symbol::SymbolTable& symbols)
+{
+    std::error_code error;
+    const auto written = config.universe_file.empty()
+                             ? std::filesystem::file_time_type{}
+                             : std::filesystem::last_write_time(config.universe_file, error);
+
+    if (config.universe_file.empty() || error)
+    {
+        take_universe_file(config, candidates, symbols);   // 없을 때의 경고·스킵은 그쪽이 한다
+        return;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(g_candidate_mutex);
+
+        if (written == g_file_axis_written && !g_file_axis_cache.symbols.empty())
+        {
+            candidates = g_file_axis_cache;   // 복사가 맞다 — 호출자가 이 위에 다른 축을 더 붓는다
+            return;
+        }
+    }
+
+    take_universe_file(config, candidates, symbols);
+    std::lock_guard<std::mutex> lock(g_candidate_mutex);
+    g_file_axis_cache   = candidates;   // 복사가 맞다 — 호출자가 candidates에 다른 축을 계속 붓는다
+    g_file_axis_written = written;
 }
 
 // 업종 등락률 축 — 다른 축과 data.go.kr 축이 전부 전일 이전 상태를 보는 것과 달리 이 축만
@@ -390,47 +427,59 @@ Market CandidateSet::market_of(symbol::SymbolId symbol) const
 void collect_candidates(KisClient& kis, const DevScanCfg& config, const std::string& date_yyyymmdd,
                         QuoteTable& quotes, CandidateSet& candidates, symbol::SymbolTable& symbols)
 {
-    if (config.union_refresh_sec > 0)
-    {
-        long long age = -1;
-        {
-            std::lock_guard<std::mutex> lock(g_candidate_mutex);
-
-            if (g_candidate_cache.date_yyyymmdd == date_yyyymmdd && !g_candidate_cache.symbols.empty() &&
-                std::time(nullptr) - g_candidate_cache.at < config.union_refresh_sec)
-            {
-                candidates = g_candidate_cache;   // 복사가 맞다 — 캐시는 락 아래 남고 호출자는 락 밖에서 자기 사본을 쓴다
-                age  = static_cast<long long>(std::time(nullptr) - g_candidate_cache.at);
-            }
-        }
-
-        if (age >= 0)
-        {
-            // 현재가·거래대금은 시세 표에서 방금 읽은 값을 쓴다. 랭킹 축이 실어오던
-            //  스냅샷가는 재사용분에 없지만, 네이버 쪽이 더 최신이라 판정에는 그편이 낫다.
-            LOG_INFO("[Main] DEVSCALE 후보 합집합 재사용: " + std::to_string(candidates.symbols.size()) +
-                     "종목 (" + std::to_string(age) +
-                     "초 전 수집, 갱신주기 " + std::to_string(config.union_refresh_sec) + "초)");
-            return;
-        }
-    }
-
     // 정배열 프리필터로 상당수가 탈락하므로 여기선 max_register로 자르지 않고 넓게 모은다.
-    take_universe_file(config, candidates, symbols);
-    take_ranking(kis.fetch_kr_ranking(config.scan_top_n, "J"), config, quotes, candidates, symbols);            // 시총 상위
-    take_ranking(kis.fetch_value_ranking(config.value_top_n, "J", "3"), config, quotes, candidates, symbols);   // 거래대금 상위
-    // 랭킹 TR은 축마다 상위 30행 고정(연속조회 불가)이라 정렬축을 하나 더 union해 집합을 넓힌다.
-    //  거래증가율(1)은 대형주에 편중된 시총·거래대금축과 겹침이 적어(중소형 모멘텀) 정배열 후보를 늘린다.
-    take_ranking(kis.fetch_value_ranking(config.value_top_n, "J", "1"), config, quotes, candidates, symbols);   // 거래증가율 상위
-    take_sector_ranking(kis, config, quotes, candidates, symbols);
-    take_full_market(config, quotes, candidates, symbols);
+    //  축 순서(파일 → KIS 랭킹 → 업종 → 전 종목)가 일봉 조회 우선순위라 캐시를 나눠도 이 순서로 합친다.
+    take_universe_file_cached(config, candidates, symbols);
+
+    CandidateSet kis_axes(symbols.capacity());
+    long long age = -1;
 
     if (config.union_refresh_sec > 0)
     {
         std::lock_guard<std::mutex> lock(g_candidate_mutex);
-        candidates.date_yyyymmdd = date_yyyymmdd;
-        candidates.at  = std::time(nullptr);
-        g_candidate_cache   = candidates;   // 복사가 맞다 — 호출자가 candidates를 계속 쓰고 캐시는 다음 재스캔까지 남는다
+
+        if (g_kis_axes_cache.date_yyyymmdd == date_yyyymmdd && !g_kis_axes_cache.symbols.empty() &&
+            std::time(nullptr) - g_kis_axes_cache.at < config.union_refresh_sec)
+        {
+            kis_axes = g_kis_axes_cache;   // 복사가 맞다 — 캐시는 락 아래 남고 호출자는 락 밖에서 자기 사본을 쓴다
+            age = static_cast<long long>(std::time(nullptr) - g_kis_axes_cache.at);
+        }
     }
+
+    if (age >= 0)
+    {
+        // 현재가·거래대금은 시세 표에서 방금 읽은 값을 쓴다. 랭킹 축이 실어오던
+        //  스냅샷가는 재사용분에 없지만, 네이버 쪽이 더 최신이라 판정에는 그편이 낫다.
+        LOG_INFO("[Main] DEVSCALE KIS 축 재사용: " + std::to_string(kis_axes.symbols.size()) +
+                 "종목 (" + std::to_string(age) +
+                 "초 전 수집, 갱신주기 " + std::to_string(config.union_refresh_sec) + "초)");
+    }
+    else
+    {
+        take_ranking(kis.fetch_kr_ranking(config.scan_top_n, "J"), config, quotes, kis_axes, symbols);            // 시총 상위
+        take_ranking(kis.fetch_value_ranking(config.value_top_n, "J", "3"), config, quotes, kis_axes, symbols);   // 거래대금 상위
+        // 랭킹 TR은 축마다 상위 30행 고정(연속조회 불가)이라 정렬축을 하나 더 union해 집합을 넓힌다.
+        //  거래증가율(1)은 대형주에 편중된 시총·거래대금축과 겹침이 적어(중소형 모멘텀) 정배열 후보를 늘린다.
+        take_ranking(kis.fetch_value_ranking(config.value_top_n, "J", "1"), config, quotes, kis_axes, symbols);   // 거래증가율 상위
+        take_sector_ranking(kis, config, quotes, kis_axes, symbols);
+
+        if (config.union_refresh_sec > 0)
+        {
+            std::lock_guard<std::mutex> lock(g_candidate_mutex);
+            kis_axes.date_yyyymmdd = date_yyyymmdd;
+            kis_axes.at = std::time(nullptr);
+            g_kis_axes_cache = kis_axes;   // 복사가 맞다 — 아래에서 kis_axes를 계속 읽고 캐시는 다음 갱신까지 남는다
+        }
+    }
+
+    for (std::size_t index = 0; index < kis_axes.symbols.size(); ++index)
+    {
+        candidates.add(kis_axes.symbols[index], std::move(kis_axes.names[index]));
+    }
+
+    candidates.etf_drop  += kis_axes.etf_drop;
+    candidates.reit_drop += kis_axes.reit_drop;
+    // 전 종목 확장은 REST가 없어 매번 다시 한다 — 방금 읽은 시세 표로 가격·이름 필터를 건다.
+    take_full_market(config, quotes, candidates, symbols);
 }
 } // namespace universe::detail

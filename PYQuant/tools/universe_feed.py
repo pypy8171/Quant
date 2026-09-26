@@ -271,7 +271,7 @@ def main() -> int:
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    # 엔진이 union_refresh_sec마다 이 파일을 다시 읽으므로 반쯤 쓰인 파일이 보이면 안 된다 —
+    # 엔진이 파일이 다시 쓰일 때마다 읽으므로 반쯤 쓰인 파일이 보이면 안 된다 —
     #  임시 파일에 다 쓴 뒤 한 번에 바꿔 넣는다(os.replace는 같은 볼륨에서 원자적).
     tmp = out.with_suffix(out.suffix + ".tmp")
     tmp.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
