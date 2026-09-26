@@ -2159,6 +2159,7 @@
       "PYQuant/tests/test_adjust_splits.py",
       "PYQuant/tests/test_backtest_engine.py",
       "PYQuant/tests/test_costs_golden.py",
+      "PYQuant/tests/test_db_copy.py",
       "PYQuant/tests/test_indicators.py",
       "PYQuant/tests/test_metrics.py",
       "PYQuant/tests/test_point_in_time.py",
@@ -2168,6 +2169,7 @@
       "PYQuant/tests/test_strategy_a.py",
       "PYQuant/tools/__init__.py",
       "PYQuant/tools/bench_market_open.py",
+      "PYQuant/tools/bench_recorder.py",
       "PYQuant/tools/check_adjusted.py",
       "PYQuant/tools/check_datagokr.py",
       "PYQuant/tools/check_investor_api.py",
@@ -2384,6 +2386,9 @@
         "backtest.costs",
         "backtest.ledger"
       ],
+      "PYQuant/tests/test_db_copy.py": [
+        "db.client"
+      ],
       "PYQuant/tests/test_indicators.py": [
         "kis.client",
         "strategy.indicators"
@@ -2411,6 +2416,10 @@
       "PYQuant/tools/bench_market_open.py": [
         "core.logger",
         "db.client"
+      ],
+      "PYQuant/tools/bench_recorder.py": [
+        "db.client",
+        "main"
       ],
       "PYQuant/tools/check_adjusted.py": [
         "data.datagokr_source"
@@ -2671,7 +2680,9 @@
       ],
       "db.client": [
         "PYQuant/main.py",
+        "PYQuant/tests/test_db_copy.py",
         "PYQuant/tools/bench_market_open.py",
+        "PYQuant/tools/bench_recorder.py",
         "PYQuant/tools/ledger_recorder.py",
         "scripts/backfill_fills_db.py"
       ],
@@ -2752,6 +2763,7 @@
       ],
       "main": [
         "PYQuant/live/forward_trader.py",
+        "PYQuant/tools/bench_recorder.py",
         "PYQuant/tools/fullperiod_validate.py",
         "PYQuant/tools/month_start_sweep.py",
         "PYQuant/tools/regime_removal_test_2022.py",
@@ -2953,6 +2965,11 @@
       },
       {
         "from": "PYQuant/tests",
+        "to": "PYQuant/db",
+        "weight": 1
+      },
+      {
+        "from": "PYQuant/tests",
         "to": "PYQuant/exit_ev",
         "weight": 1
       },
@@ -2974,7 +2991,7 @@
       {
         "from": "PYQuant/tools",
         "to": "PYQuant",
-        "weight": 5
+        "weight": 6
       },
       {
         "from": "PYQuant/tools",
@@ -2999,7 +3016,7 @@
       {
         "from": "PYQuant/tools",
         "to": "PYQuant/db",
-        "weight": 2
+        "weight": 3
       },
       {
         "from": "PYQuant/tools",

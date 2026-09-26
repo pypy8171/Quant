@@ -4,7 +4,7 @@ C++ DeviationScale 스캐너의 4번째 후보 축(ETF-free·KIS 30행캡 우회
 data.go.kr 스냅샷은 종목 목록(코드·이름·시장, ETF 없음)만 쓰고, 시총·거래대금·종가는 네이버 벌크
 시세(polling API, marketValueFullRaw·accumulatedTradingValueRaw)에서 실행 시점 값으로 받는다.
 data.go.kr 는 전영업일 시세를 당일 오전 늦게 올려 08시 스캔이 이틀 전 기준을 받았고(09-14 실측), 그
-기준일로 하루를 보내면 전날·오늘 급등한 종목이 후보 풀에서 빠진다. 장중에는 감시견이 1~2분마다 다시
+기준일로 하루를 보내면 전날·오늘 급등한 종목이 후보 풀에서 빠진다. 장중에는 감시견이 1분마다 다시
 돌린다(2026-09-26부터) — 종목 목록은 하루치 parquet 캐시를 읽고 시세는 prices_live.json을 재사용하므로
 재랭킹 한 번의 외부 조회는 0이다.
 
@@ -61,7 +61,7 @@ _PRICES_LIVE_MAX_AGE_SEC = 90.0
 
 def load_prices_live() -> dict[str, dict] | None:
     """scripts/live_prices_feed.py 가 5초 주기로 떨구는 prices_live.json을 재사용한다 —
-    재랭킹을 1~2분마다 돌 때 네이버를 두 번 두드리지 않기 위해. 파일이 없거나 90초 넘게
+    재랭킹을 1분마다 돌 때 네이버를 두 번 두드리지 않기 위해. 파일이 없거나 90초 넘게
     낡았거나(보조 프로세스 죽음) 시총(mcap)이 없으면(옛 형식) None — 직접 조회로 넘어간다."""
     try:
         with open(_PRICES_LIVE_PATH, encoding="utf-8") as file:
@@ -152,7 +152,7 @@ def build(on_date: str, n_mktcap: int, n_turnover: int,
 
     # 시총·거래대금·종가를 네이버 실행 시점 값으로 바꾼다. 거래대금이 절반 넘게 0이면(장 전에 누적치가
     #  아직 없는 경우) 거래대금 축만 data.go.kr 로 두는데, 그 기준일이 직전 평일보다 오래됐으면 이틀 전
-    #  랭킹으로 유니버스를 만드는 것이라 실패로 친다 — 감시견이 직전 파일을 유지하고 1~2분 뒤 다시 돈다.
+    #  랭킹으로 유니버스를 만드는 것이라 실패로 친다 — 감시견이 직전 파일을 유지하고 1분 뒤 다시 돈다.
     live_hhmm = time.strftime("%H%M")
     mcap_src = val_src = f"data.go.kr {served}"
     if use_live:

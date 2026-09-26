@@ -8,7 +8,7 @@
 
 - [(루트)](#루트) — 11개
 - [.vscode](#vscode) — 4개
-- [PYQuant](#pyquant) — 118개
+- [PYQuant](#pyquant) — 120개
 - [Quant](#quant) — 334개
 - [docs](#docs) — 132개
 - [linux_practice](#linux_practice) — 2개
@@ -169,6 +169,7 @@
 - [test_adjust_splits.py](../PYQuant/tests/test_adjust_splits.py) — 수정주가 분할 보정 회귀 테스트
 - [test_backtest_engine.py](../PYQuant/tests/test_backtest_engine.py) — 백테스트 엔진 리팩터 회귀 테스트
 - [test_costs_golden.py](../PYQuant/tests/test_costs_golden.py) — costs·ledger 골든 테스트 10케이스. C++ OrderGate 수식·원장 CSV 실제 행과 0원 오차, 상수는 C++ 소스에서 다시 읽어 대조
+- [test_db_copy.py](../PYQuant/tests/test_db_copy.py) — (설명 필요)
 - [test_indicators.py](../PYQuant/tests/test_indicators.py) — 지표 함수 pytest 검증
 - [test_metrics.py](../PYQuant/tests/test_metrics.py) — 경로 시뮬레이션 손계산 검증
 - [test_point_in_time.py](../PYQuant/tests/test_point_in_time.py) — `as_of_join` 테스트 5건: 미래 행 차단·정정 우선·첫 공시 전 결측·max_age·왼쪽 순서 보존
@@ -181,6 +182,7 @@
 
 - [__init__.py](../PYQuant/tools/__init__.py) — 빈 패키지 초기화 파일
 - [bench_market_open.py](../PYQuant/tools/bench_market_open.py) — 개장 동시호가 부하를 재현해 틱·신호·주문·체결을 bench_* 테이블에 적재하는 벤치마크
+- [bench_recorder.py](../PYQuant/tools/bench_recorder.py) — (설명 필요)
 - [check_adjusted.py](../PYQuant/tools/check_adjusted.py) — data.go.kr 수정주가 여부 검증 점검
 - [check_datagokr.py](../PYQuant/tools/check_datagokr.py) — DataGoKrSource 인증·조회 확인용 점검
 - [check_investor_api.py](../PYQuant/tools/check_investor_api.py) — 수급·일봉 API 가용성 검증 스크립트

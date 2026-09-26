@@ -150,7 +150,7 @@ note = "scripts/live_prices_feed.py 가 전 후보 종목 현재가·시총을 5
 
 [[code_value_group]]
 name = "data.go.kr 유니버스 피드 — universe_scan.json"
-note = "PYQuant/tools/universe_feed.py. 감시견이 기동 때 1회 + 장중 1분/2분 간격으로 다시 돌린다(아래 감시견 묶음). 시세는 prices_live.json 재사용이라 재랭킹 한 번의 외부 조회 0(D-142)."
+note = "PYQuant/tools/universe_feed.py. 감시견이 기동 때 1회 + 장중 1분 간격으로 다시 돌린다(아래 감시견 묶음). 시세는 prices_live.json 재사용이라 재랭킹 한 번의 외부 조회 0(D-142)."
 
 [[code_value_group]]
 name = "엔진 — 스레드 주기·장 시간"
@@ -910,20 +910,12 @@ group = "감시견·예약작업 — scripts/auto_trade_day.ps1 · market_close_
 meaning = "이 시각 뒤엔 트레이더를 다시 띄우지 않는다(스크립트 기본, 실제는 market_close_timetable 이 넘김)"
 
 [[code_value]]
-id = "watchdog_universe_rescan_min_before_10"
+id = "watchdog_universe_rescan_min"
 file = "scripts/auto_trade_day.ps1"
-regex = '-lt "1000"\) \{ return (\d+) \}'
+regex = 'function Get-UnivIntervalMin \{\r?\n\s*return (\d+)'
 unit = "분"
 group = "감시견·예약작업 — scripts/auto_trade_day.ps1 · market_close_timetable.ps1"
-meaning = "10시 전 universe_feed.py(data.go.kr∪네이버) 재실행 간격"
-
-[[code_value]]
-id = "watchdog_universe_rescan_min_after_10"
-file = "scripts/auto_trade_day.ps1"
-regex = '-lt "1000"\) \{ return \d+ \}\r?\n\s*return (\d+)'
-unit = "분"
-group = "감시견·예약작업 — scripts/auto_trade_day.ps1 · market_close_timetable.ps1"
-meaning = "10시 뒤 재실행 간격"
+meaning = "장중 universe_feed.py 재실행 간격(재사용 경로라 외부 조회 0, 1분 고정)"
 
 [[code_value]]
 id = "watchdog_universe_rescan_stop_hhmm"
@@ -1078,7 +1070,7 @@ meaning = "네이버 테마 조회 주기"
 step = "① 전 종목 시총·거래대금 → 후보 파일"
 source = "data.go.kr(전 종목 약 2,700, 전영업일 스냅샷·하루 1회 캐시) + 네이버 실시간(시총·거래대금을 덮어씀)"
 what = "시장(코스피·코스닥)별 시총 top{universe_n_mktcap} ∪ 거래대금 top{universe_n_turnover}, 거래대금 ≥ {universe_min_turnover}원 → `Quant/config/universe_scan.json`(약 280종목)"
-every = "감시견이 10시 전 {watchdog_universe_rescan_min_before_10}, 10시 뒤 {watchdog_universe_rescan_min_after_10}마다, {watchdog_universe_rescan_stop_hhmm} 까지"
+every = "감시견이 {watchdog_universe_rescan_min}마다, {watchdog_universe_rescan_stop_hhmm} 까지"
 used_for = "③ 후보 합집합의 한 축. ② 가 현재가를 받을 종목 목록(market_map)"
 
 [[cycle]]

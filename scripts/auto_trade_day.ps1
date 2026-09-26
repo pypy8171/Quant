@@ -304,7 +304,7 @@ function Restore-Windows {
 }
 
 # 유니버스 스캔은 시총·거래대금을 네이버 실행 시점 값으로 받는다(universe_feed.py). 장중에는 당일 누적
-#  거래대금이 그날 강한 종목을 가장 잘 가리키므로 15:30 까지 1~2분마다 다시 돌려 파일만 바꿔 둔다 — 엔진은
+#  거래대금이 그날 강한 종목을 가장 잘 가리키므로 15:30 까지 1분마다 다시 돌려 파일만 바꿔 둔다 — 엔진은
 #  union_refresh_sec마다 파일을 다시 읽는다. 스캔이 실패하면(장 전에 누적치가 없고 data.go.kr 목록이 이틀
 #  전이면 rc=1) 직전 파일을 그대로 두고 다음 간격에 다시 본다(09-14 실측: 이틀 전 기준으로 하루를 보내
 #  보안주 3종·라온시큐어가 풀에 없었다).
@@ -315,11 +315,10 @@ function Restore-Windows {
 # 09-18 실측: 09:00 재확인은 거래대금 35초치라 1,471종목만 값이 있어 104종목에 그쳤고, 09:30에야 277종목이
 #  됐다. 첫 한 시간은 거래대금 순위가 가장 빠르게 바뀌는 구간이라 간격을 시간대별로 둔다.
 # 09-26: 재랭킹 한 번의 외부 조회가 0이 됐다 — 종목 목록은 data.go.kr 하루치 parquet 캐시, 시세는
-#  prices_live.json(5초 주기 보조 프로세스) 재사용. 엔진이 union_refresh_sec=120초마다 파일을 다시
-#  읽으므로 그에 맞춰 10:00 전 1분, 그 뒤 2분으로 당긴다(옛 3/10분).
+#  prices_live.json(5초 주기 보조 프로세스) 재사용. 외부 조회가 없으니 시간대별로 아낄 이유도 없어져
+#  1분 고정으로 당긴다(옛 3/10분, 같은 날 잠깐 뒀던 10:00 전 1분/뒤 2분도 걷음).
 function Get-UnivIntervalMin {
-  if ((Get-Date).ToString("HHmm") -lt "1000") { return 1 }
-  return 2
+  return 1
 }
 $script:UnivNext = (Get-Date).AddMinutes((Get-UnivIntervalMin))   # 장중 재기동이면 첫 카운터도 같은 규칙
 $script:UnivOpenRetryDone = $false

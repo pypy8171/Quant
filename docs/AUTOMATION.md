@@ -237,7 +237,7 @@ powershell -ExecutionPolicy Bypass -File scripts\quant_procs.ps1 -KillAll # 전�
 | 증분 로그 감시 | `scripts/parse_quant_log.py --watch` | 15~20분 | 유의미한 창일 때만 출력. 조용하면 토큰 0 |
 | 실행 건전성 점검 | `scripts/check_runtime_health.py` | 세션 종료마다(감시견)·마감 뒤 하루 전체 | 유령주문·조기 사망·재기동 투매·회전·초당한도·WS 폴백·주문 접수 지연·잔고 조회 지연·전략 박동(끊김·여유)·주문 통로 무결·시세 통로(못 넘긴 시세·값이 이상해 버린 시세)를 PASS/WARN/FAIL로 판정. 같은 표를 `market_close_autodoc.py`가 매매일지 4절에 싣는다 — 고친 뒤 "다음 날 확인할 것"은 사람이 아니라 여기 행으로 만든다 |
 | 전 종목 시세 파일 전달 | `scripts/live_prices_feed.py` | 5초(`PRICES_PERIOD_SEC`, D-142) | 네이버 벌크 시세를 900종목씩 요청 3개로 병렬로 받아(한 사이클 0.3초 안팎) `Quant/config/prices_live.json`으로 떨군다. KIS REST 초당 한도와 무관하고, 시총(mcap)도 담아 `universe_feed.py` 재랭킹이 재사용한다. `UniverseScanner`가 이 파일을 읽는다 |
-| 유니버스 재랭킹 | `PYQuant/tools/universe_feed.py`(감시견 `Refresh-Universe`) | 10:00 전 1분, 그 뒤 2분 | 종목 목록은 data.go.kr 하루치 parquet 캐시, 시세는 `prices_live.json` 재사용이라 재랭킹 한 번의 외부 조회는 0. 엔진은 `union_refresh_sec`(120초)마다 산출 파일을 다시 읽는다(D-142) |
+| 유니버스 재랭킹 | `PYQuant/tools/universe_feed.py`(감시견 `Refresh-Universe`) | 1분 | 종목 목록은 data.go.kr 하루치 parquet 캐시, 시세는 `prices_live.json` 재사용이라 재랭킹 한 번의 외부 조회는 0. 엔진은 `union_refresh_sec`(120초)마다 산출 파일을 다시 읽는다(D-142) |
 | 매매 알림 | `scripts/notify_trades.py` | 체결 즉시 / 요약 30분 | 당일 체결 원장 CSV를 증분으로 읽어 체결을 바로 보내고, 평단·손익 표는 KIS 잔고조회로 주기 발송 |
 
 ### 매매 알림 보조 프로세스
