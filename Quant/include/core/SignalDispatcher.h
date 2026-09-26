@@ -18,21 +18,21 @@
 
 namespace dispatch
 {
-// 미체결 잔량 조회 — 보유 스냅샷(HeldPos)이 든 종목 id로 묻는다. 문자열 티커는 로그에만 남긴다. [why D-112]
+// 미체결 매도 수량(0 이상) 조회 — 보유 스냅샷(HeldPos)이 든 종목 id로 묻는다. 문자열 티커는 로그에만 남긴다. [why D-112]
 //  계좌 인자는 장부 사본을 읽게 된 뒤로 쓰지 않는다 — 한 판은 한 계좌만 담기 때문이다. 자리는 남겨 둔다:
 //  이 함수 모양은 시험이 직접 넘기는 자리라, 계좌가 다시 필요해질 때 부르는 쪽을 안 고치게. [why D-114]
-using ReservedFn = std::function<int(const std::string& account, symbol::SymbolId symbol)>;
+using SellPendingFn = std::function<int(const std::string& account, symbol::SymbolId symbol)>;
 
 // 강제청산 매도 — 보유마다 이미 낸 미체결 매도를 뺀 잔량을 시장가로. 잔량이 남는 한 다음 주기에 다시 만든다.
 //  시장가라 price=0 → 명목 백스톱이 우회되지 않게 평단을 ref_price에 stamp한다(현재가가 없는 경로라 평단이 최선).
 //  strategy는 "FORCE_LIQ"의 전략 번호(OrderGate::strategy_index_of) — 신호의 strategy_index에 찍는다.
-std::vector<OrderSignal> force_liquidation_orders(const std::vector<OrderGate::HeldPos>& held, const ReservedFn& reserved,
+std::vector<OrderSignal> force_liquidation_orders(const std::vector<OrderGate::HeldPos>& held, const SellPendingFn& sell_pending_of,
                                                   strategy_table::StrategyId strategy = strategy_table::kNone);
 
 // 종목당 명목 한도 초과분 정리 — 한도수량(cap_notional/평단)을 넘는 만큼만 시장가 매도. 이미 낸 미체결 매도는
 //  곧 줄어들 분량이라 뺀다. cap_notional≤0이면 비어 있다. strategy는 "LIMIT_TRIM"의 전략 번호.
 std::vector<OrderSignal> trim_orders(const std::vector<OrderGate::HeldPos>& held, double cap_notional,
-                                     const ReservedFn& reserved, strategy_table::StrategyId strategy = strategy_table::kNone);
+                                     const SellPendingFn& sell_pending_of, strategy_table::StrategyId strategy = strategy_table::kNone);
 
 // 신호 로그 한 줄. 취소·정정은 수량이 0이라 side만 찍으면 "BUY 0"으로 나온다 — 무엇을 하는 신호인지 앞에 적는다.
 std::string describe(const OrderSignal& signal, const std::string& label);

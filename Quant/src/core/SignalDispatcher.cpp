@@ -11,15 +11,14 @@ namespace
 
 namespace dispatch
 {
-std::vector<OrderSignal> force_liquidation_orders(const std::vector<OrderGate::HeldPos>& held, const ReservedFn& reserved,
+std::vector<OrderSignal> force_liquidation_orders(const std::vector<OrderGate::HeldPos>& held, const SellPendingFn& sell_pending_of,
                                                   strategy_table::StrategyId strategy)
 {
     std::vector<OrderSignal> out;
 
     for (const auto& holding : held)
     {
-        const int reserved_quantity         = reserved(holding.account, holding.symbol);
-        const int sell_pending = (reserved_quantity < 0) ? -reserved_quantity : 0; // 이미 낸 미체결 매도
+        const int sell_pending = sell_pending_of(holding.account, holding.symbol); // 이미 낸 미체결 매도
         const int sellable     = holding.quantity - sell_pending;
 
         if (sellable <= 0)
@@ -47,7 +46,7 @@ std::vector<OrderSignal> force_liquidation_orders(const std::vector<OrderGate::H
 }
 
 std::vector<OrderSignal> trim_orders(const std::vector<OrderGate::HeldPos>& held, double cap_notional,
-                                     const ReservedFn& reserved, strategy_table::StrategyId strategy)
+                                     const SellPendingFn& sell_pending_of, strategy_table::StrategyId strategy)
 {
     std::vector<OrderSignal> out;
 
@@ -71,12 +70,7 @@ std::vector<OrderSignal> trim_orders(const std::vector<OrderGate::HeldPos>& held
             continue;
         }
 
-        const int reserved_quantity = reserved(holding.account, holding.symbol);
-
-        if (reserved_quantity < 0)
-        {
-            excess -= -reserved_quantity;
-        }
+        excess -= sell_pending_of(holding.account, holding.symbol);
 
         if (excess <= 0)
         {
@@ -262,7 +256,7 @@ void SignalDispatcher::force_liquidate(Clock::time_point now)
 
     for (auto& liquidation_signal : dispatch::force_liquidation_orders(
              scan_sleeve_positions(),
-             [this](const std::string&, symbol::SymbolId symbol) { return ledger_.row(symbol).reserved; },
+             [this](const std::string&, symbol::SymbolId symbol) { return ledger_.row(symbol).reserved_sell; },
              force_liquidation_index_))
     {
         submit(std::move(liquidation_signal));
@@ -283,7 +277,7 @@ void SignalDispatcher::trim_excess_once(Clock::time_point now)
 
     for (auto& trim_signal : dispatch::trim_orders(
              scan_sleeve_positions(), ledger_.globals().max_notional_per_ticker,
-             [this](const std::string&, symbol::SymbolId symbol) { return ledger_.row(symbol).reserved; },
+             [this](const std::string&, symbol::SymbolId symbol) { return ledger_.row(symbol).reserved_sell; },
              limit_trim_index_))
     {
         LOG_WARN("[Engine] 한도 초과분 정리 " + label(trim_signal.ticker) + " 매도 " + std::to_string(trim_signal.quantity) + "주 — " +

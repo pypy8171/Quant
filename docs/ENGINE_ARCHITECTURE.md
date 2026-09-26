@@ -8,7 +8,7 @@
 
 ### 스레드 모델
 
-<!-- sync: Quant/include/core/Engine.h@a32ab03 Quant/src/core/Engine.cpp@2c041cf Quant/include/core/DataPoller.h@62f75bc Quant/include/core/SignalDispatcher.h@63c6f95 Quant/include/core/OrderRateLimiter.h@2650fb2 Quant/include/core/LedgerReconciler.h@77c1a8a Quant/include/core/WakeGate.h@b842ec7 Quant/include/core/BarAggregator.h@f50287c Quant/include/core/LatencyTrace.h@b01b770 Quant/include/core/ReconcilePlan.h@5e8d897 -->
+<!-- sync: Quant/include/core/Engine.h@a32ab03 Quant/src/core/Engine.cpp@2c041cf Quant/include/core/DataPoller.h@62f75bc Quant/include/core/SignalDispatcher.h@d27c5ea Quant/include/core/OrderRateLimiter.h@2650fb2 Quant/include/core/LedgerReconciler.h@77c1a8a Quant/include/core/WakeGate.h@b842ec7 Quant/include/core/BarAggregator.h@f50287c Quant/include/core/LatencyTrace.h@b01b770 Quant/include/core/ReconcilePlan.h@5e8d897 -->
 스레드는 다섯 개(데이터·전략·주문·체결·제어)에 전략 샤드 M개(config `strategy_shards`, 기본 1, 상한 64), 소켓마다
 수신 스레드 하나, 프리페치 풀(코어/4, 2~8개)을 더한다. 스레드끼리는 락 없는 큐로만 넘긴다. 각 스레드는 기동 직후
 `thread_name::set_current`(`Quant/include/utils/ThreadName.h`)로 이름을 붙여 procwatch와 디버거에 그 이름으로 보인다.
@@ -142,7 +142,7 @@ flowchart LR
 | 제어 면 (시세) | 구독·해지·구독 칸 우선순위만 여기로 간다. 어느 낱말이 어느 줄로 가는지는 `ipc::routes_to_feed` 하나가 정한다 | `Quant/include/ipc/ControlChannel.h` · `test_control_channel` |
 | 체결 통로 | 시세 소켓에 실려 온 체결통보를 주문 쪽으로 나른다. 종목 코드와 증권사 주문번호는 글자 그대로 간다(번호를 다는 쪽이 주문뿐이고, 앞의 0을 잃으면 취소·정정에 못 쓴다) | `Quant/include/ipc/FillChannel.h` · `test_fill_channel` |
 | 제어 면 (주문) | 전략이 주문 쪽 표를 고칠 때(슬롯 면제·진입 우선순위·보호 주문 등록·종목 등록)와 스위치 다섯(하루치 새로 열기·신규진입 정지·매수 비율·전방향 차단·수동 정지). 여러 줄 표는 온전히 모였을 때만 건다 | `Quant/include/ipc/ControlChannel.h`·`Quant/include/core/ControlPlane.h` · `test_control_channel`·`test_control_plane` |
-| 장부 사본 | 보유·미체결 선점·매도가능·평단과 전역값. 판 번호로 묶여 읽는 쪽은 잠금 없이 읽는다. 발주 한 바퀴마다, 기동 직후 한 번, 한가할 때 100ms마다 낸다 | `Quant/include/ipc/LedgerSnapshot.h` · `test_ledger_snapshot` |
+| 장부 사본 | 보유·미체결 선점(순값과 매도분)·매도가능·평단과 전역값. 판 번호로 묶여 읽는 쪽은 잠금 없이 읽는다. 발주 한 바퀴마다, 기동 직후 한 번, 한가할 때 100ms마다 낸다 | `Quant/include/ipc/LedgerSnapshot.h` · `test_ledger_snapshot` |
 | 박동 | 칸이 셋이고 서로를 본다. 전략 쪽은 의심 250ms·끊김 1,000ms — 죽으면 주문 쪽이 신규 진입을 끊고 보호 주문을 이어받는다(주문 쪽은 내려가지 않는다). 주문 쪽은 의심 30초·끊김 60초로 훨씬 헐겁다. 그 공백에 증권사 왕복(윈도 전송 10초·수신 15초)이 그대로 들어오기 때문이고, 그래서 끊겨도 찍고 셀 뿐 아무것도 멈추지 않는다 | `Quant/include/ipc/Heartbeat.h` · `test_heartbeat` |
 | 국면 칸 | 전략이 고른 국면(`apply_regime_selection`)을 담는 값 한 칸이다. 링이 아니라 상태라, 붙는 쪽은 뜨는 순간 지금 국면을 그대로 읽는다 — 낱말로 흘려보내면 다음 전환까지 빈 채로 돌고, 장중에 주문 프로세스만 다시 뜬 날은 그날 내내 빈다. 주문 쪽이 체결 한 건마다 읽어 `fills.regime`을 채운다. 놓는 쪽이 `-1`로 밀어야 판정 전 체결이 국면 0(RISK_ON)으로 적히지 않는다(D-129) | `Quant/include/ipc/RegimeCell.h` · `test_shared_layout` |
 | 종목·전략 표 | 이름 ↔ 번호. 넣는 쪽은 주문 프로세스 하나, 전략 쪽은 등록을 요청하고 번호가 뜨기를 기동 중에는 5분, 스레드가 뜬 뒤에는 300ms까지 본다. 시세 쪽은 찾기만 하고 표에 없는 티커는 버리고 센다(`unknown_ticker_dropped`) — 청하지 않은 종목이 세션에 실려 온 것이다 | `Quant/include/ipc/SharedSymbolDictionary.h`·`Quant/include/ipc/SharedStrategyDictionary.h` · `test_shared_symbol_dictionary` |

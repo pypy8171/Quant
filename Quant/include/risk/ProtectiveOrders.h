@@ -2,7 +2,7 @@
 // 보호 주문 표의 주문 쪽 구현 — 규칙(risk/ProtectiveRule.h)과 원장 보유 스냅샷·현재가만으로 청산 주문을 만든다.
 //  전략은 이 파일을 모른다 — 전략이 보는 것은 등록 창구(ProtectiveOrderRegistry)뿐이다. [why D-114]
 //
-//  [lock-order] mutex_ → OrderGate. evaluate()는 mutex_를 쥔 채 reserved(미체결 매도)를 묻는다.
+//  [lock-order] mutex_ → OrderGate. evaluate()는 mutex_를 쥔 채 sell_pending_of(미체결 매도)를 묻는다.
 //   반대 방향(게이트를 쥐고 이 표를 부르는 길)은 없다.
 #include "risk/OrderGate.h"
 #include "risk/ProtectiveRule.h"
@@ -24,7 +24,7 @@ class ProtectiveOrderBook : public ProtectiveOrderRegistry
 public:
     using Clock      = std::chrono::steady_clock;
     using PriceFn    = std::function<double(symbol::SymbolId)>;                  // 현재가(0=모름)
-    using ReservedFn = std::function<int(const std::string&, symbol::SymbolId)>; // 미체결 잔량(음수=매도)
+    using SellPendingFn = std::function<int(const std::string&, symbol::SymbolId)>; // 미체결 매도 수량(0 이상)
 
     struct Stats
     {
@@ -77,10 +77,10 @@ public:
     bool consume_fired(const std::string& account, symbol::SymbolId symbol) override;
 
     // 주문 쪽 한 주기. held는 원장 보유 스냅샷(OrderGate::snapshot_positions), price_of는 현재가,
-    //  reserved는 미체결 잔량(음수가 이미 낸 매도)이다. 낼 것이 없으면 빈 벡터.
+    //  sell_pending_of는 이미 낸 미체결 매도 수량이다. 낼 것이 없으면 빈 벡터.
     //  shadow 모드는 판정만 세고 빈 벡터를 돌려준다.
     std::vector<OrderSignal> evaluate(const std::vector<OrderGate::HeldPos>& held, const PriceFn& price_of,
-                                      const ReservedFn& reserved, Clock::time_point now);
+                                      const SellPendingFn& sell_pending_of, Clock::time_point now);
 
     Stats statistics() const;
 

@@ -73,9 +73,9 @@ risk::ProtectiveOrderBook::PriceFn price_of(double price)
 }
 
 // 미체결 잔량 — 음수가 이미 낸 매도다.
-risk::ProtectiveOrderBook::ReservedFn reserved_of(int reserved)
+risk::ProtectiveOrderBook::SellPendingFn sell_pending_of(int sell_pending)
 {
-    return [reserved](const std::string&, symbol::SymbolId) { return reserved; };
+    return [sell_pending](const std::string&, symbol::SymbolId) { return sell_pending; };
 }
 
 using Clock = risk::ProtectiveOrderBook::Clock;
@@ -92,7 +92,7 @@ int main()
     {
         risk::ProtectiveOrderBook book(risk::ProtectiveMode::Off);
         book.arm(stop_rule(2.0));
-        const auto orders = book.evaluate(held(10, 10000.0), price_of(9000.0), reserved_of(0), start);
+        const auto orders = book.evaluate(held(10, 10000.0), price_of(9000.0), sell_pending_of(0), start);
         check(orders.empty(), "off 모드는 발주하지 않는다");
         check(book.statistics().shadow_hits == 0, "off 모드는 판정도 세지 않는다");
     }
@@ -101,7 +101,7 @@ int main()
     {
         risk::ProtectiveOrderBook book(risk::ProtectiveMode::Shadow);
         book.arm(stop_rule(2.0));
-        const auto orders = book.evaluate(held(10, 10000.0), price_of(9000.0), reserved_of(0), start);
+        const auto orders = book.evaluate(held(10, 10000.0), price_of(9000.0), sell_pending_of(0), start);
         check(orders.empty(), "shadow 모드는 발주하지 않는다");
         check(book.statistics().shadow_hits == 1, "shadow 모드는 팔았어야 할 판정을 센다");
         check(!book.owns(kAccount, kSymbol), "shadow 모드는 종목을 맡지 않는다(전략이 계속 본다)");
@@ -113,10 +113,10 @@ int main()
         book.arm(stop_rule(2.0));
         check(book.owns(kAccount, kSymbol), "owner 모드는 등록된 종목을 맡는다");
 
-        const auto no_orders = book.evaluate(held(10, 10000.0), price_of(9900.0), reserved_of(0), start);
+        const auto no_orders = book.evaluate(held(10, 10000.0), price_of(9900.0), sell_pending_of(0), start);
         check(no_orders.empty(), "평단 -1%는 손절선(-2%) 위라 팔지 않는다");
 
-        const auto orders = book.evaluate(held(10, 10000.0), price_of(9800.0), reserved_of(0), start);
+        const auto orders = book.evaluate(held(10, 10000.0), price_of(9800.0), sell_pending_of(0), start);
         check(orders.size() == 1, "평단 -2%에 닿으면 표가 청산을 만든다");
         check(orders[0].ticker == kTicker && orders[0].symbol_id == kSymbol, "종목이 규칙 그대로다");
         check(orders[0].account_id == kAccount, "계좌가 규칙 그대로다");
@@ -132,12 +132,12 @@ int main()
     {
         risk::ProtectiveOrderBook book(risk::ProtectiveMode::Owner);
         book.arm(stop_rule(2.0));
-        const auto partial = book.evaluate(held(10, 10000.0), price_of(9800.0), reserved_of(-4), start);
+        const auto partial = book.evaluate(held(10, 10000.0), price_of(9800.0), sell_pending_of(4), start);
         check(partial.size() == 1 && partial[0].quantity == 6, "미체결 매도 4주를 뺀 6주만 낸다");
 
         risk::ProtectiveOrderBook covered(risk::ProtectiveMode::Owner);
         covered.arm(stop_rule(2.0));
-        const auto none = covered.evaluate(held(10, 10000.0), price_of(9800.0), reserved_of(-10), start);
+        const auto none = covered.evaluate(held(10, 10000.0), price_of(9800.0), sell_pending_of(10), start);
         check(none.empty(), "미체결 매도가 보유를 덮으면 내지 않는다");
         check(covered.statistics().skipped_sold == 1, "낼 것이 없던 판정을 따로 센다");
     }
@@ -147,10 +147,10 @@ int main()
         risk::ProtectiveOrderBook book(risk::ProtectiveMode::Owner);
         book.set_retry_interval(std::chrono::milliseconds(30000));
         book.arm(stop_rule(2.0));
-        check(book.evaluate(held(10, 10000.0), price_of(9800.0), reserved_of(0), start).size() == 1, "첫 주기에 낸다");
-        check(book.evaluate(held(10, 10000.0), price_of(9800.0), reserved_of(0), start + std::chrono::seconds(5)).empty(),
+        check(book.evaluate(held(10, 10000.0), price_of(9800.0), sell_pending_of(0), start).size() == 1, "첫 주기에 낸다");
+        check(book.evaluate(held(10, 10000.0), price_of(9800.0), sell_pending_of(0), start + std::chrono::seconds(5)).empty(),
               "5초 뒤에는 다시 내지 않는다");
-        check(book.evaluate(held(10, 10000.0), price_of(9800.0), reserved_of(0), start + std::chrono::seconds(31)).size() == 1,
+        check(book.evaluate(held(10, 10000.0), price_of(9800.0), sell_pending_of(0), start + std::chrono::seconds(31)).size() == 1,
               "간격이 지나면 다시 낸다(청산이 안 먹힌 경우)");
     }
 
@@ -163,13 +163,13 @@ int main()
         book.arm(rule);
 
         const auto held_ten = held(10, 10000.0);
-        check(book.evaluate(held_ten, price_of(10050.0), reserved_of(0), start).empty(), "무장선(+1%) 전에는 팔지 않는다");
-        check(book.evaluate(held_ten, price_of(10000.0), reserved_of(0), start).empty(),
+        check(book.evaluate(held_ten, price_of(10050.0), sell_pending_of(0), start).empty(), "무장선(+1%) 전에는 팔지 않는다");
+        check(book.evaluate(held_ten, price_of(10000.0), sell_pending_of(0), start).empty(),
               "무장 전에 평단으로 돌아와도 트레일은 안 걸린다");
-        check(book.evaluate(held_ten, price_of(10200.0), reserved_of(0), start).empty(), "무장은 됐지만 최고가라 안 판다");
-        check(book.evaluate(held_ten, price_of(10160.0), reserved_of(0), start).empty(), "최고가 -0.39%는 아직 아니다");
+        check(book.evaluate(held_ten, price_of(10200.0), sell_pending_of(0), start).empty(), "무장은 됐지만 최고가라 안 판다");
+        check(book.evaluate(held_ten, price_of(10160.0), sell_pending_of(0), start).empty(), "최고가 -0.39%는 아직 아니다");
 
-        const auto orders = book.evaluate(held_ten, price_of(10140.0), reserved_of(0), start);
+        const auto orders = book.evaluate(held_ten, price_of(10140.0), sell_pending_of(0), start);
         check(orders.size() == 1, "최고가 10200의 -0.5%(10149) 아래로 밀리면 판다");
         check(orders[0].reason.find("보호주문:트레일") == 0, "사유에 트레일이 적힌다");
     }
@@ -182,11 +182,11 @@ int main()
         rule.trail_percent        = 0.5;
         book.arm(rule);
 
-        book.evaluate(held(10, 10000.0), price_of(10200.0), reserved_of(0), start); // 무장 + 최고가 10200
-        book.evaluate({}, price_of(10200.0), reserved_of(0), start);                 // 전량 청산돼 보유 0
+        book.evaluate(held(10, 10000.0), price_of(10200.0), sell_pending_of(0), start); // 무장 + 최고가 10200
+        book.evaluate({}, price_of(10200.0), sell_pending_of(0), start);                 // 전량 청산돼 보유 0
 
         // 새 평단 10100으로 재진입. 옛 최고가(10200)가 남아 있으면 이 가격에서 바로 트레일이 걸린다.
-        const auto orders = book.evaluate(held(10, 10100.0), price_of(10100.0), reserved_of(0), start);
+        const auto orders = book.evaluate(held(10, 10100.0), price_of(10100.0), sell_pending_of(0), start);
         check(orders.empty(), "재진입 직후 옛 최고가로 오발주하지 않는다");
     }
 
@@ -195,7 +195,7 @@ int main()
         risk::ProtectiveOrderBook book(risk::ProtectiveMode::Owner);
         book.arm(stop_rule(2.0));
         check(!book.consume_fired(kAccount, kSymbol), "발사 전에는 가져갈 것이 없다");
-        book.evaluate(held(10, 10000.0), price_of(9800.0), reserved_of(0), start);
+        book.evaluate(held(10, 10000.0), price_of(9800.0), sell_pending_of(0), start);
         check(book.consume_fired(kAccount, kSymbol), "발사 뒤 한 번은 가져간다");
         check(!book.consume_fired(kAccount, kSymbol), "같은 발사를 두 번 가져가지 않는다");
     }
@@ -207,7 +207,7 @@ int main()
         check(book.size() == 1, "등록하면 표에 한 줄 선다");
         book.disarm(kAccount, kSymbol);
         check(book.size() == 0, "해제하면 표에서 빠진다");
-        check(book.evaluate(held(10, 10000.0), price_of(9000.0), reserved_of(0), start).empty(), "해제 뒤에는 팔지 않는다");
+        check(book.evaluate(held(10, 10000.0), price_of(9000.0), sell_pending_of(0), start).empty(), "해제 뒤에는 팔지 않는다");
 
         risk::ProtectiveRule empty_rule = stop_rule(0.0); // 조건이 하나도 없는 규칙은 등록이 아니라 해제다
         book.arm(empty_rule);
@@ -229,7 +229,7 @@ int main()
         {
             // 한 주기 200ms — 엔진 주문 쪽이 표를 보는 간격과 같다.
             now += std::chrono::milliseconds(200);
-            emitted += static_cast<int>(book.evaluate(held(10, 10000.0), price_of(price), reserved_of(0), now).size());
+            emitted += static_cast<int>(book.evaluate(held(10, 10000.0), price_of(price), sell_pending_of(0), now).size());
         }
 
         check(emitted == 1, "손절선을 지난 뒤 주기가 여러 번 돌아도 청산은 한 번만 나간다");

@@ -59,7 +59,7 @@ class Record(NamedTuple):
     side: str
     order_type: str
     quantity: int
-    reserved_quantity: int
+    reserved_quantity: int  # 순값(매수 선점 − 매도 선점)
     sellable: int
     price: float
     cash: float
@@ -69,6 +69,7 @@ class Record(NamedTuple):
     ticker: str
     strategy: str
     reason: str
+    reserved_sell: int = 0  # 미체결 매도 선점. ADJUST만 싣는다(레코드 빈 칸, 옛 파일은 0)
 
     @property
     def wall_time(self) -> dt.datetime:
@@ -123,7 +124,7 @@ def read_records(path: Path, start_offset: int = 0) -> ReadResult:
             order_type=TYPE_NAMES.get(fields[6], str(fields[6])), quantity=fields[7],
             reserved_quantity=fields[8], sellable=fields[9], price=fields[10], cash=fields[11],
             equity=fields[12], pnl=fields[13], account=_text(fields[14]), ticker=_text(fields[15]),
-            strategy=_text(fields[16]), reason=_text(fields[17])))
+            strategy=_text(fields[16]), reason=_text(fields[17]), reserved_sell=fields[19]))
         offset += RECORD_SIZE
 
     # 남은 바이트가 레코드 하나가 안 되면 쓰다 만 꼬리다.
@@ -151,20 +152,24 @@ def rebuild_positions(records: list[Record]) -> dict[tuple[str, str], dict]:
             continue
 
         key = (record.account, record.ticker)
-        state = positions.setdefault(key, {"quantity": 0, "average": 0.0, "reserved": 0, "sellable": 0,
-                                           "realized": 0.0, "fills": 0})
+        state = positions.setdefault(key, {"quantity": 0, "average": 0.0, "reserved_buy": 0, "reserved_sell": 0,
+                                           "sellable": 0, "realized": 0.0, "fills": 0})
+        side_key = "reserved_buy" if record.side == "BUY" else "reserved_sell"
 
         if record.kind in ("SEED", "ADJUST"):
             state["quantity"] = record.quantity
             state["average"] = record.price
-            state["reserved"] = record.reserved_quantity
+            # 매도 선점 칸이 0인 옛 파일은 순값의 음수를 매도로 읽는다(엔진 apply_adjust_locked와 같은 규칙).
+            sell = record.reserved_sell if record.reserved_sell > 0 else max(0, -record.reserved_quantity)
+            state["reserved_sell"] = sell
+            state["reserved_buy"] = max(0, record.reserved_quantity + sell)
             state["sellable"] = max(record.sellable, 0)
         elif record.kind == "INTENT":
-            state["reserved"] += record.quantity if record.side == "BUY" else -record.quantity
+            state[side_key] += record.quantity
         elif record.kind in ("REJECT", "CANCEL"):
-            state["reserved"] -= record.quantity if record.side == "BUY" else -record.quantity
+            state[side_key] = max(0, state[side_key] - record.quantity)
         elif record.kind == "FILL":
-            state["reserved"] -= record.quantity if record.side == "BUY" else -record.quantity
+            state[side_key] = max(0, state[side_key] - record.quantity)
             state["fills"] += 1
             state["realized"] += record.pnl
 
@@ -180,7 +185,8 @@ def rebuild_positions(records: list[Record]) -> dict[tuple[str, str], dict]:
                 if state["quantity"] == 0:
                     state["average"] = 0.0
         elif record.kind == "RESET_RESERVED":
-            state["reserved"] = 0
+            state["reserved_buy"] = 0
+            state["reserved_sell"] = 0
 
     return positions
 
@@ -236,7 +242,7 @@ def print_records(records: list[Record]) -> None:
         elif record.kind == "FILL" and record.pnl:
             note = f"실현 {record.pnl:,.0f}" + (f" · {record.reason}" if record.reason else "")
         elif record.kind in ("SEED", "ADJUST"):
-            note = f"선점 {record.reserved_quantity} · 매도가능 {record.sellable}" + (f" · {record.reason}" if record.reason else "")
+            note = f"선점 {record.reserved_quantity}(매도 {record.reserved_sell}) · 매도가능 {record.sellable}" + (f" · {record.reason}" if record.reason else "")
 
         print(f"{record.sequence:>6} {record.wall_time:%H:%M:%S.%f}"[:19].ljust(19)
               + f" {record.kind:<14} {record.ticker:<7} {record.side:<4} {record.quantity:>6} "
@@ -245,14 +251,14 @@ def print_records(records: list[Record]) -> None:
 
 def print_positions(records: list[Record]) -> None:
     positions = rebuild_positions(records)
-    print(f"{'계좌':<10} {'종목':<7} {'보유':>6} {'평단':>10} {'선점':>6} {'매도가능':>8} {'체결':>4} {'실현손익':>12}")
+    print(f"{'계좌':<10} {'종목':<7} {'보유':>6} {'평단':>10} {'매수선점':>8} {'매도선점':>8} {'매도가능':>8} {'체결':>4} {'실현손익':>12}")
 
     for (account, ticker), state in sorted(positions.items()):
-        if not state["quantity"] and not state["reserved"] and not state["fills"]:
+        if not state["quantity"] and not state["reserved_buy"] and not state["reserved_sell"] and not state["fills"]:
             continue
 
         print(f"{account:<10} {ticker:<7} {state['quantity']:>6} {state['average']:>10,.0f} "
-              f"{state['reserved']:>6} {state['sellable']:>8} {state['fills']:>4} {state['realized']:>12,.0f}")
+              f"{state['reserved_buy']:>8} {state['reserved_sell']:>8} {state['sellable']:>8} {state['fills']:>4} {state['realized']:>12,.0f}")
 
 
 def print_open_intents(records: list[Record]) -> None:
@@ -274,14 +280,14 @@ def write_csv(records: list[Record], destination: Path) -> None:
     with destination.open("w", encoding="utf-8-sig", newline="") as handle:
         writer = csv.writer(handle)
         writer.writerow(["sequence", "time", "kind", "account", "ticker", "side", "type", "quantity",
-                         "price", "order_id", "odno", "strategy", "reserved_quantity", "sellable",
+                         "price", "order_id", "odno", "strategy", "reserved_quantity", "reserved_sell", "sellable",
                          "cash", "equity", "pnl", "reason"])
 
         for record in records:
             writer.writerow([record.sequence, f"{record.wall_time:%Y-%m-%d %H:%M:%S.%f}", record.kind,
                              record.account, record.ticker, record.side, record.order_type,
                              record.quantity, record.price, record.order_id, record.kis_order_number,
-                             record.strategy, record.reserved_quantity, record.sellable,
+                             record.strategy, record.reserved_quantity, record.reserved_sell, record.sellable,
                              record.cash, record.equity, record.pnl, record.reason])
 
     print(f"CSV {len(records)}행 → {destination}")

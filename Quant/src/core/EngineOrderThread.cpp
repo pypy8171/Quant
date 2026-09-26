@@ -55,7 +55,7 @@ std::vector<OrderSignal> Engine::build_protective_orders(std::chrono::steady_clo
         const auto& ledger = order_gate_.ledger();
         return protective_book_.evaluate(
             ledger.snapshot_positions(), price_of,
-            [&ledger](const std::string& account, symbol::SymbolId symbol) { return ledger.reserved(account, symbol); }, now);
+            [&ledger](const std::string& account, symbol::SymbolId symbol) { return ledger.reserved_sell(account, symbol); }, now);
     }
 
     // 갈라 띄운 전략 역할의 원장은 체결을 받지 않아 늘 비어 있다 — 주문 쪽이 내는 장부 사본을 한 판 읽어 보유·평단·
@@ -95,7 +95,7 @@ std::vector<OrderSignal> Engine::build_protective_orders(std::chrono::steady_clo
 
         const auto iterator = std::find(ledger_ids.begin(), ledger_ids.end(), symbol);
         return iterator != ledger_ids.end()
-                   ? static_cast<int>(ledger_rows[static_cast<size_t>(iterator - ledger_ids.begin())].reserved)
+                   ? static_cast<int>(ledger_rows[static_cast<size_t>(iterator - ledger_ids.begin())].reserved_sell)
                    : 0;
     };
 

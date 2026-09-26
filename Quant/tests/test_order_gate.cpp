@@ -772,6 +772,69 @@ void test_gross_exposure_uses_mark_price()
     PASS("gross_exposure_uses_mark_price");
 }
 
+// ─── 테스트 27: 매수·매도 선점은 따로 센다 (전수조사 B1b-1) ─────────────────────
+//  부호 있는 합 하나로 두던 때는 매수 10·매도 3이 +7로 뭉쳐, 매수 10 체결이 10을 풀면 0에서 멈추며
+//  살아 있는 매도 3까지 지웠다. 그 뒤 매도 가능 수량을 3주 부풀려 봐 이미 판 주식을 다시 팔 수 있었다.
+void test_buy_and_sell_reservations_kept_apart()
+{
+    OrderGate::Config config;
+    config.max_orders_per_min = 100;
+    config.max_orders_per_sec = 100;
+    OrderGate gate(config);
+    gate.ledger().on_fill_confirmed("", "005930", OrderSide::BUY, 10, 50000.0);
+    gate.ledger().on_accept("", "005930", OrderSide::BUY, 10, 50000.0);
+    gate.ledger().on_accept("", "005930", OrderSide::SELL, 3, 51000.0);
+    assert(gate.ledger().reserved("", "005930") == 7);
+    assert(gate.ledger().sellable_view("", "005930").pending == 3);
+
+    // 매수 체결 — 매도 선점 3은 남는다
+    gate.ledger().on_fill_confirmed("", "005930", OrderSide::BUY, 10, 50000.0);
+    assert(gate.ledger().position("", "005930") == 20);
+    assert(gate.ledger().reserved("", "005930") == -3);
+    assert(gate.ledger().sellable_view("", "005930").pending == 3);
+    assert(gate.clamp_buy_quantity(make_signal("005930", OrderSide::SELL, 20)) == 17);
+
+    // 매수 취소도 매도 선점을 건드리지 않는다
+    gate.ledger().on_accept("", "005930", OrderSide::BUY, 10, 50000.0);
+    gate.ledger().on_cancel("", "005930", OrderSide::BUY, 10);
+    assert(gate.ledger().sellable_view("", "005930").pending == 3);
+
+    // 매도 체결로 매도 선점이 풀리면 비어 있다
+    gate.ledger().on_fill_confirmed("", "005930", OrderSide::SELL, 3, 51000.0);
+    assert(gate.ledger().reserved("", "005930") == 0);
+    assert(gate.ledger().sellable_view("", "005930").pending == 0);
+    PASS("buy_and_sell_reservations_kept_apart");
+}
+
+// ─── 테스트 28: 잔고 대조 기록(ADJUST)이 매수·매도 선점을 둘 다 되살린다 ─────────
+//  순값만 적던 때는 매수 5·매도 3이 +2로 적혀, 재기동 뒤 매도 3이 사라지고 매수 2만 남았다.
+void test_adjust_replay_keeps_both_reservations()
+{
+    const std::filesystem::path directory = std::filesystem::temp_directory_path() / "quant_gate_test_adjust_split";
+    std::error_code             error_code;
+    std::filesystem::remove_all(directory, error_code);
+    std::filesystem::create_directories(directory, error_code);
+    const std::string date = "20260926";
+
+    {
+        OrderGate gate(OrderGate::Config{});
+        assert(gate.ledger().set_journal(directory, date, false));
+        gate.ledger().on_fill_confirmed("", "005930", OrderSide::BUY, 10, 50000.0);
+        assert(gate.ledger().on_intent("", "005930", OrderSide::BUY, 5, 50000.0,
+                                       PositionLedger::OrderRef{1, 0, OrderType::LIMIT}));
+        assert(gate.ledger().on_intent("", "005930", OrderSide::SELL, 3, 51000.0,
+                                       PositionLedger::OrderRef{2, 0, OrderType::LIMIT}));
+        gate.ledger().refresh_sellable("", "005930", 7); // ADJUST 한 줄을 남긴다
+    }
+
+    OrderGate restarted(OrderGate::Config{});
+    assert(restarted.ledger().set_journal(directory, date, false));
+    assert(restarted.ledger().reserved("", "005930") == 2);
+    assert(restarted.ledger().sellable_view("", "005930").pending == 3);
+    std::filesystem::remove_all(directory, error_code);
+    PASS("adjust_replay_keeps_both_reservations");
+}
+
 int main()
 {
 #ifdef _WIN32
@@ -802,6 +865,8 @@ int main()
     test_verdict_codes_and_describe();
     test_reset_daily_once_per_trading_date();
     test_gross_exposure_uses_mark_price();
+    test_buy_and_sell_reservations_kept_apart();
+    test_adjust_replay_keeps_both_reservations();
     std::cout << "=== All tests passed ===\n";
     return 0;
 }

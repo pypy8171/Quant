@@ -253,21 +253,21 @@ int test_force_liquidation_orders()
     // 종목 id는 스냅샷에 실려 온다 — 미체결 조회도 그 id로 묻는다.
     constexpr symbol::SymbolId kA = 1, kB = 2, kC = 3;
     std::vector<OrderGate::HeldPos> held = {{"", "A", 10, 100.0, kA}, {"", "B", 5, 200.0, kB}, {"", "C", 3, 300.0, kC}};
-    const auto reserved                  = [](const std::string&, symbol::SymbolId symbol)
+    const auto sell_pending_of           = [](const std::string&, symbol::SymbolId symbol)
     {
         if (symbol == kA)
         {
-            return -4; // 미체결 매도 4
+            return 4; // 미체결 매도 4
         }
 
         if (symbol == kB)
         {
-            return -5; // 전량 이미 매도 중
+            return 5; // 전량 이미 매도 중
         }
 
-        return 2; // 미체결 매수는 잔량에 영향 없음
+        return 0;
     };
-    const auto out = dispatch::force_liquidation_orders(held, reserved);
+    const auto out = dispatch::force_liquidation_orders(held, sell_pending_of);
     CHECK(out.size() == 2);
     CHECK(out[0].ticker == "A" && out[0].quantity == 6 && out[0].reference_price == 100.0 &&
           out[0].strategy_id == "FORCE_LIQ" && out[0].type == OrderType::MARKET && out[0].side == OrderSide::SELL);
@@ -285,15 +285,15 @@ int test_trim_orders()
         {"", "C", 20, 0.0, kC},   // 평단 없음 — 건너뜀
         {"", "D", 15, 100.0, kD}, // 초과 5, 미체결 매도 10 → 0
     };
-    const auto reserved = [](const std::string&, symbol::SymbolId symbol)
+    const auto sell_pending_of = [](const std::string&, symbol::SymbolId symbol)
     {
-        return symbol == kB ? -3 : (symbol == kD ? -10 : 0);
+        return symbol == kB ? 3 : (symbol == kD ? 10 : 0);
     };
-    const auto out = dispatch::trim_orders(held, 1000.0, reserved);
+    const auto out = dispatch::trim_orders(held, 1000.0, sell_pending_of);
     CHECK(out.size() == 1 && out[0].ticker == "B" && out[0].quantity == 7 && out[0].strategy_id == "LIMIT_TRIM" &&
           out[0].reference_price == 100.0);
     CHECK(out[0].reason.find("한도수량=10") != std::string::npos);
-    CHECK(dispatch::trim_orders(held, 0.0, reserved).empty());
+    CHECK(dispatch::trim_orders(held, 0.0, sell_pending_of).empty());
     return 0;
 }
 

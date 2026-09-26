@@ -85,7 +85,7 @@ struct Record
     uint8_t  side             = 0; // OrderSide::Value(0=BUY 1=SELL 2=NONE)
     uint8_t  order_type       = 0; // OrderType(0=MARKET 1=LIMIT)
     int32_t  quantity          = 0; // INTENT/REJECT/FILL/CANCEL 수량, SEED/ADJUST 보유수량
-    int32_t  reserved_quantity = 0; // ADJUST — 맞춘 뒤 선점(BUY +, SELL -)
+    int32_t  reserved_quantity = 0; // ADJUST — 맞춘 뒤 선점(매수 - 매도, 순)
     int32_t  sellable          = 0; // SEED/ADJUST 매도가능수량(-1 = 모름)
     double   price   = 0.0; // INTENT 선점가, FILL 체결가, SEED/ADJUST 평단
     double   cash    = 0.0; // CASH 주문가능현금(원)
@@ -96,7 +96,9 @@ struct Record
     char     strategy[kStrategyMax] = {};
     char     reason[kReasonMax]     = {}; // REJECT 사유, ADJUST 어느 대조가 맞췄는지
     uint32_t reserved0 = 0;
-    uint32_t reserved1 = 0;
+    // ADJUST — 맞춘 뒤 매도 선점. 순값만으로는 매수·매도가 같이 걸린 종목을 되살리지 못해 따로 적는다.
+    //  이 칸이 빈 칸(reserved1)이던 때 쓴 파일은 0이 들어 있어, 리플레이는 순값의 음수를 매도로 읽는다.
+    uint32_t reserved_sell = 0;
     uint32_t crc32     = 0; // 이 필드를 0으로 둔 레코드 전체의 CRC32. 패딩 없이 192바이트가 딱 맞아야 CRC가 결정적이다
 };
 

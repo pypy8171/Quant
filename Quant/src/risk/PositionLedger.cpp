@@ -42,7 +42,6 @@ ledger_journal::Record make_order_record(ledger_journal::Kind kind, OrderSide si
 bool PositionLedger::on_intent(const std::string& account, const std::string& ticker, OrderSide side, int quantity,
                           double price, const OrderRef& reference, strategy_table::StrategyId strategy)
 {
-    const int delta          = (side == OrderSide::BUY) ? quantity : -quantity; // BUY 선점 +, SELL 선점 -
     PosKey    key            = {};
     bool      had_price      = false;
     double    previous_price = 0.0;
@@ -53,7 +52,7 @@ bool PositionLedger::on_intent(const std::string& account, const std::string& ti
         const auto previous_price_iterator = reserved_price_.find(key);
         had_price                          = previous_price_iterator != reserved_price_.end();
         previous_price                     = had_price ? previous_price_iterator->second : 0.0;
-        apply_reservation_delta(account, ticker, delta, price);
+        apply_reservation_delta(account, ticker, side, quantity, price);
 
         ledger_journal::Record record = make_order_record(ledger_journal::Kind::INTENT, side, quantity, reference);
         record.price                  = price;
@@ -71,11 +70,16 @@ bool PositionLedger::on_intent(const std::string& account, const std::string& ti
     // 적히지 않은 선점은 되돌린다 — 파일에 없는 주문은 나가지 않는다. 선점가도 직전 값으로. 쓰는 동안 잠금을
     //  놓았으므로 그사이 다른 스레드가 이 선점을 봤을 수 있다 — 한 번 더 막혀 보였을 뿐 넘치게 내지는 않는다.
     std::lock_guard<std::mutex> lock(positions_mutex_);
-    apply_reservation_delta(account, ticker, -delta, 0.0);
+    apply_reservation_delta(account, ticker, side, -quantity, 0.0);
 
-    if (had_price && reserved_.count(key))
+    if (had_price && side == OrderSide::BUY)
     {
-        reserved_price_[key] = previous_price;
+        const auto reservation_iterator = reserved_.find(key);
+
+        if (reservation_iterator != reserved_.end() && reservation_iterator->second.buy > 0)
+        {
+            reserved_price_[key] = previous_price;
+        }
     }
 
     return false;
@@ -100,7 +104,7 @@ void PositionLedger::on_reject(const std::string& account, const std::string& ti
 {
     const JournalFlushAfter journal_flush_after{*this};
     std::lock_guard<std::mutex> lock(positions_mutex_);
-    release_reservation(keys_.make(account, ticker), (side == OrderSide::BUY) ? -quantity : quantity);
+    release_reservation(keys_.make(account, ticker), side, quantity);
     ledger_journal::Record record = make_order_record(ledger_journal::Kind::REJECT, side, quantity, reference);
     ledger_journal::put_string(record.reason, sizeof(record.reason), reason);
     journal_append(record, account, ticker);
@@ -108,24 +112,29 @@ void PositionLedger::on_reject(const std::string& account, const std::string& ti
 
 // on_intent 본체 + 저널 리플레이(apply_record) 공용 — 재기동 복구가 실시간 경로와 같은 규칙을 탄다.
 //  [inv] positions_mutex_를 잡고 부른다.
-void PositionLedger::apply_reservation_delta(std::string_view account, std::string_view ticker, int delta, double price)
+void PositionLedger::apply_reservation_delta(std::string_view account, std::string_view ticker, OrderSide side, int delta,
+                                             double price)
 {
-    const PosKey key  = keys_.make(account, ticker);
-    int          next = find_or(reserved_, key, 0) + delta;
+    const PosKey key         = keys_.make(account, ticker);
+    Reservation& reservation = reserved_[key];
+    int&         quantity    = (side == OrderSide::BUY) ? reservation.buy : reservation.sell;
+    quantity                 = std::max(0, quantity + delta);
 
-    if (next == 0)
+    if (side == OrderSide::BUY)
     {
-        reserved_.erase(key);
-        reserved_price_.erase(key);      // 선점이 해소되면 선점가도 정리(§3d 명목이 남아 부풀지 않게)
-    }
-    else
-    {
-        reserved_[key] = next;
-
-        if (price > 0.0)
+        if (reservation.buy == 0)
+        {
+            reserved_price_.erase(key);   // 매수 선점이 해소되면 선점가도 정리(§3d 명목이 남아 부풀지 않게)
+        }
+        else if (price > 0.0)
         {
             reserved_price_[key] = price; // 최신 선점가 기록. 시장가(0)면 유지(직전 값)해 총노출 근사 보존
         }
+    }
+
+    if (reservation.empty())
+    {
+        reserved_.erase(key);
     }
 }
 
@@ -134,35 +143,36 @@ void PositionLedger::apply_reservation_delta(std::string_view account, std::stri
 //  (취소는 체결이 아니므로 실보유·평단 불변). quantity<=0이면 no-op(방어).
 // 선점 해제 한 곳 — 취소 통보와 체결 통보가 같은 규칙을 쓰게 모았다. 규칙이 갈라져 있던 동안
 //  on_cancel에만 가드가 있고 on_fill_confirmed에는 없어, 선점을 잡은 적 없는 포지션의 체결이
-//  없던 선점을 만들어 냈다. delta는 해제 방향(BUY 선점 +는 -quantity, SELL 선점 -는 +quantity).
+//  없던 선점을 만들어 냈다. 매수·매도는 서로 다른 칸이라 한쪽 해제가 다른 쪽을 건드리지 않는다.
 //  호출자가 positions_mutex_를 이미 쥐고 있다고 가정한다(여기서 다시 잡지 않는다).
-void PositionLedger::release_reservation(const PosKey& key, int delta)
+void PositionLedger::release_reservation(const PosKey& key, OrderSide side, int quantity)
 {
     // 잔고 대조가 reserved_를 비운 뒤 온 통보는 대상이 이미 없으므로 아무 것도 하지 않는다.
-    //  (없는 키를 갱신하면 부호가 뒤집힌 선점이 생겨 이후 한도·슬롯 계산이 왜곡됨)
-    int current = find_or(reserved_, key, 0);
+    auto iterator = reserved_.find(key);
+
+    if (iterator == reserved_.end())
+    {
+        return;
+    }
+
+    int& current = (side == OrderSide::BUY) ? iterator->second.buy : iterator->second.sell;
 
     if (current == 0)
     {
         return;
     }
 
-    int result = current + delta;
+    // 과잉 해제는 0에서 정지 — 리셋·이중통보로 음수 선점이 남지 않게.
+    current = std::max(0, current - quantity);
 
-    // 과잉 해제(부호 역전) 시 0에서 정지 — 리셋·이중통보로 음수 선점이 남지 않게.
-    if ((current > 0 && result < 0) || (current < 0 && result > 0))
+    if (side == OrderSide::BUY && current == 0)
     {
-        result = 0;
-    }
-
-    if (result == 0)
-    {
-        reserved_.erase(key);
         reserved_price_.erase(key);
     }
-    else
+
+    if (iterator->second.empty())
     {
-        reserved_[key] = result;
+        reserved_.erase(iterator);
     }
 }
 
@@ -176,8 +186,7 @@ void PositionLedger::on_cancel(const std::string& account, const std::string& ti
 
     const JournalFlushAfter journal_flush_after{*this};
     std::lock_guard<std::mutex> lock(positions_mutex_);
-    // BUY 선점은 +였으므로 -quantity, SELL 선점은 -였으므로 +quantity (해제 = 반대부호 가산)
-    release_reservation(keys_.make(account, ticker), (side == OrderSide::BUY) ? -quantity : quantity);
+    release_reservation(keys_.make(account, ticker), side, quantity);
     ledger_journal::Record record = make_order_record(ledger_journal::Kind::CANCEL, side, quantity, reference);
     journal_append(record, account, ticker);
 }
@@ -272,7 +281,8 @@ void PositionLedger::journal_adjust(const PosKey& key, std::string_view reason)
     record.quantity          = position_iterator != positions_.end() ? position_iterator->second : 0;
     record.price             = average_iterator != average_prices_.end() ? average_iterator->second : 0.0;
     record.sellable          = sellable_iterator != sellable_.end() ? sellable_iterator->second : -1;
-    record.reserved_quantity = reserved_iterator != reserved_.end() ? reserved_iterator->second : 0;
+    record.reserved_quantity = reserved_iterator != reserved_.end() ? reserved_iterator->second.net() : 0;
+    record.reserved_sell     = reserved_iterator != reserved_.end() ? static_cast<uint32_t>(reserved_iterator->second.sell) : 0;
     ledger_journal::put_string(record.reason, sizeof(record.reason), reason);
     journal_append(record, keys_.account_of(key), keys_.ticker_of(key).view());
 }
@@ -353,7 +363,6 @@ void PositionLedger::apply_record(const ledger_journal::Record& record)
     const std::string account(record.account);
     const std::string ticker(record.ticker);
     const OrderSide   side = record.side == static_cast<uint8_t>(OrderSide::SELL) ? OrderSide::SELL : OrderSide::BUY;
-    const int         release = (side == OrderSide::BUY) ? -record.quantity : record.quantity;
 
     switch (static_cast<Kind>(record.kind))
     {
@@ -364,8 +373,7 @@ void PositionLedger::apply_record(const ledger_journal::Record& record)
     case Kind::INTENT:
     {
         std::lock_guard<std::mutex> lock(positions_mutex_);
-        apply_reservation_delta(account, ticker, (side == OrderSide::BUY) ? record.quantity : -record.quantity,
-                                record.price);
+        apply_reservation_delta(account, ticker, side, record.quantity, record.price);
         break;
     }
 
@@ -376,7 +384,7 @@ void PositionLedger::apply_record(const ledger_journal::Record& record)
     case Kind::CANCEL:
     {
         std::lock_guard<std::mutex> lock(positions_mutex_);
-        release_reservation(keys_.make(account, ticker), release);
+        release_reservation(keys_.make(account, ticker), side, record.quantity);
         break;
     }
 
@@ -432,13 +440,22 @@ void PositionLedger::apply_adjust_locked(const PosKey& key, const ledger_journal
         opened_at_.erase(key);
     }
 
-    if (record.reserved_quantity != 0)
+    // 매도 칸이 0이면(칸이 생기기 전 파일 포함) 순값의 음수를 매도로 읽는다 — 옛 파일은 둘이 같이 걸린 경우를 모른다.
+    Reservation reservation;
+    reservation.sell = record.reserved_sell > 0 ? static_cast<int>(record.reserved_sell) : std::max(0, -record.reserved_quantity);
+    reservation.buy  = std::max(0, record.reserved_quantity + reservation.sell);
+
+    if (!reservation.empty())
     {
-        reserved_[key] = record.reserved_quantity;
+        reserved_[key] = reservation;
     }
     else
     {
         reserved_.erase(key);
+    }
+
+    if (reservation.buy == 0)
+    {
         reserved_price_.erase(key);
     }
 
@@ -612,7 +629,7 @@ PositionLedger::SellableView PositionLedger::sellable_view(const std::string& ac
     }
 
     auto reserved_iterator = reserved_.find(key);
-    sellable_view.pending = (reserved_iterator != reserved_.end() && reserved_iterator->second < 0) ? -reserved_iterator->second : 0;
+    sellable_view.pending = (reserved_iterator != reserved_.end()) ? reserved_iterator->second.sell : 0;
     return sellable_view;
 }
 
@@ -634,7 +651,7 @@ void PositionLedger::refresh_sellable(const std::string& account, const std::str
     }
 
     auto reserved_iterator = reserved_.find(key);
-    const int sell_pending = (reserved_iterator != reserved_.end() && reserved_iterator->second < 0) ? -reserved_iterator->second : 0;
+    const int sell_pending = (reserved_iterator != reserved_.end()) ? reserved_iterator->second.sell : 0;
     const int sellable     = ord_psbl_qty + sell_pending;
     sellable_[key] = (sellable > position_iterator->second) ? position_iterator->second : sellable;
     journal_adjust(key, "refresh_sellable");
@@ -660,7 +677,7 @@ int PositionLedger::absorb_missed_sell(const std::string& account, const std::st
 
     const int difference = position_iterator->second - balance_quantity;
     auto reserved_iterator = reserved_.find(key);
-    const int sell_pending = (reserved_iterator != reserved_.end() && reserved_iterator->second < 0) ? -reserved_iterator->second : 0;
+    const int sell_pending = (reserved_iterator != reserved_.end()) ? reserved_iterator->second.sell : 0;
 
     // 미체결 매도보다 큰 차이는 놓친 체결로 설명되지 않는다 — 손대지 않고 로그 관찰에 맡긴다.
     if (difference > sell_pending)
@@ -679,9 +696,9 @@ int PositionLedger::absorb_missed_sell(const std::string& account, const std::st
 
     missed_sell_seen_.erase(key);
     position_iterator->second = balance_quantity;
-    reserved_iterator->second += difference;
+    reserved_iterator->second.sell -= difference;
 
-    if (reserved_iterator->second == 0)
+    if (reserved_iterator->second.empty())
     {
         reserved_.erase(reserved_iterator);
     }
@@ -719,7 +736,7 @@ int PositionLedger::absorb_missed_buy(const std::string& account, const std::str
 
     const int difference = balance_quantity - ledger_quantity;
     auto reserved_iterator = reserved_.find(key);
-    const int buy_pending = (reserved_iterator != reserved_.end() && reserved_iterator->second > 0) ? reserved_iterator->second : 0;
+    const int buy_pending = (reserved_iterator != reserved_.end()) ? reserved_iterator->second.buy : 0;
 
     // 미체결 매수보다 큰 차이는 놓친 체결로 설명되지 않는다(밖에서 산 것 등) — 손대지 않는다.
     if (difference > buy_pending)
@@ -749,12 +766,16 @@ int PositionLedger::absorb_missed_buy(const std::string& account, const std::str
         opened_at_[key] = Clock::now();
     }
 
-    reserved_iterator->second -= difference;
+    reserved_iterator->second.buy -= difference;
 
-    if (reserved_iterator->second == 0)
+    if (reserved_iterator->second.buy == 0)
+    {
+        reserved_price_.erase(key);
+    }
+
+    if (reserved_iterator->second.empty())
     {
         reserved_.erase(reserved_iterator);
-        reserved_price_.erase(key);
     }
 
     // 당일 매수분은 당일 매도 가능하다(on_fill_confirmed BUY와 같다).
@@ -887,10 +908,9 @@ PositionLedger::FillResult PositionLedger::on_fill_confirmed(
             // 당일 매수분은 당일 매도 가능하다.
             sellable_[key] = find_or(sellable_, key, pre_quantity) + quantity;
 
-            // 선점 해제 (BUY 선점은 +였으므로 -quantity). on_cancel과 같은 가드를 둔다 —
-            //  선점이 없는데 빼면 음수 선점이 생겨 이후 한도·슬롯 계산이 왜곡된다
-            //  (잔고 재시드분처럼 게이트가 선점을 잡은 적 없는 포지션의 체결이 이 경로로 온다).
-            release_reservation(key, -quantity);
+            // 매수 선점 해제. on_cancel과 같은 가드를 둔다 — 선점이 없는데 빼면 이후 한도·슬롯 계산이
+            //  왜곡된다(잔고 재시드분처럼 게이트가 선점을 잡은 적 없는 포지션의 체결이 이 경로로 온다).
+            release_reservation(key, OrderSide::BUY, quantity);
         }
         else // SELL
         {
@@ -931,10 +951,9 @@ PositionLedger::FillResult PositionLedger::on_fill_confirmed(
                 sellable_[key] = sellable_after > 0 ? sellable_after : 0;
             }
 
-            // 선점 해제 (SELL 선점은 -였으므로 +quantity). 가드가 없으면 선점이 없던 종목의
-            //  매도 체결이 reserved_[k] = +quantity를 만들어 내고, slots_full()이 포지션도 없는
-            //  종목의 슬롯을 점유로 세어 비운 자리가 그날 내내 열리지 않는다.
-            release_reservation(key, quantity);
+            // 매도 선점 해제. 가드가 없으면 선점이 없던 종목의 매도 체결이 선점을 만들어 내고,
+            //  slots_full()이 포지션도 없는 종목의 슬롯을 점유로 세어 비운 자리가 그날 내내 열리지 않는다.
+            release_reservation(key, OrderSide::SELL, quantity);
         }
 
         // FILL 기록 — 같은 락 안에서 순번을 받아 파일 순서가 원장 갱신 순서와 같다. 실현손익은 참고용(리플레이는 다시 계산한다).
@@ -983,7 +1002,7 @@ size_t PositionLedger::open_slot_count() const
 
     for (const auto& entry : reserved_)
     {
-        if (entry.second > 0 && !slot_exempt_.contains(entry.first.symbol))
+        if (entry.second.buy > 0 && !slot_exempt_.contains(entry.first.symbol))
         {
             auto iterator = positions_.find(entry.first);
 
@@ -1033,14 +1052,21 @@ int PositionLedger::reserved(const std::string& account, const std::string& tick
 {
     std::lock_guard<std::mutex> lock(positions_mutex_);
     auto iterator = reserved_.find(keys_.lookup(account, ticker));
-    return (iterator != reserved_.end()) ? iterator->second : 0;
+    return (iterator != reserved_.end()) ? iterator->second.net() : 0;
 }
 
 int PositionLedger::reserved(const std::string& account, symbol::SymbolId symbol) const
 {
     std::lock_guard<std::mutex> lock(positions_mutex_);
     auto iterator = reserved_.find(keys_.lookup(account, symbol));
-    return (iterator != reserved_.end()) ? iterator->second : 0;
+    return (iterator != reserved_.end()) ? iterator->second.net() : 0;
+}
+
+int PositionLedger::reserved_sell(const std::string& account, symbol::SymbolId symbol) const
+{
+    std::lock_guard<std::mutex> lock(positions_mutex_);
+    auto iterator = reserved_.find(keys_.lookup(account, symbol));
+    return (iterator != reserved_.end()) ? iterator->second.sell : 0;
 }
 
 double PositionLedger::average_price(const std::string& account, const std::string& ticker) const
@@ -1125,7 +1151,7 @@ void PositionLedger::publish(ipc::LedgerSnapshot& snapshot, const std::function<
 
         for (const auto& entry : reserved_)
         {
-            if (entry.second != 0 && entry.first.account < account)
+            if (!entry.second.empty() && entry.first.account < account)
             {
                 account = entry.first.account;
             }
@@ -1149,7 +1175,7 @@ void PositionLedger::publish(ipc::LedgerSnapshot& snapshot, const std::function<
         {
             const PosKey& key = entry.first;
 
-            if (entry.second == 0)
+            if (entry.second.empty())
             {
                 continue;
             }
@@ -1163,10 +1189,11 @@ void PositionLedger::publish(ipc::LedgerSnapshot& snapshot, const std::function<
             const bool exempt = slot_exempt_.contains(key.symbol);
 
             ipc::LedgerRow& row = snapshot.row_for_write(key.symbol);
-            row.reserved        = entry.second;
+            row.reserved        = entry.second.net();
+            row.reserved_sell   = entry.second.sell;
             row.slot_exempt     = exempt ? 1 : 0;
 
-            if (entry.second > 0)
+            if (entry.second.buy > 0)
             {
                 const auto position_iterator = positions_.find(key);
 
@@ -1177,7 +1204,7 @@ void PositionLedger::publish(ipc::LedgerSnapshot& snapshot, const std::function<
                 }
 
                 const auto reserved_price_iterator = reserved_price_.find(key);
-                gross += entry.second * ((reserved_price_iterator != reserved_price_.end()) ? reserved_price_iterator->second : 0.0);
+                gross += entry.second.buy * ((reserved_price_iterator != reserved_price_.end()) ? reserved_price_iterator->second : 0.0);
             }
         }
 
@@ -1224,7 +1251,7 @@ void PositionLedger::publish(ipc::LedgerSnapshot& snapshot, const std::function<
                     sellable_limit = sellable_iterator->second;
                 }
 
-                const int pending_sell = (row.reserved < 0) ? -row.reserved : 0;
+                const int pending_sell = row.reserved_sell;
                 row.sellable = (sellable_limit > pending_sell) ? (sellable_limit - pending_sell) : 0;
             }
         }

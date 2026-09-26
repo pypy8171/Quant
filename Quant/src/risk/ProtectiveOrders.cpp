@@ -61,7 +61,7 @@ bool ProtectiveOrderBook::consume_fired(const std::string& account, symbol::Symb
 }
 
 std::vector<OrderSignal> ProtectiveOrderBook::evaluate(const std::vector<OrderGate::HeldPos>& held,
-                                                       const PriceFn& price_of, const ReservedFn& reserved,
+                                                       const PriceFn& price_of, const SellPendingFn& sell_pending_of,
                                                        Clock::time_point now)
 {
     std::vector<OrderSignal> out;
@@ -119,8 +119,7 @@ std::vector<OrderSignal> ProtectiveOrderBook::evaluate(const std::vector<OrderGa
             continue;
         }
 
-        const int reserved_quantity = reserved ? reserved(entry.rule.account, entry.rule.symbol) : 0;
-        const int sell_pending = reserved_quantity < 0 ? -reserved_quantity : 0;
+        const int sell_pending = sell_pending_of ? sell_pending_of(entry.rule.account, entry.rule.symbol) : 0;
         const int quantity = position - sell_pending;
 
         if (quantity <= 0)

@@ -49,6 +49,18 @@ public:
     template <class V>
     using PosMap = LedgerKeys::Map<V>;
 
+    // 미체결 선점 한 종목분. 매수와 매도를 따로 센다(둘 다 0 이상). 부호 있는 합 하나로 두던 때는
+    //  "매수 10·매도 3"이 +7로 뭉쳐, 매수 10이 체결돼 10을 풀면 0에서 멈추며 살아 있는 매도 3까지 지웠다 —
+    //  그 뒤 매도 가능 수량을 3주 부풀려 봤다. [why 전수조사 B1b-1]
+    struct Reservation
+    {
+        int buy  = 0;
+        int sell = 0;
+
+        int net() const noexcept { return buy - sell; }
+        bool empty() const noexcept { return buy == 0 && sell == 0; }
+    };
+
     PositionLedger()                                 = default;
     PositionLedger(const PositionLedger&)            = delete;
     PositionLedger& operator=(const PositionLedger&) = delete;
@@ -66,7 +78,7 @@ public:
         }
 
         const PosMap<int>& positions() const noexcept { return ledger_.positions_; }
-        const PosMap<int>& reserved() const noexcept { return ledger_.reserved_; }
+        const PosMap<Reservation>& reserved() const noexcept { return ledger_.reserved_; }
         const PosMap<double>& reserved_price() const noexcept { return ledger_.reserved_price_; }
         const PosMap<double>& average_prices() const noexcept { return ledger_.average_prices_; }
         const PosMap<double>& mark_prices() const noexcept { return ledger_.mark_prices_; }
@@ -248,7 +260,7 @@ public:
 
     // ── 미체결 취소/정정 축소 시 선점 해제 (C5, MM-1) ─────────────────────
     // quantity = 취소된 미체결 잔량(>0). reserved_만 감소 — positions_/average_price는 불변(취소는 체결 아님).
-    // 방향은 on_fill_confirmed의 선점 해제와 동일: BUY 선점(+)은 -quantity, SELL 선점(-)은 +quantity.
+    // side 쪽 선점만 줄인다(on_fill_confirmed의 선점 해제와 같은 규칙).
     // 호출 규약: 반드시 KIS 취소 성공(rt_cd=="0") 이후에만 호출 — 실패 시 호출하면 이중해제.
     // reference 기본값을 `= OrderRef{}`로 두지 않는다 — 중첩 구조체의 멤버 기본값은 바깥 클래스가 끝나야 읽히는데
     //  GCC는 기본 인자에서 그것을 요구해 컴파일을 거부한다(리눅스 빌드 09-22). 인자 없는 겹정의 본문은 그 뒤에
@@ -338,11 +350,11 @@ public:
     //  KIS 값은 이 세션의 미체결 매도까지 뺀 수라 되더해 둔다 — clamp가 그만큼 다시 빼기 때문이다.
     void refresh_sellable(const std::string& account, const std::string& ticker, int ord_psbl_qty);
     // 체결통보(WS) 모드 잔고 대조에서 원장 수량 > 잔고 수량인 종목을 놓친 매도 체결로 보고 맞춘다.
-    //  조건: 차이가 미체결 매도(reserved_<0) 이내이고, 같은 잔고 수량이 두 번 연속 관측될 때만
+    //  조건: 차이가 미체결 매도(reserved_ 매도분) 이내이고, 같은 잔고 수량이 두 번 연속 관측될 때만
     //  (잔고 왕복이 통보보다 빠른 순간의 경합 회피). 맞춘 수량을 돌려주고 아니면 0.
     //  09-11 11:00 재연결 사이에 248170 매도 52주 통보가 빠져 18분간 유령 52주가 슬롯을 물었다.
     int absorb_missed_sell(const std::string& account, const std::string& ticker, int balance_quantity);
-    // absorb_missed_sell의 매수 쪽. 원장 수량 < 잔고 수량이고 차이가 미체결 매수(reserved_>0) 이내이며 같은 잔고
+    // absorb_missed_sell의 매수 쪽. 원장 수량 < 잔고 수량이고 차이가 미체결 매수(reserved_ 매수분) 이내이며 같은 잔고
     //  수량이 두 번 연속 보일 때만 맞춘다. 평단은 잔고 평단으로 둔다(놓친 체결가를 모른다). 맞춘 수량, 아니면 0.
     //  체결통보 큐가 가득 차 버린 매수(D-056)는 이게 없으면 재기동 때까지 원장에 안 잡혔다. [why CODE_REVIEW W-1]
     int absorb_missed_buy(const std::string& account, const std::string& ticker, int balance_quantity,
@@ -354,8 +366,11 @@ public:
     // 정수 id 버전 — 문자열 해시가 없다. [why D-105] 전략은 LedgerSnapshot 사본을 읽는다(D-114).
     //  이 조회 함수들은 주문 스레드(속도 제한 판정)와 risk 내부에서만 쓴다.
     int    position(const std::string& account, symbol::SymbolId symbol) const;
+    // reserved는 매수 선점 - 매도 선점(순). 매도 선점만 필요하면 reserved_sell — 순값에서 음수를 뒤집어 쓰면
+    //  매수가 같이 걸린 종목의 매도가 가려진다.
     int    reserved(const std::string& account, const std::string& ticker) const;
     int    reserved(const std::string& account, symbol::SymbolId symbol) const;
+    int    reserved_sell(const std::string& account, symbol::SymbolId symbol) const;
     double average_price(const std::string& account, const std::string& ticker) const;
     int    position(const std::string& ticker) const { return position(std::string(), ticker); }
     int    reserved(const std::string& ticker) const { return reserved(std::string(), ticker); }
@@ -420,13 +435,14 @@ public:
 
 private:
     // 선점 해제의 유일한 경로 — 취소 통보(on_cancel)와 체결 통보(on_fill_confirmed)가 함께 쓴다.
-    //  없는 선점은 손대지 않고, 과잉 해제는 0에서 멈춘다. 규칙이 두 곳에 갈라져 있으면 한쪽만
-    //  고쳐지므로 여기 하나만 둔다. 호출 전에 positions_mutex_를 잡아야 한다(내부에서 잡지 않음).
-    void release_reservation(const PosKey& key, int delta);
+    //  side 쪽 선점만 줄인다. 그쪽 선점이 없으면 손대지 않고, 과잉 해제는 0에서 멈춘다. 규칙이 두 곳에
+    //  갈라져 있으면 한쪽만 고쳐지므로 여기 하나만 둔다. 호출 전에 positions_mutex_를 잡아야 한다(내부에서 잡지 않음).
+    void release_reservation(const PosKey& key, OrderSide side, int quantity);
 
     // on_intent의 reserved_/reserved_price_ 갱신 본체 — 저널 리플레이(apply_record)도 이걸 그대로 써서
-    //  기동 시 복구된 상태가 실시간 경로와 같은 규칙을 거친다. [inv] positions_mutex_를 잡고 부른다.
-    void apply_reservation_delta(std::string_view account, std::string_view ticker, int delta, double price);
+    //  기동 시 복구된 상태가 실시간 경로와 같은 규칙을 거친다. delta는 side 쪽 선점의 증감이다.
+    //  [inv] positions_mutex_를 잡고 부른다.
+    void apply_reservation_delta(std::string_view account, std::string_view ticker, OrderSide side, int delta, double price);
 
     // ── 저널 ────────────────────────────────────────────────────────────────
     // 레코드 하나를 저널 버퍼에 쌓고(계좌·종목을 채워서) seq를 돌려준다. 디스크는 건드리지 않는다 — 원장 잠금 안에서
@@ -462,8 +478,8 @@ private:
     LedgerKeys keys_;
 
     mutable std::mutex positions_mutex_;
-    PosMap<int>    reserved_;    // (account,ticker) → 미체결 선점 수량 (BUY +, SELL -). 재주문 차단용
-    PosMap<double> reserved_price_; // (account,ticker) → 미체결 선점가(§3d 총노출 계산용). reserved_와 동일 생명주기로 정리
+    PosMap<Reservation> reserved_; // (account,ticker) → 미체결 선점 수량(매수·매도 따로). 재주문 차단용
+    PosMap<double> reserved_price_; // (account,ticker) → 매수 선점가(§3d 총노출 계산용). 매수 선점이 0이 되면 같이 지운다
     // 원장 저널 — set_journal() 이전엔 nullptr(저널 없이 동작, 테스트·벤치 기본). replaying_은 set_journal 안에서만
     //  참(스레드 시작 전)이라 락 없이 읽는다. [why D-113]
     std::unique_ptr<ledger_journal::LedgerJournal> journal_;

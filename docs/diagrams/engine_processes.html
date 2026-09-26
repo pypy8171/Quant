@@ -406,7 +406,7 @@ footer {
 <header>
   <div class="eyebrow">D-114 단계 5 · D-129 · 2026-09-24</div>
   <h1>엔진 세 프로세스 구조</h1>
-  <p class="lede">시세·전략·주문이 각각 제 프로세스로 떨어졌다. 셋은 공유 메모리 한 덩이(<span class="mono">SharedLayout</span> 판 6, 면 열한 개)로만 말을 주고받는다. 목적은 속도가 아니라 고장 격리다 — 한쪽이 죽어도 나머지가 서는 것.</p>
+  <p class="lede">시세·전략·주문이 각각 제 프로세스로 떨어졌다. 셋은 공유 메모리 한 덩이(<span class="mono">SharedLayout</span> 판 8, 면 열한 개)로만 말을 주고받는다. 목적은 속도가 아니라 고장 격리다 — 한쪽이 죽어도 나머지가 서는 것.</p>
 </header>
 
 <section>
@@ -511,7 +511,7 @@ flowchart LR
     subgraph FD["시세 프로세스 (--role feed)"]
         R["수신 ×N<br/>실시간 소켓"]
     end
-    subgraph SHM["공유 메모리 · SharedLayout 판 6"]
+    subgraph SHM["공유 메모리 · SharedLayout 판 8"]
         FEED["시세 통로"]
         FILL["체결 통로"]
         CFF["제어 면 (시세)"]
@@ -634,7 +634,7 @@ flowchart LR
 
 <footer>
   <div>정본 — <span class="mono">docs/DECISIONS.md</span> D-114 "단계 5 시세 프로세스 분리"·D-129, <span class="mono">docs/ENGINE_ARCHITECTURE.md</span></div>
-  <div>자리표 — <span class="mono">Quant/include/ipc/SharedLayout.h</span> (판 6, 면 11, 박동 3)</div>
+  <div>자리표 — <span class="mono">Quant/include/ipc/SharedLayout.h</span> (판 8, 면 11, 박동 3)</div>
 </footer>
 
 </div>

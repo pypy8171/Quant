@@ -72,7 +72,7 @@ double session_remaining_ratio()
 }
 
 // 총노출(§3d) 분자 — 보유는 잔고 대조가 넣은 현재가로, 현재가가 아직 없는 종목(대조 사이에 새로 산 것)은
-//  평단으로 잰다. 미체결 매수 선점은 선점가로 더하고 매도 선점(-)은 노출을 줄이는 쪽이라 보수적으로 뺀다.
+//  평단으로 잰다. 미체결 매수 선점은 선점가로 더하고 매도 선점은 노출을 줄이는 쪽이라 보수적으로 뺀다.
 //  분모 equity가 시가 총평가금이라 분자도 시가로 맞춘다 — 원가로 재면 오른 보유분이 한도에서 빠진다.
 double gross_exposure(const PositionLedger::Reader& ledger)
 {
@@ -97,13 +97,13 @@ double gross_exposure(const PositionLedger::Reader& ledger)
 
     for (const auto& entry : ledger.reserved())
     {
-        if (entry.second <= 0)
+        if (entry.second.buy <= 0)
         {
             continue;
         }
 
         auto reserved_price_iterator = ledger.reserved_price().find(entry.first);
-        gross += entry.second * (reserved_price_iterator != ledger.reserved_price().end() ? reserved_price_iterator->second : 0.0);
+        gross += entry.second.buy * (reserved_price_iterator != ledger.reserved_price().end() ? reserved_price_iterator->second : 0.0);
     }
 
     return gross;
@@ -144,7 +144,7 @@ int OrderGate::clamp_buy_quantity(const OrderSignal& signal)
         }
 
         auto reserved_iterator = ledger.reserved().find(key);
-        const int sell_pending = (reserved_iterator != ledger.reserved().end() && reserved_iterator->second < 0) ? -reserved_iterator->second : 0;
+        const int sell_pending = (reserved_iterator != ledger.reserved().end()) ? reserved_iterator->second.sell : 0;
         // 상한은 보유수량이 아니라 매도가능수량이다. 기동 전 세션이 남긴 미체결 매도는
         //  reserved_에 없고(프로세스 메모리라 재기동으로 사라진다) 잔고의 ord_psbl_qty에만 보인다.
         int holding_ceiling = position_iterator->second;
@@ -196,7 +196,7 @@ int OrderGate::clamp_buy_quantity(const OrderSignal& signal)
         auto position_iterator = ledger.positions().find(key);
         auto reserved_iterator = ledger.reserved().find(key);
         const int current_quantity = (position_iterator != ledger.positions().end() ? position_iterator->second : 0) +
-                            (reserved_iterator != ledger.reserved().end() ? reserved_iterator->second : 0);
+                            (reserved_iterator != ledger.reserved().end() ? reserved_iterator->second.buy : 0);
 
         if (config_.max_quantity_per_ticker > 0)
         {
@@ -245,13 +245,13 @@ int OrderGate::clamp_buy_quantity(const OrderSignal& signal)
 
             for (const auto& entry : ledger.reserved())
             {
-                if (entry.second <= 0)
+                if (entry.second.buy <= 0)
                 {
                     continue;
                 }
 
                 auto reserved_price_iterator = ledger.reserved_price().find(entry.first);
-                pending_buy += entry.second * (reserved_price_iterator != ledger.reserved_price().end() ? reserved_price_iterator->second : 0.0);
+                pending_buy += entry.second.buy * (reserved_price_iterator != ledger.reserved_price().end() ? reserved_price_iterator->second : 0.0);
             }
 
             const int room = quantity_from_notional(cash - pending_buy, evaluation_price);
@@ -472,7 +472,8 @@ GateVerdict OrderGate::evaluate(const OrderSignal& signal)
         }
     }
 
-    // 3. 포지션 수량 한도 (BUY에만 적용) — 실체결(positions_) + 미체결 선점(reserved_) 합산
+    // 3. 포지션 수량 한도 (BUY에만 적용) — 실체결(positions_) + 미체결 매수 선점 합산. 미체결 매도는
+    //    체결될지 모르므로 빼 주지 않는다(clamp_buy_quantity와 같은 셈).
     //    계좌별 파티션 — 한 계좌 한도는 다른 계좌 주문을 막지 않는다.
     // 원장 키를 여기서 한 번 만든다 — 3절(한도)과 5절(중복 신호 키)이 같은 번호를 쓴다. 처음 보는 계좌·종목은
     //  등록한다(모르는 계좌끼리 중복 키가 겹치지 않게).
@@ -483,9 +484,10 @@ GateVerdict OrderGate::evaluate(const OrderSignal& signal)
         const PositionLedger::Reader ledger = ledger_.read();
         const auto filled_iterator   = ledger.positions().find(key);
         const auto reserved_iterator = ledger.reserved().find(key);
-        int filled   = filled_iterator != ledger.positions().end() ? filled_iterator->second : 0;
-        int reserved = reserved_iterator != ledger.reserved().end() ? reserved_iterator->second : 0;
-        int current_quantity = filled + reserved;
+        const PositionLedger::Reservation reservation =
+            reserved_iterator != ledger.reserved().end() ? reserved_iterator->second : PositionLedger::Reservation{};
+        int filled           = filled_iterator != ledger.positions().end() ? filled_iterator->second : 0;
+        int current_quantity = filled + reservation.buy;
 
         if (current_quantity + signal.quantity > config_.max_quantity_per_ticker)
         {
@@ -507,11 +509,11 @@ GateVerdict OrderGate::evaluate(const OrderSignal& signal)
         }
 
         // 3c. 동시 보유 종목 상한 — "새 종목"을 여는 BUY NEW에만 적용(기존 보유·예약 종목은 통과).
-        //     총노출 제어: 실보유(positions_>0)∪예약(reserved_>0) 종목 수가 상한이면 신규 진입 차단.
-        //     기존 보유·예약이 있는 종목(filled>0 또는 reserved!=0)은 새로 여는 게 아니므로 예외.
+        //     총노출 제어: 실보유(positions_>0)∪매수 선점 종목 수가 상한이면 신규 진입 차단.
+        //     기존 보유·선점이 있는 종목(filled>0 또는 선점 있음)은 새로 여는 게 아니므로 예외.
         //     바스켓 슬리브 소유 종목(slot_exempt_)은 상한을 세지도, 상한에 걸리지도 않는다 [why D-109].
         if (config_.max_concurrent_positions > 0 && signal.action == OrderAction::NEW &&
-            filled == 0 && reserved == 0 && !ledger.slot_exempt().contains(key.symbol))
+            filled == 0 && reservation.empty() && !ledger.slot_exempt().contains(key.symbol))
         {
             size_t open = 0;
             size_t held = 0;   // 그중 실보유. 거부 문구에서 유령 선점과 갈라 보려고 따로 센다
@@ -546,7 +548,7 @@ GateVerdict OrderGate::evaluate(const OrderSignal& signal)
 
             for (const auto& entry : ledger.reserved())
             {
-                if (entry.second > 0 && !ledger.slot_exempt().contains(entry.first.symbol))
+                if (entry.second.buy > 0 && !ledger.slot_exempt().contains(entry.first.symbol))
                 {
                     auto iterator = ledger.positions().find(entry.first);
 
@@ -892,7 +894,7 @@ OrderGate::DisplacePlan OrderGate::plan_displacement(const std::string& account,
 
             // 미체결 매도가 이미 걸린 종목은 건드리지 않는다(중복 매도).
             auto reserved_found = ledger.reserved().find(key);
-            const int sell_pending = (reserved_found != ledger.reserved().end() && reserved_found->second < 0) ? -reserved_found->second : 0;
+            const int sell_pending = (reserved_found != ledger.reserved().end()) ? reserved_found->second.sell : 0;
 
             if (sell_pending >= entry.second)
             {
@@ -958,7 +960,7 @@ OrderGate::DisplacePlan OrderGate::plan_displacement(const std::string& account,
         plan.symbol  = best_key.symbol;
         auto position_iterator = ledger.positions().find(best_key);
         auto reserved_found  = ledger.reserved().find(best_key);
-        const int sell_pending = (reserved_found != ledger.reserved().end() && reserved_found->second < 0) ? -reserved_found->second : 0;
+        const int sell_pending = (reserved_found != ledger.reserved().end()) ? reserved_found->second.sell : 0;
         int capture = (position_iterator != ledger.positions().end() ? position_iterator->second : 0);
         auto sellable_iterator = ledger.sellable().find(best_key);
 
@@ -1048,7 +1050,7 @@ OrderGate::EntrySnapshot OrderGate::entry_snapshot(const std::string& account, c
     snapshot.position = (position_iterator != ledger.positions().end()) ? position_iterator->second : 0;
 
     auto reserved_it = ledger.reserved().find(key);
-    snapshot.reserved = (reserved_it != ledger.reserved().end()) ? reserved_it->second : 0;
+    snapshot.reserved = (reserved_it != ledger.reserved().end()) ? reserved_it->second.net() : 0;
 
     if (config_.max_concurrent_positions > 0)
     {
@@ -1068,7 +1070,7 @@ OrderGate::EntrySnapshot OrderGate::entry_snapshot(const std::string& account, c
 
         for (const auto& entry : ledger.reserved())
         {
-            if (entry.second > 0 && !ledger.slot_exempt().contains(entry.first.symbol))
+            if (entry.second.buy > 0 && !ledger.slot_exempt().contains(entry.first.symbol))
             {
                 auto iterator = ledger.positions().find(entry.first);
 

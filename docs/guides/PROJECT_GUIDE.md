@@ -515,10 +515,10 @@ struct ManagedOrder {
 | 마감 자기 종료 유예 (게이트 아님 — 마지막 창 닫힘 뒤 이 초가 지나 주문 큐가 비면 엔진 종료, D-098) | `session_end_grace_sec` | 120 | `test_session_end` |
 | 1주문 수량 상한 (fat-finger) | `max_qty_per_order` | 10,000주 | — |
 | 1주문 명목 상한 (fat-finger, 시장가는 reference_price) | `max_notional_per_order` | 5,000만원 | — |
-| 종목당 최대 보유 (positions_+reserved_) | `max_qty_per_ticker` | 100주 | ✅ |
+| 종목당 최대 보유 (보유 + 미체결 매수 선점) | `max_qty_per_ticker` | 100주 | ✅ |
 | 종목당 명목 상한 | `max_notional_per_ticker` | — | — |
 | 동시 보유 종목 상한 (신규 진입만) | `max_concurrent_positions` | 0(미적용) | — |
-| 총노출 상한 (보유+예약 명목 합 / 자본) | `max_gross_exposure_pct` | 0(미적용) | — |
+| 총노출 상한 ((보유×잔고 현재가, 없으면 평단) + 미체결 매수×선점가) / 자본 | `max_gross_exposure_pct` | 0(미적용) | — |
 | 일일 최대 손실 | `daily_loss_limit` | -30만원 | ✅ |
 | PnL stale 가드 (신규매수만, control 스레드 감시) | — | — | — |
 | 초당 주문 수 | `max_orders_per_sec` | 5건 | ✅ |

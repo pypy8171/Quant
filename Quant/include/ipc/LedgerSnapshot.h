@@ -38,10 +38,11 @@ struct LedgerRow
     uint64_t stamp         = 0;
     double   average_price = 0.0; // 평단(원)
     int32_t  position      = 0;   // 확정 보유 수량
-    int32_t  reserved      = 0;   // 미체결 선점 — 매수는 +, 매도는 -
+    int32_t  reserved      = 0;   // 미체결 선점 순값(매수 - 매도). 선점이 있는지 볼 때 쓴다
     int32_t  sellable      = 0;   // 지금 팔 수 있는 수량(상한 - 미체결 매도, 음수면 0)
+    int32_t  reserved_sell = 0;   // 미체결 매도 선점. 순값에서 뒤집어 쓰면 매수가 같이 걸린 종목의 매도가 가려진다
     uint8_t  slot_exempt   = 0;   // 슬롯 계산 밖 종목(바스켓 슬리브 소유) [why D-109]
-    uint8_t  padding_[3]   = {};  // 32바이트로 맞춘다 — 공유메모리에서 양쪽 컴파일러가 같은 칸을 보게
+    uint8_t  padding_[7]   = {};  // 40바이트로 맞춘다 — 공유메모리에서 양쪽 컴파일러가 같은 칸을 보게
 };
 
 // 종목과 무관한 값들. 기동 시 고정되는 넷도 여기 같이 둔다 — 전략이 config를 따로 들 일이 없게.
