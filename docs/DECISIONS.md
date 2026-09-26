@@ -7097,7 +7097,16 @@ id를 직접 만들지 않는다. 0봉(대개 조회 실패)은 넣지 않는다
 일찍 떠도 어제 표로 주문하지 않는다. ④ 사후 확인은 `check_runtime_health.py` "장 전 일봉 데우기" 행(08:00에 멈췄거나
 목록·인증 실패로 건너뛰면 WARN). 걸리는 시간은 아직 실측 전이다 — 그 행이 받은 종목 수와 초를 남긴다.
 
-**남은 것**: 레짐 피드(`macro_regime_feed.py`) 이식 여부(4단계).
+**4단계 — 레짐 피드 이식 판정**(같은 날): 옮긴다. 다만 이번 묶음에는 넣지 않고 따로 한다.
+근거: ① `PYQuant/tools/macro_regime_feed.py`(668줄)는 백테스트와 코드를 나눠 쓰지 않는다 — `PYQuant/features/regime_axes.py`는
+`research/studies/20_macro_overlay/`만 부르고, `PYQuant/tools/macro_ingest.py`는 주석에서 이름만 든다. 엔진 쪽으로 옮겨도
+리서치 코드는 그대로다. ② 하는 일은 HTTP GET 두 종류(Yahoo chart — 표결 8심볼·참고 지표·나스닥/S&P 직전 세션, 네이버 지수 폴링)와 표결·수준 평가·
+장초 기준점 파일이라, 시세판이 이미 가진 HTTP·JSON 읽기로 된다. 빠지는 것은 FinanceDataReader 폴백 하나다 — Yahoo가 막힌
+날에만 쓰는 것이고, 코스피·코스닥은 이미 폴백 없이 표를 비운다(D-083). ③ 지금은 이 프로세스가 죽으면 엔진이
+`regime.json` 나이로만 알아채고(`regime_stale_sec` 600초) 게이트를 그대로 둔다 — 시세판을 옮긴 이유와 같은 문제다.
+따로 하는 이유: 이 축은 신규 진입 정지와 강제청산(`force_liquidate`)을 거는 곳이라, 표결이 한 표만 달라져도 매매가 바뀐다.
+옮길 때는 하루 동안 두 구현을 같이 돌려 매 주기 표결·점수·라벨이 같은지 `check_runtime_health.py` 행으로 대조한 뒤
+파이썬 쪽을 내린다. `regime.json`은 대시보드·알림이 읽으므로 엔진이 계속 같은 스키마로 쓴다.
 
 **연결**: D-028 · D-142 · D-146 · `Quant/include/universe/MarketBoard.h` · `Quant/src/universe/UniverseCandidates.cpp`
 `take_board_axis` · `scripts/auto_trade_day.ps1` `BoardInEngine`.
