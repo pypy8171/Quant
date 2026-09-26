@@ -44,7 +44,7 @@ std::shared_ptr<const RankedUniverse> g_board_axis_source; // g_file_axis_cache�
 std::mutex   g_candidate_mutex;
 
 // ETF/ETN·리츠 배제(개별주만). ETF는 브랜드 접두사(경계검사)∪상품 토큰, 리츠는 접미사·정확일치다.
-//  KIS 축은 KisClient에서 이미 걸러지지만 data.go.kr 축과 한 규칙으로 이중 차단한다.
+//  KIS 축은 KisClient에서 이미 걸러지지만 유니버스 파일 축과 한 규칙으로 이중 차단한다.
 //  리츠를 따로 보는 이유는 배당·NAV로 움직여 일봉 프리필터를 그대로 통과하기 때문이다(334890 유입).
 bool excluded_by_name(const std::string& name, int& etf_drop, int& reit_drop)
 {
@@ -146,7 +146,8 @@ int add_universe_entry(const DevScanCfg& config, const std::string& ticker, std:
     return 1;
 }
 
-// data.go.kr 종목 목록 기반 거래대금 상위 유니버스 피드(시총 축은 D-146부터 0). KIS 30행캡·ETF 잠식을 우회한 개별주 깊은 집합이라
+// 유니버스 파일 축 — 거래대금 상위 종목 파일(시총 축은 D-146부터 0). `market_board`면 엔진 안 시세판이 네이버 시세로
+//  1분마다 쓰고(D-147), 끄면 universe_feed.py가 쓴다. KIS 30행캡·ETF 잠식을 우회한 개별주 깊은 집합이라
 //  후보 집합 맨 앞에 넣어 일봉 조회 우선순위를 준다. 파일이 없으면 조용히 스킵한다(하위호환).
 //  전종목 코드→시장 사전(market_map)을 top-N보다 먼저 적재해, KIS 랭킹축 티커의 시장도
 //  해석되게 한다 — 없으면 kosdaq_enabled 게이트가 그쪽으로 샌다.
@@ -162,7 +163,7 @@ void take_universe_file(const DevScanCfg& config, CandidateSet& candidates, symb
     if (!file)
     {
         LOG_WARN("[Main] DEVSCALE 유니버스 파일 없음(" + config.universe_file +
-                 ") — data.go.kr 축 스킵, KIS 랭킹 축만 사용");
+                 ") — 유니버스 파일 축 스킵, KIS 랭킹 축만 사용");
         return;
     }
 
@@ -205,14 +206,14 @@ void take_universe_file(const DevScanCfg& config, CandidateSet& candidates, symb
             duplicate  += outcome < 0 ? 1 : 0;
         }
 
-        LOG_INFO("[Main] DEVSCALE data.go.kr 축(기준일 " + basDt + "): 파일 " +
+        LOG_INFO("[Main] DEVSCALE 유니버스 파일 축(기준일 " + basDt + "): 파일 " +
                  std::to_string(array.size()) + "종목 → 신규 " + std::to_string(added_file) +
                  " union (중복 " + std::to_string(duplicate) + ")");
     }
     catch (const std::exception& exception)
     {
         LOG_WARN("[Main] DEVSCALE 유니버스 파일 파싱 실패(" + config.universe_file +
-                 "): " + std::string(exception.what()) + " — data.go.kr 축 스킵");
+                 "): " + std::string(exception.what()) + " — 유니버스 파일 축 스킵");
     }
 }
 
@@ -305,8 +306,7 @@ void take_universe_file_cached(const DevScanCfg& config, CandidateSet& candidate
     g_board_axis_source.reset();
 }
 
-// 업종 등락률 축 — 다른 축과 data.go.kr 축이 전부 전일 이전 상태를 보는 것과 달리 이 축만
-//  장중을 본다. 등락률 내림차순이라 상위 N행이 곧 지금 강한 종목이고, 업종을 순회하므로
+// 업종 등락률 축 — 등락률 내림차순이라 상위 N행이 곧 지금 강한 종목이고, 업종을 순회하므로
 //  한 섹터가 집합을 독식하지 않는다. 정배열·과확장 판정은 뒤 프리필터가 그대로 한다.
 void take_sector_ranking(KisClient& kis, const DevScanCfg& config, QuoteTable& quotes, CandidateSet& candidates,
                          symbol::SymbolTable& symbols)

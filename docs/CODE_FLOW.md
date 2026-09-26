@@ -170,7 +170,7 @@ config를 `AppConfig`로 읽고 `Engine::configure`가 세터에 옮기고 전�
 
 주문 스레드가 유일한 시퀀서다(원칙 4). 조절기(`OrderRateLimiter`)가 간격·재시도를 정하고, 라우터가 게이트 검사 뒤 KIS에 보내고 ODNO를 기억하며, 구간 지연을 CSV에 남긴다.
 
-36. [`Engine::order_thread_fn`](../Quant/src/core/EngineOrderThread.cpp#L200) — `take_due_retry` 우선 → 큐 pop → `wait_before_send` → `router->submit` → 성공이면 `note_sent`, 거부면 `on_rejected` → `LatencyTrace::record`. 비면 재시도 만기까지 `wait_until`  
+36. [`Engine::order_thread_fn`](../Quant/src/core/EngineOrderThread.cpp#L200) — `take_due_retry` 우선 → 수동주문(`take_manual_order`) → 교체 보류분(`DisplacementDesk::take_ready`) → 큐 pop(`is_plausible`로 값 검사, 같은 순번은 버림, 1초 넘게 기다린 신규 매수는 `is_stale_entry`로 버림) → `wait_before_send` → `router->submit` → 성공이면 `note_sent`, 거부면 `on_rejected` → `LatencyTrace::record`. 비면 재시도 만기까지 `wait_until`  
    `Quant/src/core/EngineOrderThread.cpp:200` · `void Engine::order_thread_fn(std::stop_token stop_token)`
 37. [`Engine::take_manual_order`](../Quant/src/core/EngineOpsServer.cpp#L206) — 운영단말 수동 주문(`ops_.manual_inbox`)을 이 스레드가 꺼낸다 — 전략이 멎어도 사람이 손으로 낼 수 있게(D-114). 순번 0이라 전략 쪽에 돌려줄 답이 없고, 결과는 단말에 `ORDER_RESULT_NTF`로 간다  
    `Quant/src/core/EngineOpsServer.cpp:206` · `bool Engine::take_manual_order(OrderSignal& signal)` · 시험 [test_engine](../Quant/tests/test_engine.cpp)

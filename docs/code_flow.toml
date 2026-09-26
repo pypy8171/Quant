@@ -307,7 +307,7 @@ review = [
   [[stage.step]]
   sym = "Engine::order_thread_fn"
   file = "Quant/src/core/EngineOrderThread.cpp"
-  what = "`take_due_retry` 우선 → 큐 pop → `wait_before_send` → `router->submit` → 성공이면 `note_sent`, 거부면 `on_rejected` → `LatencyTrace::record`. 비면 재시도 만기까지 `wait_until`"
+  what = "`take_due_retry` 우선 → 수동주문(`take_manual_order`) → 교체 보류분(`DisplacementDesk::take_ready`) → 큐 pop(`is_plausible`로 값 검사, 같은 순번은 버림, 1초 넘게 기다린 신규 매수는 `is_stale_entry`로 버림) → `wait_before_send` → `router->submit` → 성공이면 `note_sent`, 거부면 `on_rejected` → `LatencyTrace::record`. 비면 재시도 만기까지 `wait_until`"
 
   [[stage.step]]
   sym = "Engine::take_manual_order"

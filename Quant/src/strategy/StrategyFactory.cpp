@@ -762,7 +762,7 @@ static void load_deviation_scale(LoadPass& context, const json& node)
         scan_config.require_aligned = node.value("require_aligned", true);  // 정배열 프리필터 on/off
         scan_config.align_lookup_max = node.value("align_lookup_max", 60);    // 정배열 검사 후보 상한(일봉 조회 비용 캡)
 
-        // 장중 일봉 재조회 — 0이면 기존 동작(하루 한 번 조회 후 캐시 고정).
+        // 업종 순위 축 — 업종 코드, 업종마다 상위 몇 행, 최소 등락률.
         for (const auto& element : jsonx::array_or_empty(node, "sector_codes"))
         {
             if (element.is_string())
@@ -777,7 +777,7 @@ static void load_deviation_scale(LoadPass& context, const json& node)
         //  기존 동작(재스캔마다 새로 수집)이 유지된다.
         scan_config.union_refresh_sec = node.value("union_refresh_sec", 0);
         scan_config.max_deviation_percent     = node.value("max_dev_pct", 0.0);       // 과확장 컷(일봉 이격 상한, 0=비활성)
-        scan_config.universe_file   = node.value("universe_file", std::string()); // data.go.kr 유니버스 피드(ETF-free·30행캡 우회), 비면 KIS 랭킹만
+        scan_config.universe_file   = node.value("universe_file", std::string()); // 거래대금 상위 종목 파일(시세판 또는 universe_feed.py가 씀), 비면 KIS 랭킹만
         scan_config.prices_file     = node.value("prices_file", std::string());  // 전 종목 장중 시세 파일(네이버 벌크 보조 프로세스)
         scan_config.market_board    = node.value("market_board", false);         // 엔진 안 시세판이 시세·재랭킹을 맡는다(D-147)
 
