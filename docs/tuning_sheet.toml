@@ -758,8 +758,8 @@ meaning = "잔고 조회 연속 실패가 이 수면 신규 매수 정지"
 # --- config 기본값 (지금 config 에 없는 키 위주) ---
 [[code_value]]
 id = "default_rescan_interval_sec"
-file = "Quant/src/strategy/StrategyFactory.cpp"
-regex = 'node\.value\("rescan_interval_sec", (\d+)\)'
+file = "Quant/src/strategy/DevScaleLoader.cpp"
+regex = 'int rescan_sec\s*=\s*(\d+);'
 unit = "초"
 group = "config 기본값 — 지금 config 에 없으면 이 값이 적용된다"
 meaning = "유니버스 재판정 주기 기본"
@@ -767,8 +767,8 @@ config_key = "rescan_interval_sec"
 
 [[code_value]]
 id = "default_rescan_return_confirm"
-file = "Quant/src/strategy/StrategyFactory.cpp"
-regex = 'node\.value\("rescan_return_confirm", (\d+)\)'
+file = "Quant/src/strategy/DevScaleLoader.cpp"
+regex = 'int return_confirm\s*=\s*(\d+);'
 unit = "스캔"
 group = "config 기본값 — 지금 config 에 없으면 이 값이 적용된다"
 meaning = "차단 해제에 필요한 연속 present 스캔 수(D-077)"
@@ -776,8 +776,8 @@ config_key = "rescan_return_confirm"
 
 [[code_value]]
 id = "default_union_refresh_sec"
-file = "Quant/src/strategy/StrategyFactory.cpp"
-regex = 'node\.value\("union_refresh_sec", (\d+)\)'
+file = "Quant/include/universe/UniverseScanner.h"
+regex = 'int\s+union_refresh_sec\s*=\s*(\d+);'
 unit = "초"
 group = "config 기본값 — 지금 config 에 없으면 이 값이 적용된다"
 meaning = "후보 합집합 갱신 주기 기본(0=매 스캔)"
@@ -785,8 +785,8 @@ config_key = "union_refresh_sec"
 
 [[code_value]]
 id = "default_max_universe"
-file = "Quant/src/strategy/StrategyFactory.cpp"
-regex = 'node\.value\("max_universe", (\d+)\)'
+file = "Quant/include/universe/UniverseScanner.h"
+regex = 'int\s+max_register {2,}=\s*(\d+);'
 unit = "개"
 group = "config 기본값 — 지금 config 에 없으면 이 값이 적용된다"
 meaning = "슬리브당 등록 상한 기본"
@@ -794,8 +794,8 @@ config_key = "max_universe"
 
 [[code_value]]
 id = "default_align_lookup_max"
-file = "Quant/src/strategy/StrategyFactory.cpp"
-regex = 'node\.value\("align_lookup_max", (\d+)\)'
+file = "Quant/include/universe/UniverseScanner.h"
+regex = 'int\s+align_lookup_max\s*=\s*(\d+);'
 unit = "개"
 group = "config 기본값 — 지금 config 에 없으면 이 값이 적용된다"
 meaning = "정배열 검사 후보 상한 기본"
@@ -803,8 +803,8 @@ config_key = "align_lookup_max"
 
 [[code_value]]
 id = "default_risk_off_resume_pct"
-file = "Quant/src/strategy/StrategyFactory.cpp"
-regex = 'node\.value\("risk_off_resume_pct", (-?[\d.]+)\)'
+file = "Quant/include/universe/UniverseScanner.h"
+regex = 'double\s+risk_off_index_resume {2,}=\s*(-?[\d.]+);'
 unit = "분수"
 group = "config 기본값 — 지금 config 에 없으면 이 값이 적용된다"
 meaning = "risk-off 해제 임계(코스피). risk_off_index_pct 로 막힌 뒤 이 위로 회복해야 재개"
@@ -812,8 +812,8 @@ config_key = "risk_off_resume_pct"
 
 [[code_value]]
 id = "default_risk_off_resume_pct_kosdaq"
-file = "Quant/src/strategy/StrategyFactory.cpp"
-regex = 'node\.value\("risk_off_resume_pct_kosdaq", (-?[\d.]+)\)'
+file = "Quant/include/universe/UniverseScanner.h"
+regex = 'double\s+risk_off_index_kosdaq_resume\s*=\s*(-?[\d.]+);'
 unit = "분수"
 group = "config 기본값 — 지금 config 에 없으면 이 값이 적용된다"
 meaning = "risk-off 해제 임계(코스닥)"
@@ -821,8 +821,8 @@ config_key = "risk_off_resume_pct_kosdaq"
 
 [[code_value]]
 id = "default_risk_off_dwell_sec"
-file = "Quant/src/strategy/StrategyFactory.cpp"
-regex = 'node\.value\("risk_off_dwell_sec", (\d+)\)'
+file = "Quant/include/universe/UniverseScanner.h"
+regex = 'int\s+risk_off_dwell_sec {2,}=\s*(\d+);'
 unit = "초"
 group = "config 기본값 — 지금 config 에 없으면 이 값이 적용된다"
 meaning = "risk-off 상태 최소 유지 시간(깜빡임 방지)"
@@ -830,8 +830,8 @@ config_key = "risk_off_dwell_sec"
 
 [[code_value]]
 id = "default_prefetch_jitter_pct"
-file = "Quant/src/strategy/StrategyFactory.cpp"
-regex = 'node\.value\("prefetch_jitter_pct", (\d+)\)'
+file = "Quant/include/strategy/DeviationScaleStrategy.h"
+regex = 'int\s+prefetch_jitter_percent\s*=\s*(\d+);'
 unit = "%"
 group = "config 기본값 — 지금 config 에 없으면 이 값이 적용된다"
 meaning = "봉 경계 뒤 분봉 조회 지연 분산(종목들이 한꺼번에 REST 안 치게)"
@@ -839,8 +839,8 @@ config_key = "prefetch_jitter_pct"
 
 [[code_value]]
 id = "default_market_close_exit_hhmm"
-file = "Quant/src/strategy/StrategyFactory.cpp"
-regex = 'base\.market_close_hhmm\s*=\s*node\.value\("market_close_exit_hhmm", (\d+)\)'
+file = "Quant/include/strategy/DeviationScaleStrategy.h"
+regex = 'int\s+market_close_hhmm\s*=\s*(\d+);'
 unit = "hhmm"
 group = "config 기본값 — 지금 config 에 없으면 이 값이 적용된다"
 meaning = "DEVSCALE 전량 취소+청산 시각 기본"
@@ -848,8 +848,8 @@ config_key = "market_close_exit_hhmm"
 
 [[code_value]]
 id = "default_daily_lookback"
-file = "Quant/src/strategy/StrategyFactory.cpp"
-regex = 'node\.value\("daily_lookback", (\d+)\)'
+file = "Quant/include/strategy/DeviationScaleStrategy.h"
+regex = 'int\s+daily_lookback\s*=\s*(\d+);'
 unit = "봉"
 group = "config 기본값 — 지금 config 에 없으면 이 값이 적용된다"
 meaning = "일봉 조회 길이 기본"

@@ -125,12 +125,12 @@
     {
       "from": "strategy",
       "to": "api",
-      "weight": 3
+      "weight": 4
     },
     {
       "from": "strategy",
       "to": "core",
-      "weight": 19
+      "weight": 21
     },
     {
       "from": "strategy",
@@ -140,12 +140,12 @@
     {
       "from": "strategy",
       "to": "universe",
-      "weight": 4
+      "weight": 5
     },
     {
       "from": "strategy",
       "to": "utils",
-      "weight": 8
+      "weight": 9
     },
     {
       "from": "universe",
@@ -369,6 +369,7 @@
     "risk/ProtectiveOrders.cpp": "risk",
     "risk/ProtectiveRule.cpp": "risk",
     "strategy/DeviationScaleStrategy.cpp": "strategy",
+    "strategy/DevScaleLoader.cpp": "strategy",
     "strategy/DevScaleRules.cpp": "strategy",
     "strategy/FixedIntervalStrategy.cpp": "strategy",
     "strategy/IntradayBreakoutStrategy.cpp": "strategy",
@@ -377,6 +378,7 @@
     "strategy/SeedPeakStore.cpp": "strategy",
     "strategy/StrategyBase.cpp": "strategy",
     "strategy/StrategyFactory.cpp": "strategy",
+    "strategy/StrategyLoadPass.h": "strategy",
     "strategy/TargetBasketPlan.cpp": "strategy",
     "strategy/TargetBasketStrategy.cpp": "strategy",
     "strategy/ValueContraryStrategy.cpp": "strategy",
@@ -1083,6 +1085,19 @@
     "risk/ProtectiveRule.h": [
       "core/Types.h"
     ],
+    "strategy/DevScaleLoader.cpp": [
+      "api/KisClient.h",
+      "core/Engine.h",
+      "core/KstTime.h",
+      "core/UniverseExit.h",
+      "strategy/DevScaleRules.h",
+      "strategy/DeviationScaleStrategy.h",
+      "universe/MarketBoard.h",
+      "universe/ScoreWeight.h",
+      "universe/UniverseScanner.h",
+      "utils/JsonNode.h",
+      "utils/Logger.h"
+    ],
     "strategy/DevScaleRules.cpp": [
       "strategy/DevScaleRules.h"
     ],
@@ -1151,11 +1166,7 @@
     ],
     "strategy/StrategyFactory.cpp": [
       "core/Engine.h",
-      "core/KstTime.h",
       "core/Types.h",
-      "core/UniverseExit.h",
-      "strategy/DevScaleRules.h",
-      "strategy/DeviationScaleStrategy.h",
       "strategy/FixedIntervalStrategy.h",
       "strategy/IntradayBreakoutStrategy.h",
       "strategy/MACrossStrategy.h",
@@ -1163,14 +1174,16 @@
       "strategy/StrategyFactory.h",
       "strategy/TargetBasketStrategy.h",
       "strategy/ValueContraryStrategy.h",
-      "universe/MarketBoard.h",
-      "universe/ScoreWeight.h",
       "universe/UniverseScanner.h",
-      "utils/JsonNode.h",
       "utils/Logger.h"
     ],
     "strategy/StrategyFactory.h": [
       "api/KisClient.h"
+    ],
+    "strategy/StrategyLoadPass.h": [
+      "core/Types.h",
+      "strategy/StrategyBase.h",
+      "strategy/StrategyFactory.h"
     ],
     "strategy/TargetBasketPlan.cpp": [
       "strategy/TargetBasketPlan.h"
@@ -1326,6 +1339,7 @@
       "api/KisWebSocket.h",
       "core/AppConfig.h",
       "core/Engine.h",
+      "strategy/DevScaleLoader.cpp",
       "strategy/DeviationScaleStrategy.h",
       "strategy/StrategyFactory.h",
       "strategy/ValueContraryStrategy.h",
@@ -1413,6 +1427,7 @@
       "core/EngineSymbols.cpp",
       "core/EngineUniverse.cpp",
       "main.cpp",
+      "strategy/DevScaleLoader.cpp",
       "strategy/StrategyFactory.cpp"
     ],
     "core/FeedMux.h": [
@@ -1454,9 +1469,9 @@
       "ipc/OrderRouter.cpp",
       "regime/RegimeFeed.cpp",
       "risk/OrderGate.cpp",
+      "strategy/DevScaleLoader.cpp",
       "strategy/DeviationScaleStrategy.h",
       "strategy/SeedPeakStore.h",
-      "strategy/StrategyFactory.cpp",
       "strategy/TargetBasketStrategy.cpp",
       "universe/MarketBoard.cpp",
       "universe/UniverseCandidates.cpp",
@@ -1644,6 +1659,7 @@
       "strategy/DevScaleRules.h",
       "strategy/StrategyBase.h",
       "strategy/StrategyFactory.cpp",
+      "strategy/StrategyLoadPass.h",
       "strategy/TargetBasketPlan.h",
       "universe/UniverseCandidates.cpp",
       "universe/UniverseFeatures.cpp",
@@ -1656,7 +1672,7 @@
     "core/UniverseExit.h": [
       "core/UniverseExit.cpp",
       "core/UniverseRescan.cpp",
-      "strategy/StrategyFactory.cpp"
+      "strategy/DevScaleLoader.cpp"
     ],
     "core/UniverseRescan.h": [
       "core/Engine.h",
@@ -1827,13 +1843,13 @@
       "strategy/StrategyBase.h"
     ],
     "strategy/DevScaleRules.h": [
+      "strategy/DevScaleLoader.cpp",
       "strategy/DevScaleRules.cpp",
-      "strategy/DeviationScaleStrategy.h",
-      "strategy/StrategyFactory.cpp"
+      "strategy/DeviationScaleStrategy.h"
     ],
     "strategy/DeviationScaleStrategy.h": [
-      "strategy/DeviationScaleStrategy.cpp",
-      "strategy/StrategyFactory.cpp"
+      "strategy/DevScaleLoader.cpp",
+      "strategy/DeviationScaleStrategy.cpp"
     ],
     "strategy/FixedIntervalStrategy.h": [
       "strategy/FixedIntervalStrategy.cpp",
@@ -1866,12 +1882,14 @@
       "strategy/MACrossStrategy.h",
       "strategy/MarketMakingStrategy.h",
       "strategy/StrategyBase.cpp",
+      "strategy/StrategyLoadPass.h",
       "strategy/TargetBasketStrategy.h",
       "strategy/ValueContraryStrategy.h"
     ],
     "strategy/StrategyFactory.h": [
       "main.cpp",
-      "strategy/StrategyFactory.cpp"
+      "strategy/StrategyFactory.cpp",
+      "strategy/StrategyLoadPass.h"
     ],
     "strategy/TargetBasketPlan.h": [
       "strategy/TargetBasketPlan.cpp",
@@ -1897,7 +1915,7 @@
       "universe/UniverseScoring.cpp"
     ],
     "universe/MarketBoard.h": [
-      "strategy/StrategyFactory.cpp",
+      "strategy/DevScaleLoader.cpp",
       "universe/MarketBoard.cpp",
       "universe/UniverseCandidates.cpp",
       "universe/UniverseFeatures.cpp",
@@ -1905,11 +1923,12 @@
       "universe/UniverseScanner.cpp"
     ],
     "universe/ScoreWeight.h": [
-      "strategy/StrategyFactory.cpp",
+      "strategy/DevScaleLoader.cpp",
       "universe/ScoreWeight.cpp",
       "universe/UniverseScanner.h"
     ],
     "universe/UniverseScanner.h": [
+      "strategy/DevScaleLoader.cpp",
       "strategy/StrategyFactory.cpp",
       "universe/UniverseScanner.cpp",
       "universe/detail/Pipeline.h"
@@ -1933,7 +1952,7 @@
     "utils/JsonNode.h": [
       "api/KisOrder.cpp",
       "core/AppConfig.cpp",
-      "strategy/StrategyFactory.cpp",
+      "strategy/DevScaleLoader.cpp",
       "universe/UniverseCandidates.cpp",
       "universe/UniverseFeatures.cpp",
       "universe/UniverseItb.cpp",
@@ -1982,6 +2001,7 @@
       "risk/OrderGate.cpp",
       "risk/PositionLedger.cpp",
       "risk/ProtectiveOrders.h",
+      "strategy/DevScaleLoader.cpp",
       "strategy/DeviationScaleStrategy.h",
       "strategy/FixedIntervalStrategy.h",
       "strategy/IntradayBreakoutStrategy.h",
@@ -2036,11 +2056,11 @@
   "hubs": [
     {
       "header": "utils/Logger.h",
-      "in_degree": 54
+      "in_degree": 55
     },
     {
       "header": "core/Types.h",
-      "in_degree": 48
+      "in_degree": 49
     },
     {
       "header": "core/KstTime.h",
@@ -2056,18 +2076,18 @@
     },
     {
       "header": "core/Engine.h",
-      "in_degree": 16
+      "in_degree": 17
     },
     {
       "header": "core/WakeGate.h",
       "in_degree": 13
     },
     {
-      "header": "core/LatencyTrace.h",
-      "in_degree": 12
+      "header": "strategy/StrategyBase.h",
+      "in_degree": 13
     },
     {
-      "header": "strategy/StrategyBase.h",
+      "header": "core/LatencyTrace.h",
       "in_degree": 12
     },
     {
@@ -2076,7 +2096,7 @@
     },
     {
       "header": "api/KisClient.h",
-      "in_degree": 9
+      "in_degree": 10
     },
     {
       "header": "risk/OrderGate.h",
@@ -3052,7 +3072,7 @@
         "PYQuant/dashboard/backfill_live.py",
         "PYQuant/tests/test_stats.py",
         "Quant/src/ipc/OrderRouter.cpp",
-        "Quant/src/strategy/StrategyFactory.cpp",
+        "Quant/src/strategy/DevScaleLoader.cpp",
         "scripts/backfill_fills_db.py",
         "scripts/check_runtime_health.py",
         "scripts/exit_ev.py",
@@ -3064,7 +3084,7 @@
         "PYQuant/dashboard/backfill_live.py",
         "PYQuant/tests/test_stats.py",
         "Quant/src/ipc/OrderRouter.cpp",
-        "Quant/src/strategy/StrategyFactory.cpp",
+        "Quant/src/strategy/DevScaleLoader.cpp",
         "scripts/_logdir.py",
         "scripts/backfill_fills_db.py",
         "scripts/check_runtime_health.py",
@@ -3086,6 +3106,7 @@
         "PYQuant/tools/full_universe_dump.py",
         "PYQuant/tools/load_injector.py",
         "PYQuant/tools/universe_feed.py",
+        "Quant/src/strategy/DevScaleLoader.cpp",
         "Quant/src/universe/UniverseCandidates.cpp",
         "scripts/exit_ev_dashboard.py",
         "scripts/live_prices_feed.py",
@@ -3101,7 +3122,7 @@
         "Quant/include/universe/MarketBoard.h",
         "Quant/include/universe/UniverseScanner.h",
         "Quant/src/api/KisUniverse.cpp",
-        "Quant/src/strategy/StrategyFactory.cpp",
+        "Quant/src/strategy/DevScaleLoader.cpp",
         "Quant/src/universe/MarketBoard.cpp",
         "Quant/src/universe/UniverseCandidates.cpp",
         "scripts/dashboard_server.py",

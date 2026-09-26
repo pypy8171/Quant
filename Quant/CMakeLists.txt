@@ -208,6 +208,7 @@ set(ENGINE_SOURCES
   src/universe/UniverseScanner.cpp
   src/universe/UniverseScoring.cpp
   src/strategy/StrategyFactory.cpp
+  src/strategy/DevScaleLoader.cpp
   src/core/AppConfig.cpp
   src/core/CommandLine.cpp
   src/core/Engine.cpp

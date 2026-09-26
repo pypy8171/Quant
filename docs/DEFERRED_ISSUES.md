@@ -244,7 +244,7 @@
 
 ### D-22. 세션 창 밖 거부를 OrderRateLimiter가 3회 되쏘고, 슬리브 마감 청산 시각이 게이트 창 밖이어도 경고가 없다
 - 위치: [OrderRateLimiter.cpp:33-37](../Quant/src/core/OrderRateLimiter.cpp#L33-L37) 재시도 판정,
-  [StrategyFactory.cpp:294](../Quant/src/strategy/StrategyFactory.cpp#L294) `market_close_exit_hhmm` 파싱,
+  [DevScaleLoader.cpp:404](../Quant/src/strategy/DevScaleLoader.cpp#L404) `market_close_exit_hhmm` 파싱,
   [OrderGate.cpp:266](../Quant/src/risk/OrderGate.cpp#L266) 창 밖 거부.
 - 현상: 2026-09-18 `risk.after_market=false`(창 09:00~15:30)인데 슬리브 `market_close_exit_hhmm`은 1950이라 마감 청산 238건이
   전부 "세션 창 밖"으로 거부됐고, OrderRateLimiter가 각각 3회 되쏴 재시도 로그 1,641줄·거부 2,188건이 쌓였다.

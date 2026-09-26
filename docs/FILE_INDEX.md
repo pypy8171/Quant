@@ -8,8 +8,8 @@
 
 - [(루트)](#루트) — 11개
 - [.vscode](#vscode) — 4개
-- [PYQuant](#pyquant) — 120개
-- [Quant](#quant) — 343개
+- [PYQuant](#pyquant) — 105개
+- [Quant](#quant) — 336개
 - [docs](#docs) — 132개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 245개
@@ -473,6 +473,7 @@
 
 ### Quant/src/strategy/
 
+- [DevScaleLoader.cpp](../Quant/src/strategy/DevScaleLoader.cpp) — DEVIATION_SCALE 로더 — 설정 읽기·보유분 제외·스캔 유니버스와 재스캔 등록(DevScaleSleeve)
 - [DevScaleRules.cpp](../Quant/src/strategy/DevScaleRules.cpp) — DevScaleRules.h 구현 — DevScale 순수 판정(무장 후 고가 트레일·원장 매수 종목·ATR14·전일 변동성 진입 허용·넘김 상수, D-111)
 - [DeviationScaleStrategy.cpp](../Quant/src/strategy/DeviationScaleStrategy.cpp) — DeviationScaleStrategy.h 구현 — 일봉 정배열+3분봉 이격도 분할매매 전략
 - [FixedIntervalStrategy.cpp](../Quant/src/strategy/FixedIntervalStrategy.cpp) — FixedIntervalStrategy.h 구현 — 고정 종목 주기 매수/매도 테스트용 전략
@@ -482,6 +483,7 @@
 - [SeedPeakStore.cpp](../Quant/src/strategy/SeedPeakStore.cpp) — SeedPeakStore.h 구현 — 청산관리 시드분 당일 고점 재기동 간 보존(D-052)
 - [StrategyBase.cpp](../Quant/src/strategy/StrategyBase.cpp) — StrategyBase.h 구현 — 원장 보유·매도가능 조회, 보호 주문 무장·해제, 종목 비교
 - [StrategyFactory.cpp](../Quant/src/strategy/StrategyFactory.cpp) — 전략 로더 구현 — config 파싱·국면 부착
+- [StrategyLoadPass.h](../Quant/src/strategy/StrategyLoadPass.h) — 전략 로더 파일들이 함께 쓰는 로드 상태(LoadPass)·도우미 선언, 공개 헤더 아님
 - [TargetBasketPlan.cpp](../Quant/src/strategy/TargetBasketPlan.cpp) — 목표 비중표 파싱·검증과 밴드·DROP·liquidate_all 규칙으로 매도/매수 계획을 만든다
 - [TargetBasketStrategy.cpp](../Quant/src/strategy/TargetBasketStrategy.cpp) — 파일 재읽기, 14:40~15:00 매도→매수 레그, 종목:방향 하루 한 번(상태 파일 먼저 쓰기), 남의 틱을 심장박동으로
 - [ValueContraryStrategy.cpp](../Quant/src/strategy/ValueContraryStrategy.cpp) — ValueContraryStrategy.h 구현 — 저PBR 3일 연속 하락 반전 매수 전략
