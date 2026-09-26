@@ -355,10 +355,11 @@ CREATE TABLE IF NOT EXISTS bench_positions (
 -- ── 원장 이벤트 (D-113) ─────────────────────────────────────────────────────
 -- 정본은 엔진이 주문 직전에 적는 파일 ledger_YYYYMMDD.bin이고, 이 테이블은 그 파일을 따라 적는
 -- 복제본이다. 적재기(PYQuant/tools/ledger_recorder.py)가 파일을 꼬리부터 읽어 넣는다.
--- 같은 줄을 두 번 넣어도 원장이 부풀지 않도록 (trade_date, seq)가 PK다 — seq는 파일 안에서만
--- 증가하므로 날짜를 같이 잡아야 유일해진다.
+-- 같은 줄을 두 번 넣어도 원장이 부풀지 않도록 (trade_date, journal, seq)가 PK다 — seq는 파일 안에서만
+-- 증가하므로 날짜를 같이 잡아야 하고, 모의·실계좌가 같은 날 돌면 파일 이름까지 겹치므로 저널 폴더도 잡는다.
 CREATE TABLE IF NOT EXISTS ledger_events (
     trade_date   DATE          NOT NULL,   -- 저널 파일 헤더의 YYYYMMDD
+    journal      TEXT          NOT NULL DEFAULT '',   -- 저널이 있는 폴더 이름(logs_paper·logs_live), 이 열 전 행은 ''
     seq          BIGINT        NOT NULL,   -- 파일 안 1부터 증가
     ts           TIMESTAMPTZ   NOT NULL,   -- 엔진이 그 줄을 적은 시각
     kind         TEXT          NOT NULL,   -- SEED/INTENT/ACCEPT/REJECT/FILL/CANCEL/ADJUST/RESET_RESERVED/CASH/DAILY_PNL/RESET_DAY
@@ -377,15 +378,30 @@ CREATE TABLE IF NOT EXISTS ledger_events (
     pnl          NUMERIC(18,4),
     strategy     TEXT,
     reason       TEXT,
-    PRIMARY KEY (trade_date, seq)
+    commission   NUMERIC(18,4),            -- FILL — 이번 체결 수수료(저널 FillDetail, 옛 파일은 NULL)
+    tax          NUMERIC(18,4),            -- FILL — 이번 체결 거래세
+    avg_price    NUMERIC(18,4),            -- FILL — 체결 뒤 평단
+    net_qty      INTEGER,                  -- FILL — 체결 뒤 보유수량
+    PRIMARY KEY (trade_date, journal, seq)
 );
 CREATE INDEX IF NOT EXISTS ledger_events_ts        ON ledger_events (ts DESC);
 CREATE INDEX IF NOT EXISTS ledger_events_ticker_ts ON ledger_events (ticker, ts DESC);
 CREATE INDEX IF NOT EXISTS ledger_events_order     ON ledger_events (trade_date, order_id);
 
+-- fills·orders·positions는 적재기가 ledger_events에서 옮겨 채운다(DbClient.mirror_ledger_range).
+-- 어느 저널 레코드에서 온 행인지를 적어, 같은 구간을 다시 옮겨도 두 번 들어가지 않게 한다.
+ALTER TABLE fills  ADD COLUMN IF NOT EXISTS journal      TEXT;
+ALTER TABLE fills  ADD COLUMN IF NOT EXISTS journal_date DATE;
+ALTER TABLE fills  ADD COLUMN IF NOT EXISTS journal_seq  BIGINT;
+CREATE UNIQUE INDEX IF NOT EXISTS fills_journal  ON fills  (journal, journal_date, journal_seq, ts);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS journal      TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS journal_date DATE;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS journal_seq  BIGINT;
+CREATE UNIQUE INDEX IF NOT EXISTS orders_journal ON orders (journal, journal_date, journal_seq, ts);
+
 -- 적재기가 어디까지 읽었는지 — 파일 바이트 위치. 내렸다 올리면 여기서부터 이어 읽는다.
 CREATE TABLE IF NOT EXISTS ledger_offsets (
-    journal_file TEXT          PRIMARY KEY,   -- 파일 이름만(경로 제외) — 기계를 옮겨도 이어진다
+    journal_file TEXT          PRIMARY KEY,   -- '<저널 폴더>/<파일 이름>'(예 logs_paper/ledger_20260926.bin) — 기계를 옮겨도 이어진다
     trade_date   DATE          NOT NULL,
     byte_offset  BIGINT        NOT NULL DEFAULT 0,
     last_sequence BIGINT       NOT NULL DEFAULT 0,

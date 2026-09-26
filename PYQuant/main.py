@@ -313,8 +313,8 @@ def cmd_record(args):
     # 엔진이 아닌 것이 같은 포트를 물 수 있다. Engine 을 그대로 띄우는 테스트·부하 하네스(test_engine·
     #  bench_engine_load)도 setup_zmq_bridge 로 127.0.0.1:5555 에 bind 하는데, 트레이더가 WSL 안에 있으면
     #  Windows 쪽 bind 가 생기는 순간 이 리코더가 그쪽을 잡는다 — 09-22 장중에 합성 주문 46건·체결 51건이
-    #  운영 표에 들어갔다. 주문·체결 메시지에는 계좌번호가 실려 오므로(ZmqBridge::publish_order/publish_fill)
-    #  기대한 계좌가 아니면 버린다. 원장이 걸린 두 표만이라도 남의 데이터를 안 받게 하는 방어다.
+    #  운영 표에 들어갔다. 신호·틱 메시지에는 계좌번호가 실려 오므로(ZmqBridge::publish_signal·format_trade)
+    #  기대한 계좌가 아니면 버린다. 주문·체결은 이제 저널에서 옮겨 이 길을 타지 않는다.
     expected_account = (args.account or "").strip()
     rejected_accounts: set[str] = set()
 
@@ -335,29 +335,13 @@ def cmd_record(args):
 
         return False
 
-    def store_positions(batch: list[dict]):
-        # 종목·계좌마다 마지막 것 하나만 올린다. positions 는 누적이 아니라 그때의 잔고를 통째로 덮어쓰는
-        #  표라(upsert_position) 묶음 안의 중간 상태를 다 올릴 필요가 없다 — 같은 종목이 한 묶음에 여러 번
-        #  들어와도 DB 왕복은 한 번이다. 파이썬 dict 는 넣은 순서를 지키므로 마지막 대입이 마지막 체결이다.
-        latest: dict[tuple[str, str], dict] = {}
-
-        for record in batch:
-            latest[(str(record.get("account", "unknown")), record["ticker"])] = record
-
-        for (account, ticker), record in latest.items():
-            db.upsert_position(ticker, record["net_qty"], record["avg_price"],
-                               record.get("realized_pnl", 0.0), account=account)
-
     # 체결 틱은 리플레이 입력이 아니라(그건 엔진의 .bin 캡처가 맡는다) 그라파나 "피드 지연"·"초당 틱 유입"
-    #  패널의 재료다. 신호·주문·체결도 같은 이유로 모아서 넣는다 — 건마다 넣으면 커밋이 건마다고 로그도
+    #  패널의 재료다. 신호도 같은 이유로 모아서 넣는다 — 건마다 넣으면 커밋이 건마다고 로그도
     #  건마다라, 넣는 쪽이 엔진이 내보내는 속도를 못 따라가면 ZMQ 가 조용히 버린다. flush 조건은 건수·시간
     #  둘 다이고, 조용한 구간은 아래 on_idle 이 비운다.
     tick_buffer = RecordBuffer("TRADE ", db.insert_trade_batch, TICK_FLUSH_ROWS, TICK_FLUSH_SECONDS)
     signal_buffer = RecordBuffer("SIGNAL", db.insert_signal_batch, LEDGER_FLUSH_ROWS, LEDGER_FLUSH_SECONDS)
-    order_buffer = RecordBuffer("ORDER ", db.insert_order_batch, LEDGER_FLUSH_ROWS, LEDGER_FLUSH_SECONDS)
-    fill_buffer = RecordBuffer("FILL  ", db.insert_fill_batch, LEDGER_FLUSH_ROWS, LEDGER_FLUSH_SECONDS,
-                               on_stored=store_positions)
-    buffers = (tick_buffer, signal_buffer, order_buffer, fill_buffer)
+    buffers = (tick_buffer, signal_buffer)
 
     def flush_all(force: bool = False):
         for buffer in buffers:
@@ -381,9 +365,9 @@ def cmd_record(args):
     if args.record_ticks:
         monitor.on_trade = lambda d: is_our_account(d) and tick_buffer.append(d)
     monitor.on_signal = lambda d: is_our_account(d) and signal_buffer.append(d)
-    monitor.on_order  = lambda d: is_our_account(d) and order_buffer.append(d)
     monitor.on_health = _rec_health
-    monitor.on_fill   = lambda d: is_our_account(d) and fill_buffer.append(d)
+    # 주문·체결·보유(orders·fills·positions)는 여기서 넣지 않는다 — 원장 저널 적재기(PYQuant/tools/ledger_recorder.py)가
+    #  엔진이 주문 전에 적는 파일에서 옮긴다. 이 길은 적재기가 죽어 있거나 ZMQ 대기칸이 차면 조용히 빠졌다. [why D-113]
     # 받을 것이 없는 1초마다 비운다 — 이게 없으면 장 끝 무렵의 마지막 몇 건이 다음 HEALTH(30초)까지 잠긴다.
     monitor.on_idle = flush_all
 

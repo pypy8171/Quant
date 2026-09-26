@@ -17,6 +17,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <iostream>
 #include <string>
@@ -150,6 +151,22 @@ void test_journal_replay_rebuilds_ledger()
     assert(restarted.available_cash() > 4499999.0 && restarted.available_cash() < 4500001.0);
     assert(restarted.equity() > 9899999.0 && restarted.equity() < 9900001.0);
     assert(restarted.journal_failures() == 0);
+
+    // FILL은 DB 적재기용으로 체결 결과(수수료·세금·평단·보유)를 reason 칸에 싣는다.
+    ledger_journal::FillDetail detail;
+    ledger_journal::LedgerJournal::replay(restarted.journal_path(),
+                                          [&](const ledger_journal::Record& record)
+                                          {
+                                              if (record.kind == static_cast<uint16_t>(ledger_journal::Kind::FILL))
+                                              {
+                                                  std::memcpy(&detail, record.reason, sizeof(detail));
+                                              }
+                                          });
+    assert(detail.present == 1);
+    assert(detail.net_quantity == 13);
+    assert(detail.average_price > 70229.0 && detail.average_price < 70232.0);
+    assert(detail.commission > 31.94 && detail.commission < 31.96); // 3 * 71000 * 0.015%
+    assert(detail.tax == 0.0);                                       // 매수는 거래세 없음
 
     // 미결 주문 — 5주 중 3주만 체결돼 결말을 못 본 주문 하나가 남는다(거부된 000660은 닫혔다).
     const auto intents = restarted.open_intents();

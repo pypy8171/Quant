@@ -12,6 +12,12 @@ void put_string(char* destination, size_t capacity, std::string_view text) noexc
     destination[count] = '\0';
 }
 
+void put_fill_detail(Record& record, const FillDetail& detail) noexcept
+{
+    std::memset(record.reason, 0, sizeof(record.reason));
+    std::memcpy(record.reason, &detail, sizeof(detail));
+}
+
 std::FILE* open_journal_file(const std::filesystem::path& file, const char* mode)
 {
 #ifdef _WIN32

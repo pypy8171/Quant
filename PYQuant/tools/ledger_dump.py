@@ -40,6 +40,8 @@ HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
 RECORD_FORMAT = "<QqQQHBBiiidddd16s12s24s48sIII"
 RECORD_SIZE = struct.calcsize(RECORD_FORMAT)
 assert HEADER_SIZE == 16 and RECORD_SIZE == 192, (HEADER_SIZE, RECORD_SIZE)
+# FILL은 reason 칸에 체결 결과를 싣는다 — LedgerJournal.h의 FillDetail과 한 벌(수수료·세금·평단·보유·present).
+FILL_DETAIL_FORMAT = "<dddiI"
 
 KIND_NAMES = {1: "SEED", 2: "INTENT", 3: "ACCEPT", 4: "REJECT", 5: "FILL",
               6: "CANCEL", 7: "ADJUST", 8: "RESET_RESERVED", 9: "CASH", 10: "DAILY_PNL",
@@ -70,6 +72,12 @@ class Record(NamedTuple):
     strategy: str
     reason: str
     reserved_sell: int = 0  # 미체결 매도 선점. ADJUST만 싣는다(레코드 빈 칸, 옛 파일은 0)
+    # FILL만 싣는 체결 결과. fill_detail이 거짓이면 이 칸이 생기기 전 파일이라 네 값을 모른다.
+    fill_detail: bool = False
+    commission: float = 0.0
+    tax: float = 0.0
+    average_price: float = 0.0
+    net_quantity: int = 0
 
     @property
     def wall_time(self) -> dt.datetime:
@@ -118,13 +126,24 @@ def read_records(path: Path, start_offset: int = 0) -> ReadResult:
             break
 
         fields = struct.unpack(RECORD_FORMAT, chunk)
+        kind = KIND_NAMES.get(fields[4], str(fields[4]))
+        reason, detail = _text(fields[17]), {}
+
+        if kind == "FILL":
+            commission, tax, average_price, net_quantity, present = struct.unpack_from(FILL_DETAIL_FORMAT, fields[17])
+            reason = ""  # FILL의 reason 칸은 글자가 아니라 FillDetail이다
+
+            if present == 1:
+                detail = dict(fill_detail=True, commission=commission, tax=tax,
+                              average_price=average_price, net_quantity=net_quantity)
+
         records.append(Record(
             sequence=fields[0], wall_us=fields[1], order_id=fields[2], kis_order_number=fields[3],
-            kind=KIND_NAMES.get(fields[4], str(fields[4])), side=SIDE_NAMES.get(fields[5], str(fields[5])),
+            kind=kind, side=SIDE_NAMES.get(fields[5], str(fields[5])),
             order_type=TYPE_NAMES.get(fields[6], str(fields[6])), quantity=fields[7],
             reserved_quantity=fields[8], sellable=fields[9], price=fields[10], cash=fields[11],
             equity=fields[12], pnl=fields[13], account=_text(fields[14]), ticker=_text(fields[15]),
-            strategy=_text(fields[16]), reason=_text(fields[17]), reserved_sell=fields[19]))
+            strategy=_text(fields[16]), reason=reason, reserved_sell=fields[19], **detail))
         offset += RECORD_SIZE
 
     # 남은 바이트가 레코드 하나가 안 되면 쓰다 만 꼬리다.

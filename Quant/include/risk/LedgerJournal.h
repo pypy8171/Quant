@@ -94,7 +94,7 @@ struct Record
     char     account[kAccountMax]   = {};
     char     ticker[kTickerMax]     = {};
     char     strategy[kStrategyMax] = {};
-    char     reason[kReasonMax]     = {}; // REJECT 사유, ADJUST 어느 대조가 맞췄는지
+    char     reason[kReasonMax]     = {}; // REJECT 사유, ADJUST 어느 대조가 맞췄는지, FILL은 FillDetail(put_fill_detail)
     uint32_t reserved0 = 0;
     // ADJUST — 맞춘 뒤 매도 선점. 순값만으로는 매수·매도가 같이 걸린 종목을 되살리지 못해 따로 적는다.
     //  이 칸이 빈 칸(reserved1)이던 때 쓴 파일은 0이 들어 있어, 리플레이는 순값의 음수를 매도로 읽는다.
@@ -105,6 +105,23 @@ struct Record
 static_assert(sizeof(Record) == 192, "레코드 크기가 바뀌면 kVersion을 올리고 ledger_dump.py의 struct 포맷을 같이 고친다");
 
 void put_string(char* destination, size_t capacity, std::string_view text) noexcept;
+
+// FILL이 원장에 준 결과 — DB 적재기가 fills·positions 표를 이 파일만으로 채우려고 싣는다. FILL은 reason을 쓰지
+//  않아 그 48바이트에 이 구조를 그대로 복사한다. 리플레이는 읽지 않는다(원장은 체결가·수량으로 다시 계산한다).
+//  present가 0이면 이 칸이 생기기 전 파일이다 — 0 평단·0 수수료와 구분하려고 둔다. [why D-113]
+struct FillDetail
+{
+    double   commission    = 0.0; // 이번 체결 수수료(원)
+    double   tax           = 0.0; // 이번 체결 거래세(원, 매도만)
+    double   average_price = 0.0; // 체결 뒤 평단
+    int32_t  net_quantity  = 0;   // 체결 뒤 보유수량
+    uint32_t present       = 0;   // 1 = 이 구조가 채워져 있다
+};
+
+static_assert(sizeof(FillDetail) <= kReasonMax && std::is_trivially_copyable_v<FillDetail>,
+              "FillDetail은 reason 칸에 그대로 복사된다 — ledger_dump.py의 FILL_DETAIL_FORMAT도 같이 고친다");
+
+void put_fill_detail(Record& record, const FillDetail& detail) noexcept;
 
 // path::string()은 와이드 경로를 프로세스 코드페이지로 되돌린다 — 사용자 폴더 이름에 한글이 들어 있으면
 //  매핑이 없어 예외를 던지고, 저널을 못 열면 엔진이 기동을 거부한다. Windows에서는 와이드 그대로 연다. [why D-113]

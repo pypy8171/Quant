@@ -602,6 +602,31 @@ class DbClient:
             " journal_file TEXT PRIMARY KEY, trade_date DATE NOT NULL,"
             " byte_offset BIGINT NOT NULL DEFAULT 0, last_sequence BIGINT NOT NULL DEFAULT 0,"
             " updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())",
+            # FILL이 싣는 체결 결과(LedgerJournal.h FillDetail). 이 칸이 생기기 전 파일의 FILL은 NULL이다.
+            "ALTER TABLE ledger_events ADD COLUMN IF NOT EXISTS commission NUMERIC(18,4)",
+            "ALTER TABLE ledger_events ADD COLUMN IF NOT EXISTS tax NUMERIC(18,4)",
+            "ALTER TABLE ledger_events ADD COLUMN IF NOT EXISTS avg_price NUMERIC(18,4)",
+            "ALTER TABLE ledger_events ADD COLUMN IF NOT EXISTS net_qty INTEGER",
+            # 어느 저널에서 온 레코드인지 — 저널이 있는 폴더 이름(logs_paper·logs_live). 모의·실계좌가 같은 날 돌면
+            #  파일 이름(ledger_YYYYMMDD.bin)과 seq가 둘 다 겹쳐, (거래일, seq)만으로는 뒤에 온 계좌의 레코드가
+            #  조용히 빠졌다(09-23에 두 파일이 같이 있었다). 이 열이 생기기 전 행은 ''다.
+            "ALTER TABLE ledger_events ADD COLUMN IF NOT EXISTS journal TEXT NOT NULL DEFAULT ''",
+            "DO $$ BEGIN"
+            " IF NOT EXISTS (SELECT 1 FROM pg_index WHERE indrelid = 'ledger_events'::regclass"
+            "  AND indisprimary AND indnatts = 3) THEN"
+            "  ALTER TABLE ledger_events DROP CONSTRAINT IF EXISTS ledger_events_pkey;"
+            "  ALTER TABLE ledger_events ADD PRIMARY KEY (trade_date, journal, seq);"
+            " END IF; END $$",
+            # fills·orders 행이 저널의 어느 레코드에서 왔는지. 같은 구간을 다시 옮겨도 두 번 들어가지 않게 하는
+            #  열이다 — 하이퍼테이블의 고유 색인은 시간 열을 품어야 해서 ts를 같이 건다.
+            "ALTER TABLE fills ADD COLUMN IF NOT EXISTS journal TEXT",
+            "ALTER TABLE fills ADD COLUMN IF NOT EXISTS journal_date DATE",
+            "ALTER TABLE fills ADD COLUMN IF NOT EXISTS journal_seq BIGINT",
+            "CREATE UNIQUE INDEX IF NOT EXISTS fills_journal ON fills (journal, journal_date, journal_seq, ts)",
+            "ALTER TABLE orders ADD COLUMN IF NOT EXISTS journal TEXT",
+            "ALTER TABLE orders ADD COLUMN IF NOT EXISTS journal_date DATE",
+            "ALTER TABLE orders ADD COLUMN IF NOT EXISTS journal_seq BIGINT",
+            "CREATE UNIQUE INDEX IF NOT EXISTS orders_journal ON orders (journal, journal_date, journal_seq, ts)",
         ]
         try:
             with self._conn.cursor() as cursor:
@@ -611,9 +636,9 @@ class DbClient:
             logger.error(f"ensure_ledger_tables 실패: {error}")
 
     def insert_ledger_events(self, rows: list[tuple]) -> int:
-        """원장 레코드를 한 번에 넣는다. 이미 있는 (trade_date, seq)는 조용히 건너뛴다.
+        """원장 레코드를 한 번에 넣는다. 이미 있는 (trade_date, journal, seq)는 조용히 건너뛴다.
 
-        rows 원소는 ledger_recorder가 만드는 19개 값 튜플이다. 같은 파일을 두 번 읽어도
+        rows 원소는 ledger_recorder가 만드는 24개 값 튜플이다. 같은 파일을 두 번 읽어도
         원장이 부풀지 않는 것이 이 함수의 유일한 약속 — 멱등 키가 PK다.
         """
         if not rows:
@@ -622,16 +647,75 @@ class DbClient:
             with self._timed_write("ledger_events", len(rows)), self._conn.cursor() as cursor:
                 cursor.executemany(
                     "INSERT INTO ledger_events"
-                    "(trade_date,seq,ts,kind,account,ticker,side,order_type,order_id,odno,"
-                    " quantity,reserved_qty,sellable,price,cash,equity,pnl,strategy,reason)"
-                    " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
-                    " ON CONFLICT (trade_date, seq) DO NOTHING",
+                    "(trade_date,journal,seq,ts,kind,account,ticker,side,order_type,order_id,odno,"
+                    " quantity,reserved_qty,sellable,price,cash,equity,pnl,strategy,reason,"
+                    " commission,tax,avg_price,net_qty)"
+                    " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
+                    " ON CONFLICT (trade_date, journal, seq) DO NOTHING",
                     rows,
                 )
             return len(rows)
         except Exception as error:
             logger.error(f"insert_ledger_events 실패 ({len(rows)}건): {error}")
             return 0
+
+    # 저널에서 옮기는 세 표. 원천은 방금 넣은 ledger_events의 (거래일, 저널, seq) 구간이고, 옮기는 일은 SQL 안에서
+    #  끝난다 — 주문의 가격은 접수 레코드에 없어 같은 주문의 INTENT에서 가져와야 하는데, 그 INTENT가 앞
+    #  회차에 읽혔을 수 있어 파이썬이 들고 있는 묶음만으로는 모자란다. 셋 다 같은 구간을 다시 돌려도 결과가
+    #  같다(fills·orders는 journal 고유 색인, positions는 덮어쓰기). 주문번호는 KIS가 주는 10자리 0 채움으로 되돌린다
+    #  (저널은 정수로 적는다) — csv·체결통보와 같은 글자여야 odno로 이어 볼 수 있다. [why D-113]
+    _MIRROR_FILLS = (
+        "INSERT INTO fills(ts,odno,ticker,side,filled_qty,filled_price,commission,tax,market,strategy,account,"
+        " journal,journal_date,journal_seq)"
+        " SELECT ts, lpad(odno::text, 10, '0'), ticker, side, quantity, price, commission, tax, 'KR', strategy, account,"
+        "  journal, trade_date, seq"
+        " FROM ledger_events WHERE trade_date = %(day)s AND journal = %(journal)s"
+        "  AND seq > %(after)s AND seq <= %(through)s AND kind = 'FILL'"
+        " ON CONFLICT (journal, journal_date, journal_seq, ts) DO NOTHING")
+    _MIRROR_ORDERS = (
+        "INSERT INTO orders(ts,ticker,side,qty,price,ok,market,account,journal,journal_date,journal_seq)"
+        " SELECT result.ts, result.ticker, result.side, result.quantity, intent.price,"
+        "  result.kind = 'ACCEPT', 'KR', result.account, result.journal, result.trade_date, result.seq"
+        " FROM ledger_events result"
+        " LEFT JOIN ledger_events intent ON intent.trade_date = result.trade_date"
+        "  AND intent.journal = result.journal AND intent.order_id = result.order_id AND intent.kind = 'INTENT'"
+        " WHERE result.trade_date = %(day)s AND result.journal = %(journal)s"
+        "  AND result.seq > %(after)s AND result.seq <= %(through)s AND result.kind IN ('ACCEPT', 'REJECT')"
+        " ON CONFLICT (journal, journal_date, journal_seq, ts) DO NOTHING")
+    # 구간 안에서 보유를 바꾼 종목마다 마지막 상태 하나를 올린다. SEED·ADJUST(잔고 대조)도 보유를 바꾸므로
+    #  같이 본다. 실현손익은 그날 그 종목 FILL의 합이다. 체결 결과가 없는 옛 FILL은 건너뛴다.
+    _MIRROR_POSITIONS = (
+        "INSERT INTO positions(account,ticker,quantity,avg_price,realized_pnl,updated_at)"
+        " SELECT latest.account, latest.ticker, latest.quantity, latest.avg_price,"
+        "  COALESCE((SELECT SUM(pnl) FROM ledger_events day_fill WHERE day_fill.trade_date = %(day)s"
+        "   AND day_fill.journal = %(journal)s AND day_fill.kind = 'FILL' AND day_fill.account = latest.account"
+        "   AND day_fill.ticker = latest.ticker), 0), NOW()"
+        " FROM (SELECT DISTINCT ON (account, ticker) account, ticker,"
+        "   CASE WHEN kind = 'FILL' THEN net_qty ELSE quantity END AS quantity,"
+        "   CASE WHEN kind = 'FILL' THEN avg_price ELSE price END AS avg_price"
+        "  FROM ledger_events"
+        "  WHERE trade_date = %(day)s AND journal = %(journal)s AND seq > %(after)s AND seq <= %(through)s"
+        "   AND account IS NOT NULL AND ticker IS NOT NULL"
+        "   AND (kind IN ('SEED', 'ADJUST') OR (kind = 'FILL' AND net_qty IS NOT NULL))"
+        "  ORDER BY account, ticker, seq DESC) latest"
+        " ON CONFLICT (account, ticker) DO UPDATE SET"
+        "  quantity = EXCLUDED.quantity, avg_price = EXCLUDED.avg_price,"
+        "  realized_pnl = EXCLUDED.realized_pnl, updated_at = NOW()")
+
+    def mirror_ledger_range(self, journal: str, trade_date, after_sequence: int, through_sequence: int) -> bool:
+        """ledger_events에서 그 저널의 (after, through] 구간을 fills·orders·positions로 옮긴다. 실패하면 False —
+        부른 쪽은 읽은 위치를 옮기지 않아 다음 회차가 같은 구간을 다시 옮긴다."""
+        parameters = {"journal": journal, "day": trade_date, "after": after_sequence, "through": through_sequence}
+
+        try:
+            with self._timed_write("ledger_mirror"), self._conn.cursor() as cursor:
+                for statement in (self._MIRROR_FILLS, self._MIRROR_ORDERS, self._MIRROR_POSITIONS):
+                    cursor.execute(statement, parameters)
+
+            return True
+        except Exception as error:
+            logger.error(f"mirror_ledger_range 실패 ({journal} {trade_date} seq {after_sequence}~{through_sequence}): {error}")
+            return False
 
     def get_ledger_offset(self, journal_file: str) -> tuple[int, int]:
         """(바이트 위치, 마지막 seq). 처음 보는 파일이면 (0, 0)."""

@@ -6,8 +6,14 @@
 올라오면 안 읽은 구간부터 이어 읽어 따라잡는다. ZMQ 구독(main.py record)과 달리 죽어 있는
 동안의 이벤트가 사라지지 않는 것이 이 방식의 이유다.
 
-멱등: 읽은 바이트 위치를 DB(ledger_offsets)에 두고, 레코드는 (거래일, seq)를 PK로 넣는다.
+멱등: 읽은 바이트 위치를 DB(ledger_offsets)에 두고, 레코드는 (거래일, 저널, seq)를 PK로 넣는다.
+저널은 파일이 있는 폴더 이름(logs_paper·logs_live)이다 — 모의·실계좌가 같은 날 돌면 파일 이름과 seq가
+둘 다 겹친다.
 같은 파일을 처음부터 다시 읽혀도 원장이 부풀지 않는다(--from-start 가 그 용도).
+
+대시보드·리포트가 보는 fills·orders·positions도 여기서 채운다(DbClient.mirror_ledger_range). 예전에는
+ZMQ 적재기가 체결·주문 메시지를 받아 넣었는데, 그 길은 적재기가 죽어 있거나 ZMQ 대기칸이 차면 조용히
+빠진다. 저널은 엔진이 주문 전에 적는 정본이라 여기서 옮기면 빠지는 건이 없다.
 
 사용:
     py PYQuant/tools/ledger_recorder.py --dir Quant/build_win/logs          # 오늘 파일을 따라간다
@@ -34,25 +40,29 @@ logger = setup_logger("quant.ledger")
 
 KST = dt.timezone(dt.timedelta(hours=9))
 
-# FILL 한 건을 기존 fills 원장에도 넣을지 — 대시보드·리포트가 그 테이블을 본다.
-#  체결통보를 받은 ZMQ 적재기와 같은 행이 들어가므로 odno가 겹치면 그쪽이 이미 넣은 것이다.
-FILL_KINDS = ("FILL",)
-
-
 def journal_for_today(directory: Path, date: dt.date | None = None) -> Path:
     day = date or dt.datetime.now(KST).date()
     return directory / f"ledger_{day:%Y%m%d}.bin"
 
 
-def to_row(record: Record, trade_date: dt.date) -> tuple:
-    """레코드 → ledger_events 한 행. 컬럼 순서는 DbClient.insert_ledger_events와 한 벌."""
+def journal_of(path: Path) -> str:
+    """저널을 가르는 이름 — 파일이 있는 폴더 이름. 계좌마다 config의 ledger_journal_dir이 다르다."""
+    return path.parent.name
+
+
+def to_row(record: Record, trade_date: dt.date, journal: str) -> tuple:
+    """레코드 → ledger_events 한 행. 컬럼 순서는 DbClient.insert_ledger_events와 한 벌.
+    체결 결과 네 칸은 FILL이면서 그 칸이 있는 파일일 때만 채운다 — 나머지는 NULL(모름)이다."""
+    detail = ((record.commission, record.tax, record.average_price, record.net_quantity)
+              if record.fill_detail else (None, None, None, None))
     return (
-        trade_date, record.sequence, record.wall_time, record.kind,
+        trade_date, journal, record.sequence, record.wall_time, record.kind,
         record.account or None, record.ticker or None, record.side, record.order_type,
         record.order_id or None, record.kis_order_number or None,
         record.quantity, record.reserved_quantity, record.sellable,
         record.price, record.cash, record.equity, record.pnl,
         record.strategy or None, record.reason or None,
+        *detail,
     )
 
 
@@ -61,14 +71,16 @@ def catch_up(database, path: Path, from_start: bool = False) -> tuple[int, bool]
     if not path.exists():
         return (0, False)
 
-    start_offset, _ = (0, 0) if from_start else database.get_ledger_offset(path.name)
+    journal = journal_of(path)
+    offset_key = f"{journal}/{path.name}"
+    start_offset, last_sequence = (0, 0) if from_start else database.get_ledger_offset(offset_key)
     result = read_records(path, start_offset)
 
     if not result.records:
         return (0, result.truncated)
 
     trade_date = dt.datetime.strptime(str(result.header_date), "%Y%m%d").date()
-    rows = [to_row(record, trade_date) for record in result.records]
+    rows = [to_row(record, trade_date, journal) for record in result.records]
     inserted = database.insert_ledger_events(rows)
 
     if inserted == 0:
@@ -76,33 +88,15 @@ def catch_up(database, path: Path, from_start: bool = False) -> tuple[int, bool]
         logger.error(f"원장 적재 실패 — 위치 유지 ({path.name} {len(rows)}건)")
         return (0, result.truncated)
 
-    database.set_ledger_offset(path.name, trade_date, result.offset, result.records[-1].sequence)
+    through_sequence = result.records[-1].sequence
+
+    # 옮기기가 실패해도 위치를 옮기지 않는다. 다시 읽은 레코드는 PK가, 다시 옮긴 행은 journal 고유 색인이 막는다.
+    if not database.mirror_ledger_range(journal, trade_date, last_sequence, through_sequence):
+        logger.error(f"fills·orders·positions 옮기기 실패 — 위치 유지 ({path.name} seq {last_sequence}~{through_sequence})")
+        return (0, result.truncated)
+
+    database.set_ledger_offset(offset_key, trade_date, result.offset, through_sequence)
     return (inserted, result.truncated)
-
-
-def mirror_fills(database, path: Path, trade_date: dt.date) -> int:
-    """FILL 레코드를 기존 fills 원장에도 넣는다(대시보드 호환). 이미 있는 체결은 건너뛴다."""
-    result = read_records(path)
-    count = 0
-
-    for record in result.records:
-        if record.kind not in FILL_KINDS or not record.kis_order_number:
-            continue
-
-        database.insert_fill({
-            "ts": record.wall_time,
-            "odno": str(record.kis_order_number),
-            "ticker": record.ticker,
-            "side": record.side,
-            "filled_qty": record.quantity,
-            "filled_price": record.price,
-            "strategy": record.strategy or None,
-            "account": record.account or None,
-        })
-        count += 1
-
-    logger.info(f"fills 거울 적재 {count}건 ({trade_date})")
-    return count
 
 
 def main() -> int:
@@ -113,7 +107,6 @@ def main() -> int:
     parser.add_argument("--interval", type=float, default=2.0, help="따라가는 주기(초)")
     parser.add_argument("--once", action="store_true", help="한 번 따라잡고 끝낸다")
     parser.add_argument("--from-start", action="store_true", help="저장된 위치를 무시하고 처음부터")
-    parser.add_argument("--mirror-fills", action="store_true", help="FILL을 fills 테이블에도 넣는다")
     arguments = parser.parse_args()
 
     from db.client import DbClient
@@ -155,10 +148,6 @@ def main() -> int:
                 break
 
             time.sleep(arguments.interval)
-
-        if arguments.mirror_fills:
-            trade_date = dt.datetime.now(KST).date()
-            mirror_fills(database, path, trade_date)
     except KeyboardInterrupt:
         logger.info(f"중단 — 누계 {total}건")
     finally:

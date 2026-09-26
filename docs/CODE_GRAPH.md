@@ -855,17 +855,16 @@ graph LR
   p_PYQuant_strategy -->|6| p_PYQuant_kis
   p_PYQuant_tests -->|6| p_PYQuant_backtest
   p_PYQuant_tests -->|3| p_PYQuant_data
-  p_PYQuant_tests -->|2| p_PYQuant_db
   p_PYQuant_tests --> p_PYQuant_exit_ev
   p_PYQuant_tests --> p_PYQuant_features
   p_PYQuant_tests -->|3| p_PYQuant_kis
   p_PYQuant_tests -->|4| p_PYQuant_strategy
-  p_PYQuant_tools -->|6| p_PYQuant
+  p_PYQuant_tools -->|5| p_PYQuant
   p_PYQuant_tools --> p_PYQuant__logdir
   p_PYQuant_tools --> p_PYQuant_backtest
   p_PYQuant_tools -->|2| p_PYQuant_core
   p_PYQuant_tools -->|7| p_PYQuant_data
-  p_PYQuant_tools -->|3| p_PYQuant_db
+  p_PYQuant_tools -->|2| p_PYQuant_db
   p_PYQuant_tools --> p_PYQuant_features
   p_PYQuant_tools -->|10| p_PYQuant_kis
   p_PYQuant_tools --> p_PYQuant_naver
@@ -910,7 +909,6 @@ graph LR
 | `PYQuant/tests/test_adjust_splits.py` | `data.datagokr_source` |
 | `PYQuant/tests/test_backtest_engine.py` | `backtest.engine`, `data.krx_source`, `kis.client`, `strategy.supply_demand_rank`, `strategy.value_contrary` |
 | `PYQuant/tests/test_costs_golden.py` | `backtest.costs`, `backtest.ledger` |
-| `PYQuant/tests/test_db_client.py` | `db`, `db.client` |
 | `PYQuant/tests/test_indicators.py` | `kis.client`, `strategy.indicators` |
 | `PYQuant/tests/test_metrics.py` | `backtest.metrics` |
 | `PYQuant/tests/test_point_in_time.py` | `data.point_in_time` |
@@ -919,7 +917,6 @@ graph LR
 | `PYQuant/tests/test_stats.py` | `backtest`, `exit_ev` |
 | `PYQuant/tests/test_strategy_a.py` | `kis.client`, `strategy.strategy_a` |
 | `PYQuant/tools/bench_market_open.py` | `core.logger`, `db.client` |
-| `PYQuant/tools/bench_recorder.py` | `db.client`, `main` |
 | `PYQuant/tools/check_adjusted.py` | `data.datagokr_source` |
 | `PYQuant/tools/check_datagokr.py` | `data.datagokr_source` |
 | `PYQuant/tools/check_investor_api.py` | `kis.client` |

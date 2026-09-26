@@ -961,6 +961,11 @@ PositionLedger::FillResult PositionLedger::on_fill_confirmed(
         record.price                  = price;
         record.pnl                    = result.realized_pnl;
         ledger_journal::put_string(record.strategy, sizeof(record.strategy), strategies_.name(strategy).view());
+        ledger_journal::put_fill_detail(record, {.commission    = result.commission,
+                                                 .tax           = result.tax,
+                                                 .average_price = result.average_price,
+                                                 .net_quantity  = result.net_quantity,
+                                                 .present       = 1});
         journal_append(record, account, ticker);
     }
 

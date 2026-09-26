@@ -339,7 +339,9 @@ def feed_ledger_rows(date: str) -> list:
     ① 체결 틱이 ticks 표에 안 들어가면 그라파나 "피드 지연"·"초당 틱 유입" 패널이 며칠 전 시각을
        가리킨다(피드는 멀쩡한데 화면만 죽는다).
     ② Engine을 그대로 띄우는 테스트·부하 하네스가 같은 ZMQ 포트(5555)에 bind하면 리코더가 그쪽을
-       잡는다. 09-22 장중에 합성 주문 52건·체결 58건이 계좌 없이 운영 표에 들어갔다.
+       잡는다. 09-22 장중에 합성 주문 52건·체결 58건이 계좌 없이 운영 표에 들어갔다. 주문·체결은 이제
+       원장 저널에서 옮기므로(journal 열) 저널마다 계좌가 하나인지 본다 — 모의·실계좌가 같은 날 돌면
+       표 전체로는 계좌가 둘인 것이 정상이다. journal이 빈 행은 ZMQ로 받던 옛 행이다.
     ③ 신호는 주문·체결과 달리 계좌를 안 싣고 발행했다. 그것을 고친 뒤로 `signals.account`가 비어 있으면
        배포 전 exe가 떠 있다는 뜻이고, 받는 쪽 계좌 필터가 전부 떨궈 signals 적재가 통째로 멈춘다.
     """
@@ -377,15 +379,16 @@ def feed_ledger_rows(date: str) -> list:
                 " AND role IN ('both','order','feed') GROUP BY 1", (date,))
             data_by_account = dict(cursor.fetchall())
             data_count = min(data_by_account.values()) if data_by_account else 0
-            accounts = {}
+            accounts: dict[str, dict[str, int]] = {}
 
             for table in ("orders", "fills"):
                 cursor.execute(
-                    f"SELECT COALESCE(NULLIF(TRIM(account), ''), '(빈칸)'), COUNT(*) FROM {table}"
-                    " WHERE (ts AT TIME ZONE 'Asia/Seoul')::date = %s GROUP BY 1", (date,))
+                    f"SELECT COALESCE(journal, '(ZMQ)'), COALESCE(NULLIF(TRIM(account), ''), '(빈칸)'), COUNT(*)"
+                    f" FROM {table} WHERE (ts AT TIME ZONE 'Asia/Seoul')::date = %s GROUP BY 1, 2", (date,))
 
-                for account, count in cursor.fetchall():
-                    accounts[account] = accounts.get(account, 0) + count
+                for journal, account, count in cursor.fetchall():
+                    by_account = accounts.setdefault(journal, {})
+                    by_account[account] = by_account.get(account, 0) + count
 
             cursor.execute(
                 "SELECT COUNT(*), COUNT(*) FILTER (WHERE COALESCE(TRIM(account), '') = '') FROM signals"
@@ -406,11 +409,14 @@ def feed_ledger_rows(date: str) -> list:
                 f"ticks {tick_count}행·{tick_tickers}종목, HEALTH data 계좌별 "
                 + (", ".join(f"{name} {value}" for name, value in sorted(data_by_account.items())) or "행 없음")
                 + (" — 0인 계좌가 있으면 그 엔진이 WS 경로 계수 배포 전 바이너리다" if data_count == 0 else ""))
-    # 한 계좌 = 한 프로세스다(다계좌는 계좌당 프로세스). 두 종류가 보이면 남의 엔진 데이터가 섞인 것
-    ledger_row = ("원장 계좌 단일", len(accounts) <= 1, "FAIL",
-                  "주문·체결 계좌 " + (", ".join(f"{name} {count}건" for name, count in sorted(accounts.items())) or "행 없음")
-                  + (" — 기대 1종. 다른 엔진이 같은 ZMQ 포트를 물었다(PYQuant/main.py record --account)"
-                     if len(accounts) > 1 else ""))
+    # 한 저널 = 한 엔진 = 한 계좌다. 한 저널에 계좌가 둘이면 두 엔진이 같은 ledger_journal_dir을 쓴 것
+    mixed = [journal for journal, by_account in accounts.items() if len(by_account) > 1]
+    ledger_row = ("원장 계좌 단일", not mixed, "FAIL",
+                  "주문·체결 계좌 " + ("; ".join(
+                      f"{journal}: " + ", ".join(f"{name} {count}건" for name, count in sorted(by_account.items()))
+                      for journal, by_account in sorted(accounts.items())) or "행 없음")
+                  + (f" — {', '.join(mixed)}에 계좌가 둘 이상이다. 두 엔진이 같은 저널 폴더(ledger_journal_dir)를"
+                     " 쓰거나, (ZMQ)면 다른 엔진이 같은 ZMQ 포트를 물었다" if mixed else ""))
 
     # 리코더는 감시견이 개장 전에 띄우므로 첫 틱은 09:00 동시호가 체결이어야 한다. 09-22에 감시견이
     #  --record-ticks 없이 띄운 리코더를 09:42에 손으로 다시 띄워 42분치가 비었다 — 그날 안에 다시 안 보이도록
@@ -1408,6 +1414,87 @@ def pinned_capture_row(date: str) -> tuple:
     return (name, True, "WARN", f"캡처 {len(files)}개 — {'; '.join(details)}")
 
 
+def journal_mirror_row(date: str) -> tuple:
+    """원장 저널의 주문 결과·체결이 DB(ledger_events → orders·fills)에 빠짐없이 옮겨졌는지 저널마다 센다.
+
+    주문·체결은 원장 저널 적재기(PYQuant/tools/ledger_recorder.py)가 엔진이 주문 전에 적는 파일에서 옮긴다.
+    ZMQ로 받던 때는 리코더가 죽어 있거나 대기칸이 차면 조용히 빠졌다 — 이제 정본 파일과 건수를 맞춰 본다. [why D-113]
+    적재기는 2초마다 따라가므로 마지막 60초 안에 적힌 레코드는 세지 않는다.
+    """
+    import time  # noqa: PLC0415
+
+    sys.path.insert(0, str(REPO / "PYQuant" / "tools"))
+    import ledger_dump  # noqa: PLC0415
+
+    name = "원장 저널 적재"
+    files = sorted((REPO / "Quant" / "build_win").glob(f"*/ledger_{date.replace('-', '')}.bin"))
+
+    if not files:
+        return (name, True, "WARN", f"{date} 원장 저널 파일이 없다 — 판정 안 함")
+
+    cutoff_us = int((time.time() - 60) * 1_000_000)
+    expected: dict[str, tuple[int, int, int]] = {}
+
+    for path in files:
+        try:
+            records = [record for record in ledger_dump.read_records(path).records if record.wall_us < cutoff_us]
+        except (OSError, ValueError) as error:
+            return (name, False, "WARN", f"{path.parent.name}/{path.name} 읽기 실패 — {error}")
+
+        fill_count = sum(1 for record in records if record.kind == "FILL")
+        order_count = sum(1 for record in records if record.kind in ("ACCEPT", "REJECT"))
+        last_sequence = records[-1].sequence if records else 0
+        expected[path.parent.name] = (fill_count, order_count, last_sequence)
+
+    password = tsdb_password()
+
+    if not password:
+        return (name, True, "WARN", ".env에 TSDB_PASSWORD 없음 — 판정 안 함")
+
+    psycopg2 = import_psycopg2()
+
+    if psycopg2 is None:
+        return (name, False, "WARN", "psycopg2 없음 — venv(PYQuant/.venv*)로 부른다")
+
+    actual: dict[str, tuple[int, int, int]] = {}
+
+    try:
+        connection = psycopg2.connect(host="localhost", port=5432, dbname="quant", user="quant",
+                                      password=password, connect_timeout=3)
+        with connection.cursor() as cursor:
+            for journal, (_, _, last_sequence) in expected.items():
+                cursor.execute(
+                    "SELECT (SELECT COUNT(*) FROM ledger_events WHERE trade_date = %(day)s AND journal = %(journal)s"
+                    "   AND seq <= %(last)s AND kind = 'FILL'),"
+                    " (SELECT COUNT(*) FROM fills WHERE journal_date = %(day)s AND journal = %(journal)s"
+                    "   AND journal_seq <= %(last)s),"
+                    " (SELECT COUNT(*) FROM orders WHERE journal_date = %(day)s AND journal = %(journal)s"
+                    "   AND journal_seq <= %(last)s)",
+                    {"day": date, "journal": journal, "last": last_sequence})
+                actual[journal] = cursor.fetchone()
+
+        connection.close()
+    except Exception as error:   # DB가 없거나 잠든 날은 판정을 미룬다
+        return (name, True, "WARN", f"DB 조회 실패 — 판정 안 함 ({str(error).strip()[:80]})")
+
+    details = []
+    short = []
+
+    for journal, (fill_count, order_count, _) in expected.items():
+        event_fills, table_fills, table_orders = actual[journal]
+        details.append(f"{journal} 체결 {fill_count}/{event_fills}/{table_fills}건·주문 결과 {order_count}/{table_orders}건")
+
+        if (event_fills, table_fills, table_orders) != (fill_count, fill_count, order_count):
+            short.append(journal)
+
+    if short:
+        return (name, False, "FAIL",
+                f"저널과 DB 건수가 다르다({', '.join(short)}) — 적재기(PYQuant/tools/ledger_recorder.py)가 그 폴더를"
+                f" 안 따라갔거나 옮기기가 실패했다. 저널/ledger_events/fills 순: {'; '.join(details)}")
+
+    return (name, True, "FAIL", "저널/ledger_events/fills 순 " + "; ".join(details))
+
+
 def global_rows(date: str) -> list:
     """계좌와 무관한 판정 — 하루에 한 번만 낸다.
 
@@ -1417,6 +1504,7 @@ def global_rows(date: str) -> list:
     return [
         *resource_sampling_rows(date),
         *feed_ledger_rows(date),
+        journal_mirror_row(date),
         queue_latency_row(date),
         role_publish_row(date),
         order_latency_breakdown_row(date),

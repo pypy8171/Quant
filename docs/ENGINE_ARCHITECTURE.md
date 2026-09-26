@@ -204,9 +204,9 @@ flowchart LR
 | 남는 것 | 무엇이 | 형식 | 켜는 설정 | DB까지 |
 |---|---|---|---|---|
 | 거래 원장 `logs/trades_YYYYMMDD.csv` | 주문 종착 상태·체결·잔고 대조 | 텍스트(CSV) | 없음 — 늘 켜짐 | 상시 경로 없음. 빠진 체결만 [scripts/backfill_fills_db.py](../scripts/backfill_fills_db.py)로 뒤에 채운다 |
-| 원장 저널 `ledger_YYYYMMDD.bin` | 주문 의도·접수·거부·체결·취소·조정·시드·현금·당일손익 | 바이너리 — 192바이트 고정 레코드, 순번·CRC32 ([LedgerJournal.h](../Quant/include/risk/LedgerJournal.h)) | `ledger_journal_dir` | [PYQuant/tools/ledger_recorder.py](../PYQuant/tools/ledger_recorder.py)가 파일 꼬리를 따라 읽어 `ledger_events` |
+| 원장 저널 `ledger_YYYYMMDD.bin` | 주문 의도·접수·거부·체결·취소·조정·시드·현금·당일손익 | 바이너리 — 192바이트 고정 레코드, 순번·CRC32 ([LedgerJournal.h](../Quant/include/risk/LedgerJournal.h)) | `ledger_journal_dir` | [PYQuant/tools/ledger_recorder.py](../PYQuant/tools/ledger_recorder.py)가 파일 꼬리를 따라 읽어 `ledger_events`, 거기서 `fills`·`orders`·`positions`로 옮긴다 |
 | 시세 캡처 `ticks_<기동시각>.bin` | 체결·호가·일봉·그날 유니버스 | 바이너리 — QTCAP v2 ([TickCapture.h](../Quant/include/core/TickCapture.h)) | `capture_dir` | 안 간다. 리플레이 백테스트 입력이다 |
-| ZMQ 발행 | 체결틱·신호·주문·체결·엔진 상태 | 토픽 한 프레임 + JSON 한 프레임 ([ZmqBridge.cpp](../Quant/src/ipc/ZmqBridge.cpp)) | `zmq_pub_port` 블록 (ZeroMQ가 링크돼 있으면 늘 켜짐) | [PYQuant/main.py](../PYQuant/main.py) `record`가 구독해 표 6개에 넣는다 |
+| ZMQ 발행 | 체결틱·신호·주문·체결·엔진 상태 | 토픽 한 프레임 + JSON 한 프레임 ([ZmqBridge.cpp](../Quant/src/ipc/ZmqBridge.cpp)) | `zmq_pub_port` 블록 (ZeroMQ가 링크돼 있으면 늘 켜짐) | [PYQuant/main.py](../PYQuant/main.py) `record`가 구독해 체결틱·신호·엔진 상태만 넣는다. 주문·체결은 저널 쪽이 넣는다(D-113) |
 
 읽을 때 헷갈리기 쉬운 세 가지.
 
