@@ -43,6 +43,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstddef>
+#include <deque>
 #include <filesystem>
 #include <functional>
 #include <stop_token>
@@ -609,6 +610,13 @@ private:
     // 체결통보 한 건을 갈 길로 넣는다 — 시세 역할이면 공유 통로로, 아니면 프로세스 안 큐로.
     //  WS 콜백과 모의 체결기 콜백이 같이 쓴다(주문 역할에는 WS가 없다). [why D-114 단계 5]
     void push_fill_notification(const FillNotification& fill_notification);
+    bool push_fill_notice(const ipc::FillNotice& notice); // 갈 길 하나에 한 건 넣기. 가득 차면 false
+    // 넘침 목록을 앞에서부터 갈 길로 옮긴다. 다 옮겼으면 true.
+    //  [inv] 부르는 쪽이 pipeline_.fill_producing 차례를 쥐고 있다.
+    bool drain_fill_overflow();
+    // 제어 스레드가 5초마다 부른다 — 체결통보가 더 오지 않아도 넘침 목록이 비게 한다.
+    //  차례를 다른 쪽이 쥐고 있으면 그쪽이 비우므로 이번엔 건너뛴다.
+    void flush_fill_overflow();
 
     void fill_thread_fn(std::stop_token stop_token);     // 체결통보 소비(fill_queue → OrderRouter::on_fill → ops 방송). WS 수신 스레드에서 뗀 것 [why D-056]
     void control_thread_fn(std::stop_token stop_token); // WebSocket 시세단절 감지·재연결(연속 실패 시 kill switch). ZMQ REP 처리는 ZmqBridge 내부 스레드 담당
@@ -845,7 +853,14 @@ private:
         //  칸은 문자열 없는 레코드(ipc::FillNotice)다 — 갈라 띄운 날의 체결 통로와 같은 모양이라 두 길의 옮기는
         //  코드가 하나다. [why CODE_REVIEW W-7]
         RingBuffer<ipc::FillNotice> fill_queue{kFillQueueCapacity};
-        std::atomic<uint64_t> fill_dropped{0};   // fill_queue 가득 차 버린 체결통보 수. 0이 아니면 잔고 대조가 원장을 메운다
+        std::atomic<uint64_t> fill_dropped{0};   // 버린 체결통보 수. 넘침 목록이 생긴 뒤로는 버리지 않아 늘 0이다
+        // 큐가 가득 찼을 때 체결통보를 버리지 않고 잠시 두는 곳. 다음 체결통보가 올 때와 제어 스레드가
+        //  5초마다 앞에서부터 큐로 다시 넣는다. 늘 뒤에 붙이고 앞에서 빼니 순서가 지켜진다.
+        //  [inv] fill_producing 차례를 쥔 쪽만 만진다.
+        //  [why] 체결은 잔고·예약 수량을 바꾼다. 버리면 잔고 대조가 메울 때까지 원장이 틀린다.
+        std::deque<ipc::FillNotice> fill_overflow;
+        std::atomic<uint64_t> fill_overflow_waiting{0}; // 넘침 목록 길이. 제어 스레드가 차례 없이 보려고 따로 둔다
+        std::atomic<uint64_t> fill_overflowed{0};       // 넘침 목록에 넣은 누적 건수. 0이 아니면 큐가 찬 적이 있다
         // 체결통보를 지금 넣고 있는 쪽이 있는지. fill_queue·체결 통로 둘 다 SPSC라 넣는 쪽은 한 번에 하나여야 한다 —
         //  실매매는 체결통보를 맡은 소켓의 수신 스레드 하나, 오프라인은 모의 체결기 하나(전달을 스스로 한 줄로 세운다).
         //  둘이 겹치면 뒤에 온 쪽이 기다려 한 줄로 서고 fill_producer_overlap에 센다.

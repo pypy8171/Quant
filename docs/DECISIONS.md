@@ -2114,6 +2114,11 @@ REST 대체 틱이 15:22가 아니라 데이터 주기(`fetch_interval_sec`) 안
 1. 큐가 가득 차면 기다리지 않고 버리고 `fill_dropped_`를 올린다. 1024건이 밀렸다는 것은 소비자가 멈춘
    것이고, 거기서 수신 스레드가 기다리면 틱까지 같이 선다. 버린 건은 잔고 대조(`control_thread`,
    D-038 RECONCILE 행)가 원장에 메운다 — 이 백스톱이 있어서 "드롭"을 고를 수 있었다.
+   **바꿈(2026-09-26)**: 버리지 않는다. 가득 차면 수신 스레드 차례(`fill_producing`)에 딸린 넘침 목록
+   (`std::deque`) 뒤에 붙이고, 다음 체결통보가 올 때와 제어 스레드가 5초마다 앞에서부터 큐로 다시 넣는다.
+   수신 스레드는 여전히 기다리지 않고, 순서도 지켜진다. 버린 이유: 잔고 대조는 두 주기 뒤에야 메워 그 사이
+   보유·예약 수량이 틀리고, 체결은 하루 수백 건이라 목록이 커질 일이 없다. 넘친 건수는 `fill_overflowed`로
+   [큐 고수위] 줄에 찍고 `scripts/check_runtime_health.py`가 0이 아니면 FAIL로 본다.
 2. 소비자는 큐가 비면 condvar에서 자고 수신 스레드가 깨운다. `Logger`(D-045)와 같은 방식이다 —
    "잔다" 플래그 store → seq_cst fence → 큐 확인, 생산자는 push → fence → 플래그 load. 처음에는 주문 스레드처럼
    `sleep_for(1ms)` 폴링으로 짰는데 `test_pipeline_stress`에서 push→소비가 p50 8ms·max 15ms로 나왔다(Windows

@@ -118,6 +118,8 @@ void Engine::control_thread_fn(std::stop_token stop_token)
 
     while (wake::sleep_unless_stopped(stop_token, std::chrono::seconds(kCheckIntervalSec)))
     {
+        flush_fill_overflow();
+
         // 붙어 있는 쪽지의 기동 번호가 바뀌었으면 건너편이 죽고 다시 떴다는 뜻이다. 그 판의 큐·장부
         //  사본은 내가 아는 것이 아니라, 그대로 두면 신호가 허공으로 나간다 — 같이 내려가 감시견이
         //  짝을 다시 띄우게 한다. 붙은 쪽(전략 프로세스)에서만 0이 아니다. [why D-114]
@@ -170,6 +172,7 @@ void Engine::control_thread_fn(std::stop_token stop_token)
                      std::to_string(pipeline_.requests->capacity()) +
                      " fill=" + std::to_string(pipeline_.fill_queue.high_water()) + "/" + std::to_string(pipeline_.fill_queue.capacity()) +
                      " fill_dropped=" + std::to_string(pipeline_.fill_dropped.load(std::memory_order_relaxed)) +
+                     " fill_overflowed=" + std::to_string(pipeline_.fill_overflowed.load(std::memory_order_relaxed)) +
                      " order_dropped=" + std::to_string(pipeline_.order_dropped.load(std::memory_order_relaxed)) +
                      " order_stale=" + std::to_string(pipeline_.order_stale.load(std::memory_order_relaxed)) +
                      " order_duplicate=" + std::to_string(pipeline_.order_duplicate.load(std::memory_order_relaxed)) +

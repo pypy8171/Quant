@@ -8,7 +8,7 @@
 
 ### 스레드 모델
 
-<!-- sync: Quant/include/core/Engine.h@05e2d0d Quant/src/core/Engine.cpp@bee0054 Quant/include/core/DataPoller.h@62f75bc Quant/include/core/SignalDispatcher.h@d27c5ea Quant/include/core/OrderRateLimiter.h@2650fb2 Quant/include/core/LedgerReconciler.h@77c1a8a Quant/include/core/WakeGate.h@b842ec7 Quant/include/core/BarAggregator.h@f50287c Quant/include/core/LatencyTrace.h@b01b770 Quant/include/core/ReconcilePlan.h@5e8d897 -->
+<!-- sync: Quant/include/core/Engine.h@34298c5 Quant/src/core/Engine.cpp@bee0054 Quant/include/core/DataPoller.h@62f75bc Quant/include/core/SignalDispatcher.h@d27c5ea Quant/include/core/OrderRateLimiter.h@2650fb2 Quant/include/core/LedgerReconciler.h@77c1a8a Quant/include/core/WakeGate.h@b842ec7 Quant/include/core/BarAggregator.h@f50287c Quant/include/core/LatencyTrace.h@b01b770 Quant/include/core/ReconcilePlan.h@5e8d897 -->
 스레드는 다섯 개(데이터·전략·주문·체결·제어)에 전략 샤드 M개(config `strategy_shards`, 기본 1, 상한 64), 소켓마다
 수신 스레드 하나, 프리페치 풀(코어/4, 2~8개)을 더한다. 스레드끼리는 락 없는 큐로만 넘긴다. 각 스레드는 기동 직후
 `thread_name::set_current`(`Quant/include/utils/ThreadName.h`)로 이름을 붙여 procwatch와 디버거에 그 이름으로 보인다.
@@ -60,7 +60,7 @@ flowchart LR
 | 제어 면 | SPSC, 자리표 위 | 전략 → 주문 | 16,384 | 버리고 `LOG_ERROR` (`control_relay_dropped`) |
 | 시세 제어 면 (갈라 띄울 때) | SPSC, 자리표 위 | 전략 → 시세 | 8,192 | 버리고 `LOG_ERROR` (`control_relay_dropped`) |
 | `ControlPlane::outbox_` | MPSC | 전략 프로세스의 여러 스레드 → 전략 | 8,192 | 전략 스레드가 제어 면으로 옮긴다 |
-| `fill_queue` | SPSC | 수신 → 체결 | 1,024 | 칸은 문자열 없는 `ipc::FillNotice`(128바이트, 체결 통로와 같은 모양, W-7). 버리고 `LOG_ERROR` (`fill_dropped`). 넣는 쪽이 둘 겹치면 한 줄로 세우고 `fill_producer_overlap`에 센다(W-6) |
+| `fill_queue` | SPSC | 수신 → 체결 | 1,024 | 칸은 문자열 없는 `ipc::FillNotice`(128바이트, 체결 통로와 같은 모양, W-7). 가득 차면 버리지 않고 넘침 목록에 두었다가 다음 통보·제어 스레드 5초마다 다시 넣는다(`fill_overflowed`, D-056). 넣는 쪽이 둘 겹치면 한 줄로 세우고 `fill_producer_overlap`에 센다(W-6) |
 | `manual_inbox` | MPSC | 운영단말 서버 → 주문 | 256 | 단말에 거부로 답한다 |
 | 시세 통로 (갈라 띄울 때) | 줄별 SPSC 한 쌍 (`Quant/include/ipc/MarketFeedChannel.h`) | 시세 쪽 수신 → 전략 쪽 줄 스레드 | 체결 16,384·호가 8,192 | 버리고 센다 (`feed_channel_overflow`) |
 | 체결 통로 (갈라 띄울 때) | SPSC 하나 (`Quant/include/ipc/FillChannel.h`) | 시세 쪽 수신 → 주문 쪽 체결 스레드 | 1,024 | 버리고 센다 (`fill_channel_overflow`) |

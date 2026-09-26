@@ -384,31 +384,80 @@ void Engine::push_fill_notification(const FillNotification& fill_notification)
                   " ODNO=" + fill_notification.kis_order_no);
     }
 
-    if (fill_crosses_boundary)
+    // 수신 스레드는 넣고 바로 돌아간다. 큐가 가득 찼으면(1024건 밀림 = 소비자가 멈춘 것) 기다리지
+    //  않고 넘침 목록 뒤에 붙인다 — 여기서 대기하면 전 종목 틱이 같이 선다. 목록에 먼저 온 건이
+    //  남아 있으면 이번 건도 그 뒤에 서야 순서가 맞는다. [why D-056]
+    if (drain_fill_overflow() && push_fill_notice(notice))
     {
-        if (!layout_.fills().push(notice))
-        {
-            const auto count = pipeline_.fill_dropped.fetch_add(1, std::memory_order_relaxed) + 1;
-            LOG_ERROR("[Engine] 체결 통로 가득 참 — 드롭 " + fill_notification.ticker + " ODNO=" +
-                      fill_notification.kis_order_no + " (누적 " + std::to_string(count) +
-                      "건) 주문 쪽 예약 수량이 안 풀린다");
-        }
-
         return;
     }
 
-    // 수신 스레드는 큐에 넣고 바로 돌아간다. 가득 찼으면(1024건 밀림 = 소비자가 멈춘 것)
-    //  기다리지 않고 버린다 — 여기서 대기하면 전 종목 틱이 같이 선다. 버린 건은
-    //  잔고 대조(data_thread)가 원장에 메운다. [why D-056]
+    pipeline_.fill_overflow.push_back(notice);
+    pipeline_.fill_overflow_waiting.store(pipeline_.fill_overflow.size(), std::memory_order_relaxed);
+    const auto count = pipeline_.fill_overflowed.fetch_add(1, std::memory_order_relaxed) + 1;
+    LOG_ERROR(std::string("[Engine] ") + (fill_crosses_boundary ? "체결 통로" : "체결통보 큐") +
+              " 가득 참 — 넘침 목록에 보관, 버리지 않는다 " + fill_notification.ticker + " ODNO=" +
+              fill_notification.kis_order_no + " (대기 " + std::to_string(pipeline_.fill_overflow.size()) +
+              "건, 누적 " + std::to_string(count) + "건)");
+}
+
+bool Engine::push_fill_notice(const ipc::FillNotice& notice)
+{
+    if (role_ == ProcessRole::Feed)
+    {
+        return layout_.fills().push(notice);
+    }
+
     if (!pipeline_.fill_queue.push(notice))
     {
-        const auto count = pipeline_.fill_dropped.fetch_add(1, std::memory_order_relaxed) + 1;
-        LOG_ERROR("[Engine] 체결통보 큐 가득 참 — 드롭 " + fill_notification.ticker + " ODNO=" + fill_notification.kis_order_no +
-                  " (누적 " + std::to_string(count) + "건)");
-        return;
+        return false;
     }
 
     pipeline_.fill_wake.notify();
+    return true;
+}
+
+bool Engine::drain_fill_overflow()
+{
+    auto& overflow = pipeline_.fill_overflow;
+
+    if (overflow.empty())
+    {
+        return true;
+    }
+
+    while (!overflow.empty() && push_fill_notice(overflow.front()))
+    {
+        overflow.pop_front();
+    }
+
+    pipeline_.fill_overflow_waiting.store(overflow.size(), std::memory_order_relaxed);
+
+    if (overflow.empty())
+    {
+        LOG_INFO("[Engine] 넘침 목록을 다 옮겼다 (누적 " +
+                 std::to_string(pipeline_.fill_overflowed.load(std::memory_order_relaxed)) + "건)");
+    }
+
+    return overflow.empty();
+}
+
+void Engine::flush_fill_overflow()
+{
+    if (pipeline_.fill_overflow_waiting.load(std::memory_order_relaxed) == 0)
+    {
+        return;
+    }
+
+    // 차례를 다른 쪽이 쥐고 있으면 그쪽이 넣기 전에 비운다 — 기다리지 않고 다음 5초로 넘긴다.
+    //  제어 스레드가 차례를 잡는 것은 정해진 일이라 생산자 겹침으로 세지 않는다.
+    if (pipeline_.fill_producing.exchange(true, std::memory_order_acquire))
+    {
+        return;
+    }
+
+    drain_fill_overflow();
+    pipeline_.fill_producing.store(false, std::memory_order_release);
 }
 
 void Engine::connect_feed()

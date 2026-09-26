@@ -45,11 +45,18 @@ void Engine::fill_thread_fn(std::stop_token stop_token)
     constexpr auto                                       kStopDrainLimit = 2s;
     std::optional<std::chrono::steady_clock::time_point> drain_started;
 
+    // 넘침 목록에 남은 체결통보. 정지 뒤에는 제어 스레드가 없으니 여기서 큐로 옮겨 마저 반영한다.
+    auto overflow_waiting = [this]
+    {
+        return pipeline_.fill_overflow_waiting.load(std::memory_order_relaxed) != 0;
+    };
+
     // 정지 요청 뒤에도 큐를 비운다 — stop()이 WS를 끊은 다음 join하므로 남은 통보가 여기서 빠진다.
-    while (!stop_token.stop_requested() || !fill_queue_empty())
+    while (!stop_token.stop_requested() || !fill_queue_empty() || overflow_waiting())
     {
         if (stop_token.stop_requested())
         {
+            flush_fill_overflow();
             const auto now = std::chrono::steady_clock::now();
 
             if (!drain_started)
