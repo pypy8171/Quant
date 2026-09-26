@@ -967,7 +967,7 @@ def scan_registration_row(date: str) -> tuple:
     return (name, True, "FAIL", f"모든 계좌가 등록했다 — {summary}")
 
 
-THREAD_LABEL_RE = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+ \{([^}]*)\} \[")
+THREAD_LABEL_RE = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+ \{([^}]*?)(?: thread)?\} \[")  # 뒤의 " thread"는 이름이 아니라 표기라 뗀다
 UNNAMED_THREAD_RE = re.compile(r"^T\d+$")
 
 

@@ -244,7 +244,7 @@ struct Logger::Implementation
 #endif
         std::ostringstream stream;
         stream << std::put_time(&time_buffer, "%Y-%m-%d %H:%M:%S") << '.' << std::setfill('0') << std::setw(3)
-           << milliseconds.count() << " {" << record.thread_label.data() << "} [" << level_string(record.level) << "] "
+           << milliseconds.count() << " {" << record.thread_label.data() << " thread} [" << level_string(record.level) << "] "
            << record.message;
         return stream.str();
     }
