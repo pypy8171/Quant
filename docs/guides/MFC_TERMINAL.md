@@ -1,6 +1,6 @@
 # MFC 운영단말 `ops_terminal` 작업 문서
 
-<!-- sync: Quant/tools/ops_terminal/OpsTerminalDlg.cpp@377ec12 Quant/tools/ops_terminal/OpsTerminalDlg.h@6df8dba Quant/tools/ops_terminal/OpsLink.cpp@3ee969c Quant/tools/ops_terminal/OpsLink.h@21beb7e Quant/include/ipc/OpsProtocol.h@cdcb9ae -->
+<!-- sync: Quant/tools/ops_terminal/OpsTerminalDlg.cpp@377ec12 Quant/tools/ops_terminal/OpsTerminalDlg.h@6df8dba Quant/tools/ops_terminal/OpsLink.cpp@6ccddd3 Quant/tools/ops_terminal/OpsLink.h@21beb7e Quant/include/ipc/OpsProtocol.h@cdcb9ae -->
 `Quant/tools/ops_terminal/`에 있는 MFC 대화상자 단말의 정본이다. 무엇을 하는 프로그램인지, 어떻게 빌드·실행하는지,
 MFC라서 걸린 함정과 지금까지 손댄 이력을 여기에 모은다. **MFC 쪽을 고치면 이 문서를 같이 고친다**(8절 체크리스트).
 채널 자체(프로토콜·서버·콘솔 단말)는 [docs/guides/OPS_TERMINAL.md](OPS_TERMINAL.md), 결정 배경은
@@ -110,7 +110,7 @@ POST_BUILD로 부르므로 **메인 트리에서 빌드하면 바로가기가 �
 
 - **UI 스레드** — MFC 컨트롤은 여기서만 만진다. `OpsLink::send()`는 송신 큐에 넣고 깨움 이벤트(`WSASetEvent`)를 세울 뿐이라
   버튼 핸들러가 소켓을 기다리지 않는다.
-- **작업자 스레드(`OpsLink`)** — 소켓과 `FrameReader`를 혼자 잡는다. 논블로킹 `connect`(select 3초 상한) → `HELLO_REQ` →
+- **작업자 스레드(`OpsLink`)** — 소켓과 `FrameReader`를 혼자 잡는다. 논블로킹 `connect`(select 3초 상한) → 송신 큐를 비우고 `HELLO_REQ`를 맨 앞에 넣은 뒤에야 연결됨으로 표시 →
   `WSAWaitForMultipleEvents` 루프에서 소켓 이벤트(`WSAEventSelect`의 읽기·쓰기·닫힘)와 깨움 이벤트를 함께 기다려
   수신·송신·하트비트를 돌린다. 보낼 프레임은 깨움 즉시 나가고, 대기 시한은 다음 PING이나 무응답 판정까지 남은 시간이다.
   받은 프레임은 `WM_OPS_FRAME`, 상태 변화는 `WM_OPS_STATE`로
@@ -164,3 +164,4 @@ cid→ODNO 대응은 단말이 든다. `ORDER_RESULT_NTF`에 둘이 같이 오�
 | 2026-09-18 | 수동 매매 정지 스위치 추가(D-091). `OpsProtocol.h`에 `HALT_REQ`/`HALT_ACK`(0x32/0x33), `OrderGate`에 수동 정지 깃발(지금은 `manual_buy_halt_`·`manual_sell_halt_`, 국면 자동 `entry_halt_`와 분리, `is_entry_halted()`에서 OR), 단말에 `IDC_HALT` 토글 버튼. 착수 계기는 "판단이 안 설 때 신규 진입만 수동으로 멈추고 싶다"는 운영 요구 |
 | 2026-09-19 | 프로토콜 이름 규칙 정리 — 요청/응답은 `*_REQ`/`*_ACK`, 통보는 `*_NTF`(`HELLO_REQ/ACK`·`PING_REQ/ACK`·`STATUS_ACK`·`POSITIONS_REQ/ACK`·`ORDER_RESULT_NTF`·`FILL_NTF`·`KILL_REQ`·`ERROR_NTF`). 응답과 push를 겸하던 POSITIONS는 `POSITIONS_ACK`(0x13)와 `POSITIONS_NTF`(0x14)로 나눔. 타입 번호는 그대로라 단말은 `handle_frame`에 case 하나 추가와 이름 치환뿐 |
 | 2026-09-24 | 곱게 내리기 전문 추가(D-114). `OpsProtocol.h`에 `SHUTDOWN_REQ`/`SHUTDOWN_ACK`(0x34/0x35) — 배포 교체가 `ops_client shutdown <부른 이름>`으로 청하는 길이다. 킬과 달리 킬스위치도 `kill_today` 표지도 안 건드린다. 단말은 이 전문을 보내지 않는다 — 사람이 누르는 버튼이 아니라 배포 스크립트가 부르는 길이라 버튼은 안 만들었다 |
+| 2026-09-25 | 접속 순서 수정. 연결됨 표시를 HELLO를 큐에 넣은 뒤로 옮겨, 그 사이 누른 주문이 인증 전에 나가던 틈을 막음. HELLO 본문은 json 라이브러리로 만들어 토큰에 따옴표가 있어도 본문이 깨지지 않음. `ops_client`는 서버 본문이 깨져도 죽지 않고 빈 값으로 읽는다 |

@@ -179,12 +179,30 @@ bool connect_to(Conn& connection, const std::string& host, int port)
     return ::connect(connection.descriptor, reinterpret_cast<sockaddr*>(&socket_address), sizeof(socket_address)) == 0;
 }
 
+// [inv] 서버 본문이 깨졌거나 객체가 아니면 빈 객체를 돌려준다 — 뒤의 value()가 type_error로 죽지 않게.
+json parse_object(const std::string& body)
+{
+    json document = json::parse(body, nullptr, false);
+    return document.is_object() ? document : json::object();
+}
+
 void print_positions(const json& document)
 {
     std::cout << "account  ticker  name              qty  avg_price  reserved  last\n";
+    const auto positions = document.find("positions");
 
-    for (const auto& position_node : document.value("positions", json::array()))
+    if (positions == document.end() || !positions->is_array())
     {
+        return;
+    }
+
+    for (const auto& position_node : *positions)
+    {
+        if (!position_node.is_object())
+        {
+            continue;
+        }
+
         std::cout << (position_node.value("account", std::string()).empty() ? "-" : position_node.value("account", std::string())) << "  "
                   << position_node.value("ticker", std::string()) << "  " << position_node.value("name", std::string()) << "  "
                   << position_node.value("qty", 0) << "  " << position_node.value("avg_price", 0.0) << "  " << position_node.value("reserved", 0) << "  "
@@ -266,7 +284,7 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    const json welcome = json::parse(frame.body, nullptr, false);
+    const json welcome = parse_object(frame.body);
     const bool authentication    = welcome.value("auth", false);
     std::cout << "연결됨 paper=" << welcome.value("paper", true) << " auth=" << authentication << "\n";
 
@@ -314,7 +332,7 @@ int main(int argc, char** argv)
             return 1;
         }
 
-        std::cout << json::parse(frame.body).dump(2) << "\n";
+        std::cout << parse_object(frame.body).dump(2) << "\n";
         return 0;
     }
 
@@ -327,7 +345,7 @@ int main(int argc, char** argv)
             return 1;
         }
 
-        print_positions(json::parse(frame.body));
+        print_positions(parse_object(frame.body));
         return 0;
     }
 
@@ -359,7 +377,7 @@ int main(int argc, char** argv)
             return 1;
         }
 
-        json acknowledgement = json::parse(frame.body);
+        json acknowledgement = parse_object(frame.body);
 
         if (!acknowledgement.value("accepted", false))
         {
@@ -397,7 +415,7 @@ int main(int argc, char** argv)
 
             if (frame.type == static_cast<uint8_t>(ops::OpsMsg::ORDER_RESULT_NTF))
             {
-                json node = json::parse(frame.body, nullptr, false);
+                json node = parse_object(frame.body);
 
                 if (node.value("cid", std::string()) == client_id)
                 {
@@ -432,7 +450,7 @@ int main(int argc, char** argv)
             {
                 if (frame.type == static_cast<uint8_t>(ops::OpsMsg::POSITIONS_ACK) || frame.type == static_cast<uint8_t>(ops::OpsMsg::POSITIONS_NTF))
                 {
-                    print_positions(json::parse(frame.body, nullptr, false));
+                    print_positions(parse_object(frame.body));
                 }
                 else
                 {
@@ -458,7 +476,7 @@ int main(int argc, char** argv)
         }
 
         std::cout << frame.body << "\n";
-        return json::parse(frame.body).value("ok", false) ? 0 : 2;
+        return parse_object(frame.body).value("ok", false) ? 0 : 2;
     }
 
     if (command == "shutdown")
@@ -473,7 +491,7 @@ int main(int argc, char** argv)
         }
 
         std::cout << frame.body << "\n";
-        return json::parse(frame.body).value("ok", false) ? 0 : 2;
+        return parse_object(frame.body).value("ok", false) ? 0 : 2;
     }
 
     std::cerr << "알 수 없는 명령: " << command << "\n";

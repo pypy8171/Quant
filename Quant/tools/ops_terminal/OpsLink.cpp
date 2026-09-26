@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <chrono>
 
+#include <nlohmann/json.hpp>
+
 namespace
 {
 
@@ -140,9 +142,19 @@ void OpsLink::thread_fn()
         if (connect_once())
         {
             backoff = 1000;
+
+            // [inv] HELLO가 큐 맨 앞이어야 한다 — connected_를 먼저 켜면 UI 스레드의 주문이 인증 전에 끼어든다.
+            // 토큰은 json 라이브러리로 감싸 따옴표·역슬래시가 본문을 깨지 않게 한다.
+            const std::string hello_body = nlohmann::json{{"token", token_}, {"client", "ops_terminal/0.1"}}.dump();
+
+            {
+                std::lock_guard<std::mutex> lock(queue_mutex_);
+                queue_.clear();
+                queue_.push_back(ops::encode(ops::OpsMsg::HELLO_REQ, hello_body));
+            }
+
             connected_.store(true);
             post_state(LinkState::Connected, "TCP 연결 — HELLO 전송");
-            send(ops::OpsMsg::HELLO_REQ, "{\"token\":\"" + token_ + "\",\"client\":\"ops_terminal/0.1\"}");
             session_loop();
             connected_.store(false);
             close_socket();
