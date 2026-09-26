@@ -232,6 +232,23 @@ AppConfig parse_config(const json& document)
     app.regime_file                   = document.value("regime_file", std::string());
     app.regime_stale_sec              = document.value("regime_stale_sec", app.regime_stale_sec);
     app.regime_halt_expire_min        = document.value("regime_halt_expire_min", app.regime_halt_expire_min);
+
+    if (const auto feed_node = document.find("regime_feed"); feed_node != document.end() && feed_node->is_object())
+    {
+        regime_feed::FeedConfig feed;
+        feed.out_path                   = feed_node->value("out", std::string());
+        feed.history_path               = feed_node->value("history", std::string());
+        feed.open_reference_path        = feed_node->value("open_ref", std::string());
+        feed.interval_sec               = std::max(30, feed_node->value("interval_sec", feed.interval_sec));
+        feed.thresholds.halt_score      = feed_node->value("halt_score", feed.thresholds.halt_score);
+        feed.thresholds.liquidate_score = feed_node->value("liquidate_score", feed.thresholds.liquidate_score);
+
+        if (!feed.out_path.empty())
+        {
+            app.regime_feed = feed;
+        }
+    }
+
     app.zmq_bind_address              = document.value("zmq_bind_addr", std::string());
     app.zmq_control_token             = document.value("zmq_control_token", std::string());
     app.protective_orders             = document.value("protective_orders", app.protective_orders);

@@ -9,7 +9,7 @@
 - [(루트)](#루트) — 11개
 - [.vscode](#vscode) — 4개
 - [PYQuant](#pyquant) — 120개
-- [Quant](#quant) — 337개
+- [Quant](#quant) — 343개
 - [docs](#docs) — 132개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 245개
@@ -310,6 +310,10 @@
 - [SharedWriteLock.h](../Quant/include/ipc/SharedWriteLock.h) — 공유 쪽지 위 표에 넣는 동안만 잡는 자물쇠 한 벌(D-114 단계 4)
 - [ZmqBridge.h](../Quant/include/ipc/ZmqBridge.h) — C++ 엔진 ↔ Python ZMQ IPC 브릿지
 
+### Quant/include/regime/
+
+- [RegimeFeed.h](../Quant/include/regime/RegimeFeed.h) — 국면 판정 피드 스레드: 네이버 지수·Yahoo 차트·FRED CSV → 방향표·점수 → regime.json·이력·장초 기준점(파이썬 macro_regime_feed.py 이식, D-147)
+
 ### Quant/include/risk/
 
 - [DisplacementDesk.h](../Quant/include/risk/DisplacementDesk.h) — 교체 진입 창구(주문 쪽): 꽉 찬 책에 새 종목 매수가 오면 최약체를 먼저 비우고 그 매수를 자리가 날 때까지 든다(D-114 단계 2.5 갈래 B)
@@ -346,6 +350,7 @@
 
 ### Quant/include/utils/
 
+- [AtomicFile.h](../Quant/include/utils/AtomicFile.h) — 파일 통째로 바꿔 쓰기(임시 파일 → 이름 바꾸기) — 시세판·국면 판정 피드가 같이 쓴다
 - [EtfFilter.h](../Quant/include/utils/EtfFilter.h) — ETF·ETN 종목명 판별 필터
 - [JsonNode.h](../Quant/include/utils/JsonNode.h) — json 하위 노드를 복사 없이 참조로 집어 오는 헬퍼(jsonx::array_or_empty·object_or_empty)
 - [Logger.h](../Quant/include/utils/Logger.h) — 비동기 로거 — MPSC 큐+writer 스레드(D-045)
@@ -450,6 +455,10 @@
 - [SharedWriteLock.cpp](../Quant/src/ipc/SharedWriteLock.cpp) — SharedWriteLock.h 구현 — 돌다가 양보하는 자물쇠(D-114 단계 4)
 - [ZmqBridge.cpp](../Quant/src/ipc/ZmqBridge.cpp) — ZMQ IPC 브릿지 구현 — PUB/REP 소켓
 
+### Quant/src/regime/
+
+- [RegimeFeed.cpp](../Quant/src/regime/RegimeFeed.cpp) — RegimeFeed.h 구현 — 국면 판정 피드 스레드: 네이버 지수·Yahoo 차트·FRED CSV → 방향표·점수 → regime.json·이력·장초 기준점(파이썬 macro_regime_feed.py 이식, D-147)
+
 ### Quant/src/risk/
 
 - [DisplacementDesk.cpp](../Quant/src/risk/DisplacementDesk.cpp) — DisplacementDesk.h 구현 — 최약체 고르기·교체 매도 발주·쿨다운 기록·보류 매수 꺼내기(D-114 단계 2.5 갈래 B)
@@ -496,6 +505,7 @@
 
 ### Quant/src/utils/
 
+- [AtomicFile.cpp](../Quant/src/utils/AtomicFile.cpp) — AtomicFile.h 구현 — 파일 통째로 바꿔 쓰기(임시 파일 → 이름 바꾸기) — 시세판·국면 판정 피드가 같이 쓴다
 - [EtfFilter.cpp](../Quant/src/utils/EtfFilter.cpp) — EtfFilter.h 구현 — ETF·ETN 종목명 판별 필터
 - [JsonNode.cpp](../Quant/src/utils/JsonNode.cpp) — JsonNode.h 구현 — json 하위 노드를 복사 없이 참조로 집어 오는 헬퍼(jsonx::array_or_empty·object_or_empty)
 - [Logger.cpp](../Quant/src/utils/Logger.cpp) — Logger.h 구현 — 비동기 로거의 큐·writer 스레드(D-045)
@@ -556,6 +566,7 @@
 - [test_prefetch_pool.cpp](../Quant/tests/test_prefetch_pool.cpp) — 프리페치 풀 고정 스레드·주기 실행·해제 대기·정지 단위 테스트
 - [test_protective_orders.cpp](../Quant/tests/test_protective_orders.cpp) — 보호 주문 표 단위 테스트: 전략 없이 가격 경로만으로 청산이 나가는지 검증(D-114 단계 1)
 - [test_reconcile_plan.cpp](../Quant/tests/test_reconcile_plan.cpp) — 잔고 대조 차이 계산 순수 함수 단위 테스트(D-038)
+- [test_regime_feed.cpp](../Quant/tests/test_regime_feed.cpp) — 국면 판정 피드 순수 함수 검사: 응답 읽기·방향표·매수 비율·장초 기준점·파이썬과 같은 regime.json 문서
 - [test_regime_file_judge.cpp](../Quant/tests/test_regime_file_judge.cpp) — 매크로 국면 파일 판정기 단위 테스트(D-033·D-060)
 - [test_replay_source.cpp](../Quant/tests/test_replay_source.cpp) — 캡처 리플레이 소스 단위 테스트
 - [test_ringbuffer.cpp](../Quant/tests/test_ringbuffer.cpp) — SPSC RingBuffer 정확성·처리량 테스트
@@ -593,6 +604,7 @@
 - [ops_client.cpp](../Quant/tools/ops_client.cpp) — 운영단말 콘솔 클라이언트(상태·보유 조회·수동주문, D-043)
 - [query_balance.py](../Quant/tools/query_balance.py) — 모의계좌 잔고 조회 스크립트(연속조회 포함)
 - [ranking_check.cpp](../Quant/tools/ranking_check.cpp) — 거래대금·시가총액 상위 랭킹 점검 도구(행수·ETF 섞임·정렬 판정)
+- [regime_feed_once.cpp](../Quant/tools/regime_feed_once.cpp) — 국면 판정 한 사이클 도구(파이썬 --once와 같은 시각에 돌려 대조, D-147)
 
 ### Quant/tools/ops_terminal/
 

@@ -181,6 +181,7 @@ set(HEADER_IMPL_SOURCES
   src/universe/ScoreWeight.cpp
   src/utils/EtfFilter.cpp
   src/utils/JsonNode.cpp
+  src/utils/AtomicFile.cpp
   src/utils/ThreadName.cpp
   src/utils/Utf8.cpp
 )
@@ -190,6 +191,7 @@ set(ENGINE_SOURCES
   src/universe/UniverseCandidates.cpp
   src/universe/UniverseFeatures.cpp
   src/universe/MarketBoard.cpp
+  src/regime/RegimeFeed.cpp
   src/universe/UniverseItb.cpp
   src/universe/UniverseQuotes.cpp
   src/universe/UniverseRiskGate.cpp
@@ -651,6 +653,10 @@ target_link_libraries(test_universe_scoring PRIVATE quant_engine)
 add_executable(test_market_board tests/test_market_board.cpp)
 target_link_libraries(test_market_board PRIVATE quant_engine)
 
+# ─── 테스트 타깃: 국면 판정 피드 — 네이버·Yahoo·FRED 응답 읽기·방향표·매수 비율·장초 기준점·regime.json 문서(파이썬 원본과 같은 값, D-147) ──
+add_executable(test_regime_feed tests/test_regime_feed.cpp)
+target_link_libraries(test_regime_feed PRIVATE quant_engine)
+
 # ─── 테스트 타깃: 유니버스 재스캔 장부 — 신규 등록·주기·상한 교체·빈 스캔 무시·차단→해제·복귀 확인 (가짜 스캔·전략, D-077·D-087) ──
 add_executable(test_universe_rescan tests/test_universe_rescan.cpp)
 target_link_libraries(test_universe_rescan PRIVATE quant_engine)
@@ -957,6 +963,7 @@ set(QUANT_ASSERT_TARGETS
     test_ledger_snapshot
     test_universe_scoring
     test_market_board
+    test_regime_feed
     test_universe_rescan
     test_control_plane
 )
@@ -1014,6 +1021,10 @@ if(UNIX)
 else()
     target_link_libraries(manual_order PRIVATE nlohmann_json::nlohmann_json winhttp bcrypt)
 endif()
+
+# ─── 도구: 국면 판정 한 사이클 — 파이썬 macro_regime_feed.py --once와 같은 시각에 돌려 대조 (D-147) ──
+add_executable(regime_feed_once tools/regime_feed_once.cpp)
+target_link_libraries(regime_feed_once PRIVATE quant_engine)
 
 # ─── 도구: 운영단말 콘솔 클라이언트 — OpsServer 왕복 검증·최소 단말 (D-043) ──
 add_executable(ops_client tools/ops_client.cpp)

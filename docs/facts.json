@@ -198,6 +198,7 @@
       "test_app_config",
       "test_universe_scoring",
       "test_market_board",
+      "test_regime_feed",
       "test_universe_rescan",
       "test_control_plane",
       "test_feed_supervisor",
@@ -229,6 +230,7 @@
       "test_heartbeat",
       "test_logger",
       "manual_order",
+      "regime_feed_once",
       "ops_client",
       "ops_terminal",
       "feed_latency_measure",
@@ -278,6 +280,7 @@
       "test_app_config",
       "test_universe_scoring",
       "test_market_board",
+      "test_regime_feed",
       "test_universe_rescan",
       "test_control_plane",
       "test_feed_supervisor",
@@ -304,7 +307,7 @@
       "test_heartbeat",
       "test_logger"
     ],
-    "count": 62
+    "count": 63
   },
   "harness": {
     "commands": [
@@ -518,7 +521,7 @@
       "file": "scripts/check_runtime_health.py",
       "symbol": "collect",
       "lines": 777,
-      "start": 1609
+      "start": 1679
     },
     {
       "file": "Quant/src/core/EngineDataThread.cpp",
@@ -707,6 +710,12 @@
       "start": 235
     },
     {
+      "file": "Quant/src/regime/RegimeFeed.cpp",
+      "symbol": "assess_levels",
+      "lines": 140,
+      "start": 271
+    },
+    {
       "file": "Quant/src/core/ControlPlane.cpp",
       "symbol": "ControlPlane::apply",
       "lines": 137,
@@ -771,6 +780,12 @@
       "symbol": "main",
       "lines": 116,
       "start": 508
+    },
+    {
+      "file": "Quant/src/core/AppConfig.cpp",
+      "symbol": "parse_config",
+      "lines": 116,
+      "start": 196
     },
     {
       "file": "Quant/src/strategy/TargetBasketStrategy.cpp",
@@ -873,12 +888,6 @@
       "symbol": "Engine::stop",
       "lines": 100,
       "start": 696
-    },
-    {
-      "file": "Quant/src/core/AppConfig.cpp",
-      "symbol": "parse_config",
-      "lines": 99,
-      "start": 196
     },
     {
       "file": "PYQuant/dashboard/build_dashboard.py",

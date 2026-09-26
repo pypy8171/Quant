@@ -7108,7 +7108,21 @@ id를 직접 만들지 않는다. 0봉(대개 조회 실패)은 넣지 않는다
 옮길 때는 하루 동안 두 구현을 같이 돌려 매 주기 표결·점수·라벨이 같은지 `check_runtime_health.py` 행으로 대조한 뒤
 파이썬 쪽을 내린다. `regime.json`은 대시보드·알림이 읽으므로 엔진이 계속 같은 스키마로 쓴다.
 
+**5단계 — 레짐 피드 이식**(같은 날): ① `Quant/src/regime/RegimeFeed.cpp` — 전략 프로세스의 스레드 하나(`RegimeFeed`)가
+config `"regime_feed"` 노드(`out`·`history`·`open_ref`·`interval_sec`·`halt_score`·`liquidate_score`)대로 3분마다 네이버 지수·
+Yahoo 차트·FRED CSV를 받아 파이썬과 같은 식으로 `regime.json`·이력 한 줄·장초 기준점을 쓴다. 정지·청산선 환경변수
+(`QUANT_HALT_SCORE`·`QUANT_LIQ_SCORE`)는 config 키로 바뀐다. ② 모의·실계좌 엔진이 같은 파일을 쓰도록 두면 파일 수정 시각이
+내가 쓴 것과 다르고 주기+30초 안이면 쉰다 — 한쪽만 쓰고, 그쪽이 멈추면 다른 쪽이 넘겨받는다. ③ 비교 기간에는 `out`을
+`Quant/config/regime_cpp.json`, 이력을 `logs/regime_history_cpp.jsonl`로 두고(장초 기준점 파일은 같이 쓴다) `check_runtime_health.py`
+"국면 판정 이식 대조" 행이 120초 안 짝마다 라벨·점수를 맞춘다(95% 이상 일치면 통과). ④ 전환은 config `regime_feed.out`을
+`regime_file`과 같게 바꾸는 것 하나다 — 감시견이 그걸 보고 파이썬 피드 창을 띄우지 않는다.
+실측(09-26 토요일, 같은 시각 한 번씩): 파일 127줄이 시각 두 줄 빼고 글자까지 같았다. 두 가지를 고쳤다 — 반올림을
+`round(x*1000)/1000`으로 하면 0.47300000000000003이 찍혀 십진 문자열을 거친다. FRED는 요청 헤더 조합을 걸러 WinHTTP 기본
+요청(Connection 줄만)과 브라우저 UA에는 응답하지 않고 연결을 붙잡는다(20초 시간 초과) — 파이썬 requests와 같은
+`Accept`·`Accept-Encoding` 줄을 붙이면 0.1초에 온다.
+
 **연결**: D-028 · D-142 · D-146 · `Quant/include/universe/MarketBoard.h` · `Quant/src/universe/UniverseCandidates.cpp`
-`take_board_axis` · `scripts/auto_trade_day.ps1` `BoardInEngine`.
+`take_board_axis` · `scripts/auto_trade_day.ps1` `BoardInEngine`·`regimeInEngine` · `Quant/include/regime/RegimeFeed.h` ·
+`Quant/tools/regime_feed_once.cpp`(한 사이클 대조 도구).
 
 ---

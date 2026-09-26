@@ -2,6 +2,7 @@
 #include "core/CommandLine.h"
 #include "core/Engine.h"
 #include "core/Types.h"
+#include "regime/RegimeFeed.h"
 #include "strategy/StrategyFactory.h"
 #include "utils/Logger.h"
 #include "utils/ThreadName.h"
@@ -285,12 +286,21 @@ static int run_trade(const AppConfig& app, ProcessRole role)
 
     engine.start();
 
+    // 국면 판정 피드는 전략 쪽에서만 띄운다 — 주문 쪽까지 띄우면 같은 조회를 두 번 한다. [why D-147]
+    regime_feed::RegimeFeed regime_feed_thread;
+
+    if (engine.runs_strategy_side() && app.regime_feed)
+    {
+        regime_feed_thread.start(*app.regime_feed);
+    }
+
     while (engine.is_running())
     {
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 
     // join 은 여기 한 곳 — 시그널·KILL 핸들러는 request_shutdown() 만 한다(위 signal_handler 주석).
+    regime_feed_thread.stop();
     engine.stop();
     g_engine = nullptr;
     LOG_INFO("[Main] 프로그램 종료");

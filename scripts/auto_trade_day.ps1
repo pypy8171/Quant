@@ -532,7 +532,16 @@ Save-Status "starting" @{ paper = $paper; head = $head; dirty = $dirty }
 if (-not $DryRun) { [void](Run-Native "py scripts\gen_tuning_sheet.py --config $Config") }
 
 # ─────────────── 부속 창 ───────────────
-if (-not $NoRegimeFeed)   { Start-Window "quant-regime"   "& '$py' PYQuant\tools\macro_regime_feed.py --interval 180 --out Quant\config\regime.json" "macro_regime_feed.py" }
+# 엔진 안 국면 판정 피드(regime_feed.out)가 엔진이 읽는 파일(regime_file)을 직접 쓰면 파이썬 피드는 띄우지 않는다.
+#  비교 기간에는 regime_feed.out 이 다른 파일(regime_cpp.json)이라 둘 다 돈다. [why D-147]
+$regimeInEngine = $false
+try {
+  $regimeConfig = Get-Content $Config -Raw -Encoding UTF8 | ConvertFrom-Json
+  $feedOut = [string]$regimeConfig.regime_feed.out
+  $regimeInEngine = [bool]$feedOut -and ($feedOut.Replace('/', '\') -eq ([string]$regimeConfig.regime_file).Replace('/', '\'))
+} catch { }
+if ($regimeInEngine) { Say "  국면 판정은 엔진이 쓴다(regime_feed.out = regime_file) — 파이썬 피드 창을 띄우지 않는다" }
+if (-not $NoRegimeFeed -and -not $regimeInEngine) { Start-Window "quant-regime"   "& '$py' PYQuant\tools\macro_regime_feed.py --interval 180 --out Quant\config\regime.json" "macro_regime_feed.py" }
 if ($script:BoardInEngine) {
   Say "시세·유니버스는 엔진 안 시세판이 받는다(market_board, D-147) — 유니버스 스캔·시세 창을 띄우지 않는다."
 }

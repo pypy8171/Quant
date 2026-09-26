@@ -5,6 +5,7 @@
     "exchange",
     "ipc",
     "main",
+    "regime",
     "risk",
     "strategy",
     "universe",
@@ -92,6 +93,21 @@
       "weight": 2
     },
     {
+      "from": "regime",
+      "to": "api",
+      "weight": 1
+    },
+    {
+      "from": "regime",
+      "to": "core",
+      "weight": 1
+    },
+    {
+      "from": "regime",
+      "to": "utils",
+      "weight": 3
+    },
+    {
       "from": "risk",
       "to": "core",
       "weight": 12
@@ -144,7 +160,7 @@
     {
       "from": "universe",
       "to": "utils",
-      "weight": 24
+      "weight": 25
     },
     {
       "from": "utils",
@@ -225,6 +241,7 @@
     "ipc/SharedSymbolDictionary.h": "ipc",
     "ipc/SharedWriteLock.h": "ipc",
     "ipc/ZmqBridge.h": "ipc",
+    "regime/RegimeFeed.h": "regime",
     "risk/DisplacementDesk.h": "risk",
     "risk/EntryPriority.h": "risk",
     "risk/GateReasons.h": "risk",
@@ -250,6 +267,7 @@
     "universe/MarketBoard.h": "universe",
     "universe/ScoreWeight.h": "universe",
     "universe/UniverseScanner.h": "universe",
+    "utils/AtomicFile.h": "utils",
     "utils/EtfFilter.h": "utils",
     "utils/JsonNode.h": "utils",
     "utils/Logger.h": "utils",
@@ -338,6 +356,7 @@
     "ipc/SharedSymbolDictionary.cpp": "ipc",
     "ipc/SharedWriteLock.cpp": "ipc",
     "ipc/ZmqBridge.cpp": "ipc",
+    "regime/RegimeFeed.cpp": "regime",
     "risk/DisplacementDesk.cpp": "risk",
     "risk/EntryPriority.cpp": "risk",
     "risk/GateReasons.cpp": "risk",
@@ -370,6 +389,7 @@
     "universe/UniverseScanner.cpp": "universe",
     "universe/UniverseScoring.cpp": "universe",
     "universe/detail/Pipeline.h": "universe",
+    "utils/AtomicFile.cpp": "utils",
     "utils/EtfFilter.cpp": "utils",
     "utils/JsonNode.cpp": "utils",
     "utils/Logger.cpp": "utils",
@@ -974,6 +994,13 @@
       "utils/Logger.h",
       "utils/ThreadName.h"
     ],
+    "regime/RegimeFeed.cpp": [
+      "api/HttpGet.h",
+      "core/KstTime.h",
+      "utils/AtomicFile.h",
+      "utils/Logger.h",
+      "utils/ThreadName.h"
+    ],
     "risk/DisplacementDesk.cpp": [
       "risk/DisplacementDesk.h",
       "utils/Logger.h"
@@ -1162,6 +1189,7 @@
       "api/HttpGet.h",
       "core/KstTime.h",
       "universe/MarketBoard.h",
+      "utils/AtomicFile.h",
       "utils/Logger.h",
       "utils/ThreadName.h"
     ],
@@ -1241,6 +1269,9 @@
     "universe/detail/Pipeline.h": [
       "universe/UniverseScanner.h"
     ],
+    "utils/AtomicFile.cpp": [
+      "utils/AtomicFile.h"
+    ],
     "utils/EtfFilter.cpp": [
       "utils/EtfFilter.h"
     ],
@@ -1263,6 +1294,7 @@
     "api/HttpGet.h": [
       "api/KisTransport.cpp",
       "core/HttpQuoteFeed.cpp",
+      "regime/RegimeFeed.cpp",
       "universe/MarketBoard.cpp"
     ],
     "api/IMarketDataSource.h": [
@@ -1406,6 +1438,7 @@
       "core/RegimeFileJudge.h",
       "exchange/ZmqOrderFeed.cpp",
       "ipc/OrderRouter.cpp",
+      "regime/RegimeFeed.cpp",
       "risk/OrderGate.cpp",
       "strategy/DeviationScaleStrategy.h",
       "strategy/SeedPeakStore.h",
@@ -1859,6 +1892,11 @@
       "universe/UniverseScanner.cpp",
       "universe/detail/Pipeline.h"
     ],
+    "utils/AtomicFile.h": [
+      "regime/RegimeFeed.cpp",
+      "universe/MarketBoard.cpp",
+      "utils/AtomicFile.cpp"
+    ],
     "utils/EtfFilter.h": [
       "api/KisClientInternal.h",
       "universe/UniverseCandidates.cpp",
@@ -1916,6 +1954,7 @@
       "ipc/OrderRouter.cpp",
       "ipc/ZmqBridge.cpp",
       "main.cpp",
+      "regime/RegimeFeed.cpp",
       "risk/DisplacementDesk.cpp",
       "risk/OrderGate.cpp",
       "risk/PositionLedger.cpp",
@@ -1957,6 +1996,7 @@
       "ipc/OrderRouter.cpp",
       "ipc/ZmqBridge.cpp",
       "main.cpp",
+      "regime/RegimeFeed.cpp",
       "universe/MarketBoard.cpp",
       "universe/UniverseFeatures.cpp",
       "utils/Logger.cpp",
@@ -1972,7 +2012,7 @@
   "hubs": [
     {
       "header": "utils/Logger.h",
-      "in_degree": 52
+      "in_degree": 53
     },
     {
       "header": "core/Types.h",
@@ -1980,11 +2020,11 @@
     },
     {
       "header": "core/KstTime.h",
-      "in_degree": 31
+      "in_degree": 32
     },
     {
       "header": "utils/ThreadName.h",
-      "in_degree": 23
+      "in_degree": 24
     },
     {
       "header": "core/SymbolTable.h",

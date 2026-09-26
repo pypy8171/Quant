@@ -18,6 +18,7 @@ graph LR
   ipc[ipc]
   utils[utils]
   exchange[exchange]
+  regime[regime]
   api -->|13| core
   api -->|8| utils
   core -->|11| api
@@ -34,6 +35,9 @@ graph LR
   main -->|4| core
   main --> strategy
   main -->|2| utils
+  regime --> api
+  regime --> core
+  regime -->|3| utils
   risk -->|12| core
   risk -->|2| ipc
   risk -->|4| utils
@@ -44,7 +48,7 @@ graph LR
   strategy -->|8| utils
   universe -->|2| api
   universe -->|17| core
-  universe -->|24| utils
+  universe -->|25| utils
   utils --> core
 ```
 
@@ -55,10 +59,10 @@ graph LR
 
 | 헤더 | 유입 수 |
 |---|---|
-| `utils/Logger.h` | 52 |
+| `utils/Logger.h` | 53 |
 | `core/Types.h` | 47 |
-| `core/KstTime.h` | 31 |
-| `utils/ThreadName.h` | 23 |
+| `core/KstTime.h` | 32 |
+| `utils/ThreadName.h` | 24 |
 | `core/SymbolTable.h` | 22 |
 | `core/Engine.h` | 16 |
 | `core/LatencyTrace.h` | 12 |
@@ -206,6 +210,9 @@ graph LR
   subgraph main
     n_main_cpp["main.cpp"]
   end
+  subgraph regime
+    n_regime_RegimeFeed_cpp["regime/RegimeFeed.cpp"]
+  end
   subgraph risk
     n_risk_DisplacementDesk_cpp["risk/DisplacementDesk.cpp"]
     n_risk_DisplacementDesk_h["risk/DisplacementDesk.h"]
@@ -266,6 +273,7 @@ graph LR
     n_universe_detail_Pipeline_h["universe/detail/Pipeline.h"]
   end
   subgraph utils
+    n_utils_AtomicFile_cpp["utils/AtomicFile.cpp"]
     n_utils_EtfFilter_cpp["utils/EtfFilter.cpp"]
     n_utils_JsonNode_cpp["utils/JsonNode.cpp"]
     n_utils_Logger_cpp["utils/Logger.cpp"]
@@ -616,6 +624,11 @@ graph LR
   n_main_cpp --> n_strategy_StrategyFactory_h
   n_main_cpp --> n_utils_Logger_h
   n_main_cpp --> n_utils_ThreadName_h
+  n_regime_RegimeFeed_cpp --> n_api_HttpGet_h
+  n_regime_RegimeFeed_cpp --> n_core_KstTime_h
+  n_regime_RegimeFeed_cpp --> n_utils_AtomicFile_h
+  n_regime_RegimeFeed_cpp --> n_utils_Logger_h
+  n_regime_RegimeFeed_cpp --> n_utils_ThreadName_h
   n_risk_DisplacementDesk_cpp --> n_risk_DisplacementDesk_h
   n_risk_DisplacementDesk_cpp --> n_utils_Logger_h
   n_risk_DisplacementDesk_h --> n_core_Types_h
@@ -721,6 +734,7 @@ graph LR
   n_universe_MarketBoard_cpp --> n_api_HttpGet_h
   n_universe_MarketBoard_cpp --> n_core_KstTime_h
   n_universe_MarketBoard_cpp --> n_universe_MarketBoard_h
+  n_universe_MarketBoard_cpp --> n_utils_AtomicFile_h
   n_universe_MarketBoard_cpp --> n_utils_Logger_h
   n_universe_MarketBoard_cpp --> n_utils_ThreadName_h
   n_universe_ScoreWeight_cpp --> n_universe_ScoreWeight_h
@@ -777,6 +791,7 @@ graph LR
   n_universe_UniverseScoring_cpp --> n_utils_JsonNode_h
   n_universe_UniverseScoring_cpp --> n_utils_Logger_h
   n_universe_detail_Pipeline_h --> n_universe_UniverseScanner_h
+  n_utils_AtomicFile_cpp --> n_utils_AtomicFile_h
   n_utils_EtfFilter_cpp --> n_utils_EtfFilter_h
   n_utils_JsonNode_cpp --> n_utils_JsonNode_h
   n_utils_Logger_cpp --> n_core_MpscQueue_h

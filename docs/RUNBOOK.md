@@ -21,10 +21,10 @@ $env:PYTHONUTF8 = "1"
 
 ## 1. 자동매매 하루 루프 (한 창으로 끝내기)
 
-<!-- sync: scripts/auto_trade_day.ps1@7c69c3d scripts/auto_trade_guard.ps1@db8a573 -->
+<!-- sync: scripts/auto_trade_day.ps1@114bd1e scripts/auto_trade_guard.ps1@db8a573 -->
 
 감시견 하나가 국면 보조 프로세스·유니버스·대시보드·알림·트레이더를 순서대로 띄우고, 장 마감까지 트레이더가 멈추면 다시
-띄운다. config에 `"market_board": true`가 있으면 유니버스 스캔·시세 창은 띄우지 않는다 — 엔진 안 시세판이 받는다(D-147). 감시자 예약작업은 07:30부터 돈다 — 엔진이 08:00 NXT 개장 전에 전 종목 일봉을 미리 받아 두게(config `daily_warm_until_hhmm`, D-147). 띄우기 전에 그날 장이 열리는지 KIS에 물어(`scripts/check_market_open.py`) 휴장일이면 아무것도 안 띄우고 끝낸다 —
+띄운다. config에 `"market_board": true`가 있으면 유니버스 스캔·시세 창은 띄우지 않는다 — 엔진 안 시세판이 받는다(D-147). config의 `regime_feed.out`이 `regime_file`과 같으면 국면 판정도 엔진이 써서 파이썬 국면 피드 창을 띄우지 않는다(다르면 대조 기간이라 둘 다 돈다). 감시자 예약작업은 07:30부터 돈다 — 엔진이 08:00 NXT 개장 전에 전 종목 일봉을 미리 받아 두게(config `daily_warm_until_hhmm`, D-147). 띄우기 전에 그날 장이 열리는지 KIS에 물어(`scripts/check_market_open.py`) 휴장일이면 아무것도 안 띄우고 끝낸다 —
 조회가 실패해 개장 여부를 모르는 날은 휴장으로 보지 않고 그대로 진행한다. 마감 뒤 `scripts/market_close_autodoc.py`(일지 사실 구간·리뷰 탭·대시보드)까지 돈다. 부속 창에는 체결 기록기·엔진 자원 표본기와 원장 저널 적재기(`quant-ledger`)가 있는데, 저널 적재기는 엔진이 주문 전에 파일로 적어 둔 원장(D-113)을 DB로 따라 적는다 — 멈췄다 되살아나면 안 읽은 구간부터 따라잡는다. 트레이더는 이 감시견이 소유한다 —
 손으로 따로 띄우면 엔진이 둘이 된다. 기동 전에 이미 떠 있는 `quant_trader`가 있으면 중단하는데, **발주하는 계좌가 같을 때만**
 센다 — 떠 있는 프로세스의 명령줄에서 config를 찾아 `kis.account_no`와 `is_paper`를 열쇠로 만든다. config에 `replay_file`이

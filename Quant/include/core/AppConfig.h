@@ -6,6 +6,7 @@
 #include "api/KisClient.h"
 #include "core/RegimeFileJudge.h"
 #include "core/Types.h"
+#include "regime/RegimeFeed.h"
 #include "risk/OrderGate.h"
 
 #include <map>
@@ -52,6 +53,8 @@ struct AppConfig
     std::string            regime_file;
     int                    regime_stale_sec = kDefaultRegimeStaleSec;
     int                    regime_halt_expire_min = kDefaultRegimeHaltExpireMin;
+    // 국면 판정 피드(regime/RegimeFeed.h). config에 "regime_feed" 노드가 있을 때만 전략 쪽이 띄운다. [why D-147]
+    std::optional<regime_feed::FeedConfig> regime_feed;
     // 보호 주문 표(D-114 단계 1) — off/shadow/owner. 기본 shadow는 판정만 로그로 남기고 발주는 전략이 한다.
     //  owner로 두면 표가 발주하고 등록한 전략은 자기 손절·트레일 판정을 건너뛰다.
     std::string            protective_orders = "shadow";

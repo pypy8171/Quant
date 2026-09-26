@@ -3,14 +3,13 @@
 
 #include "api/HttpGet.h"
 #include "core/KstTime.h"
+#include "utils/AtomicFile.h"
 #include "utils/Logger.h"
 #include "utils/ThreadName.h"
 
 #include <algorithm>
 #include <chrono>
 #include <cmath>
-#include <filesystem>
-#include <fstream>
 #include <future>
 #include <nlohmann/json.hpp>
 #include <unordered_map>
@@ -66,40 +65,6 @@ std::string text_field(const nlohmann::json& row, const char* key)
 {
     const auto found = row.find(key);
     return (found != row.end() && found->is_string()) ? found->get<std::string>() : std::string();
-}
-
-// 임시 파일에 다 쓴 뒤 바꿔 넣는다 — 읽는 쪽이 반쯤 쓰인 파일을 보지 않게. 임시 이름에 시각을 붙이는 것은
-//  모의·실계좌 엔진 둘이 같은 경로에 쓸 때 서로의 임시 파일을 덮지 않게 하려는 것이다.
-bool write_atomically(const std::string& path, const std::string& text)
-{
-    const std::string temporary =
-        path + ".tmp" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
-    {
-        std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
-
-        if (!file)
-        {
-            return false;
-        }
-
-        file.write(text.data(), static_cast<std::streamsize>(text.size()));
-
-        if (!file)
-        {
-            return false;
-        }
-    }
-
-    std::error_code error;
-    std::filesystem::rename(temporary, path, error);
-
-    if (error)
-    {
-        std::filesystem::remove(temporary, error);
-        return false;
-    }
-
-    return true;
 }
 
 } // namespace
@@ -603,7 +568,7 @@ void MarketBoard::rerank()
     {
         const std::string label = "naver-live " + kst::hhmmss(ranked->ranked_at).substr(0, 4);
 
-        if (!write_atomically(config_.universe_out, universe_file_text(*ranked, label)))
+        if (!file_io::write_atomically(config_.universe_out, universe_file_text(*ranked, label)))
         {
             LOG_WARN("[MarketBoard] 유니버스 파일 쓰기 실패(" + config_.universe_out + ")");
         }
