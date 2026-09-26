@@ -159,7 +159,7 @@ config별 전략: `config_dev_paper.json` DEVIATION_SCALE(일봉 정배열+눌�
 
 ## 3. 실시간 대시보드
 
-<!-- sync: scripts/dashboard_server.py@f1f118a -->
+<!-- sync: scripts/dashboard_server.py@a0966e3 -->
 
 엔진 재빌드 없이 이미 있는 데이터(KIS 잔고·`regime.json`·`universe_scan.json`·로그·체결원장)를 브라우저에 3초마다
 표시한다. 종목 행 클릭 → 일/주/5분/3분봉 차트. 종목 뉴스·속보(네이버, 보유 종목 전부 + 유니버스 순환)와 증권사 리서치(매시간 갱신) 카드도 같은 화면에 있다. 라이브 데이터는 이 로컬 서버가 있어야 뜬다(발행 URL 하나로는 안 된다).

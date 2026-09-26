@@ -1,7 +1,0 @@
-round,role,timestamp,shard,shard_out,shard_dropped,order,fill,fill_dropped,order_dropped,order_stale,order_duplicate,order_implausible,order_truncated,order_response_dropped,beat_gap_max,order_beat_gap_max,order_answer_overdue,feed_beat_gap_max,ledger_gen,ledger_foreign,control_dropped,control_relay_dropped,control_discarded,symbol_register_timeout,symbol_lookup_miss,strategy_register_timeout,watch_overflow,feed_channel_overflow,feed_channel_discarded,feed_channel_sent,feed_channel_received,fill_channel_overflow,fill_channel_discarded,fill_channel_sent,fill_channel_received
-Jprime,both,2026-09-26 01:02:22,"4096,4096,4096,4055/4096",0/4096,0,1024/1024,1024/1024,83,28769,0,0,0,0,0,33ms,478ms,0,5000ms,86956,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
-Jprime,both,2026-09-26 01:03:22,"4096,4096,4096,4055/4096",0/4096,0,1024/1024,1024/1024,83,38087,0,0,0,0,0,33ms,478ms,0,5000ms,122221,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
-Jprime,both,2026-09-26 01:04:22,"4096,4096,4096,4055/4096",0/4096,0,1024/1024,1024/1024,83,38087,0,0,0,0,0,33ms,478ms,0,5000ms,122816,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
-Jprime,both,2026-09-26 01:05:22,"4096,4096,4096,4055/4096",0/4096,0,1024/1024,1024/1024,83,38087,0,0,0,0,0,33ms,478ms,0,5000ms,123412,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
-Jprime,both,2026-09-26 01:06:22,"4096,4096,4096,4055/4096",0/4096,0,1024/1024,1024/1024,83,38087,0,0,0,0,0,33ms,478ms,0,5000ms,124007,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
-Jprime,both,2026-09-26 01:07:22,"4096,4096,4096,4055/4096",0/4096,0,1024/1024,1024/1024,83,38087,0,0,0,0,0,33ms,478ms,0,5000ms,124603,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0

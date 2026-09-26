@@ -1,0 +1,9 @@
+round,role,recorder,elapsed_seconds,data_events,signal_count,order_count,drop_total,drop_socket_full,drop_socket_error,drop_send_queue_full,drop_trade_ring_full,drop_trade_socket,available_gb
+peak30k_split,order,on,0.0,0,0,0,0,0,0,0,0,0,14.28
+peak30k_split,order,on,10.0,0,0,888,0,0,0,0,0,0,11.43
+peak30k_split,order,on,20.0,0,0,14224,0,0,0,0,0,0,8.79
+peak30k_split,order,on,30.0,0,0,28296,0,0,0,0,0,0,8.06
+peak30k_split,order,on,40.0,0,0,42127,0,0,0,0,0,0,7.33
+peak30k_split,order,on,50.0,0,0,55064,0,0,0,0,0,0,6.74
+peak30k_split,order,on,60.0,0,0,66374,0,0,0,0,0,0,6.48
+peak30k_split,order,on,70.0,0,0,75410,0,0,0,0,0,0,6.43

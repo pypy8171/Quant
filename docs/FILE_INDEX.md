@@ -755,30 +755,30 @@
 - [2026-09-23_db_ingest_rows.csv](reports/stresstest/data/2026-09-23_db_ingest_rows.csv) — 회차 J·K·L이 DB 표(주문·체결·신호·시세)에 남긴 행 수와 초당 행, 주입 뒤 밀린 시간, 최소 여유 메모리
 - [2026-09-23_drop_breakdown.csv](reports/stresstest/data/2026-09-23_drop_breakdown.csv) — M회차를 적재기 있음·없음으로 돌리며 10초마다 STATUS 로 읽은 원인별 버린 건수와 가용 메모리 16행
 - [2026-09-23_order_stages.csv](reports/stresstest/data/2026-09-23_order_stages.csv) — 09-23 회차 E·F·G·H·I의 구간별 p50·p90·p99·최대 80행(창 둘: 첫 60초·전체). 원본 latency_trace.csv에서 뽑은 요약
-- [2026-09-25_Eboth_highwater.csv](reports/stresstest/data/2026-09-25_Eboth_highwater.csv) — 같은 회차의 큐 최고 수위·안전 계수기
-- [2026-09-25_Eboth_segments.csv](reports/stresstest/data/2026-09-25_Eboth_segments.csv) — 09-25 Eboth(한 프로세스, 300종목 × 1,000건, DB 끔) 12구간 지연 요약
-- [2026-09-25_Esplit_equivalence.txt](reports/stresstest/data/2026-09-25_Esplit_equivalence.txt) — 정합성 판정문 — 갈라진 종목 0·빠진 순번 0(판정은 이 파일로 낸다)
-- [2026-09-25_Esplit_highwater.csv](reports/stresstest/data/2026-09-25_Esplit_highwater.csv) — 같은 회차의 큐 최고 수위·안전 계수기(역할별)
-- [2026-09-25_Esplit_segments.csv](reports/stresstest/data/2026-09-25_Esplit_segments.csv) — 09-25 Esplit(세 프로세스, 같은 입력) 12구간 지연 요약 — Eboth와 짝
-- [2026-09-25_Jprime_highwater.csv](reports/stresstest/data/2026-09-25_Jprime_highwater.csv) — 같은 회차의 큐 최고 수위·안전 계수기
-- [2026-09-25_Jprime_segments.csv](reports/stresstest/data/2026-09-25_Jprime_segments.csv) — 09-25 Jprime(한 프로세스, 2,700종목 × 30,000건, DB 켬) 12구간 지연 요약
-- [2026-09-25_Jprime_status.csv](reports/stresstest/data/2026-09-25_Jprime_status.csv) — 같은 회차를 10초마다 STATUS로 읽은 원인별 버린 건수·가용 메모리
-- [2026-09-25_N_equivalence.txt](reports/stresstest/data/2026-09-25_N_equivalence.txt) — N 대 Jprime 정합성 출력 — 양쪽이 주문을 버리는 입력이라 판정에 쓰지 않는다(OVERVIEW 8절 9번)
-- [2026-09-25_N_highwater.csv](reports/stresstest/data/2026-09-25_N_highwater.csv) — 같은 회차의 큐 최고 수위·안전 계수기(역할별)
-- [2026-09-25_N_segments.csv](reports/stresstest/data/2026-09-25_N_segments.csv) — 09-25 N(세 프로세스, 같은 큰 입력) 12구간 지연 요약 — Jprime과 짝
-- [2026-09-25_N_status.csv](reports/stresstest/data/2026-09-25_N_status.csv) — 같은 회차의 10초 주기 STATUS 표본
-- [2026-09-26_Eboth_highwater.csv](reports/stresstest/data/2026-09-26_Eboth_highwater.csv) — 같은 회차의 큐 최고 수위·안전 계수기
-- [2026-09-26_Eboth_segments.csv](reports/stresstest/data/2026-09-26_Eboth_segments.csv) — 09-26 Eboth(한 프로세스, 300종목 × 1,000건, DB 끔) 12구간 지연 요약 — 체결 발행 묶음(D-139) 뒤 재측정
-- [2026-09-26_Esplit_equivalence.txt](reports/stresstest/data/2026-09-26_Esplit_equivalence.txt) — 정합성 판정문 — 갈라진 종목 0·빠진 순번 0(판정은 이 파일로 낸다)
-- [2026-09-26_Esplit_highwater.csv](reports/stresstest/data/2026-09-26_Esplit_highwater.csv) — 같은 회차의 큐 최고 수위·안전 계수기(역할별)
-- [2026-09-26_Esplit_segments.csv](reports/stresstest/data/2026-09-26_Esplit_segments.csv) — 09-26 Esplit(세 프로세스, 같은 입력) 12구간 지연 요약 — Eboth와 짝
-- [2026-09-26_Jprime_highwater.csv](reports/stresstest/data/2026-09-26_Jprime_highwater.csv) — 같은 회차의 큐 최고 수위·안전 계수기
-- [2026-09-26_Jprime_segments.csv](reports/stresstest/data/2026-09-26_Jprime_segments.csv) — 09-26 Jprime(한 프로세스, 2,700종목 × 30,000건, DB 켬) 12구간 지연 요약
-- [2026-09-26_Jprime_status.csv](reports/stresstest/data/2026-09-26_Jprime_status.csv) — 같은 회차를 10초마다 STATUS로 읽은 원인별 버린 건수 — 체결소켓 칸(drop_trade_socket)이 새로 붙었다
-- [2026-09-26_N_equivalence.txt](reports/stresstest/data/2026-09-26_N_equivalence.txt) — N 대 Jprime 정합성 출력 — 양쪽이 주문을 버리는 입력이라 판정에 쓰지 않는다(OVERVIEW 11.5절)
-- [2026-09-26_N_highwater.csv](reports/stresstest/data/2026-09-26_N_highwater.csv) — 같은 회차의 큐 최고 수위·안전 계수기(역할별)
-- [2026-09-26_N_segments.csv](reports/stresstest/data/2026-09-26_N_segments.csv) — 09-26 N(세 프로세스, 같은 큰 입력) 12구간 지연 요약 — Jprime과 짝
-- [2026-09-26_N_status.csv](reports/stresstest/data/2026-09-26_N_status.csv) — 같은 회차의 10초 주기 STATUS 표본
+- [2026-09-25_equiv300_one_highwater.csv](reports/stresstest/data/2026-09-25_equiv300_one_highwater.csv) — 같은 회차의 큐 최고 수위·안전 계수기
+- [2026-09-25_equiv300_one_segments.csv](reports/stresstest/data/2026-09-25_equiv300_one_segments.csv) — 09-25 equiv300_one(한 프로세스, 300종목 × 1,000건, DB 끔) 12구간 지연 요약
+- [2026-09-25_equiv300_split_equivalence.txt](reports/stresstest/data/2026-09-25_equiv300_split_equivalence.txt) — 정합성 판정문 — 갈라진 종목 0·빠진 순번 0(판정은 이 파일로 낸다)
+- [2026-09-25_equiv300_split_highwater.csv](reports/stresstest/data/2026-09-25_equiv300_split_highwater.csv) — 같은 회차의 큐 최고 수위·안전 계수기(역할별)
+- [2026-09-25_equiv300_split_segments.csv](reports/stresstest/data/2026-09-25_equiv300_split_segments.csv) — 09-25 equiv300_split(세 프로세스, 같은 입력) 12구간 지연 요약 — equiv300_one과 짝
+- [2026-09-25_peak30k_one_highwater.csv](reports/stresstest/data/2026-09-25_peak30k_one_highwater.csv) — 같은 회차의 큐 최고 수위·안전 계수기
+- [2026-09-25_peak30k_one_segments.csv](reports/stresstest/data/2026-09-25_peak30k_one_segments.csv) — 09-25 peak30k_one(한 프로세스, 2,700종목 × 30,000건, DB 켬) 12구간 지연 요약
+- [2026-09-25_peak30k_one_status.csv](reports/stresstest/data/2026-09-25_peak30k_one_status.csv) — 같은 회차를 10초마다 STATUS로 읽은 원인별 버린 건수·가용 메모리
+- [2026-09-25_peak30k_split_equivalence.txt](reports/stresstest/data/2026-09-25_peak30k_split_equivalence.txt) — peak30k_split 대 peak30k_one 정합성 출력 — 양쪽이 주문을 버리는 입력이라 판정에 쓰지 않는다(OVERVIEW 8절 9번)
+- [2026-09-25_peak30k_split_highwater.csv](reports/stresstest/data/2026-09-25_peak30k_split_highwater.csv) — 같은 회차의 큐 최고 수위·안전 계수기(역할별)
+- [2026-09-25_peak30k_split_segments.csv](reports/stresstest/data/2026-09-25_peak30k_split_segments.csv) — 09-25 peak30k_split(세 프로세스, 같은 큰 입력) 12구간 지연 요약 — peak30k_one과 짝
+- [2026-09-25_peak30k_split_status.csv](reports/stresstest/data/2026-09-25_peak30k_split_status.csv) — 같은 회차의 10초 주기 STATUS 표본
+- [2026-09-26_equiv300_one_highwater.csv](reports/stresstest/data/2026-09-26_equiv300_one_highwater.csv) — 같은 회차의 큐 최고 수위·안전 계수기
+- [2026-09-26_equiv300_one_segments.csv](reports/stresstest/data/2026-09-26_equiv300_one_segments.csv) — 09-26 equiv300_one(한 프로세스, 300종목 × 1,000건, DB 끔) 12구간 지연 요약 — 체결 발행 묶음(D-139) 뒤 재측정
+- [2026-09-26_equiv300_split_equivalence.txt](reports/stresstest/data/2026-09-26_equiv300_split_equivalence.txt) — 정합성 판정문 — 갈라진 종목 0·빠진 순번 0(판정은 이 파일로 낸다)
+- [2026-09-26_equiv300_split_highwater.csv](reports/stresstest/data/2026-09-26_equiv300_split_highwater.csv) — 같은 회차의 큐 최고 수위·안전 계수기(역할별)
+- [2026-09-26_equiv300_split_segments.csv](reports/stresstest/data/2026-09-26_equiv300_split_segments.csv) — 09-26 equiv300_split(세 프로세스, 같은 입력) 12구간 지연 요약 — equiv300_one과 짝
+- [2026-09-26_peak30k_one_highwater.csv](reports/stresstest/data/2026-09-26_peak30k_one_highwater.csv) — 같은 회차의 큐 최고 수위·안전 계수기
+- [2026-09-26_peak30k_one_segments.csv](reports/stresstest/data/2026-09-26_peak30k_one_segments.csv) — 09-26 peak30k_one(한 프로세스, 2,700종목 × 30,000건, DB 켬) 12구간 지연 요약
+- [2026-09-26_peak30k_one_status.csv](reports/stresstest/data/2026-09-26_peak30k_one_status.csv) — 같은 회차를 10초마다 STATUS로 읽은 원인별 버린 건수 — 체결소켓 칸(drop_trade_socket)이 새로 붙었다
+- [2026-09-26_peak30k_split_equivalence.txt](reports/stresstest/data/2026-09-26_peak30k_split_equivalence.txt) — peak30k_split 대 peak30k_one 정합성 출력 — 양쪽이 주문을 버리는 입력이라 판정에 쓰지 않는다(OVERVIEW 11.5절)
+- [2026-09-26_peak30k_split_highwater.csv](reports/stresstest/data/2026-09-26_peak30k_split_highwater.csv) — 같은 회차의 큐 최고 수위·안전 계수기(역할별)
+- [2026-09-26_peak30k_split_segments.csv](reports/stresstest/data/2026-09-26_peak30k_split_segments.csv) — 09-26 peak30k_split(세 프로세스, 같은 큰 입력) 12구간 지연 요약 — peak30k_one과 짝
+- [2026-09-26_peak30k_split_status.csv](reports/stresstest/data/2026-09-26_peak30k_split_status.csv) — 같은 회차의 10초 주기 STATUS 표본
 - [2026-09-26_peak100k_one_highwater.csv](reports/stresstest/data/2026-09-26_peak100k_one_highwater.csv) — 09-26 종목당 10만건(한 프로세스) 큐 최고 수위·안전 계수기
 - [2026-09-26_peak100k_one_segments.csv](reports/stresstest/data/2026-09-26_peak100k_one_segments.csv) — 같은 회차 12구간 지연 요약 — 전략 판단에서 주문 스레드가 꺼낼 때까지가 거의 전부다
 - [2026-09-26_peak100k_one_status.csv](reports/stresstest/data/2026-09-26_peak100k_one_status.csv) — 같은 회차를 10초마다 STATUS로 읽은 원인별 버린 건수

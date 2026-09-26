@@ -1,5 +1,0 @@
-round,role,timestamp,shard,shard_out,shard_dropped,order,fill,fill_dropped,order_dropped,order_stale,order_duplicate,order_implausible,order_truncated,order_response_dropped,beat_gap_max,order_beat_gap_max,order_answer_overdue,ledger_gen,ledger_foreign,control_dropped,control_relay_dropped,control_discarded,symbol_register_timeout,symbol_lookup_miss,strategy_register_timeout,watch_overflow,feed_channel_overflow,feed_channel_discarded,feed_channel_sent,feed_channel_received,fill_channel_overflow,fill_channel_discarded,fill_channel_sent,fill_channel_received
-N,order,2026-09-25 12:34:07,/4096,0/4096,0,0/1024,5/1024,0,0,0,0,0,0,0,12ms,0ms,0,33754,0,0,0,0,0,0,0,0,0,0,35568979,35568979,0,0,0,0
-N,feed,2026-09-25 12:34:38,/4096,0/4096,0,0/1024,0/1024,0,0,0,0,0,0,0,0ms,0ms,0,121665,0,0,0,0,0,0,0,0,0,0,53899676,53899676,0,0,0,0
-N,strategy,2026-09-25 12:34:38,"4096,4096,4096,4096/4096",0/4096,0,1024/1024,0/1024,0,17567,0,0,0,0,0,0ms,491ms,0,121665,0,0,0,0,0,0,0,0,0,0,53899676,53899676,0,0,0,0
-N,order,2026-09-25 12:35:07,/4096,0/4096,0,0/1024,20/1024,0,0,0,0,0,0,0,14ms,0ms,0,156574,0,0,0,0,0,0,0,0,0,0,54758229,54758229,0,0,0,0

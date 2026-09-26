@@ -1,6 +1,6 @@
 order equivalence
-  baseline : latency_trace_Jprime.csv (63372 orders)
-  compared : latency_trace_N.csv (79210 orders)
+  baseline : latency_trace_peak30k_one.csv (63372 orders)
+  compared : latency_trace_peak30k_split.csv (79210 orders)
 
 check                                baseline     compared
 ------------------------------------------------------------
