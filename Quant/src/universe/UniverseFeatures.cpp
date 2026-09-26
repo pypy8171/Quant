@@ -63,8 +63,9 @@ void DailyLookupCache::load_today(const std::string& date_yyyymmdd, symbol::Symb
 
         for (auto iterator = document.begin(); iterator != document.end(); ++iterator)
         {
-            // 12칸은 구버전 파일이다 — 뒤 4칸(저항·거래량 축)은 0으로 두고 그대로 쓴다.
-            if (!iterator.value().is_array() || iterator.value().size() < 12)
+            // 14칸이 지금 형식(D-141에서 60일선 칸 average_60·r60을 뺐다). 다른 칸수는 옛 파일 —
+            //  건너뛰면 캐시 미스와 같아서 그 종목만 다시 받는다.
+            if (!iterator.value().is_array() || iterator.value().size() != 14)
             {
                 continue;
             }
@@ -83,22 +84,16 @@ void DailyLookupCache::load_today(const std::string& date_yyyymmdd, symbol::Symb
             daily_lookup.average_5      = value[1].get<double>();
             daily_lookup.average_10     = value[2].get<double>();
             daily_lookup.average_20     = value[3].get<double>();
-            daily_lookup.average_60     = value[4].get<double>();
-            daily_lookup.close   = value[5].get<double>();
-            daily_lookup.r5      = value[6].get<double>();
-            daily_lookup.r10     = value[7].get<double>();
-            daily_lookup.r20     = value[8].get<double>();
-            daily_lookup.r60     = value[9].get<double>();
-            daily_lookup.atr_percent = value[10].get<double>();
-            daily_lookup.at      = static_cast<std::time_t>(value[11].get<long long>());
-
-            if (value.size() >= 16)
-            {
-                daily_lookup.hi250     = value[12].get<double>();
-                daily_lookup.pivot_high  = value[13].get<double>();
-                daily_lookup.average_vol20 = value[14].get<double>();
-                daily_lookup.close21   = value[15].get<double>();
-            }
+            daily_lookup.close   = value[4].get<double>();
+            daily_lookup.r5      = value[5].get<double>();
+            daily_lookup.r10     = value[6].get<double>();
+            daily_lookup.r20     = value[7].get<double>();
+            daily_lookup.atr_percent = value[8].get<double>();
+            daily_lookup.at      = static_cast<std::time_t>(value[9].get<long long>());
+            daily_lookup.hi250     = value[10].get<double>();
+            daily_lookup.pivot_high  = value[11].get<double>();
+            daily_lookup.average_vol20 = value[12].get<double>();
+            daily_lookup.close21   = value[13].get<double>();
 
             by_symbol_[symbol] = std::move(daily_lookup);
             ++count;
@@ -118,8 +113,8 @@ void DailyLookupCache::load_today(const std::string& date_yyyymmdd, symbol::Symb
 
 void DailyLookupCache::save_today(const std::string& date_yyyymmdd, const symbol::SymbolTable& symbols) const
 {
-    // [wire] 값 순서: bars, average_5, average_10, average_20, average_60, close, r5, r10, r20, r60, atr_percent, at,
-    //  hi250, pivot_high, average_vol20, close21 (뒤 4칸은 나중에 붙었다 — 읽을 때 없어도 된다)
+    // [wire] 값 순서: bars, average_5, average_10, average_20, close, r5, r10, r20, atr_percent, at,
+    //  hi250, pivot_high, average_vol20, close21 — 14칸 고정(읽는 쪽이 칸수로 형식을 가린다)
     nlohmann::json document = nlohmann::json::object();
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -133,8 +128,8 @@ void DailyLookupCache::save_today(const std::string& date_yyyymmdd, const symbol
                 continue;
             }
 
-            document[symbols.name(symbol).string()] = nlohmann::json::array({daily_lookup.bars, daily_lookup.average_5, daily_lookup.average_10, daily_lookup.average_20, daily_lookup.average_60,
-                                                 daily_lookup.close, daily_lookup.r5, daily_lookup.r10, daily_lookup.r20, daily_lookup.r60,
+            document[symbols.name(symbol).string()] = nlohmann::json::array({daily_lookup.bars, daily_lookup.average_5, daily_lookup.average_10, daily_lookup.average_20,
+                                                 daily_lookup.close, daily_lookup.r5, daily_lookup.r10, daily_lookup.r20,
                                                  daily_lookup.atr_percent, static_cast<long long>(daily_lookup.at),
                                                  daily_lookup.hi250, daily_lookup.pivot_high, daily_lookup.average_vol20, daily_lookup.close21});
         }
@@ -260,15 +255,15 @@ DailyLookup fetch_daily_lookup(KisClient& kis, const DevScanCfg& config, const s
     daily_lookup.at   = std::time(nullptr);
     daily_lookup.bars = static_cast<int>(daily_ohlcv.size());
 
-    if (daily_lookup.bars < 60)
+    if (daily_lookup.bars < 20)
     {
         return daily_lookup;
     }
 
     auto simple_moving_average = [&](int count) { double sum = 0.0; for (int index = 0; index < count; ++index) sum += daily_ohlcv[index].close; return sum / count; };
-    daily_lookup.average_5 = simple_moving_average(5); daily_lookup.average_10 = simple_moving_average(10); daily_lookup.average_20 = simple_moving_average(20); daily_lookup.average_60 = simple_moving_average(60);
+    daily_lookup.average_5 = simple_moving_average(5); daily_lookup.average_10 = simple_moving_average(10); daily_lookup.average_20 = simple_moving_average(20);
     daily_lookup.r5 = daily_ohlcv[4].close; daily_lookup.r10 = daily_ohlcv[9].close;
-    daily_lookup.r20 = daily_ohlcv[19].close; daily_lookup.r60 = daily_ohlcv[59].close;
+    daily_lookup.r20 = daily_ohlcv[19].close;
     daily_lookup.close = daily_ohlcv[0].close;
     // [formula] ATR(14) — True Range = max(고−저, |고−전일종가|, |저−전일종가|)의 14봉 평균.
     //  d[0]이 최신이므로 d[i+1]이 i의 전일. 종가로 나눠 종목 간 비교 가능한 비율로 만든다.
@@ -444,7 +439,7 @@ std::vector<Features> lookup_and_filter(KisClient& kis, const DevScanCfg& config
 
         ++statistics.looked_up;
 
-        if (daily_lookup.bars < 60)
+        if (daily_lookup.bars < 20)
         {
             ++statistics.short_bars;
             continue;
@@ -463,13 +458,12 @@ std::vector<Features> lookup_and_filter(KisClient& kis, const DevScanCfg& config
         }
 
         quant::moving_average::SimpleMovingAverages previous;
-        previous.average_5 = daily_lookup.average_5; previous.average_10 = daily_lookup.average_10; previous.average_20 = daily_lookup.average_20; previous.average_60 = daily_lookup.average_60;
+        previous.average_5 = daily_lookup.average_5; previous.average_10 = daily_lookup.average_10; previous.average_20 = daily_lookup.average_20;
         const quant::moving_average::SimpleMovingAverages moving_average =
-            quant::moving_average::fold_today(previous, daily_lookup.r5, daily_lookup.r10, daily_lookup.r20, daily_lookup.r60, price);
+            quant::moving_average::fold_today(previous, daily_lookup.r5, daily_lookup.r10, daily_lookup.r20, price);
         // average_10 은 정배열 판정(aligned) 안에서만 쓰여 여기서는 꺼내지 않는다.
         const double average_5  = moving_average.average_5;
         const double average_20 = moving_average.average_20;
-        const double average_60 = moving_average.average_60;
 
         if (!quant::moving_average::aligned(moving_average, config.align_moving_average_tolerance_percent))
         {
@@ -477,7 +471,7 @@ std::vector<Features> lookup_and_filter(KisClient& kis, const DevScanCfg& config
             continue;
         }
 
-        double trend = average_60 > 0.0 ? (average_5 - average_60) / average_60 : 0.0;   // 추세강도(정배열 기울기)
+        double trend = average_20 > 0.0 ? (average_5 - average_20) / average_20 : 0.0;   // 추세강도(정배열 기울기, D-141부터 20일 기준)
         double pull  = average_20 > 0.0 ? (price - average_20) / average_20 : 0.0;   // 눌림깊이(음수=SMA20 아래)
 
         // 과확장 컷 — 이격 상한 초과는 존 밴드 진입이 불가한 폭등주라 슬롯만 낭비한다.

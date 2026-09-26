@@ -772,6 +772,12 @@
 - [2026-09-26_equiv300_split_equivalence.txt](reports/stresstest/data/2026-09-26_equiv300_split_equivalence.txt) — 정합성 판정문 — 갈라진 종목 0·빠진 순번 0(판정은 이 파일로 낸다)
 - [2026-09-26_equiv300_split_highwater.csv](reports/stresstest/data/2026-09-26_equiv300_split_highwater.csv) — 같은 회차의 큐 최고 수위·안전 계수기(역할별)
 - [2026-09-26_equiv300_split_segments.csv](reports/stresstest/data/2026-09-26_equiv300_split_segments.csv) — 09-26 equiv300_split(세 프로세스, 같은 입력) 12구간 지연 요약 — equiv300_one과 짝
+- [2026-09-26_peak100k_one_highwater.csv](reports/stresstest/data/2026-09-26_peak100k_one_highwater.csv) — 09-26 종목당 10만건(한 프로세스) 큐 최고 수위·안전 계수기
+- [2026-09-26_peak100k_one_segments.csv](reports/stresstest/data/2026-09-26_peak100k_one_segments.csv) — 같은 회차 12구간 지연 요약 — 전략 판단에서 주문 스레드가 꺼낼 때까지가 거의 전부다
+- [2026-09-26_peak100k_one_status.csv](reports/stresstest/data/2026-09-26_peak100k_one_status.csv) — 같은 회차를 10초마다 STATUS로 읽은 원인별 버린 건수
+- [2026-09-26_peak100k_split_highwater.csv](reports/stresstest/data/2026-09-26_peak100k_split_highwater.csv) — 09-26 종목당 10만건(세 프로세스) 역할별 큐 최고 수위 — 주문 요청 큐 660/1,024
+- [2026-09-26_peak100k_split_segments.csv](reports/stresstest/data/2026-09-26_peak100k_split_segments.csv) — 같은 회차 12구간 지연 요약 — peak100k_one과 짝
+- [2026-09-26_peak100k_split_status.csv](reports/stresstest/data/2026-09-26_peak100k_split_status.csv) — 같은 회차의 10초 주기 STATUS 표본 — 보낸 수와 받은 수가 같다
 - [2026-09-26_peak30k_one_highwater.csv](reports/stresstest/data/2026-09-26_peak30k_one_highwater.csv) — 같은 회차의 큐 최고 수위·안전 계수기
 - [2026-09-26_peak30k_one_segments.csv](reports/stresstest/data/2026-09-26_peak30k_one_segments.csv) — 09-26 peak30k_one(한 프로세스, 2,700종목 × 30,000건, DB 켬) 12구간 지연 요약
 - [2026-09-26_peak30k_one_status.csv](reports/stresstest/data/2026-09-26_peak30k_one_status.csv) — 같은 회차를 10초마다 STATUS로 읽은 원인별 버린 건수 — 체결소켓 칸(drop_trade_socket)이 새로 붙었다
@@ -779,12 +785,6 @@
 - [2026-09-26_peak30k_split_highwater.csv](reports/stresstest/data/2026-09-26_peak30k_split_highwater.csv) — 같은 회차의 큐 최고 수위·안전 계수기(역할별)
 - [2026-09-26_peak30k_split_segments.csv](reports/stresstest/data/2026-09-26_peak30k_split_segments.csv) — 09-26 peak30k_split(세 프로세스, 같은 큰 입력) 12구간 지연 요약 — peak30k_one과 짝
 - [2026-09-26_peak30k_split_status.csv](reports/stresstest/data/2026-09-26_peak30k_split_status.csv) — 같은 회차의 10초 주기 STATUS 표본
-- [2026-09-26_peak100k_one_highwater.csv](reports/stresstest/data/2026-09-26_peak100k_one_highwater.csv) — 09-26 종목당 10만건(한 프로세스) 큐 최고 수위·안전 계수기
-- [2026-09-26_peak100k_one_segments.csv](reports/stresstest/data/2026-09-26_peak100k_one_segments.csv) — 같은 회차 12구간 지연 요약 — 전략 판단에서 주문 스레드가 꺼낼 때까지가 거의 전부다
-- [2026-09-26_peak100k_one_status.csv](reports/stresstest/data/2026-09-26_peak100k_one_status.csv) — 같은 회차를 10초마다 STATUS로 읽은 원인별 버린 건수
-- [2026-09-26_peak100k_split_highwater.csv](reports/stresstest/data/2026-09-26_peak100k_split_highwater.csv) — 09-26 종목당 10만건(세 프로세스) 역할별 큐 최고 수위 — 주문 요청 큐 660/1,024
-- [2026-09-26_peak100k_split_segments.csv](reports/stresstest/data/2026-09-26_peak100k_split_segments.csv) — 같은 회차 12구간 지연 요약 — peak100k_one과 짝
-- [2026-09-26_peak100k_split_status.csv](reports/stresstest/data/2026-09-26_peak100k_split_status.csv) — 같은 회차의 10초 주기 STATUS 표본 — 보낸 수와 받은 수가 같다
 
 ## linux_practice
 

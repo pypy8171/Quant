@@ -15,20 +15,18 @@ struct SimpleMovingAverages
     double average_5  = 0.0;
     double average_10 = 0.0;
     double average_20 = 0.0;
-    double average_60 = 0.0;
 };
 
 // [formula] 당일 SMA_n = (전일까지 SMA_n x n - 창에서 밀려나는 봉 종가 + 오늘 현재가) / n.
 //  일봉 조회가 include_today=false라 전일치에서 멈춘다. 그대로 쓰면 정배열이 하루 종일
 //  고정돼 장중에 이평이 깨져도 판정이 따라가지 않는다. 오늘 봉을 여기서 접어 넣는다.
 //  drop_n = 각 창에서 밀려나는 봉의 종가(newest-first 배열의 d[n-1].close).
-//  price<=0 또는 60봉 미달(drop60<=0)이면 접지 않고 전일 값을 그대로 돌려준다.
+//  price<=0 또는 20봉 미달(drop20<=0)이면 접지 않고 전일 값을 그대로 돌려준다.
 SimpleMovingAverages fold_today(const SimpleMovingAverages& previous,
-                       double drop5, double drop10, double drop20, double drop60,
+                       double drop5, double drop10, double drop20,
                        double price);
 
-// [inv] 정배열 = average_5>average_10>average_20. 60일선 조건은 뺐다 — SMA20>SMA60은 "3개월 추세 위"라
-//  긴 하락 뒤 회복 국면에서 주도주도 거기서 먼저 떨어져 후보를 말렸다(2026-09-26). 허용오차 tol은
+// [inv] 정배열 = average_5>average_10>average_20 (60일선 조건은 D-141에서 뺐다). 허용오차 tol은
 //  마지막 조건(SMA10>SMA20)에 준다. tolerance=0이면 엄격 판정, 1.0 이상이면 마지막 조건이 사라진다.
 bool aligned(const SimpleMovingAverages& simple_moving_averages, double tolerance);
 

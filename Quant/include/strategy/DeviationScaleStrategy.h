@@ -30,7 +30,7 @@
 // DeviationScaleStrategy — 일봉 존(정배열+눌림) 게이트 + 3분봉 이격도 분할매매(지정가 예약)
 //
 //  아이디어:
-//   • "매매할 자리"는 일봉에서 정한다: 정배열(SMA5>10>20>60) AND 현재가가 일봉 SMA20
+//   • "매매할 자리"는 일봉에서 정한다: 정배열(SMA5>10>20, D-141) AND 현재가가 일봉 SMA20
 //     대비 이격 밴드 안. 밴드는 슬리브가 정한다 — 눌림(DEVSCALE)은 −pullback_percent~+entry_upper_percent,
 //     추세확장(TRENDX)은 +entry_lower_percent~+entry_upper_percent(SMA20 위 구간). 존 유지는 진입보다
 //     zone_hyst_pct만큼 넓다. 이 조건이 참일 때만 오실레이션을 켠다(존 활성).
@@ -102,7 +102,7 @@ public:
         double pullback_percent   = 2.0;   // 일봉 SMA20 눌림 허용폭(하단,%) — 존 진입 임계(SMA20 아래)
         double entry_upper_percent = 0.0;  // 진입 상단(SMA20 위 허용%). 0=SMA20 이하만(순수 눌림). >0이면 SMA20 위 그만큼까지 진입 허용(완만상승·소폭눌림 포착)
         double zone_hysteresis_percent  = 4.0;   // 존 히스테리시스 밴드(%) — 청산 임계 = pullback + 이 값
-        // 정배열 마지막 조건(SMA20>SMA60)의 허용오차. 스캐너 config.align_ma_tol_pct와 같은 값을
+        // 정배열 마지막 조건(SMA10>SMA20)의 허용오차. 스캐너 config.align_ma_tol_pct와 같은 값을
         //  받아야 "등록은 됐는데 활성은 안 되는" 슬롯이 생기지 않는다.
         double align_moving_average_tolerance_percent = 0.0;
         // 개장 직후 3분봉이 sma_period만큼 안 쌓인 구간(20봉×3분=60분)에서 분할 매수 기준선을
@@ -171,7 +171,7 @@ public:
         int    market_close_hhmm       = 1515;  // 이 시각(KST HHMM) 이후 전량 취소+청산
         int    interval_min   = 3;     // 집계봉 간격(분)
         int    min_action_ms  = 3000;  // on_trade_batch 판단·발주 스로틀(프리페치 주기는 공용 풀이 정한다)
-        int    daily_lookback = 70;    // 일봉 조회 개수(SMA60 판정 위해 ≥60)
+        int    daily_lookback = 70;    // 일봉 조회 개수(정배열 판정 ≥20, 나머지는 고가 대비 표기 여유)
         std::string account;           // 원장 계좌키(단일계좌는 "")
     };
 
@@ -279,11 +279,11 @@ private:
 
     static double simple_moving_average_close(const std::vector<MarketData>& bars, int period);
 
-    // 전일까지의 일봉 이동평균에 오늘 현재가를 접어 넣어 돌려준다. 60봉 미만이면 average_60=0인
+    // 전일까지의 일봉 이동평균에 오늘 현재가를 접어 넣어 돌려준다. 20봉 미만이면 average_20=0인
     //  빈 값이라 호출부가 정배열을 false로 떨어뜨린다(판정 자체를 못 하는 상태).
     //  [why D-005] 일봉 조회가 당일 봉을 자르므로 여기서 오늘을 되살린다.
     // 전일 확정 이동평균. 오늘 현재가를 접지 않아 세션 내내 상수다 — 청산처럼 되돌릴 수
-    //  없는 판정이 이쪽을 쓴다. 60봉 미만이면 전 필드 0을 돌려준다(호출자가 average_60>0으로 거른다).
+    //  없는 판정이 이쪽을 쓴다. 20봉 미만이면 전 필드 0을 돌려준다(호출자가 average_20>0으로 거른다).
     static quant::moving_average::SimpleMovingAverages daily_simple_moving_averages_previous(const std::vector<MarketData>& daily);
 
     static quant::moving_average::SimpleMovingAverages daily_simple_moving_averages(const std::vector<MarketData>& daily, double current_price);

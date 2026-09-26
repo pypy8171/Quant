@@ -285,7 +285,7 @@ file = "Quant/include/universe/UniverseScanner.h"
 regex = 'int\s+align_daily_n\s*=\s*(\d+);'
 unit = "봉"
 group = "KIS REST — 일봉·분봉·랭킹 조회"
-meaning = "정배열 판정에 종목당 받는 일봉 길이(SMA60 + 여유)"
+meaning = "정배열 판정에 종목당 받는 일봉 길이(SMA20 + 고가 대비 표기 여유)"
 
 [[code_value]]
 id = "scanner_daily_lookup_sleep_ms"

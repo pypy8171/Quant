@@ -1714,7 +1714,7 @@ async function tick(){
   const rs=c.regime_strategies||{}; const rk=c.risk||{};
   document.getElementById('criteria').innerHTML=`
     <div><span class="k">국면별 전략</span> BULL=[${eb((rs.BULL||[]).join(', '))}] · NEUTRAL=[${eb((rs.NEUTRAL||[]).join(', '))}] · BEAR=[${eb((rs.BEAR||[]).join(', '))||'없음(청산)'}]</div>
-    <div><span class="k">진입 로직</span> 시총상위∪거래대금상위 스캔 → 일봉 정배열(SMA5&gt;10&gt;20&gt;60)${st.require_aligned?' 필수':''} + 눌림 존</div>
+    <div><span class="k">진입 로직</span> 시총상위∪거래대금상위 스캔 → 일봉 정배열(SMA5&gt;10&gt;20)${st.require_aligned?' 필수':''} + 눌림 존</div>
     <div><span class="k">스캔 규모</span> 시총 top ${eb(st.scan_top_n)} ∪ 거래대금 top ${eb(st.value_top_n)} → 등록상한 ${eb(st.max_universe)}종목</div>
     <div><span class="k">가격 필터</span> ${won(st.min_price)}원 이상${st.max_price?(' ~ '+won(st.max_price)+'원'):' (상한 무제한)'} · 과확장컷 ${eb(st.max_dev_pct)}</div>
     <div><span class="k">코스닥</span> ${c.kosdaq_enabled?'참여':'미참여(코스피만)'} · 폴링 ${eb(c.fetch_interval_sec)}s · 시세 ${c.rest_price_feed?'REST폴링':'WS'}</div>
@@ -1863,7 +1863,8 @@ async function loadChart(){
     +`<div style="margin-top:4px">${ma}`
     +(miss.length?` <span class="mut">(${miss.join('/')}이평은 봉 수 부족)</span>`:'')+`</div>`;
 }
-// 이동평균 정의 — 기간과 선 색. 전략의 정배열 판정(SMA5>10>20>60)과 같은 기간을 포함한다.
+// 이동평균 정의 — 기간과 선 색. 전략의 정배열 판정(SMA5>10>20, D-141)과 같은 기간을 포함하고,
+// 60·120·240은 판정과 무관한 참고선이다.
 const MA_DEFS=[[5,'#ff9f43'],[10,'#5b9dff'],[20,'#2ec26b'],[60,'#c678dd'],[120,'#ffd166'],[240,'#9aa4bb']];
 // 단순이동평균. 값이 아직 없는 앞구간은 null(그리지 않음).
 function sma(bars,p){

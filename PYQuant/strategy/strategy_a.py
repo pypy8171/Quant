@@ -3,7 +3,7 @@ Strategy A — 강세 테마주 5일선 눌림목 추종
 
 필터:
   C1: 유니버스 (config/strategy_a.json 테마 4그룹)
-  C2: 정배열 SMA5 > SMA10 > SMA20 > SMA60
+  C2: 정배열 SMA5 > SMA10 > SMA20
   C3.5: 전일 종가 >= SMA5 (5일선 위)
   C3: 수급 필터 (pykrx 검증 후 STEP F에서 추가 — 현재 미구현)
 
@@ -114,10 +114,10 @@ class StrategyA(StrategyBase):
         # E1: 유니버스 멤버십
         if ticker not in self._universe:
             return None
-        # C2 판정에 60봉 필요
-        if len(bars) < 60:
+        # C2 판정에 20봉 필요
+        if len(bars) < 20:
             return None
-        # C2: 정배열 SMA5 > SMA10 > SMA20 > SMA60
+        # C2: 정배열 SMA5 > SMA10 > SMA20 (60일선 조건은 D-141에서 뺐다)
         if not is_aligned(bars):
             return None
 

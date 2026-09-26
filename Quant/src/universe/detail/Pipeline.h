@@ -30,12 +30,12 @@ namespace universe::detail
 struct DailyLookup
 {
     std::string date_yyyymmdd;                       // 조회 시각의 로컬 날짜(YYYYMMDD)
-    int    bars  = 0;                      // 확보 봉수(<60이면 판정 불가)
-    double average_5 = 0.0, average_10 = 0.0, average_20 = 0.0, average_60 = 0.0;
+    int    bars  = 0;                      // 확보 봉수(<20이면 판정 불가)
+    double average_5 = 0.0, average_10 = 0.0, average_20 = 0.0;
     double close = 0.0;                    // 최신 종가(d[0])
     // [formula] SMA에 오늘 가격을 접어 넣을 때 빠지는 봉의 종가.
     //  s_n_live = (s_n*n - roll_n + price_live) / n — REST 없이 정배열을 장중 갱신한다.
-    double r5 = 0.0, r10 = 0.0, r20 = 0.0, r60 = 0.0;
+    double r5 = 0.0, r10 = 0.0, r20 = 0.0;
     double atr_percent = 0.0;                  // ATR(14)/종가. 정배열 판정용 일봉 재활용(추가 REST 0)
     std::time_t at = 0;                    // 마지막 조회 시각. 장중 재조회 순번을 이걸로 정한다
     // 저항·거래량 축(2026-09-11 회의 §3). 봉이 모자라면 있는 만큼으로 잰다. 0=미산출.

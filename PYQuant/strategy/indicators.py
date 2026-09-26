@@ -16,14 +16,13 @@ def sma(bars: list[Bar], period: int) -> Optional[float]:
 
 
 def is_aligned(bars: list[Bar]) -> bool:
-    """SMA5 > SMA10 > SMA20 > SMA60 정배열 여부. bars 60개 이상 필요."""
+    """SMA5 > SMA10 > SMA20 정배열 여부(60일선 조건은 D-141에서 뺐다). bars 20개 이상 필요."""
     s5  = sma(bars, 5)
     s10 = sma(bars, 10)
     s20 = sma(bars, 20)
-    s60 = sma(bars, 60)
-    if None in (s5, s10, s20, s60):
+    if None in (s5, s10, s20):
         return False
-    return s5 > s10 > s20 > s60
+    return s5 > s10 > s20
 
 
 def deviation_from_sma(bars: list[Bar], period: int) -> Optional[float]:

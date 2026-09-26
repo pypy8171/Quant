@@ -15,7 +15,7 @@
 
 | 약어 / 코드명 | 풀네임 | 정의 | 어원·주의 | 대표 위치 |
 |---|---|---|---|---|
-| **DevScale** / `DEVIATION_SCALE` | DeviationScaleStrategy | 일봉 정배열(SMA5>10>20>60)+눌림 존 게이트 안에서 3분봉 **이격도** 분할 매수로 지정가 분할매매 | dev = **deviation(이격도)**, development 아님. 시장가가 아니라 "기다리는" 지정가 예약 | `Quant/include/strategy/DeviationScaleStrategy.h:14` |
+| **DevScale** / `DEVIATION_SCALE` | DeviationScaleStrategy | 일봉 정배열(SMA5>10>20)+눌림 존 게이트 안에서 3분봉 **이격도** 분할 매수로 지정가 분할매매 | dev = **deviation(이격도)**, development 아님. 시장가가 아니라 "기다리는" 지정가 예약 | `Quant/include/strategy/DeviationScaleStrategy.h:14` |
 | **ITB** | IntradayBreakout (v2) | 1분 버킷 채널 돌파 + 당일 시가 기준점 기반 장중 자동매매 | 클래스명 `IntradayBreakoutStrategy`, `id()="ITB_"`. 세 글자 확장(In**t**raday **B**reakout)은 관례. 한글 이름은 **장중돌파**. 로그·메모에 보이는 `1TB`는 같은 것을 잘못 적은 것이다(대문자 I를 숫자 1로 읽음). 용량 단위 TB와 무관. 분봉 시점정합 재현 불가 → forward 실증만 | `Quant/include/strategy/IntradayBreakoutStrategy.h::IntradayBreakoutStrategy`, `strategies/README.md` |
 | **MM** / MM-1 | MarketMakingStrategy | mid±half_spread_ticks 양방향 지정가를 걸고 시장이 움직이면 취소·재호가하는 미니 시장조성기 | MM = Market Making. CANCEL+NEW 방식(REPLACE 미사용), 재고 미인지(Phase 1) | `Quant/include/strategy/MarketMakingStrategy.h:10` |
 | **Momentum** | MomentumStrategy | N일 고점 돌파 매수 / N일 저점 이탈 청산 | 돈치안 채널 브레이크아웃(채널 돌파) | `Quant/include/strategy/MomentumStrategy.h:7` |
@@ -60,7 +60,7 @@
 | 용어 | 풀네임 | 정의 | 어원·주의 |
 |---|---|---|---|
 | **OHLCV** | Open/High/Low/Close/Volume | 시가·고가·저가·종가·거래량 봉 데이터 | 표준 봉 5요소 |
-| **SMA** | Simple Moving Average | 단순이동평균(SMA5>10>20>60 정배열 게이트의 기준선) | dev(이격도)의 기준 |
+| **SMA** | Simple Moving Average | 단순이동평균(SMA5>10>20 정배열 게이트의 기준선, D-141) | dev(이격도)의 기준 |
 | **PIT** | Point-In-Time | 그 시점에 실제로 알 수 있던 값만 사용(미래참조 방지) | 산문 첫 등장은 `시점정합(PIT)`으로 병기. 3분봉 PIT 재현 불가로 DevScale 백테스트 제외 |
 | **look-ahead** | look-ahead bias | 미래 정보 누설 편향 | 결정은 당일 종가, 체결은 다음봉 시가로 방지 |
 | **survivorship** | survivorship bias | 생존편향 — 살아남은 종목만 유니버스에 남아 성과가 부풀려지는 편향 | 정적 유니버스 백테스트의 상시 주의 |

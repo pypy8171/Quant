@@ -230,7 +230,7 @@ int main()
         signal.quantity    = 10;
         signal.strategy_id = "deviation_scale";
         signal.client_order_id  = "ds-20260913-000001";
-        signal.reason      = "ma20>ma60>ma120, dev -3.1%";
+        signal.reason      = "ma5>ma10>ma20, dev -3.1%";
 
         int         popped = 0;
         const auto  start_time     = std::chrono::steady_clock::now();

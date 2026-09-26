@@ -495,10 +495,10 @@ DeviationScaleStrategy::ZoneJudgement DeviationScaleStrategy::judge_zone(double 
     //  슬리피지가 실현손실로 남고, 지수 게이트에서 방금 없앤 떨림을 종목 단위로 되살린다.
     //  청산은 되돌릴 수 없으니 느린 축에 맡긴다. [why D-033]
     const bool aligned =
-        daily_averages.average_60 > 0.0 &&
+        daily_averages.average_20 > 0.0 &&
         quant::moving_average::aligned(daily_averages, parameters_.align_moving_average_tolerance_percent);
     const bool aligned_hold =
-        daily_averages_previous.average_60 > 0.0 &&
+        daily_averages_previous.average_20 > 0.0 &&
         quant::moving_average::aligned(daily_averages_previous, parameters_.align_moving_average_tolerance_percent);
     const double d_s20 = daily_averages.average_20;
     // 방향성 이격(부호 유지): +면 SMA20 위(확장추격), −면 아래(눌림). 절대값 금지.
@@ -1134,7 +1134,7 @@ quant::moving_average::SimpleMovingAverages DeviationScaleStrategy::daily_simple
 {
     quant::moving_average::SimpleMovingAverages previous;
 
-    if (static_cast<int>(daily.size()) < 60)
+    if (static_cast<int>(daily.size()) < 20)
     {
         return previous;
     }
@@ -1142,7 +1142,6 @@ quant::moving_average::SimpleMovingAverages DeviationScaleStrategy::daily_simple
     previous.average_5 = simple_moving_average_close(daily, 5);
     previous.average_10 = simple_moving_average_close(daily, 10);
     previous.average_20 = simple_moving_average_close(daily, 20);
-    previous.average_60 = simple_moving_average_close(daily, 60);
     return previous;
 }
 
@@ -1151,12 +1150,12 @@ quant::moving_average::SimpleMovingAverages DeviationScaleStrategy::daily_simple
 {
     const quant::moving_average::SimpleMovingAverages previous = daily_simple_moving_averages_previous(daily);
 
-    if (previous.average_60 <= 0.0)
+    if (previous.average_20 <= 0.0)
     {
         return previous;
     }
 
-    return quant::moving_average::fold_today(previous, daily[4].close, daily[9].close, daily[19].close, daily[59].close,
+    return quant::moving_average::fold_today(previous, daily[4].close, daily[9].close, daily[19].close,
                                              current_price);
 }
 

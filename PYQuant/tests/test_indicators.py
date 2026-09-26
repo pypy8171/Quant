@@ -45,15 +45,15 @@ class TestSma:
 # ── is_aligned ─────────────────────────────────────────────────────────────────
 
 def _aligned_bars() -> list[Bar]:
-    """SMA5 > SMA10 > SMA20 > SMA60 을 만족하는 단조증가 시계열."""
-    # 60개 봉을 1, 2, ..., 60으로 구성하면
-    # SMA5=mean(56..60)=58, SMA10=mean(51..60)=55.5, SMA20=mean(41..60)=50.5, SMA60=mean(1..60)=30.5
-    return _bars(list(range(1, 61)))
+    """SMA5 > SMA10 > SMA20 을 만족하는 단조증가 시계열."""
+    # 20개 봉을 1, 2, ..., 20으로 구성하면
+    # SMA5=mean(16..20)=18, SMA10=mean(11..20)=15.5, SMA20=mean(1..20)=10.5
+    return _bars(list(range(1, 21)))
 
 
 def _misaligned_bars() -> list[Bar]:
-    """정배열 아님 — 60개지만 단조감소."""
-    return _bars(list(range(60, 0, -1)))
+    """정배열 아님 — 20개지만 단조감소."""
+    return _bars(list(range(20, 0, -1)))
 
 
 class TestIsAligned:
@@ -64,18 +64,18 @@ class TestIsAligned:
         assert is_aligned(_misaligned_bars()) is False
 
     def test_false_when_insufficient_bars(self):
-        bars = _bars([10] * 59)  # 60 미만
+        bars = _bars([10] * 19)  # 20 미만
         assert is_aligned(bars) is False
 
     def test_false_when_sma5_equals_sma10(self):
         # 모두 같은 값이면 SMA5 == SMA10 → 정배열 아님 (strict >)
-        bars = _bars([100.0] * 60)
+        bars = _bars([100.0] * 20)
         assert is_aligned(bars) is False
 
-    def test_border_60_bars(self):
-        # 정확히 60개 — 계산 가능해야 함
+    def test_border_20_bars(self):
+        # 정확히 20개 — 계산 가능해야 함
         bars = _aligned_bars()
-        assert len(bars) == 60
+        assert len(bars) == 20
         result = is_aligned(bars)
         assert isinstance(result, bool)
 

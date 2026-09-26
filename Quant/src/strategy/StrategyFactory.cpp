@@ -876,7 +876,7 @@ static void load_deviation_scale(LoadPass& context, const json& node)
         scan_config.prices_file     = node.value("prices_file", std::string());  // 전 종목 장중 시세 파일(네이버 벌크 보조 프로세스)
         scan_config.min_turnover    = node.value("min_turnover", 0.0);           // 거래대금 하한(원), 0=비활성
         scan_config.full_market     = node.value("full_market", false);          // 후보 풀을 전 종목으로
-        scan_config.align_daily_n   = base.daily_lookback;               // 정배열(SMA60) 판정용 일봉 개수(≥60)
+        scan_config.align_daily_n   = base.daily_lookback;               // 정배열 판정용 일봉 개수(≥20)
         // 횡단면 스코어러(2026-08-09 회의 Task 4) — score_top_n>0이면 정배열 통과분을
         //  점수 랭킹해 상위 N만 등록(오너 원안 "점수 내고 5개"). 0=기존 동작(전체 등록).
         scan_config.score_top_n      = node.value("score_top_n", 0);
@@ -887,7 +887,7 @@ static void load_deviation_scale(LoadPass& context, const json& node)
         scan_config.score_weight_volume      = node.value("score_w_vol", 0.5);
         // 거래대금 축(기본 0=비활성). 켜면 같은 조건에서 두꺼운 종목이 위로 올라온다.
         scan_config.score_weight_liquidity = node.value("score_w_liquidity", 0.0);
-        // 정배열 마지막 조건(SMA20>SMA60)의 허용오차. 기본 0=기존 엄격 판정.
+        // 정배열 마지막 조건(SMA10>SMA20)의 허용오차. 기본 0=기존 엄격 판정.
         scan_config.align_moving_average_tolerance_percent  = node.value("align_ma_tol_pct", 0.0);
         int rescan_sec     = node.value("rescan_interval_sec", 600); // 주기적 재스캔 간격(초)
         // 스캔에서 이만큼 연속으로 빠진 종목의 전략을 뗀다(보유·선점 없을 때만). 0=안 뗌.

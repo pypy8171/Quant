@@ -61,9 +61,9 @@ struct DevScanCfg
     int    union_refresh_sec = 0;    // 초, 후보 합집합 재수집 주기. 0=매 재스캔 새로 수집 [why D-028]
     double max_deviation_percent     = 0.0;    // 이격 (price-SMA20)/SMA20 상한. 0=비활성 [why D-022]
     double min_deviation_percent     = 0.0;    // 같은 이격의 하한. max와 짝지어 슬리브 밴드를 만든다 [why D-022]
-    // 정배열 마지막 조건(SMA20>SMA60)의 허용오차. 0=엄격(기존). tol을 주면 SMA20이 SMA60보다
-    //  tol만큼 아래인 종목까지 통과한다 — 3개월 이평이 아직 높은 낙폭 회복 구간을 열 때 쓴다.
-    //  1.0 이상이면 이 조건 자체가 사라져 3조건(SMA5>SMA10>SMA20)만 남는다.
+    // 정배열 마지막 조건(SMA10>SMA20)의 허용오차. 0=엄격(기존). tol을 주면 SMA10이 SMA20보다
+    //  tol만큼 아래인 종목까지 통과한다 — 경계에서 판정이 진동하는 것을 막을 때 쓴다.
+    //  1.0 이상이면 이 조건 자체가 사라져 2조건(SMA5>SMA10)만 남는다.
     double align_moving_average_tolerance_percent = 0.0;
     std::string universe_file;       // data.go.kr 시총∪거래대금 피드 경로. 비면 KIS 랭킹 축만 [why D-015]
     std::string prices_file;         // 전 종목 장중 시세 파일(`scripts/live_prices_feed.py` 산출) [why D-029]
@@ -74,7 +74,7 @@ struct DevScanCfg
     double sector_min_change    = 0.0;  // %, 이 등락률 미만은 버린다
     // 횡단면 점수는 정배열 검사에 이미 쓴 일봉을 재활용하므로 추가 REST가 없다. [why D-018]
     int    score_top_n      = 0;   // 0=비활성(전체 등록), N=상위 N만
-    double score_weight_trend    = 1.0; // (SMA5-SMA60)/SMA60 의 z에 곱한다
+    double score_weight_trend    = 1.0; // (SMA5-SMA20)/SMA20 의 z에 곱한다(D-141부터 20일 기준)
     double score_weight_pullback = 1.0; // -(price-SMA20)/SMA20 의 z에 곱한다
     double score_weight_supply   = 0.0; // 로거 데이터 확보 후 활성 (D-014)
     double score_weight_volume      = 0.5; // ATR(14)/종가 z의 감점 가중
