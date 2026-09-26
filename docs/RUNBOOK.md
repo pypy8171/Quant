@@ -21,10 +21,10 @@ $env:PYTHONUTF8 = "1"
 
 ## 1. 자동매매 하루 루프 (한 창으로 끝내기)
 
-<!-- sync: scripts/auto_trade_day.ps1@dd2bd31 scripts/auto_trade_guard.ps1@6a54b80 -->
+<!-- sync: scripts/auto_trade_day.ps1@7c69c3d scripts/auto_trade_guard.ps1@c4cbb8a -->
 
 감시견 하나가 국면 보조 프로세스·유니버스·대시보드·알림·트레이더를 순서대로 띄우고, 장 마감까지 트레이더가 멈추면 다시
-띄운다. config에 `"market_board": true`가 있으면 유니버스 스캔·시세 창은 띄우지 않는다 — 엔진 안 시세판이 받는다(D-147). 띄우기 전에 그날 장이 열리는지 KIS에 물어(`scripts/check_market_open.py`) 휴장일이면 아무것도 안 띄우고 끝낸다 —
+띄운다. config에 `"market_board": true`가 있으면 유니버스 스캔·시세 창은 띄우지 않는다 — 엔진 안 시세판이 받는다(D-147). 감시자 예약작업은 07:30부터 돈다 — 엔진이 08:00 NXT 개장 전에 전 종목 일봉을 미리 받아 두게(config `daily_warm_until_hhmm`, D-147). 띄우기 전에 그날 장이 열리는지 KIS에 물어(`scripts/check_market_open.py`) 휴장일이면 아무것도 안 띄우고 끝낸다 —
 조회가 실패해 개장 여부를 모르는 날은 휴장으로 보지 않고 그대로 진행한다. 마감 뒤 `scripts/market_close_autodoc.py`(일지 사실 구간·리뷰 탭·대시보드)까지 돈다. 부속 창에는 체결 기록기·엔진 자원 표본기와 원장 저널 적재기(`quant-ledger`)가 있는데, 저널 적재기는 엔진이 주문 전에 파일로 적어 둔 원장(D-113)을 DB로 따라 적는다 — 멈췄다 되살아나면 안 읽은 구간부터 따라잡는다. 트레이더는 이 감시견이 소유한다 —
 손으로 따로 띄우면 엔진이 둘이 된다. 기동 전에 이미 떠 있는 `quant_trader`가 있으면 중단하는데, **발주하는 계좌가 같을 때만**
 센다 — 떠 있는 프로세스의 명령줄에서 config를 찾아 `kis.account_no`와 `is_paper`를 열쇠로 만든다. config에 `replay_file`이
@@ -61,7 +61,7 @@ powershell -ExecutionPolicy Bypass -File scripts\auto_trade_day.ps1
 | `-NoTrader` | 트레이더를 띄우지 않는다 — 리눅스(WSL)가 띄우는 날. 부속 창·유니버스·마감 정리는 그대로. 아래 1.1절 |
 
 진행 상태는 `_private\_auto_trade_day.json`(`phase`·`sessions`·`history`), 실행 로그는 `logs\auto_trade_day_YYYYMMDD.log`.
-감시견이 내려가면 잡(Job Object)이 부속 창과 트레이더를 같이 내리고, 감시자 예약작업(평일 08:45부터 5분마다)이 장중이면
+감시견이 내려가면 잡(Job Object)이 부속 창과 트레이더를 같이 내리고, 감시자 예약작업(평일 07:30부터 5분마다)이 장중이면
 다시 띄운다. 최초 1회 등록:
 
 ```powershell
@@ -83,7 +83,7 @@ powershell -ExecutionPolicy Bypass -File scripts\auto_trade_guard.ps1 -Uninstall
 미체결 복원(`seed_open_orders.py`), 마감(`--until`, 기본 15:35)까지 멈추면 재기동, 30분 안 3회 종료면 크래시 루프로 멈춤(`exit 3`).
 로그는 `QUANT_LOG_DIR`로 Windows 쪽 `Quant\build_win\logs`에 쓰게 해서 `parse_quant_log.py`·`check_runtime_health.py`·
 `market_close_autodoc.py`가 평소처럼 읽는다. 엔진은 마감 뒤 스스로 내려간다(D-098). 마감 정리는 Windows 창이 한다.
-순서: 08:40까지 Windows 창 → 이어서 cmd 창(wsl). 둘 다 08:45 감시자보다 먼저.
+순서: 07:25까지 Windows 창 → 이어서 cmd 창(wsl). 둘 다 07:30 감시자보다 먼저.
 
 ```powershell
 cd {ROOT}
@@ -159,7 +159,7 @@ config별 전략: `config_dev_paper.json` DEVIATION_SCALE(일봉 정배열+눌�
 
 ## 3. 실시간 대시보드
 
-<!-- sync: scripts/dashboard_server.py@fa7b033 -->
+<!-- sync: scripts/dashboard_server.py@53c601f -->
 
 엔진 재빌드 없이 이미 있는 데이터(KIS 잔고·`regime.json`·`universe_scan.json`·로그·체결원장)를 브라우저에 3초마다
 표시한다. 종목 행 클릭 → 일/주/5분/3분봉 차트. 종목 뉴스·속보(네이버, 보유 종목 전부 + 유니버스 순환)와 증권사 리서치(매시간 갱신) 카드도 같은 화면에 있다. 라이브 데이터는 이 로컬 서버가 있어야 뜬다(발행 URL 하나로는 안 된다).

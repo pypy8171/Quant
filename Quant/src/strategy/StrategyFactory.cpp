@@ -796,6 +796,14 @@ static void load_deviation_scale(LoadPass& context, const json& node)
         scan_config.min_turnover    = node.value("min_turnover", 0.0);           // 거래대금 하한(원), 0=비활성
         scan_config.full_market     = node.value("full_market", false);          // 후보 풀을 전 종목으로
         scan_config.align_daily_n   = base.daily_lookback;               // 정배열 판정용 일봉 개수(≥20)
+        // 장 전 일봉 캐시 데우기 — 이 시각(HHMM)까지 시세판 목록의 일봉을 미리 받는다. 0=끔. [why D-147]
+        scan_config.daily_warm_until_hhmm = node.value("daily_warm_until_hhmm", 0);
+
+        if (scan_config.market_board && scan_config.daily_warm_until_hhmm > 0 && context.has_quote_kis)
+        {
+            universe::start_daily_warm(context.quote_kis_config, scan_config); // 슬리브가 여럿이어도 한 번만 뜬다
+        }
+
         // 횡단면 스코어러(2026-08-09 회의 Task 4) — score_top_n>0이면 정배열 통과분을
         //  점수 랭킹해 상위 N만 등록(오너 원안 "점수 내고 5개"). 0=기존 동작(전체 등록).
         scan_config.score_top_n      = node.value("score_top_n", 0);

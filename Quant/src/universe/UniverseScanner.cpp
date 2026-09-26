@@ -49,6 +49,12 @@ ScanResult scan_devscale(KisClient& kis, const DevScanCfg& config, symbol::Symbo
     const std::string date_yyyymmdd = local_ymd();   // 일봉 캐시·후보 집합 캐시의 거래일 키
     g_lookup_cache.load_today(date_yyyymmdd, symbols); // 장중 재기동 시 일봉 재조회를 막는다
 
+    // 장 전 데우기 스레드가 받아 둔 일봉을 옮긴다. 옮긴 게 있으면 파일에도 남겨 재기동 때 다시 받지 않는다.
+    if (drain_daily_warm(date_yyyymmdd, symbols) > 0)
+    {
+        g_lookup_cache.save_today(date_yyyymmdd, symbols);
+    }
+
     const std::shared_ptr<const BoardSnapshot> board =
         config.market_board ? MarketBoard::instance().snapshot() : nullptr;
 

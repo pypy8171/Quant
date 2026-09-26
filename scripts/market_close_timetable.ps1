@@ -66,7 +66,7 @@ if ($paper)
         'Quant Maintain Weekly' = '21:20'
     }
     $until = '15:35'      # 감시견이 트레이더를 더 띄우지 않는 시각(매매 끝 15:30 + 여유)
-    $guardHours = 7       # 08:45 부터 5분마다 → 15:45 까지
+    $guardHours = 8.25    # 07:30 부터 5분마다 → 15:45 까지
 }
 else
 {
@@ -80,8 +80,11 @@ else
         'Quant Maintain Weekly' = '21:50'
     }
     $until = '20:05'      # 애프터마켓 20:00 + 여유
-    $guardHours = 11.5    # 08:45 부터 → 20:15 까지
+    $guardHours = 12.75   # 07:30 부터 → 20:15 까지
 }
+
+# 감시견 시작 시각. 엔진이 떠서 08:00(NXT 개장) 전에 전 종목 일봉을 미리 받아 두게 07:30으로 당긴다(D-147).
+$guardOpen = '07:30'
 
 $fix = @{
     'Quant Basket Targets'  = 'py PYQuant\main.py basket'
@@ -95,7 +98,7 @@ $fix = @{
 
 if ($Lines)
 {
-    "{0}`t{1}`t{2}" -f 'QuantAutoTradeGuard', ('08:45~ 5분마다, -Until {0}, {1}h' -f $until, $guardHours), 'powershell -File scripts\market_close_timetable.ps1 -Apply'
+    "{0}`t{1}`t{2}" -f 'QuantAutoTradeGuard', ('{0}~ 5분마다, -Until {1}, {2}h' -f $guardOpen, $until, $guardHours), 'powershell -File scripts\market_close_timetable.ps1 -Apply'
 
     foreach ($name in $plan.Keys)
     {
@@ -120,6 +123,7 @@ function Get-TaskStart([string]$name)
 
 $guard = Get-ScheduledTask -TaskName 'QuantAutoTradeGuard' -ErrorAction SilentlyContinue
 $guardUntil = if ($guard -and $guard.Actions[0].Arguments -match '-Until\s+(\S+)') { $Matches[1] } else { $null }
+$guardStart = if ($guard) { ([datetime]$guard.Triggers[0].StartBoundary).ToString('HH:mm') } else { $null }
 $guardDuration = if ($guard) { [Xml.XmlConvert]::ToTimeSpan($guard.Triggers[0].Repetition.Duration).TotalHours } else { $null }
 
 Write-Host ("[market_close_timetable] 계좌 모드 {0} (config={1})" -f $modeLabel, $Config)
@@ -132,9 +136,9 @@ foreach ($name in $plan.Keys)
     Write-Host ("  {0} {1,-24} 예정 {2}  실제 {3}" -f $mark, $name, $plan[$name], $(if ($actual) { $actual } else { '(등록 없음)' }))
 }
 
-$guardOk = ($guardUntil -eq $until) -and ($guardDuration -eq $guardHours)
+$guardOk = ($guardStart -eq $guardOpen) -and ($guardUntil -eq $until) -and ($guardDuration -eq $guardHours)
 $mark = if ($guardOk) { '  ' } else { '!!'; $drift++ }
-Write-Host ("  {0} {1,-24} 예정 -Until {2} {3}h  실제 -Until {4} {5}h" -f $mark, 'QuantAutoTradeGuard', $until, $guardHours, $guardUntil, $guardDuration)
+Write-Host ("  {0} {1,-24} 예정 {2}~ -Until {3} {4}h  실제 {5}~ -Until {6} {7}h" -f $mark, 'QuantAutoTradeGuard', $guardOpen, $until, $guardHours, $guardStart, $guardUntil, $guardDuration)
 
 if (-not $Apply)
 {
@@ -169,8 +173,8 @@ foreach ($name in $plan.Keys)
 
 if (-not $guardOk)
 {
-    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'auto_trade_guard.ps1') -Install -Config $Config -Until $until -Hours $guardHours
-    Write-Host ("  감시견 재등록 -Until {0} {1}h" -f $until, $guardHours)
+    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'auto_trade_guard.ps1') -Install -Config $Config -Open $guardOpen -Until $until -Hours $guardHours
+    Write-Host ("  감시견 재등록 {0}~ -Until {1} {2}h" -f $guardOpen, $until, $guardHours)
 }
 
 Write-Host "[market_close_timetable] 적용 끝 — .claude/hooks/cron-gate.ps1 는 이 스크립트의 -Lines 를 읽으므로 따로 고칠 것 없다"

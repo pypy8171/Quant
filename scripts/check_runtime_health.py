@@ -57,6 +57,10 @@ BOARD_SWEEP_FAIL_RE = re.compile(r"\[MarketBoard\] 시세 한 바퀴 전부 실�
 BOARD_RERANK_HOLD_RE = re.compile(r"\[MarketBoard\] 재랭킹 보류")
 MAX_BOARD_SWEEP_FAILS = 12
 BOARD_RERANK_HOLD_UNTIL = 9 * 3600 + 10 * 60   # 09:10 뒤의 보류는 이상
+# 장 전 일봉 캐시 데우기(D-147). 끝 줄에 "마감에 멈춤"이 붙거나 목록·인증 실패로 건너뛰면 08:00 첫 스캔이
+#  후보 일봉을 그 자리에서 받느라 늦어진다. 마감 뒤 기동(장중 재기동)의 건너뜀은 정상이라 세지 않는다.
+DAILY_WARM_DONE_RE = re.compile(r"\[DailyWarm\] 장 전 일봉 캐시 데우기 끝 — (\d+)/(\d+)종목, (\d+)초( \(마감에 멈춤)?")
+DAILY_WARM_FAIL_RE = re.compile(r"\[DailyWarm\] .*(2분 안에 못 받아|인증 실패)")
 # 거래대금 랭킹: 축·ETF드롭·생존 행수. ETF드롭이 0이 아니면 API단 제외 마스크가 안 먹는 것이다.
 VALUE_RANK_DIAG_RE = re.compile(r"거래대금랭킹 진단\(축=(\d).*?ETF드롭=(\d+).*?생존=(\d+)")
 VALUE_RANK_DONE_RE = re.compile(r"거래대금 랭킹 조회 완료: (\d+)종목 \(요청 count=(\d+)\)")
@@ -1625,6 +1629,8 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
     prices_stale_ages: list[int] = []   # 전 종목 시세 낡음 경고의 초 수 — 시세판·보조 프로세스 멈춤 흔적
     board_sweep_fails = 0
     board_late_holds: list[int] = []    # 09:10 뒤 재랭킹 보류 시각(초)
+    daily_warm_done: list[tuple[int, int, int, bool]] = []   # (받음, 대상, 초, 마감에 멈춤)
+    daily_warm_fails = 0
     rtts: list[int] = []
     bucket_waits: list[int] = []
     recon_slow: list[tuple[int, int]] = []   # (ms, 사이클)
@@ -1860,6 +1866,11 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
                 board_sweep_fails += 1
             if BOARD_RERANK_HOLD_RE.search(line) and second >= BOARD_RERANK_HOLD_UNTIL:
                 board_late_holds.append(second)
+            found = DAILY_WARM_DONE_RE.search(line)
+            if found:
+                daily_warm_done.append((int(found.group(1)), int(found.group(2)), int(found.group(3)), bool(found.group(4))))
+            if DAILY_WARM_FAIL_RE.search(line):
+                daily_warm_fails += 1
             found = RTT_RE.search(line)
             if found:
                 rtts.append(int(found.group(1)))
@@ -2337,6 +2348,11 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
          f"09:10 뒤 재랭킹 보류 {len(board_late_holds)}회"
          + (f" — {', '.join(hhmm(second) for second in board_late_holds[:5])}" if board_late_holds else "")
          + " (기대 0 — 거래대금이 절반 넘는 종목에 잡힌 뒤에도 보류면 시세 응답의 거래대금 칸이 비는 것)"),
+        ("장 전 일봉 데우기", not daily_warm_fails and not any(done[3] for done in daily_warm_done), "WARN",
+         (f"마지막 회 {daily_warm_done[-1][0]}/{daily_warm_done[-1][1]}종목 {daily_warm_done[-1][2]}초"
+          + (" — 마감(08:00)에 멈춤" if daily_warm_done[-1][3] else "") if daily_warm_done else "끝 줄 없음(꺼짐 또는 마감 뒤 기동)")
+         + (f", 목록·인증 실패로 건너뜀 {daily_warm_fails}회" if daily_warm_fails else "")
+         + " — 못 끝내면 첫 스캔이 후보 일봉을 그 자리에서 받느라 늦어진다"),
         ("주문 접수 지연", orders_ok, "WARN", order_detail),
         ("잔고 조회 지연", http_timeouts <= MAX_HTTP_TIMEOUTS, "WARN", recon_detail),
         ("TRENDX 정지", max(trendx_registered, default=0) == 0, "FAIL",

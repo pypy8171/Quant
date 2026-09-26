@@ -3,6 +3,8 @@
 //  사본도 여기 있다. 스캔 스레드 전용. [why D-005·D-028]
 
 #include "detail/Pipeline.h"
+#include "universe/MarketBoard.h"
+#include "utils/ThreadName.h"
 #include "utils/JsonNode.h"
 #include "universe/MaAlign.h"
 #include "core/KstTime.h"
@@ -10,6 +12,7 @@
 #include "utils/EtfFilter.h"
 #include "utils/Logger.h"
 #include <algorithm>
+#include <atomic>
 #include <functional>
 #include <chrono>
 #include <cmath>
@@ -21,6 +24,8 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace universe::detail
@@ -196,6 +201,11 @@ DailyLookupCache g_lookup_cache;
 
 namespace
 {
+constexpr int kDailyLookupSleepMs      = 150; // 실계좌 — 키 한도 초당 20건
+constexpr int kDailyLookupSleepPaperMs = 600; // 모의계좌 — 키 한도 초당 2건
+constexpr int kWarmBoardWaitSec        = 120; // 초, 장 전 데우기가 시세판 목록·첫 판을 기다리는 상한
+constexpr int kWarmProgressEvery       = 250; // 종목, 장 전 데우기 진행 로그 간격
+
 // 후보 하나의 일봉을 받아 SMA·롤오프·ATR로 요약한다. 20봉 미만이면 bars만 채워 돌려준다.
 //  조회 간격은 호출자가 책임진다.
 DailyLookup fetch_daily_lookup(KisClient& kis, const DevScanCfg& config, const std::string& ticker,
@@ -246,6 +256,254 @@ DailyLookup fetch_daily_lookup(KisClient& kis, const DevScanCfg& config, const s
 }
 } // namespace
 
+namespace
+{
+// 장 전 일봉 캐시 데우기. 스레드 하나가 시세 키로 시세판 목록의 종목 일봉을 받아 문자열 티커 → 요약으로 쌓아 두고,
+//  스캔 스레드가 drain_daily_warm으로 캐시에 옮긴다. id로 바로 넣지 않는 것은 이 스레드가 엔진이 종목 표를
+//  바꿔 끼우기(SymbolTable::adopt) 전에 돌 수 있어서다. [why D-147]
+class DailyWarmer
+{
+public:
+    ~DailyWarmer()
+    {
+        stop_.store(true, std::memory_order_release);
+
+        if (worker_.joinable())
+        {
+            worker_.join();
+        }
+    }
+
+    void start(const KisConfig& kis_config, const DevScanCfg& config)
+    {
+        if (started_.exchange(true))
+        {
+            return;
+        }
+
+        worker_ = std::thread([this, kis_config, config] { run(kis_config, config); });
+    }
+
+    int drain(const std::string& date_yyyymmdd, symbol::SymbolTable& symbols)
+    {
+        std::vector<std::pair<std::string, DailyLookup>> ready;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            ready.swap(ready_);
+        }
+
+        int moved = 0;
+
+        for (const auto& [ticker, daily_lookup] : ready)
+        {
+            if (daily_lookup.date_yyyymmdd != date_yyyymmdd)
+            {
+                continue; // 자정을 넘겨 받은 것 — 다른 날 캐시에 넣지 않는다
+            }
+
+            const symbol::SymbolId symbol = symbols.intern(ticker);
+
+            if (symbol == symbol::kNone)
+            {
+                continue; // 종목 표가 가득 참 — 스캔이 필요할 때 다시 받는다
+            }
+
+            g_lookup_cache.put(symbol, daily_lookup);
+            ++moved;
+        }
+
+        return moved;
+    }
+
+private:
+    static int now_hhmm()
+    {
+        return kst::hhmmss_int(std::time(nullptr)) / 100;
+    }
+
+    // 1초씩 나눠 기다린다 — 멈추라는 신호를 곧 받게.
+    template <typename Ready>
+    bool wait_for(int seconds, Ready ready)
+    {
+        for (int waited = 0; waited < seconds; ++waited)
+        {
+            if (stop_.load(std::memory_order_acquire))
+            {
+                return false;
+            }
+
+            if (ready())
+            {
+                return true;
+            }
+
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+
+        return ready();
+    }
+
+    // 오늘 캐시 파일에 이미 있는 티커(장 전 재기동). 캐시 파일과 같은 13칸 형식만 센다.
+    static std::unordered_set<std::string> cached_tickers(const std::string& date_yyyymmdd)
+    {
+        std::unordered_set<std::string> cached;
+        std::ifstream                   file(DailyLookupCache::cache_path(date_yyyymmdd));
+
+        if (!file)
+        {
+            return cached;
+        }
+
+        const nlohmann::json document = nlohmann::json::parse(file, nullptr, false);
+
+        if (!document.is_object())
+        {
+            return cached;
+        }
+
+        for (auto iterator = document.begin(); iterator != document.end(); ++iterator)
+        {
+            if (iterator.value().is_array() && iterator.value().size() == 13)
+            {
+                cached.insert(iterator.key());
+            }
+        }
+
+        return cached;
+    }
+
+    void run(const KisConfig& kis_config, const DevScanCfg& config)
+    {
+        thread_name::set_current("DailyWarm");
+        const int until = config.daily_warm_until_hhmm;
+
+        if (now_hhmm() >= until)
+        {
+            LOG_INFO("[DailyWarm] 마감 " + std::to_string(until) + " 뒤에 떴다 — 장 전 일봉 캐시 데우기를 건너뛴다");
+            return;
+        }
+
+        // 시세판이 목록(요청 44건)과 첫 판을 받는 데 몇 초 걸린다.
+        MarketBoard& board = MarketBoard::instance();
+
+        if (!wait_for(kWarmBoardWaitSec, [&board] { return board.listing() && board.snapshot(); }))
+        {
+            LOG_WARN("[DailyWarm] 시세판 목록·시세를 2분 안에 못 받아 장 전 일봉 캐시 데우기를 건너뛴다");
+            return;
+        }
+
+        const std::shared_ptr<const std::vector<ListedStock>> listing  = board.listing();
+        const std::shared_ptr<const BoardSnapshot>            snapshot = board.snapshot();
+        const std::string                     date_yyyymmdd = kst::date_yyyymmdd(std::time(nullptr));
+        const std::unordered_set<std::string> cached        = cached_tickers(date_yyyymmdd);
+
+        // 대상: 직전 세션 값이 가격·거래대금 조건을 넘는 종목을 거래대금이 큰 순으로. 스캔 후보가 될 수 없는 종목에는
+        //  조회를 쓰지 않고, 마감에 걸려 멈춰도 후보가 될 가능성이 큰 종목부터 받혀 있게 한다.
+        std::unordered_map<std::string_view, const BoardQuote*> quote_of;
+        quote_of.reserve(snapshot->quotes.size() * 2);
+
+        for (const BoardQuote& quote : snapshot->quotes)
+        {
+            quote_of.emplace(quote.code, &quote);
+        }
+
+        std::vector<std::pair<double, const std::string*>> targets;
+
+        for (const ListedStock& listed : *listing)
+        {
+            const auto found = quote_of.find(listed.code);
+
+            if (found == quote_of.end() || cached.count(listed.code) > 0)
+            {
+                continue;
+            }
+
+            const BoardQuote& quote = *found->second;
+
+            if (quote.price < config.min_price || (config.max_price > 0.0 && quote.price > config.max_price) ||
+                (config.min_turnover > 0.0 && quote.value < config.min_turnover))
+            {
+                continue;
+            }
+
+            targets.emplace_back(quote.value, &listed.code);
+        }
+
+        std::sort(targets.begin(), targets.end(),
+                  [](const auto& left, const auto& right) { return left.first > right.first; });
+
+        KisClient kis(kis_config);
+
+        if (!kis.authenticate())
+        {
+            LOG_WARN("[DailyWarm] 시세 키 인증 실패 — 장 전 일봉 캐시 데우기를 건너뛴다");
+            return;
+        }
+
+        LOG_INFO("[DailyWarm] 장 전 일봉 캐시 데우기 시작 — 대상 " + std::to_string(targets.size()) + "종목(이미 받음 " +
+                 std::to_string(cached.size()) + "), 마감 " + std::to_string(until));
+        const auto started    = std::chrono::steady_clock::now();
+        const int  spacing_ms = kis.is_paper() ? kDailyLookupSleepPaperMs : kDailyLookupSleepMs;
+        int        fetched    = 0;
+        bool       deadline   = false;
+
+        for (const auto& [value, ticker] : targets)
+        {
+            if (stop_.load(std::memory_order_acquire))
+            {
+                return;
+            }
+
+            if (now_hhmm() >= until)
+            {
+                deadline = true;
+                break;
+            }
+
+            if (fetched > 0)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(spacing_ms));
+            }
+
+            DailyLookup daily_lookup = fetch_daily_lookup(kis, config, *ticker, date_yyyymmdd);
+            ++fetched;
+
+            // 0봉은 대개 조회 실패다. 캐시에 넣으면 그날 내내 데이터부족으로 빠지므로 스캔이 다시 받게 둔다.
+            if (daily_lookup.bars > 0)
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                ready_.emplace_back(*ticker, std::move(daily_lookup));
+            }
+
+            if (fetched % kWarmProgressEvery == 0)
+            {
+                LOG_INFO("[DailyWarm] " + std::to_string(fetched) + "/" + std::to_string(targets.size()) + "종목 받음");
+            }
+        }
+
+        const long long took_sec =
+            std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - started).count();
+        LOG_INFO("[DailyWarm] 장 전 일봉 캐시 데우기 끝 — " + std::to_string(fetched) + "/" +
+                 std::to_string(targets.size()) + "종목, " + std::to_string(took_sec) + "초" +
+                 (deadline ? " (마감에 멈춤 — 남은 종목은 스캔이 필요할 때 받는다)" : ""));
+    }
+
+    std::atomic<bool>                                started_{false};
+    std::atomic<bool>                                stop_{false};
+    std::thread                                      worker_;
+    std::mutex                                       mutex_; // ready_만 지킨다
+    std::vector<std::pair<std::string, DailyLookup>> ready_;
+};
+
+// g_lookup_cache보다 뒤에 정의한다 — 같은 번역 단위 안에서는 거꾸로 소멸하므로 스레드가 캐시보다 먼저 멈춘다.
+DailyWarmer g_daily_warmer;
+} // namespace
+
+int drain_daily_warm(const std::string& date_yyyymmdd, symbol::SymbolTable& symbols)
+{
+    return g_daily_warmer.drain(date_yyyymmdd, symbols);
+}
+
 std::vector<Features> lookup_and_filter(KisClient& kis, const DevScanCfg& config, const std::string& date_yyyymmdd,
                                    const CandidateSet& candidates, const QuoteTable& quotes,
                                    const MarketGate& gate, LookupStats& statistics, symbol::SymbolTable& symbols)
@@ -295,8 +553,7 @@ std::vector<Features> lookup_and_filter(KisClient& kis, const DevScanCfg& config
             //  REST 누적 부하로 보여 150ms로 올린다. 캐시 히트 경로에는 걸리지 않는다.
             // 모의계좌는 키 한도가 초당 2건이라 150ms(초당 6.7건)로는 버킷이 계속 밀린다 —
             //  09-22에 초당 한도 재시도 37건이 났다. 모의면 600ms(초당 1.7건)로 벌려 한도 안쪽에서 돈다.
-            constexpr int kDailyLookupSleepMs      = 150; // 실계좌 — 키 한도 초당 20건
-            constexpr int kDailyLookupSleepPaperMs = 600; // 모의계좌 — 키 한도 초당 2건
+            //  간격 상수는 장 전 데우기와 같이 쓰려고 파일 위쪽에 둔다.
 
             if (statistics.fetched > 0)
             {
@@ -378,3 +635,11 @@ std::vector<Features> lookup_and_filter(KisClient& kis, const DevScanCfg& config
     return passed;
 }
 } // namespace universe::detail
+
+namespace universe
+{
+void start_daily_warm(const KisConfig& kis_config, const DevScanCfg& config)
+{
+    detail::g_daily_warmer.start(kis_config, config);
+}
+} // namespace universe

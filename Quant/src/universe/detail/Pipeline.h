@@ -58,8 +58,10 @@ public:
 
     void put(symbol::SymbolId symbol, const DailyLookup& daily_lookup);
 
-private:
+    // 거래일 캐시 파일 경로. 장 전 데우기 스레드가 이미 받은 종목을 건너뛰려고 같은 파일을 읽는다.
     static std::string cache_path(const std::string& date_yyyymmdd);
+
+private:
     void reserve_locked(size_t size);
 
     mutable std::mutex       mutex_;
@@ -203,6 +205,10 @@ struct LookupStats
 std::vector<Features> lookup_and_filter(KisClient& kis, const DevScanCfg& config, const std::string& date_yyyymmdd,
                                    const CandidateSet& candidates, const QuoteTable& quotes,
                                    const MarketGate& gate, LookupStats& statistics, symbol::SymbolTable& symbols);
+
+// 장 전 데우기 스레드(start_daily_warm)가 받아 둔 일봉 요약을 캐시로 옮긴다. 스캔 스레드가 부른다 —
+//  데우기 스레드는 문자열 티커로만 들고 있고, 종목 id로 바꾸는 일은 여기서 한다. 옮긴 수를 돌려준다.
+int drain_daily_warm(const std::string& date_yyyymmdd, symbol::SymbolTable& symbols);
 
 // 2.5단: 횡단면 정규화로 종합 점수 하나를 만든다. 이 점수가 등록 순서(=진입 우선순위)와
 //  종목별 비중 배수 두 가지를 모두 정한다.

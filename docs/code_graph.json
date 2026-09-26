@@ -124,7 +124,7 @@
     {
       "from": "strategy",
       "to": "universe",
-      "weight": 3
+      "weight": 4
     },
     {
       "from": "strategy",
@@ -134,17 +134,17 @@
     {
       "from": "universe",
       "to": "api",
-      "weight": 1
+      "weight": 2
     },
     {
       "from": "universe",
       "to": "core",
-      "weight": 16
+      "weight": 17
     },
     {
       "from": "universe",
       "to": "utils",
-      "weight": 21
+      "weight": 24
     },
     {
       "from": "utils",
@@ -247,6 +247,7 @@
     "strategy/TargetBasketStrategy.h": "strategy",
     "strategy/ValueContraryStrategy.h": "strategy",
     "universe/MaAlign.h": "universe",
+    "universe/MarketBoard.h": "universe",
     "universe/ScoreWeight.h": "universe",
     "universe/UniverseScanner.h": "universe",
     "utils/EtfFilter.h": "utils",
@@ -359,6 +360,7 @@
     "strategy/TargetBasketStrategy.cpp": "strategy",
     "strategy/ValueContraryStrategy.cpp": "strategy",
     "universe/MaAlign.cpp": "universe",
+    "universe/MarketBoard.cpp": "universe",
     "universe/ScoreWeight.cpp": "universe",
     "universe/UniverseCandidates.cpp": "universe",
     "universe/UniverseFeatures.cpp": "universe",
@@ -1120,6 +1122,7 @@
       "strategy/StrategyFactory.h",
       "strategy/TargetBasketStrategy.h",
       "strategy/ValueContraryStrategy.h",
+      "universe/MarketBoard.h",
       "universe/ScoreWeight.h",
       "universe/UniverseScanner.h",
       "utils/JsonNode.h",
@@ -1155,6 +1158,13 @@
     "universe/MaAlign.cpp": [
       "universe/MaAlign.h"
     ],
+    "universe/MarketBoard.cpp": [
+      "api/HttpGet.h",
+      "core/KstTime.h",
+      "universe/MarketBoard.h",
+      "utils/Logger.h",
+      "utils/ThreadName.h"
+    ],
     "universe/ScoreWeight.cpp": [
       "universe/ScoreWeight.h"
     ],
@@ -1165,6 +1175,7 @@
       "core/KstTime.h",
       "core/Types.h",
       "universe/MaAlign.h",
+      "universe/MarketBoard.h",
       "utils/EtfFilter.h",
       "utils/JsonNode.h",
       "utils/Logger.h"
@@ -1173,9 +1184,11 @@
       "core/KstTime.h",
       "core/Types.h",
       "universe/MaAlign.h",
+      "universe/MarketBoard.h",
       "utils/EtfFilter.h",
       "utils/JsonNode.h",
-      "utils/Logger.h"
+      "utils/Logger.h",
+      "utils/ThreadName.h"
     ],
     "universe/UniverseItb.cpp": [
       "core/KstTime.h",
@@ -1189,6 +1202,7 @@
       "core/KstTime.h",
       "core/Types.h",
       "universe/MaAlign.h",
+      "universe/MarketBoard.h",
       "utils/EtfFilter.h",
       "utils/JsonNode.h",
       "utils/Logger.h"
@@ -1205,6 +1219,7 @@
       "core/KstTime.h",
       "core/Types.h",
       "universe/MaAlign.h",
+      "universe/MarketBoard.h",
       "universe/UniverseScanner.h",
       "utils/EtfFilter.h",
       "utils/JsonNode.h",
@@ -1247,7 +1262,8 @@
   "included_by": {
     "api/HttpGet.h": [
       "api/KisTransport.cpp",
-      "core/HttpQuoteFeed.cpp"
+      "core/HttpQuoteFeed.cpp",
+      "universe/MarketBoard.cpp"
     ],
     "api/IMarketDataSource.h": [
       "api/KisClient.h"
@@ -1395,6 +1411,7 @@
       "strategy/SeedPeakStore.h",
       "strategy/StrategyFactory.cpp",
       "strategy/TargetBasketStrategy.cpp",
+      "universe/MarketBoard.cpp",
       "universe/UniverseCandidates.cpp",
       "universe/UniverseFeatures.cpp",
       "universe/UniverseItb.cpp",
@@ -1824,6 +1841,14 @@
       "universe/UniverseScanner.cpp",
       "universe/UniverseScoring.cpp"
     ],
+    "universe/MarketBoard.h": [
+      "strategy/StrategyFactory.cpp",
+      "universe/MarketBoard.cpp",
+      "universe/UniverseCandidates.cpp",
+      "universe/UniverseFeatures.cpp",
+      "universe/UniverseQuotes.cpp",
+      "universe/UniverseScanner.cpp"
+    ],
     "universe/ScoreWeight.h": [
       "strategy/StrategyFactory.cpp",
       "universe/ScoreWeight.cpp",
@@ -1902,6 +1927,7 @@
       "strategy/StrategyFactory.cpp",
       "strategy/TargetBasketStrategy.cpp",
       "strategy/ValueContraryStrategy.h",
+      "universe/MarketBoard.cpp",
       "universe/UniverseCandidates.cpp",
       "universe/UniverseFeatures.cpp",
       "universe/UniverseItb.cpp",
@@ -1931,6 +1957,8 @@
       "ipc/OrderRouter.cpp",
       "ipc/ZmqBridge.cpp",
       "main.cpp",
+      "universe/MarketBoard.cpp",
+      "universe/UniverseFeatures.cpp",
       "utils/Logger.cpp",
       "utils/ThreadName.cpp"
     ],
@@ -1944,7 +1972,7 @@
   "hubs": [
     {
       "header": "utils/Logger.h",
-      "in_degree": 51
+      "in_degree": 52
     },
     {
       "header": "core/Types.h",
@@ -1952,15 +1980,15 @@
     },
     {
       "header": "core/KstTime.h",
-      "in_degree": 30
+      "in_degree": 31
+    },
+    {
+      "header": "utils/ThreadName.h",
+      "in_degree": 23
     },
     {
       "header": "core/SymbolTable.h",
       "in_degree": 22
-    },
-    {
-      "header": "utils/ThreadName.h",
-      "in_degree": 21
     },
     {
       "header": "core/Engine.h",
@@ -2019,8 +2047,8 @@
       "in_degree": 6
     },
     {
-      "header": "api/KisResult.h",
-      "in_degree": 5
+      "header": "universe/MarketBoard.h",
+      "in_degree": 6
     }
   ],
   "python": {
@@ -2083,6 +2111,7 @@
       "PYQuant/tests/test_adjust_splits.py",
       "PYQuant/tests/test_backtest_engine.py",
       "PYQuant/tests/test_costs_golden.py",
+      "PYQuant/tests/test_db_client.py",
       "PYQuant/tests/test_indicators.py",
       "PYQuant/tests/test_metrics.py",
       "PYQuant/tests/test_point_in_time.py",
@@ -2092,6 +2121,7 @@
       "PYQuant/tests/test_strategy_a.py",
       "PYQuant/tools/__init__.py",
       "PYQuant/tools/bench_market_open.py",
+      "PYQuant/tools/bench_recorder.py",
       "PYQuant/tools/compare_ws_bars.py",
       "PYQuant/tools/dart_fin_history_fill.py",
       "PYQuant/tools/dart_shares_history_fill.py",
@@ -2292,6 +2322,10 @@
         "backtest.costs",
         "backtest.ledger"
       ],
+      "PYQuant/tests/test_db_client.py": [
+        "db",
+        "db.client"
+      ],
       "PYQuant/tests/test_indicators.py": [
         "kis.client",
         "strategy.indicators"
@@ -2319,6 +2353,10 @@
       "PYQuant/tools/bench_market_open.py": [
         "core.logger",
         "db.client"
+      ],
+      "PYQuant/tools/bench_recorder.py": [
+        "db.client",
+        "main"
       ],
       "PYQuant/tools/compare_ws_bars.py": [
         "kis.client"
@@ -2530,9 +2568,14 @@
       "data.yfinance_source": [
         "PYQuant/main.py"
       ],
+      "db": [
+        "PYQuant/tests/test_db_client.py"
+      ],
       "db.client": [
         "PYQuant/main.py",
+        "PYQuant/tests/test_db_client.py",
         "PYQuant/tools/bench_market_open.py",
+        "PYQuant/tools/bench_recorder.py",
         "PYQuant/tools/ledger_recorder.py",
         "scripts/backfill_fills_db.py"
       ],
@@ -2606,6 +2649,7 @@
       ],
       "main": [
         "PYQuant/live/forward_trader.py",
+        "PYQuant/tools/bench_recorder.py",
         "PYQuant/tools/sweep.py",
         "PYQuant/tools/walkforward.py"
       ],
@@ -2801,6 +2845,11 @@
       },
       {
         "from": "PYQuant/tests",
+        "to": "PYQuant/db",
+        "weight": 2
+      },
+      {
+        "from": "PYQuant/tests",
         "to": "PYQuant/exit_ev",
         "weight": 1
       },
@@ -2822,7 +2871,7 @@
       {
         "from": "PYQuant/tools",
         "to": "PYQuant",
-        "weight": 2
+        "weight": 3
       },
       {
         "from": "PYQuant/tools",
@@ -2847,7 +2896,7 @@
       {
         "from": "PYQuant/tools",
         "to": "PYQuant/db",
-        "weight": 2
+        "weight": 3
       },
       {
         "from": "PYQuant/tools",
@@ -2965,6 +3014,7 @@
     "universe*.json": {
       "writers": [
         "PYQuant/tools/load_injector.py",
+        "Quant/src/universe/MarketBoard.cpp",
         "scripts/make_load_test_config.py"
       ],
       "readers": [
@@ -2984,9 +3034,11 @@
         "PYQuant/tools/full_universe_dump.py",
         "PYQuant/tools/load_injector.py",
         "PYQuant/tools/universe_feed.py",
+        "Quant/include/universe/MarketBoard.h",
         "Quant/include/universe/UniverseScanner.h",
         "Quant/src/api/KisUniverse.cpp",
         "Quant/src/strategy/StrategyFactory.cpp",
+        "Quant/src/universe/MarketBoard.cpp",
         "Quant/src/universe/UniverseCandidates.cpp",
         "scripts/dashboard_server.py",
         "scripts/exit_ev_dashboard.py",

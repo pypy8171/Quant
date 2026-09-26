@@ -112,6 +112,9 @@ public:
     // 아직 한 번도 못 뽑았으면 nullptr.
     std::shared_ptr<const RankedUniverse> ranked() const;
 
+    // 오늘 받은 종목 목록. 아직 못 받았으면 nullptr. 장 전 일봉 캐시 데우기가 대상 종목을 여기서 고른다.
+    std::shared_ptr<const std::vector<ListedStock>> listing() const;
+
 private:
     MarketBoard() = default;
 
@@ -126,9 +129,10 @@ private:
     std::vector<ListedStock>              listing_;      // 시세판 스레드 전용
     std::string                           listing_date_; // 목록을 받은 KST 날짜
     std::vector<std::string>              request_urls_; // 목록이 바뀔 때만 다시 만든다
-    mutable std::mutex                    mutex_;        // 아래 두 포인터만 지킨다
-    std::shared_ptr<const BoardSnapshot>  snapshot_;
-    std::shared_ptr<const RankedUniverse> ranked_;
+    mutable std::mutex                              mutex_;        // 아래 세 포인터만 지킨다
+    std::shared_ptr<const BoardSnapshot>            snapshot_;
+    std::shared_ptr<const RankedUniverse>           ranked_;
+    std::shared_ptr<const std::vector<ListedStock>> published_listing_;
 };
 
 } // namespace universe

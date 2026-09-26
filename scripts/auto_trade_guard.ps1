@@ -19,9 +19,9 @@
 [CmdletBinding()]
 param(
   [string]$Config = "Quant\config\config_dev_paper.json",
-  [string]$Open   = "08:45",   # 이 시각 전에는 기동하지 않는다(장 시작 09:00 전 준비 여유)
+  [string]$Open   = "07:30",   # 이 시각 전에는 기동하지 않는다(08:00 NXT 개장 전 일봉 캐시 데우기 여유, D-147)
   [string]$Until  = "15:35",   # 워치독에 그대로 넘기는 마감 시각. 실계좌 전환 때 20:05(애프터마켓 20:00 + 여유, D-097·T-18)
-  [double]$Hours  = 7,         # -Open 부터 5분마다 몇 시간 도는지. 모의 7(15:45까지), 실계좌 11.5(20:15까지). scripts\market_close_timetable.ps1 -Apply 가 넘긴다
+  [double]$Hours  = 7,         # -Open 부터 5분마다 몇 시간 도는지. 모의 8.25(15:45까지), 실계좌 12.75(20:15까지). scripts\market_close_timetable.ps1 -Apply 가 넘긴다
   [switch]$Install,            # 평일 5분 주기 예약작업 등록
   [switch]$Uninstall,
   [switch]$DryRun

@@ -66,6 +66,9 @@ struct DevScanCfg
     // 엔진 안 시세판(universe/MarketBoard.h)에서 시세·유니버스를 받는다. 켜져 있으면 위 두 파일은 시세판이
     //  아직 첫 판을 못 받았을 때만 읽는다(장 전 기동 직후) [why D-147]
     bool   market_board = false;
+    // 장 전 일봉 캐시 데우기 마감(KST HHMM). 0=끄기. 시세판 목록의 전 종목(직전 세션 거래대금 순)을 이 시각까지
+    //  받아 둔다 — 장 중 첫 스캔이 일봉 REST 수백 건으로 밀리지 않게 [why D-147]
+    int    daily_warm_until_hhmm = 0;
     double min_turnover = 0.0;       // 원, 거래대금 하한. 0=비활성 [why D-029]
     bool   full_market = false;      // 후보 풀을 시세 파일의 전 종목으로 넓힌다 [why D-015]
     std::vector<std::string> sector_codes;   // 업종 등락률 축. 비면 끄기 [why D-029]
@@ -119,6 +122,10 @@ void load_quote_table(const std::string& prices_file, QuoteTable& quotes, symbol
 // 같은 일을 시세판(universe/MarketBoard.h)의 판으로 한다. market_board가 켜져 있으면 스캐너가 이쪽을 부른다.
 struct BoardSnapshot;
 void load_quote_table(const BoardSnapshot& board, QuoteTable& quotes, symbol::SymbolTable& symbols);
+
+// 장 전 일봉 캐시 데우기 스레드를 띄운다. 프로세스에 한 번만 뜨고, 마감 시각이 이미 지났으면 띄우지 않는다.
+//  kis_config는 시세 키(실전 도메인)다. 받은 요약은 다음 스캔이 캐시로 옮긴다.
+void start_daily_warm(const KisConfig& kis_config, const DevScanCfg& config);
 
 // 초기 등록·주기적 재스캔이 공용으로 호출한다(config는 값 복사 캡처라 std::function 저장이 안전).
 //  레짐 위험회피면 빈 결과를 돌려준다. 실패도 예외가 아니라 빈 결과다.

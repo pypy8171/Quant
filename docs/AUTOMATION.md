@@ -16,7 +16,7 @@
 <!-- gen:market-close-timetable -->
 | 작업 이름 | 모의 (is_paper=true) | 실계좌 (is_paper=false) | 실행 |
 |---|---|---|---|
-| `QuantAutoTradeGuard` | 08:45~ 5분마다, -Until 15:35, 7h | 08:45~ 5분마다, -Until 20:05, 11.5h | `powershell -File scripts\market_close_timetable.ps1 -Apply` |
+| `QuantAutoTradeGuard` | 07:30~ 5분마다, -Until 15:35, 8.25h | 07:30~ 5분마다, -Until 20:05, 12.75h | `powershell -File scripts\market_close_timetable.ps1 -Apply` |
 | `Quant Basket Targets` | 08:40 | 08:40 | `py PYQuant\main.py basket` |
 | `Quant Market Close AutoDoc` | 16:05 | 20:30 | `py scripts\market_close_autodoc.py` |
 | `Quant Maintain Daily` | 16:20 | 20:45 | `py ..\quant-devtools\maintain.py --daily` |
@@ -200,7 +200,7 @@ powershell -ExecutionPolicy Bypass -File scripts\quant_procs.ps1 -KillAll # 전�
 `-Reap`은 중복과 빈 창만 본다. 정상으로 떠 있는 것은 남기므로 하루를 끝낼 때 쓰는 스위치가 아니다.
 그 자리는 `-KillAll`이다. 판정과 무관하게 역할 프로세스와 `quant-*` 창을 전부 내리고 — 이때는 어느
 트레이더가 진짜인지 가릴 필요가 없어 트레이더도 같이 내린다 — 오늘 상태파일의 `phase`를 `closed`로
-적는다. 이 표시가 핵심이다. 감시자는 평일 08:45부터 5분마다 도므로, 표시 없이 프로세스만 죽이면
+적는다. 이 표시가 핵심이다. 감시자는 평일 07:30부터 5분마다 도므로, 표시 없이 프로세스만 죽이면
 장중에는 몇 분 안에 다시 떠 있고 재부팅으로도 풀리지 않는다.
 
 워치독이 기동 직전과 종료 직후에 `-Reap -Quiet`으로 이것을 부른다. 트레이더 중복은 정리하지 않고

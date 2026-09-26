@@ -392,6 +392,12 @@ std::shared_ptr<const RankedUniverse> MarketBoard::ranked() const
     return ranked_;
 }
 
+std::shared_ptr<const std::vector<ListedStock>> MarketBoard::listing() const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return published_listing_;
+}
+
 void MarketBoard::run()
 {
     thread_name::set_current("MarketBoard");
@@ -489,6 +495,11 @@ bool MarketBoard::refresh_listing()
         }
 
         request_urls_.push_back(std::move(url));
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        published_listing_ = std::make_shared<const std::vector<ListedStock>>(listing_);
     }
 
     LOG_INFO("[MarketBoard] 종목 목록 " + std::to_string(listing_.size()) + "종목(개별주) — 시세 요청 " +
