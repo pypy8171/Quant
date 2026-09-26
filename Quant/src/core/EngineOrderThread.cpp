@@ -240,10 +240,15 @@ void Engine::order_thread_fn(std::stop_token stop_token)
     displace_desk.set_label([this](const std::string& ticker) { return ticker_label(ticker); });
     std::vector<OrderSignal> displace_expired;
 
-    // 주문이 없는 회차에도 사본을 이 간격으로는 낸다(아래 대기 구간). 100ms는 대기 상한과 같은 값이라
-    //  쉬는 동안 회차마다 한 번꼴이고, 전략이 보는 장부가 그보다 더 낡지 않는다.
-    constexpr auto kIdlePublishInterval = 100ms;
-    auto           last_idle_publish    = steady_clock::now();
+    // 주문 하나 몫 가운데 pop→submit 반환 밖에 있는 몫을 잰다. 재는 자리(latency_trace.record)가 고리
+    //  한가운데라 이번 회차 꼬리는 아직 안 돌았다 — 직전 회차 값을 들고 있다가 다음 줄에 실어 보낸다.
+    //  09-26 부하시험에서 주문 하나 몫 약 770µs 중 재고 있던 것이 31µs뿐이었다. [why D-071 원칙 7]
+    int64_t        previous_done_ns     = 0;
+    int64_t        previous_loop_end_ns = 0;
+    // 그 꼬리를 다시 셋으로 가르는 중간 시각 — 계측 쓰기 / 체결·방송·답 / 장부 사본. 한 덩이로는 무엇을
+    //  줄여야 하는지 못 짚는다(09-26 부하시험에서 꼬리 137µs를 장부로 지레짐작했다). [why D-071 원칙 7]
+    int64_t        previous_after_trace_ns  = 0;
+    int64_t        previous_after_answer_ns = 0;
 
     // 결과를 전략 쪽으로 돌려준다. 지금은 같은 프로세스의 큐고, 단계 4에서 공유메모리로 바뀌어도
     //  레코드는 그대로다. [inv] 순번 0은 통로 밖에서 들어온 신호라 맞출 짝이 없어 답하지 않는다. [why D-114]
@@ -326,6 +331,11 @@ void Engine::order_thread_fn(std::stop_token stop_token)
         // 발주 대상 선택: 만기된 재시도분 우선, 사람이 낸 수동주문, 자리가 나 풀린 교체 보류분, 없으면 신규 큐
         std::optional<OrderRateLimiter::Pending> next = rate_limiter.take_due_retry(steady_clock::now());
         int64_t                            pop_ns = 0;
+        int64_t                            previous_tail_us    = -1;
+        int64_t                            previous_wait_us    = -1;
+        int64_t                            previous_trace_us   = -1;
+        int64_t                            previous_post_us    = -1;
+        int64_t                            previous_publish_us = -1;
 
         if (!next)
         {
@@ -422,14 +432,6 @@ void Engine::order_thread_fn(std::stop_token stop_token)
                        ops_.manual_inbox.empty();
             });
 
-            // 주문이 없어도 장부는 바뀐다 — 잔고 재시드·진입 정지·평가금·슬롯 면제 집합은 다른 스레드가 고친다.
-            //  그 변화가 사본에 닿는 시간을 100ms 안으로 묶는다. 매 회차 내면 읽는 쪽이 밀리므로 간격을 둔다. [why D-114]
-            if (const auto now = steady_clock::now(); now - last_idle_publish >= kIdlePublishInterval)
-            {
-                last_idle_publish = now;
-                order_gate_.publish_ledger(*ledger_snapshot_);
-            }
-
             continue;
         }
 
@@ -444,13 +446,16 @@ void Engine::order_thread_fn(std::stop_token stop_token)
         const OrderSignal& signal        = next->signal;
         // next는 아래에서 재시도 버퍼로 옮겨진다(sink). 답할 순번은 그 전에 챙겨 둔다.
         const uint64_t     request_sequence = signal.sequence;
+        // 꼬리를 가르는 중간 시각. try 밖에 둬야 예외로 빠진 회차도 빈칸이 아니라 실제 시각을 남긴다.
+        int64_t            after_trace_ns = 0;
 
         try
         {
             // 간격은 KIS를 실제로 부른 뒤에만 센다. 로컬 거부(게이트·ENTRY_HALT)는 한도와 무관하다.
             const uint64_t calls_before = order_router_->kis_calls();
             auto managed_order = order_router_->submit(signal);
-            const bool kis_called = order_router_->kis_calls() != calls_before;
+            const bool    kis_called = order_router_->kis_calls() != calls_before;
+            const int64_t done_ns    = trace::now_ns();
 
             if (kis_called)
             {
@@ -460,16 +465,40 @@ void Engine::order_thread_fn(std::stop_token stop_token)
             // 재시도 건은 pop 시각이 첫 시도 것이라 구간이 부풀지 않게 첫 시도만 남긴다.
             if (next->attempts == 0)
             {
-                const trace::Marks marks{signal.tick_at_ns, signal.signal_at_ns, pop_ns, send_ready_ns,
-                                         trace::now_ns()};
+                previous_tail_us = (previous_done_ns != 0 && previous_loop_end_ns != 0)
+                                       ? trace::segment_us(previous_done_ns, previous_loop_end_ns)
+                                       : -1;
+                previous_wait_us = (previous_loop_end_ns != 0 && pop_ns != 0)
+                                       ? trace::segment_us(previous_loop_end_ns, pop_ns)
+                                       : -1;
+                previous_trace_us = (previous_done_ns != 0 && previous_after_trace_ns != 0)
+                                        ? trace::segment_us(previous_done_ns, previous_after_trace_ns)
+                                        : -1;
+                previous_post_us = (previous_after_trace_ns != 0 && previous_after_answer_ns != 0)
+                                       ? trace::segment_us(previous_after_trace_ns, previous_after_answer_ns)
+                                       : -1;
+                previous_publish_us = (previous_after_answer_ns != 0 && previous_loop_end_ns != 0)
+                                          ? trace::segment_us(previous_after_answer_ns, previous_loop_end_ns)
+                                          : -1;
+                trace::Marks marks{signal.tick_at_ns, signal.signal_at_ns, pop_ns, send_ready_ns, done_ns};
+                marks.previous_tail_us    = previous_tail_us;
+                marks.previous_wait_us    = previous_wait_us;
+                marks.previous_trace_us   = previous_trace_us;
+                marks.previous_post_us    = previous_post_us;
+                marks.previous_publish_us = previous_publish_us;
                 latency_trace.record(signal, marks, managed_order.stages, kis_called,
                                      managed_order.status == OrderStatus::ACCEPTED);
                 // 같은 값을 분포로도 — HEALTH가 분위수를 싣는다. 라우터 안 구간은 managed_order가 실어 왔다.
                 pipeline_latency_.add(marks, managed_order.stages);
             }
 
+            // 여기까지가 계측 자신의 몫이다 — 줄 한 줄을 적고 분포에 넣는 데 든 시간.
+            after_trace_ns = trace::now_ns();
+
             // 갈라 띄운 주문 프로세스만 하는 일 — 접수가 끝난 뒤에 모의 체결기에 틱을 먹인다. 접수 안에서
             //  체결을 내면 라우터가 ODNO를 적기 전이라 통보가 "미매핑 체결"로 빠진다. [why D-114 단계 5]
+            previous_done_ns = done_ns;
+
             if (managed_order.status == OrderStatus::ACCEPTED)
             {
                 feed_paper_fill_tick(signal);
@@ -519,9 +548,13 @@ void Engine::order_thread_fn(std::stop_token stop_token)
             answer(request_sequence, ipc::OrderResult::kFailed, 0, exception.what());
         }
 
-        // 장부가 바뀌었으니 사본을 한 판 낸다. 큐가 비어 쉬는 회차는 위에서 continue로 빠지므로
-        //  여기는 실제로 주문을 다룬 회차뿐이다 — 쉼 없이 판을 내면 읽는 쪽이 밀린다. [why D-114]
-        order_gate_.publish_ledger(*ledger_snapshot_);
+        // 장부가 바뀌었지만 사본은 여기서 내지 않는다. 한 판이 2,700종목에서 98microseconds라 주문 하나 몫
+        //  160microseconds의 61%였고, 그만큼 요청 큐가 밀려 주문을 버렸다(09-26 부하시험). 발행은
+        //  ledger_thread_fn이 간격을 두고 낸다 — 읽는 쪽 약속은 그대로 100ms다. [why D-114]
+        const int64_t after_answer_ns = trace::now_ns();
+        previous_loop_end_ns          = trace::now_ns();
+        previous_after_trace_ns  = after_trace_ns != 0 ? after_trace_ns : previous_done_ns;
+        previous_after_answer_ns = after_answer_ns;
     }
 
     LOG_INFO("[OrderThread] 종료");

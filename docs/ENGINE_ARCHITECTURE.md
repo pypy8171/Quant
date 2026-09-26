@@ -8,8 +8,8 @@
 
 ### 스레드 모델
 
-<!-- sync: Quant/include/core/Engine.h@c035ead Quant/src/core/Engine.cpp@3dfc0e3 Quant/include/core/DataPoller.h@684eb50 Quant/include/core/SignalDispatcher.h@d27c5ea Quant/include/core/OrderRateLimiter.h@2650fb2 Quant/include/core/LedgerReconciler.h@9d218c7 Quant/include/core/WakeGate.h@b842ec7 Quant/include/core/BarAggregator.h@f50287c Quant/include/core/LatencyTrace.h@b01b770 Quant/include/core/ReconcilePlan.h@5e8d897 -->
-스레드는 다섯 개(데이터·전략·주문·체결·제어)에 전략 샤드 M개(config `strategy_shards`, 기본 1, 상한 64), 소켓마다
+<!-- sync: Quant/include/core/Engine.h@443b799 Quant/src/core/Engine.cpp@22986d7 Quant/include/core/DataPoller.h@684eb50 Quant/include/core/SignalDispatcher.h@d27c5ea Quant/include/core/OrderRateLimiter.h@2650fb2 Quant/include/core/LedgerReconciler.h@9d218c7 Quant/include/core/WakeGate.h@b842ec7 Quant/include/core/BarAggregator.h@f50287c Quant/include/core/LatencyTrace.h@b76bf56 Quant/include/core/ReconcilePlan.h@5e8d897 -->
+스레드는 여섯 개(데이터·전략·주문·체결·제어·장부)에 전략 샤드 M개(config `strategy_shards`, 기본 1, 상한 64), 소켓마다
 수신 스레드 하나, 프리페치 풀(코어/4, 2~8개)을 더한다. `database.enabled`면 시세 쪽에 DB 적재 워커 M개가 더 붙는다(D-148). 설정에 따라 보조 스레드가 더 뜬다 — 시세판(`MarketBoard`, `market_board`, D-147), 장 전 일봉 데우기(`DailyWarm`, 08:00까지), 국면 판정(`RegimeFeed`), REST 폴러(`RestPoller`), ZMQ 발행(`ZmqBridge`), 운영 서버(`OpsServer`), 틱 캡처(`TickCapture`), 로그 기록(`LogWriter`). 스레드끼리는 락 없는 큐로만 넘긴다. 각 스레드는 기동 직후
 `thread_name::set_current`(`Quant/include/utils/ThreadName.h`)로 이름을 붙여 procwatch와 디버거에 그 이름으로 보인다.
 
@@ -42,8 +42,9 @@ flowchart LR
 | REST 조회 | 시세 쪽이면. WS 칸에 못 든 종목(REST 폴백이면 유니버스 전부)의 현재가를 한 바퀴 1초 목표로 조회. 종목 사이 100ms라 10종목을 넘으면 한 바퀴가 늘어난다(D-138) | KIS REST → `trade_matrix` 폴러 행 | `Quant/include/core/DataPoller.h` · `test_data_poller` |
 | 샤드 ×M | 자기 열을 비우고, 틱의 종목 id를 보는 전략만 부른다. 분봉 집계는 이렇게 불린 전략 안에서 한다(봉 길이는 전략 설정, 예: DevScale `interval_min`) | 행렬 열 m → `shard_out` | `Quant/include/core/StrategyShard.h`·`Quant/include/core/StrategyRouter.h` · `test_strategy_shard`·`test_strategy_router` |
 | 전략(디스패치) | 신호를 주문 요청으로 바꾸기 전 판단, 보호 주문 판정, 강제청산·초과분 정리, 제어 요청 중계, 주문 쪽 응답 수거, 상대 박동 감시와 답 없는 요청 세기 | `shard_out` → 요청 면 / 응답 면을 비운다 | `Quant/include/core/SignalDispatcher.h`·`Quant/include/risk/ProtectiveOrders.h` · `test_signal_dispatcher` |
-| 주문 | 게이트·발주·재시도, 수동주문, 제어 요청 적용, 슬롯 교체, 상대 박동 감시, 장부 사본 발행 | 요청 면·`manual_inbox`·제어 면 → KIS 주문 API, 응답 면, 장부 사본 | `Quant/include/core/OrderRateLimiter.h`·`Quant/include/risk/DisplacementDesk.h` · `test_order_rate_limiter`·`test_engine` |
+| 주문 | 게이트·발주·재시도, 수동주문, 제어 요청 적용, 슬롯 교체, 상대 박동 감시 | 요청 면·`manual_inbox`·제어 면 → KIS 주문 API, 응답 면 | `Quant/include/core/OrderRateLimiter.h`·`Quant/include/risk/DisplacementDesk.h` · `test_order_rate_limiter`·`test_engine` |
 | 체결 | 체결통보를 원장·CSV에 반영하고 운영단말에 방송 | `fill_queue` → 원장 | `Engine::fill_thread_fn` (D-056) |
+| 장부 | 주문 쪽이면. 읽는 쪽에 주는 장부 사본을 100ms 간격으로 무조건 낸다. 주문 스레드에서 뗀 것은 2,700종목을 들면 한 판이 98µs로 주문 하나 몫의 61%였기 때문이다 | 원장 → 장부 사본 | `Engine::ledger_thread_fn` · `bench_ledger_publish` |
 | 제어 | 토큰 선갱신, 시세 끊김 대응(재연결·REST 대체), 구독 요청 반영·구독 칸 재배정(D-132), 큐 고수위 기록, 마감 자기 종료, 갈라 띄운 날에는 짝이 종료 사유를 적고 나갔는지 5초마다 보고 따라 내려가기 | 주기 작업 | `Quant/include/core/FeedSupervisor.h`·`Quant/include/core/SessionEndJudge.h` |
 | 프리페치 ×2~8 | 전략이 `on_start`에서 맡긴 REST 당기기를 3초 간격으로 | 전략 스냅샷 | `Quant/include/core/PrefetchPool.h` · `test_prefetch_pool` (D-115) |
 | 줄 스레드 ×(소켓+1) | 갈라 띄울 때만. 시세 통로 한 줄을 꺼내 행렬로 나눈다 | 시세 통로 → 행렬 | `Engine::feed_lane_thread_fn` · `test_market_feed_channel` |

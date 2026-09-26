@@ -27,8 +27,8 @@ std::string_view csv_header()
     //  history_lock_wait는 history_guard 안, accept·publish·history_store(그 안에 open_orders)는 record 안이다. [why D-126]
     return "utc_ms,seq,ticker,strategy,side,action,tick_to_signal_us,signal_to_pop_us,pop_to_done_us,total_us,"
            "gate_us,history_guard_us,history_lock_wait_us,journal_us,bucket_wait_us,transport_us,record_us,"
-           "accept_us,publish_us,history_store_us,open_orders_us,kis_"
-           "called,accepted\n";
+           "accept_us,publish_us,history_store_us,open_orders_us,previous_tail_us,previous_wait_us,"
+           "previous_trace_us,previous_post_us,previous_publish_us,kis_called,accepted\n";
 }
 
 std::string csv_row(const OrderSignal& signal, const Marks& marks, const OrderStageTiming& stages, bool kis_called,
@@ -78,6 +78,16 @@ std::string csv_row(const OrderSignal& signal, const Marks& marks, const OrderSt
     text += std::to_string(stages.history_store_us);
     text += ',';
     text += std::to_string(stages.open_orders_us);
+    text += ',';
+    text += std::to_string(marks.previous_tail_us);
+    text += ',';
+    text += std::to_string(marks.previous_wait_us);
+    text += ',';
+    text += std::to_string(marks.previous_trace_us);
+    text += ',';
+    text += std::to_string(marks.previous_post_us);
+    text += ',';
+    text += std::to_string(marks.previous_publish_us);
     text += ',';
     text += kis_called ? '1' : '0';
     text += ',';

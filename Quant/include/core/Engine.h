@@ -618,6 +618,7 @@ private:
     //  차례를 다른 쪽이 쥐고 있으면 그쪽이 비우므로 이번엔 건너뛴다.
     void flush_fill_overflow();
 
+    void ledger_thread_fn(std::stop_token stop_token);   // 장부 사본 발행(읽는 쪽에 주는 복사본). 주문 스레드에서 뗀 것 [why D-114]
     void fill_thread_fn(std::stop_token stop_token);     // 체결통보 소비(fill_queue → OrderRouter::on_fill → ops 방송). WS 수신 스레드에서 뗀 것 [why D-056]
     void control_thread_fn(std::stop_token stop_token); // WebSocket 시세단절 감지·재연결(연속 실패 시 kill switch). ZMQ REP 처리는 ZmqBridge 내부 스레드 담당
 
@@ -917,11 +918,16 @@ private:
     // [inv] 직전 HEALTH 때 뜬 버킷 사본. 데이터 스레드만 읽고 쓴다 — 다른 스레드가 건드리면 구간 분위수가 어긋난다.
     trace::PipelineSnapshot previous_latency_snapshot_;
 
+    // 장부 사본을 내는 간격. 읽는 쪽에 주는 약속이 이 값이다 — "고친 것이 이 시간 안에 사본에 닿는다".
+    //  전에는 주문 스레드가 바쁠 땐 주문마다, 쉴 땐 이 간격으로 내 약속이 둘이었다. [why D-114]
+    static constexpr std::chrono::milliseconds kLedgerPublishInterval{100};
+
     // ── 스레드 핸들 ──────────────────────────────────────────────────────────
     std::jthread data_thread_;
     std::jthread strategy_thread_;
     std::jthread order_thread_;
     std::jthread fill_thread_;
+    std::jthread ledger_thread_;
     std::jthread control_thread_;
 
     // 줄마다 하나. 전략 역할에만 뜬다(주문 쪽은 소켓 수신 스레드가 그 일을 한다). [why D-114]

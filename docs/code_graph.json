@@ -45,7 +45,7 @@
     {
       "from": "core",
       "to": "utils",
-      "weight": 38
+      "weight": 40
     },
     {
       "from": "exchange",
@@ -305,6 +305,7 @@
     "core/EngineFeed.cpp": "core",
     "core/EngineFillThread.cpp": "core",
     "core/EngineLayout.cpp": "core",
+    "core/EngineLedgerThread.cpp": "core",
     "core/EngineOpsServer.cpp": "core",
     "core/EngineOrderThread.cpp": "core",
     "core/EngineRegime.cpp": "core",
@@ -628,6 +629,11 @@
     "core/EngineLayout.cpp": [
       "core/Engine.h",
       "utils/Logger.h"
+    ],
+    "core/EngineLedgerThread.cpp": [
+      "core/Engine.h",
+      "utils/Logger.h",
+      "utils/ThreadName.h"
     ],
     "core/EngineOpsServer.cpp": [
       "core/Engine.h",
@@ -1420,6 +1426,7 @@
       "core/EngineFeed.cpp",
       "core/EngineFillThread.cpp",
       "core/EngineLayout.cpp",
+      "core/EngineLedgerThread.cpp",
       "core/EngineOpsServer.cpp",
       "core/EngineOrderThread.cpp",
       "core/EngineRegime.cpp",
@@ -1979,6 +1986,7 @@
       "core/EngineFeed.cpp",
       "core/EngineFillThread.cpp",
       "core/EngineLayout.cpp",
+      "core/EngineLedgerThread.cpp",
       "core/EngineOpsServer.cpp",
       "core/EngineOrderThread.cpp",
       "core/EngineRegime.cpp",
@@ -2027,6 +2035,7 @@
       "core/EngineDataThread.cpp",
       "core/EngineFeed.cpp",
       "core/EngineFillThread.cpp",
+      "core/EngineLedgerThread.cpp",
       "core/EngineOrderThread.cpp",
       "core/EngineStrategyThread.cpp",
       "core/FeedMux.cpp",
@@ -2056,7 +2065,7 @@
   "hubs": [
     {
       "header": "utils/Logger.h",
-      "in_degree": 55
+      "in_degree": 56
     },
     {
       "header": "core/Types.h",
@@ -2068,7 +2077,7 @@
     },
     {
       "header": "utils/ThreadName.h",
-      "in_degree": 25
+      "in_degree": 26
     },
     {
       "header": "core/SymbolTable.h",
@@ -2076,7 +2085,7 @@
     },
     {
       "header": "core/Engine.h",
-      "in_degree": 17
+      "in_degree": 18
     },
     {
       "header": "core/WakeGate.h",

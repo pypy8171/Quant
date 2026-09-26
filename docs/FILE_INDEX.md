@@ -396,6 +396,7 @@
 - [EngineDataThread.cpp](../Quant/src/core/EngineDataThread.cpp) — 데이터 수집 스레드 — 장 시작 감지·잔고 대조·일봉·지수·수급 조회를 한 사이클씩 돈다(`data_thread_fn`)
 - [EngineFeed.cpp](../Quant/src/core/EngineFeed.cpp) — 시세 입력 — WebSocket 구독 목록 만들기·소켓 연결(`connect_feed`)·받은 체결과 호가를 전략 샤드 큐나 시세 통로로 보내기·구독 칸 재배정(`rebalance_websocket_slots`)과 시세 쪽 제어 요청 적용(`apply_feed_control_requests`)·전략 쪽 시세 줄 스레드(`feed_lane_thread_fn`)
 - [EngineFillThread.cpp](../Quant/src/core/EngineFillThread.cpp) — 체결 쪽 — 체결통보를 원장에 반영하는 스레드(`fill_thread_fn`)
+- [EngineLedgerThread.cpp](../Quant/src/core/EngineLedgerThread.cpp) — 주문 쪽 — 읽는 쪽에 주는 장부 사본을 100ms 간격으로 내는 스레드(`ledger_thread_fn`)
 - [EngineLayout.cpp](../Quant/src/core/EngineLayout.cpp) — `Engine::bind_layout` 등 — 자리표(큐·장부 사본·박동)를 힙이나 공유 쪽지에 깔고 종목·전략 이름표를 그 위 한 벌로 바꾼다
 - [EngineOpsServer.cpp](../Quant/src/core/EngineOpsServer.cpp) — 운영단말 서버 — 단말의 조회·수동 주문을 받아 주문 스레드가 꺼낼 자리에 넣는다(`start_ops_server`·`accept_manual_order`·`take_manual_order`)
 - [EngineOrderThread.cpp](../Quant/src/core/EngineOrderThread.cpp) — 주문 쪽 — 주문 실행 스레드(`order_thread_fn`), 보호 주문 표 한 주기, 전략 생존 추적
@@ -525,6 +526,7 @@
 - [bench_intake.cpp](../Quant/tests/bench_intake.cpp) — 멀티생산자 주문 인테이크 큐 부하 벤치(MPSC 대 Mutex)
 - [bench_latency_path.cpp](../Quant/tests/bench_latency_path.cpp) — 지연에 민감한 경로 리팩터 전후 비교 벤치(D-071)
 - [bench_market_firehose.cpp](../Quant/tests/bench_market_firehose.cpp) — 전종목 규모 시세 파이프라인 부하테스트(E2E 지연·처리량)
+- [bench_ledger_publish.cpp](../Quant/tests/bench_ledger_publish.cpp) — 장부 사본 한 판 비용을 보유 종목 수별로 잰다(41~2,700종목)
 - [bench_order_gate_position.cpp](../Quant/tests/bench_order_gate_position.cpp) — OrderGate 원장 조회 벤치: 키가 (계좌, 종목) 문자열일 때와 정수 id일 때의 position() 비용(D-105 결정 3)
 - [bench_order_path_keys.cpp](../Quant/tests/bench_order_path_keys.cpp) — 주문 경로 키 벤치: 중복 신호 키·우선순위 표·서브원장·체결 키를 문자열과 정수로 잰다(D-112)
 - [bench_peer_failure.cpp](../Quant/tests/bench_peer_failure.cpp) — 프로세스 경계 고장 실측 벤치: 공유메모리 한 방향 지연, crash·exit·hang 감지 지연, append+flush 비용(D-071 큐 34)

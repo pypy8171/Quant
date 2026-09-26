@@ -471,8 +471,9 @@ void Engine::spawn_threads()
 
     if (runs_order_side())
     {
-        order_thread_ = std::jthread([this](std::stop_token stop_token) { order_thread_fn(stop_token); });
-        fill_thread_  = std::jthread([this](std::stop_token stop_token) { fill_thread_fn(stop_token); });
+        order_thread_  = std::jthread([this](std::stop_token stop_token) { order_thread_fn(stop_token); });
+        fill_thread_   = std::jthread([this](std::stop_token stop_token) { fill_thread_fn(stop_token); });
+        ledger_thread_ = std::jthread([this](std::stop_token stop_token) { ledger_thread_fn(stop_token); });
     }
 
     // 감시 스레드도 양쪽에 하나씩 — 시세 소켓을 쥔 쪽이 재연결을 보고, 주문 쪽이 마감 종료를 본다.
@@ -681,7 +682,7 @@ void Engine::request_shutdown(std::string_view reason, ipc::SharedShutdownReason
         shutdown_reason_.store(static_cast<uint32_t>(recorded_reason), std::memory_order_relaxed);
     }
 
-    for (std::jthread* thread : {&data_thread_, &strategy_thread_, &order_thread_, &fill_thread_, &control_thread_})
+    for (std::jthread* thread : {&data_thread_, &strategy_thread_, &order_thread_, &fill_thread_, &ledger_thread_, &control_thread_})
     {
         thread->request_stop(); // WakeGate의 stop_token 대기와 sleep_unless_stopped가 여기서 깬다
     }
@@ -773,6 +774,13 @@ void Engine::stop()
     if (fill_thread_.joinable())
     {
         fill_thread_.join();
+    }
+
+    // 장부 사본 스레드는 맨 뒤 — 고치는 쪽(주문·체결)이 다 선 뒤에 마지막 한 판을 내고 끝나야
+    //  읽는 쪽이 보는 마지막 사본이 실제 마지막 상태가 된다.
+    if (ledger_thread_.joinable())
+    {
+        ledger_thread_.join();
     }
 
 #ifdef HAS_ZMQ

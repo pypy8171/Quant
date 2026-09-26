@@ -37,6 +37,11 @@ SEGMENTS = (
     ("open_orders_us", "  of which: pending-order file rewrite", True),
     ("pop_to_done_us", "pop -> router return (holds the six above)", False),
     ("total_us", "tick recv -> router return (whole chain)", False),
+    ("previous_tail_us", "router return -> loop end (holds the three below)", False),
+    ("previous_trace_us", "  of which: latency csv write + percentile add", True),
+    ("previous_post_us", "  of which: paper fill tick, ops broadcast, answer", True),
+    ("previous_publish_us", "  of which: ledger snapshot publish", True),
+    ("previous_wait_us", "loop end -> next pop (order thread idle, queue empty)", False),
 )
 
 # 견줄 때 통과선. 회차 계획서 3절의 성능 판정선과 같은 값이다.

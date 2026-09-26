@@ -63,6 +63,13 @@ int main()
     marks.signal_ns = 10'050'000; // +50us
     marks.pop_ns    = 10'060'000; // +10us
     marks.done_ns   = 25'060'000; // +15,000us (HTTP)
+    // 직전 주문의 꼬리·기다림 — 이 줄의 주문이 아니라 한 칸 앞 주문의 값이다(재는 자리가 고리 한가운데다).
+    marks.previous_tail_us = 88;
+    marks.previous_wait_us = 640;
+    // 꼬리 88을 가른 셋 — 계측 쓰기 / 체결·방송·답 / 장부 사본. 더하면 꼬리다.
+    marks.previous_trace_us   = 31;
+    marks.previous_post_us    = 12;
+    marks.previous_publish_us = 45;
 
     const OrderStageTiming stages{.gate_us             = 40,
                                   .history_guard_us    = 70,
@@ -79,7 +86,7 @@ int main()
     const auto row = trace::csv_row(signal, marks, stages, true, true, 1'700'000'000'123LL);
     CHECK(row.back() == '\n');
     const auto fields = split(row.substr(0, row.size() - 1));
-    CHECK(fields.size() == 23);
+    CHECK(fields.size() == 28);
     CHECK(fields[0] == "1700000000123");
     CHECK(fields[1] == "42");
     CHECK(fields[2] == "005930");
@@ -101,8 +108,13 @@ int main()
     CHECK(fields[18] == "20");      // publish
     CHECK(fields[19] == "1480");    // history_store
     CHECK(fields[20] == "1200");    // open_orders
-    CHECK(fields[21] == "1");
-    CHECK(fields[22] == "1");
+    CHECK(fields[21] == "88");      // previous_tail  — 직전 주문: 라우터 반환 → 고리 끝
+    CHECK(fields[22] == "640");     // previous_wait  — 직전 주문: 고리 끝 → 이번 꺼냄
+    CHECK(fields[23] == "31");      // previous_trace   — 아래 셋이 previous_tail을 가른 몫
+    CHECK(fields[24] == "12");      // previous_post
+    CHECK(fields[25] == "45");      // previous_publish
+    CHECK(fields[26] == "1");
+    CHECK(fields[27] == "1");
 
     // 3. REST 봉 신호(tick_ns=0): 첫 구간 -1, total은 signal부터.
     marks.tick_ns = 0;
@@ -114,8 +126,8 @@ int main()
     CHECK(fields_two[16] == "-1");
     CHECK(fields_two[19] == "-1");
     CHECK(fields_two[20] == "-1");
-    CHECK(fields_two[21] == "0");
-    CHECK(fields_two[22] == "0");
+    CHECK(fields_two[26] == "0");
+    CHECK(fields_two[27] == "0");
 
     // 4. 파일: 머리글은 새 파일에만, 두 번째 인스턴스가 이어 써도 머리글이 다시 안 붙는다.
     const auto path = std::filesystem::temp_directory_path() / "quant_test_latency_trace.csv";
@@ -144,9 +156,9 @@ int main()
 
     CHECK(lines.size() == 4);
     CHECK(lines[0].rfind("utc_ms,seq,", 0) == 0);
-    CHECK(split(lines[1]).size() == 23);
-    CHECK(split(lines[3])[21] == "1");
-    CHECK(split(lines[3])[22] == "0");
+    CHECK(split(lines[1]).size() == 28);
+    CHECK(split(lines[3])[26] == "1");
+    CHECK(split(lines[3])[27] == "0");
     in.close(); // 열린 채로 지우면 Windows가 공유 위반을 내고 filesystem_error가 잡히지 않는다
     std::filesystem::remove(path);
 

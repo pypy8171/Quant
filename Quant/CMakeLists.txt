@@ -218,6 +218,7 @@ set(ENGINE_SOURCES
   src/core/EngineDataThread.cpp
   src/core/EngineFeed.cpp
   src/core/EngineFillThread.cpp
+  src/core/EngineLedgerThread.cpp
   src/core/EngineLayout.cpp
   src/core/EngineOrderThread.cpp
   src/core/EngineRegime.cpp
@@ -360,6 +361,16 @@ if(UNIX)
 endif()
 add_test(NAME bench_order_gate_position COMMAND bench_order_gate_position)
 set_tests_properties(bench_order_gate_position PROPERTIES TIMEOUT 60)
+
+# ─── 벤치: 장부 사본 한 판 — 보유 종목 수별 (주문 스레드가 주문마다 한 번 낸다) ──────────
+add_executable(bench_ledger_publish tests/bench_ledger_publish.cpp src/risk/OrderGate.cpp
+               src/risk/PositionLedger.cpp src/ipc/LedgerSnapshot.cpp)
+target_include_directories(bench_ledger_publish PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+if(UNIX)
+    target_link_libraries(bench_ledger_publish PRIVATE pthread)
+endif()
+add_test(NAME bench_ledger_publish COMMAND bench_ledger_publish)
+set_tests_properties(bench_ledger_publish PROPERTIES TIMEOUT 120)
 
 # ─── 벤치: 주문 경로 문자열 키 — check() 중복 키·진입 우선순위 표·전략 서브원장, 정수 키 전환 전후 ──
 add_executable(bench_order_path_keys tests/bench_order_path_keys.cpp src/risk/OrderGate.cpp)

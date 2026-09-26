@@ -63,6 +63,7 @@ OpsServer(내부 스레드)           운영단말 TCP — 조회·수동주문�
 | 전략(디스패치) | `SignalDispatcher`가 순번 stamp·신규 차단·교체 진입을 판단하고 주문 큐로 넘긴다. 주문 쪽 답을 비우고 살아 있다는 박동을 찍는다(봉투 256건마다 한 번, D-114 단계 2). 거꾸로 주문 쪽 박동도 보고, 답이 60초 넘게 안 온 요청을 5초마다 세어 찍는다 — 다시 보내지는 않는다(D-114 단계 4) | 요청 링 `requests`(`SharedSpscRing` 1024, D-073·D-114)에 넣고 응답 링 `order_responses` 소비 |
 | 주문 | `OrderRouter::submit` → `OrderGate::check` → `IOrderExecutor::submit_order_acknowledgement`. 호출 간격·재시도는 `OrderRateLimiter`. 전략 박동이 끊기면 신규 진입을 끊고 보호 주문 표를 이어받는다 — 이 스레드는 내려가지 않는다(D-114 단계 2). 자기도 한 바퀴마다 박동을 찍는다(D-114 단계 4). 운영단말 수동주문도 여기서 꺼낸다(`take_manual_order`, 재시도 다음 자리) — 전략이 멎어도 사람이 손으로 낼 수 있게(D-114 단계 4) | `requests` 소비 · `order_responses`(`SharedSpscRing` 1024)에 넣는다 |
 | 체결 소비 | `fill_queue` → `OrderRouter::on_fill`(원장·CSV) → 운영단말 방송 | `fill_queue` 소비 |
+| 장부(`ledger_thread_fn`, 주문 역할에서만) | 읽는 쪽이 보는 장부 사본을 100ms 간격으로 무조건 낸다. 주문 스레드가 주문마다 내던 것을 뗐다 — 2,700종목을 들면 한 판이 98µs라 주문 하나 몫의 61%였다 | 파이프라인 밖 — `OrderGate::publish_ledger` |
 | 제어 | 잔고 대조·토큰 선갱신·WS 단절 판정(`feed::Supervisor`)·큐 고수위 로그 | 파이프라인 밖 |
 | 프리페치 풀(코어/4, 2~8개, 이름 `Prefetch N`) | 전략이 `on_start`에서 맡긴 함수를 주기마다 부른다(일봉·분봉 REST). 수는 전략 수와 무관하게 고정이고 `Engine::start()`에서 미리 띄운다 | 파이프라인 밖 — 전략이 스냅샷 포인터로 받아 간다 |
 

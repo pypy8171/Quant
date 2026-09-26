@@ -25,7 +25,7 @@ graph LR
   core -->|15| ipc
   core -->|10| risk
   core -->|4| strategy
-  core -->|38| utils
+  core -->|40| utils
   exchange -->|7| core
   exchange -->|3| utils
   ipc -->|2| api
@@ -59,12 +59,12 @@ graph LR
 
 | 헤더 | 유입 수 |
 |---|---|
-| `utils/Logger.h` | 55 |
+| `utils/Logger.h` | 56 |
 | `core/Types.h` | 49 |
 | `core/KstTime.h` | 32 |
-| `utils/ThreadName.h` | 25 |
+| `utils/ThreadName.h` | 26 |
 | `core/SymbolTable.h` | 22 |
-| `core/Engine.h` | 17 |
+| `core/Engine.h` | 18 |
 | `core/WakeGate.h` | 13 |
 | `strategy/StrategyBase.h` | 13 |
 
@@ -115,6 +115,7 @@ graph LR
     n_core_EngineFeed_cpp["core/EngineFeed.cpp"]
     n_core_EngineFillThread_cpp["core/EngineFillThread.cpp"]
     n_core_EngineLayout_cpp["core/EngineLayout.cpp"]
+    n_core_EngineLedgerThread_cpp["core/EngineLedgerThread.cpp"]
     n_core_EngineOpsServer_cpp["core/EngineOpsServer.cpp"]
     n_core_EngineOrderThread_cpp["core/EngineOrderThread.cpp"]
     n_core_EngineRegime_cpp["core/EngineRegime.cpp"]
@@ -435,6 +436,9 @@ graph LR
   n_core_EngineFillThread_cpp --> n_utils_ThreadName_h
   n_core_EngineLayout_cpp --> n_core_Engine_h
   n_core_EngineLayout_cpp --> n_utils_Logger_h
+  n_core_EngineLedgerThread_cpp --> n_core_Engine_h
+  n_core_EngineLedgerThread_cpp --> n_utils_Logger_h
+  n_core_EngineLedgerThread_cpp --> n_utils_ThreadName_h
   n_core_EngineOpsServer_cpp --> n_core_Engine_h
   n_core_EngineOpsServer_cpp --> n_core_KstTime_h
   n_core_EngineOpsServer_cpp --> n_utils_Logger_h

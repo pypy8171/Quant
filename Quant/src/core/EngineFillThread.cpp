@@ -129,8 +129,8 @@ void Engine::fill_thread_fn(std::stop_token stop_token)
             LOG_ERROR("[FillThread] 체결 반영 예외 " + fill_notification.ticker + " ODNO=" + fill_notification.kis_order_no + ": " + exception.what());
         }
 
-        // 체결로 보유·평단·매도가능이 바뀌었다. 접수 쪽 발행과는 OrderGate의 발행 잠금이 줄을 세운다.
-        order_gate_.publish_ledger(*ledger_snapshot_);
+        // 사본은 여기서 내지 않는다 — 체결 하나마다 2,700종목을 훑으면 다음 체결이 그만큼 늦게 원장에
+        //  들어가고, 그게 다음 SELL의 보유 수량 판단을 낡게 한다. 발행은 ledger_thread_fn이 간격을 두고 낸다.
     }
 
     LOG_INFO("[FillThread] 종료 (드롭 " + std::to_string(pipeline_.fill_dropped.load(std::memory_order_relaxed)) + "건)");
