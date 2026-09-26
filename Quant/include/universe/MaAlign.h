@@ -27,9 +27,9 @@ SimpleMovingAverages fold_today(const SimpleMovingAverages& previous,
                        double drop5, double drop10, double drop20, double drop60,
                        double price);
 
-// [inv] 정배열 = average_5>average_10>average_20>average_60. 마지막 조건에만 허용오차 tol을 준다 — SMA20>SMA60은
-//  "3개월 추세 위"라 긴 하락 뒤 회복 국면에서는 주도주도 여기서 먼저 떨어진다.
-//  tolerance=0이면 엄격 판정, 1.0 이상이면 마지막 조건이 사라진다.
+// [inv] 정배열 = average_5>average_10>average_20. 60일선 조건은 뺐다 — SMA20>SMA60은 "3개월 추세 위"라
+//  긴 하락 뒤 회복 국면에서 주도주도 거기서 먼저 떨어져 후보를 말렸다(2026-09-26). 허용오차 tol은
+//  마지막 조건(SMA10>SMA20)에 준다. tolerance=0이면 엄격 판정, 1.0 이상이면 마지막 조건이 사라진다.
 bool aligned(const SimpleMovingAverages& simple_moving_averages, double tolerance);
 
 }  // namespace moving_average

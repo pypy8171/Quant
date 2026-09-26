@@ -22,10 +22,9 @@ SimpleMovingAverages fold_today(const SimpleMovingAverages& previous, double dro
 
 bool aligned(const SimpleMovingAverages& simple_moving_averages, double tolerance)
 {
-    const double s60_bar = simple_moving_averages.average_60 * (1.0 - tolerance);
+    const double s20_bar = simple_moving_averages.average_20 * (1.0 - tolerance);
     return simple_moving_averages.average_5 > simple_moving_averages.average_10 &&
-           simple_moving_averages.average_10 > simple_moving_averages.average_20 &&
-           simple_moving_averages.average_20 > s60_bar;
+           simple_moving_averages.average_10 > s20_bar;
 }
 
 } // namespace moving_average
