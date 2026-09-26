@@ -521,10 +521,10 @@ meaning = "업종 지수·매크로 모니터 로그 주기(fetch 30초면 5분)
 [[code_value]]
 id = "engine_offhours_wake_margin_ms"
 file = "Quant/src/core/EngineDataThread.cpp"
-regex = 'std::chrono::seconds\(60 - seconds_into_minute\) \+ (\d+)ms\);'
+regex = 'std::chrono::seconds\(wait_seconds\) \+ (\d+)ms\);'
 unit = "ms"
 group = "엔진 — 스레드 주기·장 시간"
-meaning = "장 밖 data_thread는 다음 정각 분까지 자고 이만큼 더 잔 뒤 깬다(개장이 정각 분이라)"
+meaning = "장 밖 data_thread는 다음 정각 분(폴 간격이 더 짧으면 그쪽)까지 자고 이만큼 더 잔 뒤 깬다"
 
 [[code_value]]
 id = "engine_kr_open_window_min"

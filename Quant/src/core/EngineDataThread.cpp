@@ -63,13 +63,83 @@ void Engine::data_thread_fn(std::stop_token stop_token)
 
         was_market_open = market_now;
 
+        // 장이 닫혀 있어도 HEALTH 는 낸다 — 큐가 어디까지 찼는지·무엇을 버렸는지는 개장 여부와
+        //  상관없는 사실이고, 그 값을 보려고 부하시험을 장 외에 돌린다. 아래 !market_now 갈래보다
+        //  위에 두지 않으면 장 외에는 한 번도 안 나가 그라파나 큐 칸이 통째로 빈다(2026-09-26 실측:
+        //  21:39 회차에서 health 0행). 큐 고수위 로그를 장 외에도 찍는 것과 같은 이유다. [why D-071]
+#ifdef HAS_ZMQ
+        if (zmq_bridge_)
+        {
+            ZmqBridge::HealthSnapshot snapshot;
+            snapshot.data_count   = data_count_.load();
+            snapshot.signal_count = signal_count_.load();
+            snapshot.order_count  = order_count_.load();
+
+            for (const auto& shard : pipeline_.shards)   // 샤드마다 셀 하나 — 가장 높았던 값만 싣는다
+            {
+                snapshot.shard_high_water = std::max<uint64_t>(snapshot.shard_high_water, shard->high_water());
+            }
+
+            snapshot.shard_capacity         = ShardPipeline::kTickCellCapacity;
+            snapshot.shard_out_size         = pipeline_.shard_out.size();
+            snapshot.shard_out_capacity     = pipeline_.shard_out.capacity();
+            snapshot.order_queue_high_water = pipeline_.order_high_water.load(std::memory_order_relaxed);
+            snapshot.order_queue_capacity   = pipeline_.requests->capacity();
+            snapshot.fill_queue_high_water  = pipeline_.fill_queue.high_water();
+            snapshot.fill_queue_capacity    = pipeline_.fill_queue.capacity();
+            snapshot.shard_dropped          = pipeline_.shard_dropped.load(std::memory_order_relaxed);
+            snapshot.order_dropped          = pipeline_.order_dropped.load(std::memory_order_relaxed);
+            snapshot.order_stale            = pipeline_.order_stale.load(std::memory_order_relaxed);
+            snapshot.fill_dropped           = pipeline_.fill_dropped.load(std::memory_order_relaxed);
+            snapshot.latency_samples        = pipeline_latency_.total.count();
+            snapshot.tick_to_signal_p50_us  = pipeline_latency_.tick_to_signal.percentile(0.50);
+            snapshot.tick_to_signal_p99_us  = pipeline_latency_.tick_to_signal.percentile(0.99);
+            snapshot.signal_to_pop_p50_us   = pipeline_latency_.signal_to_pop.percentile(0.50);
+            snapshot.signal_to_pop_p99_us   = pipeline_latency_.signal_to_pop.percentile(0.99);
+            snapshot.pop_to_done_p50_us     = pipeline_latency_.pop_to_done.percentile(0.50);
+            snapshot.pop_to_done_p99_us     = pipeline_latency_.pop_to_done.percentile(0.99);
+            snapshot.total_p50_us           = pipeline_latency_.total.percentile(0.50);
+            snapshot.total_p99_us           = pipeline_latency_.total.percentile(0.99);
+
+            // 직전 사본과 빼 이번 구간만의 분포를 낸다 — 분위수끼리는 뺄 수 없어 버킷을 통째로 떠서 뺀다.
+            //  사본은 이 스레드만 들고 있다(데이터 스레드 지역 상태). [inv] [why D-071]
+            trace::PipelineSnapshot current;
+            current.capture(pipeline_latency_);
+            const auto names = trace::PipelineLatency::segment_names();
+
+            for (int index = 0; index < trace::PipelineLatency::kSegmentCount; ++index)
+            {
+                snapshot.interval_segments[index] = {names[index],
+                                                     trace::percentile_of_difference(
+                                                         previous_latency_snapshot_.segments[index],
+                                                         current.segments[index], 0.50),
+                                                     trace::percentile_of_difference(
+                                                         previous_latency_snapshot_.segments[index],
+                                                         current.segments[index], 0.99)};
+            }
+
+            snapshot.interval_samples = current.segments.back().count -
+                                        std::min(previous_latency_snapshot_.segments.back().count,
+                                                 current.segments.back().count);
+            previous_latency_snapshot_ = current;
+            zmq_bridge_->publish_health(snapshot);
+        }
+#endif
+
         if (!market_now)
         {
             // 개장은 모두 정각 분(09:00·16:00·22:30)에 온다. 60초씩 자면 개장 전이를 최대 60초 늦게 잡아 개장 직후
             //  주문의 선점·초당 주문 창이 늦은 리셋에 지워진다(전수조사 A-4) — 다음 정각 분 직후까지만 잔다.
             // 정지 요청이면 바로 깬다 — 장 외 종료가 대기를 다 채우지 않는다.
             const int seconds_into_minute = ::kst::sec_of_day(std::time(nullptr)) % 60;
-            wake::sleep_unless_stopped(stop_token, std::chrono::seconds(60 - seconds_into_minute) + 200ms);
+            // 정각 분까지 자되, 사이클 주기가 그보다 짧으면 그만큼만 잔다 — 위 HEALTH 가 그 주기로
+            //  나가야 장 외 부하시험에서 큐를 볼 수 있다. 더 자주 깨는 것이라 개장 전이를 늦게 잡을
+            //  일은 없다(부하시험 config 는 5초, 운영은 60초라 실질은 그대로다).
+            const int until_minute = 60 - seconds_into_minute;
+            const int wait_seconds = (fetch_interval_sec_ > 0 && fetch_interval_sec_ < until_minute)
+                                         ? fetch_interval_sec_
+                                         : until_minute;
+            wake::sleep_unless_stopped(stop_token, std::chrono::seconds(wait_seconds) + 200ms);
             continue;
         }
 
@@ -543,64 +613,6 @@ void Engine::data_thread_fn(std::stop_token stop_token)
                 }
             }
         }
-#ifdef HAS_ZMQ
-        if (zmq_bridge_)
-        {
-            ZmqBridge::HealthSnapshot snapshot;
-            snapshot.data_count   = data_count_.load();
-            snapshot.signal_count = signal_count_.load();
-            snapshot.order_count  = order_count_.load();
-
-            for (const auto& shard : pipeline_.shards)   // 샤드마다 셀 하나 — 가장 높았던 값만 싣는다
-            {
-                snapshot.shard_high_water = std::max<uint64_t>(snapshot.shard_high_water, shard->high_water());
-            }
-
-            snapshot.shard_capacity         = ShardPipeline::kTickCellCapacity;
-            snapshot.shard_out_size         = pipeline_.shard_out.size();
-            snapshot.shard_out_capacity     = pipeline_.shard_out.capacity();
-            snapshot.order_queue_high_water = pipeline_.order_high_water.load(std::memory_order_relaxed);
-            snapshot.order_queue_capacity   = pipeline_.requests->capacity();
-            snapshot.fill_queue_high_water  = pipeline_.fill_queue.high_water();
-            snapshot.fill_queue_capacity    = pipeline_.fill_queue.capacity();
-            snapshot.shard_dropped          = pipeline_.shard_dropped.load(std::memory_order_relaxed);
-            snapshot.order_dropped          = pipeline_.order_dropped.load(std::memory_order_relaxed);
-            snapshot.order_stale            = pipeline_.order_stale.load(std::memory_order_relaxed);
-            snapshot.fill_dropped           = pipeline_.fill_dropped.load(std::memory_order_relaxed);
-            snapshot.latency_samples        = pipeline_latency_.total.count();
-            snapshot.tick_to_signal_p50_us  = pipeline_latency_.tick_to_signal.percentile(0.50);
-            snapshot.tick_to_signal_p99_us  = pipeline_latency_.tick_to_signal.percentile(0.99);
-            snapshot.signal_to_pop_p50_us   = pipeline_latency_.signal_to_pop.percentile(0.50);
-            snapshot.signal_to_pop_p99_us   = pipeline_latency_.signal_to_pop.percentile(0.99);
-            snapshot.pop_to_done_p50_us     = pipeline_latency_.pop_to_done.percentile(0.50);
-            snapshot.pop_to_done_p99_us     = pipeline_latency_.pop_to_done.percentile(0.99);
-            snapshot.total_p50_us           = pipeline_latency_.total.percentile(0.50);
-            snapshot.total_p99_us           = pipeline_latency_.total.percentile(0.99);
-
-            // 직전 사본과 빼 이번 구간만의 분포를 낸다 — 분위수끼리는 뺄 수 없어 버킷을 통째로 떠서 뺀다.
-            //  사본은 이 스레드만 들고 있다(데이터 스레드 지역 상태). [inv] [why D-071]
-            trace::PipelineSnapshot current;
-            current.capture(pipeline_latency_);
-            const auto names = trace::PipelineLatency::segment_names();
-
-            for (int index = 0; index < trace::PipelineLatency::kSegmentCount; ++index)
-            {
-                snapshot.interval_segments[index] = {names[index],
-                                                     trace::percentile_of_difference(
-                                                         previous_latency_snapshot_.segments[index],
-                                                         current.segments[index], 0.50),
-                                                     trace::percentile_of_difference(
-                                                         previous_latency_snapshot_.segments[index],
-                                                         current.segments[index], 0.99)};
-            }
-
-            snapshot.interval_samples = current.segments.back().count -
-                                        std::min(previous_latency_snapshot_.segments.back().count,
-                                                 current.segments.back().count);
-            previous_latency_snapshot_ = current;
-            zmq_bridge_->publish_health(snapshot);
-        }
-#endif
     }
 
     LOG_INFO("[DataThread] 종료");

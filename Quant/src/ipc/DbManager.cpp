@@ -703,6 +703,14 @@ void tick_loop(DbManager::State& state, TickWorker& worker, unsigned index)
     const auto      is_running = [&state] { return state.running.load(std::memory_order_acquire); };
     const auto      is_idle = [&worker, &is_running] { return worker.queue.empty() && is_running(); };
 
+    // 첫 행을 기다리지 않고 미리 붙는다. 붙는 데 9초가 걸리는데(2026-09-26 실측, WSL 안 서버까지
+    //  21:44:44 기동 -> 21:44:53 연결) 그 시간이 묶음을 모은 뒤에 흐르면, 장 시작처럼 첫 순간에
+    //  몰리는 구간이 통째로 큐 용량 밖으로 밀려난다. 같은 부하를 파이썬 적재기로 받으면 251만 행이
+    //  들어오는데 엔진으로 받으니 135만 행만 들어왔고, 그 차이가 이 9초였다. 워커는 어차피 첫 행이
+    //  올 때까지 할 일이 없으니 기다리는 자리를 앞으로 옮기는 것뿐이다.
+    //  못 붙으면 그대로 둔다 — 아래 루프가 묶음마다 같은 함수로 다시 붙어 본다.
+    acquire_connection(state, connection, worker);
+
     while (true)
     {
         // 1) 묶음 모으기 — batch_rows 가 차거나, 첫 행부터 flush_ms 가 지나거나, 멈추라는 말이 오면 끝.

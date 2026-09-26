@@ -165,6 +165,24 @@ void Engine::control_thread_fn(std::stop_token stop_token)
                 shard_high_water += std::to_string(sh->high_water());
             }
 
+            // DB 적재 — 받은 행·넣은 행·큐가 차서 버린 행. 이 값은 DbManager 가 멈출 때 한 줄로 찍는데,
+            //  트레이더는 감시견이 Stop-Process 로 끊고 부하시험도 terminate 로 끊어 곱게 멈추는 일이 없다 —
+            //  그래서 실제로는 한 번도 안 보였다(2026-09-26 부하시험에서 발견). 1분마다 여기서 같이 낸다.
+            std::string database_counters;
+#ifdef HAS_PQ
+
+            if (database_)
+            {
+                const db::DbStatistics database_totals = database_->statistics();
+                database_counters = " db_offered=" + std::to_string(database_totals.ticks_offered) +
+                                    " db_written=" + std::to_string(database_totals.ticks_written) +
+                                    " db_dropped=" + std::to_string(database_totals.ticks_dropped) +
+                                    " db_failed=" + std::to_string(database_totals.ticks_failed) +
+                                    " db_ambiguous=" + std::to_string(database_totals.ticks_ambiguous);
+            }
+
+#endif
+
             LOG_INFO("[큐 고수위] shard=" + shard_high_water + "/" + std::to_string(ShardPipeline::kTickCellCapacity) + " shard_out=" + std::to_string(pipeline_.shard_out.size()) + "/" +
                      std::to_string(pipeline_.shard_out.capacity()) + " shard_dropped=" +
                      std::to_string(pipeline_.shard_dropped.load(std::memory_order_relaxed)) + " order=" +
@@ -225,7 +243,7 @@ void Engine::control_thread_fn(std::stop_token stop_token)
                      // 체결이 실제로 경계를 넘었는지 — 공유 칸에서 읽어 어느 역할에서 봐도 같은 값이다.
                      //  셋으로 갈라 띄운 날에 체결이 있었는데 둘 다 0 이면 통로가 막힌 것이다. [why D-114 단계 5]
                      " fill_channel_sent=" + std::to_string(fill_channel_sent()) +
-                     " fill_channel_received=" + std::to_string(fill_channel_received()));
+                     " fill_channel_received=" + std::to_string(fill_channel_received()) + database_counters);
         }
 
         if (++token_tick >= kTokenEvery)
