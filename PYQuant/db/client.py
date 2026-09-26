@@ -1,8 +1,11 @@
 """
 TimescaleDB 클라이언트 — ZMQ 이벤트 및 KIS 일봉 데이터 저장
 환경변수: TSDB_HOST, TSDB_PORT, TSDB_DB, TSDB_USER, TSDB_PASSWORD
+         TSDB_WSL_DIRECT(기본 1 — 윈도우에서 localhost 면 WSL 주소로 바로 붙음), TSDB_WSL_DISTRO(기본 Ubuntu-24.04)
 """
+import io
 import os
+import subprocess
 import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -23,10 +26,64 @@ def _ms_to_dt(ts_ms: int) -> datetime:
     return datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc)
 
 
-# execute_values 가 INSERT 문 하나에 붙일 행 수. 묶음이 이보다 크면 이 크기로 잘라 여러 문장으로 보낸다.
-#  크게 잡을수록 왕복이 줄지만 문장 하나가 길어져 서버 쪽 파싱·메모리가 늘고, 실패했을 때 되돌릴 덩어리도
-#  커진다. 500은 psycopg2 기본(100)보다 크고 한 문장이 수십 KB를 넘지 않는 선이다. [why D-137]
-_BATCH_PAGE_SIZE = 500
+# COPY 텍스트 형식에서 글자 값 안에 들어가면 안 되는 네 글자(구분자·줄바꿈·역슬래시)를 바꾸는 표.
+_COPY_ESCAPES = str.maketrans({"\\": "\\\\", "\t": "\\t", "\n": "\\n", "\r": "\\r"})
+
+
+def _copy_value(value) -> str:
+    if value is None:
+        return "\\N"
+
+    if isinstance(value, datetime):
+        return value.isoformat()
+
+    if isinstance(value, str):
+        return value.translate(_COPY_ESCAPES)
+
+    return str(value)             # 숫자, bool(True/False 를 PostgreSQL 이 그대로 읽는다)
+
+
+def _copy_text(rows: list[tuple]) -> io.StringIO:
+    """행 튜플 목록을 COPY ... FROM STDIN 텍스트 형식(탭 구분, NULL 은 \\N)으로 만든다."""
+    text = io.StringIO()
+    text.writelines("\t".join(map(_copy_value, row)) + "\n" for row in rows)
+    text.seek(0)
+    return text
+
+
+# 윈도우에서 localhost 로 WSL 안의 DB 에 붙으면 WSL 의 중계기(wslrelay.exe)를 거친다. 이 중계기가 큰 쓰기마다
+#  약 42ms 를 붙잡아(500행 COPY 한 번 43.82ms, WSL 주소로 바로 붙으면 1.22ms — 2026-09-26 실측) 적재기가
+#  초당 1.1만 행에 묶였다. 행 수와 무관하게 40ms 대로 고정되는 모양이라 중계기 쪽 연결의 Nagle·지연 ACK 가
+#  맞물린 것으로 본다(확인은 못 함). 미러 네트워킹(.wslconfig)은 이 PC 에서 윈도우→WSL localhost 가 아예
+#  막혀 되돌렸다. 그래서 WSL 의 eth0 주소를 물어 바로 붙는다. 주소는 WSL 재시작마다 바뀌므로 붙을 때마다
+#  묻고, 못 물으면 None 을 돌려 요청한 주소(localhost)로 붙게 둔다. 끄려면 TSDB_WSL_DIRECT=0. [why D-144]
+_WSL_LOOPBACK_HOSTS = ("localhost", "127.0.0.1", "::1")
+
+
+def wsl_direct_host(host: str) -> str | None:
+    if os.name != "nt" or host not in _WSL_LOOPBACK_HOSTS or os.getenv("TSDB_WSL_DIRECT", "1") == "0":
+        return None
+
+    distribution = os.getenv("TSDB_WSL_DISTRO", "Ubuntu-24.04")
+
+    try:
+        completed = subprocess.run(
+            ["wsl", "-d", distribution, "--", "ip", "-4", "-o", "addr", "show", "eth0"],
+            capture_output=True, text=True, timeout=15,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        logger.warning(f"WSL 주소 조회 실패({distribution}): {error}")
+        return None
+
+    # 한 줄: "2: eth0    inet 172.28.101.77/20 brd ... scope global eth0"
+    fields = completed.stdout.split()
+
+    if "inet" not in fields:
+        logger.warning(f"WSL 주소 조회 실패({distribution}): {completed.stdout.strip() or completed.stderr.strip()}")
+        return None
+
+    return fields[fields.index("inet") + 1].split("/")[0]
 
 
 class WriteMeter:
@@ -112,19 +169,30 @@ class DbClient:
         self._connect(retries, retry_interval)
 
     def _connect(self, retries: int, retry_interval: float):
-        """DB가 준비될 때까지 재시도 (Docker 기동 순서 대응)."""
+        """DB가 준비될 때까지 재시도 (Docker 기동 순서 대응). WSL 주소는 시도마다 새로 묻는다 — 다시 붙는 것은
+        대개 WSL 이 재시작된 뒤라 주소가 바뀌어 있다."""
+        parameters = self._connect_parameters
+
         for attempt in range(1, retries + 1):
-            try:
-                self._conn = psycopg2.connect(connect_timeout=5, **self._connect_parameters)
-                self._conn.autocommit = True
-                parameters = self._connect_parameters
-                logger.info(f"연결 완료: {parameters['user']}@{parameters['host']}:{parameters['port']}/{parameters['dbname']}")
-                return
-            except psycopg2.OperationalError as e:
-                if attempt == retries:
-                    raise
-                logger.info(f"연결 대기 중... ({attempt}/{retries}): {e}")
-                time.sleep(retry_interval)
+            hosts = [host for host in (wsl_direct_host(parameters["host"]), parameters["host"]) if host]
+
+            for index, host in enumerate(hosts):
+                try:
+                    self._conn = psycopg2.connect(connect_timeout=5, **{**parameters, "host": host})
+                    self._conn.autocommit = True
+                    via = f" (WSL 직결, 요청 {parameters['host']})" if host != parameters["host"] else ""
+                    logger.info(f"연결 완료: {parameters['user']}@{host}:{parameters['port']}/{parameters['dbname']}{via}")
+                    return
+                except psycopg2.OperationalError as error:
+                    if index + 1 < len(hosts):
+                        logger.warning(f"WSL 직결 {host} 실패, {parameters['host']} 로 붙는다: {error}")
+                        continue
+
+                    if attempt == retries:
+                        raise
+
+                    logger.info(f"연결 대기 중... ({attempt}/{retries}): {e}")
+                    time.sleep(retry_interval)
 
     def _cursor(self):
         """커서를 연다. DB 컨테이너 재기동 등으로 연결이 끊겼으면(psycopg2가 closed를 세운다) 한 번 다시 붙는다 —
@@ -362,25 +430,20 @@ class DbClient:
         except Exception as error:
             logger.error(f"db_write_stats 적재 실패 ({len(drained)}표): {error}")
 
-    # 묶음 적재의 공통 부분. 하는 일은 셋이다 — ① INSERT 문 하나에 여러 행을 붙여 보내고(execute_values)
-    #  ② 커밋을 묶음마다 한 번으로 줄이고(autocommit 이 켜져 있어 문장 하나가 곧 커밋 하나다)
-    #  ③ 실패해도 적재기를 세우지 않는다. 건마다 execute 하던 길은 커밋도 건마다라, 2026-09-25 부하시험에서
-    #  주문·신호가 초당 300행 언저리에 붙어 있었다(docs/reports/stresstest/OVERVIEW.md 5.6). 틱은 이미
-    #  묶어 넣고 있었는데 psycopg2 의 executemany 는 안에서 한 건씩 도는 구현이라 묶음의 값어치가 적다 —
-    #  execute_values 는 값 목록을 한 문장으로 만들어 보낸다.
-    #  표 이름·열 이름은 이 파일 안의 글자 상수뿐이다(바깥 입력이 닿지 않는다). [why D-137]
+    # 묶음 적재의 공통 부분. 하는 일은 셋이다 — ① 묶음 하나를 COPY 한 번으로 보내고 ② 커밋을 묶음마다
+    #  한 번으로 줄이고(autocommit 이 켜져 있어 문장 하나가 곧 커밋 하나다) ③ 실패해도 적재기를 세우지 않는다.
+    #  건마다 execute 하던 길은 2026-09-25 부하시험에서 초당 300행 언저리였고(OVERVIEW.md 5.6) D-137 에서
+    #  execute_values 로 묶었다. COPY 는 SQL 문을 만들고 파싱하는 몫이 없어 같은 500행 묶음이 WSL 직결에서
+    #  초당 5.6만 → 11.3만 행이다(PYQuant/tools/bench_recorder.py, 2026-09-26). 묶음 전체가 한 문장이라
+    #  한 행이 틀리면 그 묶음이 통째로 빠진다 — 행 검사는 부른 쪽(insert_*_batch)이 이미 한다.
+    #  표 이름·열 이름은 이 파일 안의 글자 상수뿐이다(바깥 입력이 닿지 않는다). [why D-144]
     def _insert_batch(self, table: str, columns: str, rows: list[tuple]) -> int:
         if not rows:
             return 0
 
         try:
             with self._timed_write(table, len(rows)), self._cursor() as cursor:
-                execute_values(
-                    cursor,
-                    f"INSERT INTO {table}({columns}) VALUES %s",
-                    rows,
-                    page_size=_BATCH_PAGE_SIZE,
-                )
+                cursor.copy_expert(f"COPY {table}({columns}) FROM STDIN", _copy_text(rows))
 
             return len(rows)
         except Exception as error:
