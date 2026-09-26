@@ -42,6 +42,7 @@ Engine::QueueStatistics Engine::queue_statistics() const
     statistics.shard_dropped    = pipeline_.shard_dropped.load(std::memory_order_relaxed);
     statistics.order_dropped    = pipeline_.order_dropped.load(std::memory_order_relaxed);
     statistics.order_stale      = pipeline_.order_stale.load(std::memory_order_relaxed);
+    statistics.order_sell_held  = pipeline_.order_sell_held.load(std::memory_order_relaxed);
     statistics.fill_dropped     = pipeline_.fill_dropped.load(std::memory_order_relaxed);
     statistics.order_duplicate  = pipeline_.order_duplicate.load(std::memory_order_relaxed);
     statistics.order_response_dropped = pipeline_.order_response_dropped.load(std::memory_order_relaxed);
@@ -192,6 +193,7 @@ void Engine::control_thread_fn(std::stop_token stop_token)
                      " fill_dropped=" + std::to_string(pipeline_.fill_dropped.load(std::memory_order_relaxed)) +
                      " fill_overflowed=" + std::to_string(pipeline_.fill_overflowed.load(std::memory_order_relaxed)) +
                      " order_dropped=" + std::to_string(pipeline_.order_dropped.load(std::memory_order_relaxed)) +
+                     " order_sell_held=" + std::to_string(pipeline_.order_sell_held.load(std::memory_order_relaxed)) +
                      " order_stale=" + std::to_string(pipeline_.order_stale.load(std::memory_order_relaxed)) +
                      " order_duplicate=" + std::to_string(pipeline_.order_duplicate.load(std::memory_order_relaxed)) +
                      " order_implausible=" +

@@ -347,6 +347,36 @@ std::optional<uint64_t> PendingRequests::oldest_overdue(int64_t now_ns, int64_t 
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+bool HeldSellRequests::holds(const OrderRequest& request) noexcept
+{
+    return request.side == OrderSide::SELL && request.action == static_cast<uint8_t>(OrderAction::NEW);
+}
+
+bool HeldSellRequests::hold(const OrderRequest& request)
+{
+    // 종목은 번호로 맞춘다. 표에 아직 없는 종목은 번호가 kNone 이라 코드 글자로 맞춘다.
+    const auto same_target = [&request](const OrderRequest& held)
+    {
+        const bool same_symbol = request.symbol_id != symbol::kNone
+                                     ? held.symbol_id == request.symbol_id
+                                     : held.symbol_id == symbol::kNone && held.ticker.view() == request.ticker.view();
+        return same_symbol && std::strncmp(held.account_id, request.account_id, kAccountIdMax) == 0;
+    };
+
+    const auto found = std::find_if(held_.begin(), held_.end(), same_target);
+
+    if (found != held_.end())
+    {
+        *found = request;
+        return true;
+    }
+
+    held_.push_back(request);
+    return false;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 DuplicateFilter::DuplicateFilter(size_t window) : seen_(std::max<size_t>(window, 1), 0)
 {
 }

@@ -217,6 +217,31 @@ void Engine::strategy_thread_fn(std::stop_token stop_token)
     //  [why D-114]
     ipc::PendingRequests pending_requests(ShardPipeline::kOrderQueueCapacity);
 
+    // 요청 큐가 가득 차 못 넣은 매도를 종목·계좌마다 가장 최근 것 하나씩 든다. 이 스레드만 만지므로 락이 없고,
+    //  요청 큐에 넣는 쪽도 이 스레드 하나로 남는다. [why D-063]
+    ipc::HeldSellRequests held_sells;
+
+    // 요청 하나를 큐에 넣는다. 넣었으면 고수위·주문 쪽 깨우기·답 기다리기를 적고 참, 큐가 가득이면 거짓.
+    const auto push_request = [this, &pending_requests](const ipc::OrderRequest& request)
+    {
+        if (!pipeline_.requests->push(request))
+        {
+            return false;
+        }
+
+        // 링이 스스로 고수위를 재지 않아 넣은 쪽이 한 번 본다. [inv] 넣는 쪽이 이 스레드 하나다.
+        if (const auto pending = static_cast<uint64_t>(pipeline_.requests->pending());
+            pending > pipeline_.order_high_water.load(std::memory_order_relaxed))
+        {
+            pipeline_.order_high_water.store(pending, std::memory_order_relaxed);
+        }
+
+        pipeline_.order_wake.notify();
+        // 보냈다고 적는다. 답이 오면 지워지고, 문턱을 넘게 안 오면 재전송 후보로 나온다. [why D-114]
+        pending_requests.note_sent(request.sequence, trace::now_ns());
+        return true;
+    };
+
     // 주문 쪽 생사를 보는 눈. 문턱이 전략 쪽(250ms·1s)보다 훨씬 헐거운 것은 이 공백에 증권사 왕복이
     //  그대로 들어오기 때문이다 — 한 번 부르는 데 윈도는 전송 10초·수신 15초(KisTransport.cpp의
     //  WinHttpSetTimeouts), 리눅스는 10초(CURLOPT_TIMEOUT)까지 간다. 그래서 첫 값은 실측이 아니라
@@ -239,7 +264,7 @@ void Engine::strategy_thread_fn(std::stop_token stop_token)
     SignalDispatcher dispatcher(
         order_gate_,
         *ledger_snapshot_,
-        [this, &pending_requests](const OrderSignal& signal)
+        [this, &held_sells, &push_request](const OrderSignal& signal)
         {
             ++signal_count_;
 #ifdef HAS_ZMQ
@@ -260,32 +285,41 @@ void Engine::strategy_thread_fn(std::stop_token stop_token)
                 pipeline_.order_reason_truncated.fetch_add(1, std::memory_order_relaxed);
             }
 
-            if (!pipeline_.requests->push(request))
+            // 들고 있던 매도를 먼저 넣는다. 하나라도 남으면 큐가 아직 찬 것이라 새 신호도 그 뒤에 선다 —
+            //  넣다가 자리가 잠깐 나도 새 것이 앞지르지 않게 넣기를 시도하지 않는다.
+            held_sells.drain(push_request);
+
+            if (held_sells.empty() && push_request(request))
             {
-                // 주문 스레드가 KIS 왕복에 묶여 큐가 찬 상태. 여기서 빌 때까지 돌면 전략 스레드가 서고 그 뒤로
-                //  호가·체결 큐까지 밀려 판단이 옛 틱으로 흐른다 — 신호를 버리고 센다. 잃는 것은 신호 하나고
-                //  조건이 남아 있으면 다음 틱·봉이 다시 만든다(FORCE_LIQ는 2초마다 재발주). [why D-073]
-                const auto count = pipeline_.order_dropped.fetch_add(1, std::memory_order_relaxed) + 1;
+                return;
+            }
+
+            // 주문 스레드가 KIS 왕복에 묶여 큐가 찬 상태. 여기서 빌 때까지 돌면 전략 스레드가 서고 그 뒤로
+            //  호가·체결 큐까지 밀려 판단이 옛 틱으로 흐른다 — 기다리지 않는다. [why D-073]
+            if (ipc::HeldSellRequests::holds(request))
+            {
+                // 매도는 버리지 않고 들고 있다가 자리가 나면 먼저 넣는다. 같은 종목·계좌의 앞선 매도는 새 것으로 바뀐다.
+                held_sells.hold(request);
+                const auto count = pipeline_.order_sell_held.fetch_add(1, std::memory_order_relaxed) + 1;
 
                 if (count == 1 || count % ShardPipeline::kDropLogEvery == 0)
                 {
-                    LOG_WARN("[전략] 주문 큐 가득 — 신호 버림 " + signal.ticker + " " +
-                             (signal.side == OrderSide::BUY ? "BUY" : "SELL") + " (누적 " + std::to_string(count) + ")");
+                    LOG_WARN("[전략] 주문 큐 가득 — 매도 신호를 들고 있다 " + signal.ticker + " (누적 " +
+                             std::to_string(count) + ", 지금 든 종목 " + std::to_string(held_sells.size()) + ")");
                 }
 
                 return;
             }
 
-            // 링이 스스로 고수위를 재지 않아 넣은 쪽이 한 번 본다. [inv] 넣는 쪽이 이 스레드 하나다.
-            if (const auto pending = static_cast<uint64_t>(pipeline_.requests->pending());
-                pending > pipeline_.order_high_water.load(std::memory_order_relaxed))
-            {
-                pipeline_.order_high_water.store(pending, std::memory_order_relaxed);
-            }
+            // 매수는 버리고 센다. 늦게 나가는 매수는 값이 움직인 뒤라 안 나가느니만 못하고, 조건이 남아 있으면
+            //  다음 틱·봉이 다시 만든다.
+            const auto count = pipeline_.order_dropped.fetch_add(1, std::memory_order_relaxed) + 1;
 
-            pipeline_.order_wake.notify();
-            // 보냈다고 적는다. 답이 오면 지워지고, 문턱을 넘게 안 오면 재전송 후보로 나온다. [why D-114]
-            pending_requests.note_sent(signal.sequence, trace::now_ns());
+            if (count == 1 || count % ShardPipeline::kDropLogEvery == 0)
+            {
+                LOG_WARN("[전략] 주문 큐 가득 — 신호 버림 " + signal.ticker + " " +
+                         (signal.side == OrderSide::BUY ? "BUY" : "SELL") + " (누적 " + std::to_string(count) + ")");
+            }
         },
         std::chrono::steady_clock::now(),
         SignalDispatcher::SystemIds{force_liquidation_index_, limit_trim_index_});
@@ -345,6 +379,9 @@ void Engine::strategy_thread_fn(std::stop_token stop_token)
 
         // 전략 쪽 생산자들이 넣은 제어 요청을 경계 너머로 옮긴다 — 보내는 쪽이 하나여야 하는 자리다. [why D-114]
         control_plane_.relay();
+
+        // 큐가 차서 들고 있던 매도를 자리가 난 만큼 넣는다. 새 신호가 없는 바퀴에도 나가게 여기서 한 번 본다.
+        held_sells.drain(push_request);
 
         const auto loop_now = std::chrono::steady_clock::now();
 
@@ -429,6 +466,12 @@ void Engine::strategy_thread_fn(std::stop_token stop_token)
         {
             return pipeline_.shard_out.empty();
         });
+    }
+
+    if (!held_sells.empty())
+    {
+        LOG_WARN("[전략] 끝낼 때 못 넣은 매도 " + std::to_string(held_sells.size()) +
+                 "종목 — 주문 큐가 끝까지 안 비었다");
     }
 
     LOG_INFO("[StrategyThread] 종료");

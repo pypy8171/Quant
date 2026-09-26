@@ -169,6 +169,8 @@ FEED_BACK_RE = re.compile(r"\[마무리\] 시세 박동이 돌아왔다")
 FEED_BEAT_GAP_RE = re.compile(r"feed_beat_gap_max=(\d+)ms")
 ORDER_DUPLICATE_RE = re.compile(r"order_duplicate=(\d+)")
 ORDER_RESPONSE_DROP_RE = re.compile(r"order_response_dropped=(\d+)")
+# 요청 큐가 가득 차 버리지 않고 들고 있던 매도 수. 없으면 그 칸이 없는 옛 exe다.
+ORDER_SELL_HELD_RE = re.compile(r"order_sell_held=(\d+)")
 # 요청 면(D-114 단계 4) — 값이 말이 안 돼 버린 요청 수, 판단 근거가 칸을 넘어 잘린 신호 수.
 ORDER_IMPLAUSIBLE_RE = re.compile(r"order_implausible=(\d+)")
 ORDER_TRUNCATED_RE = re.compile(r"order_truncated=(\d+)")
@@ -1777,6 +1779,7 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
     feed_beat_gap_max = -1                       # 시세 박동의 가장 긴 공백(ms). -1이면 그 칸이 없는 옛 exe
     order_duplicate = 0                          # 주문 쪽이 같은 순번을 두 번 받아 거른 수
     order_response_dropped = 0                   # 전략이 답을 안 가져가 버린 수
+    order_sell_held = -1                         # 요청 큐가 가득 차 들고 있던 매도 수. -1이면 그 칸이 없는 옛 exe
     order_implausible = -1                       # 값이 말이 안 돼 버린 요청 수. -1이면 그 칸이 없는 옛 바이너리
     order_truncated = -1                         # 판단 근거·주문 이름이 칸을 넘어 잘린 신호 수. -1도 같다
     ledger_gen = 0                               # 장부 사본이 낸 판 수
@@ -1880,6 +1883,8 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
                 order_truncated = max(order_truncated, int(found.group(1)))
             if found := ORDER_RESPONSE_DROP_RE.search(line):
                 order_response_dropped = max(order_response_dropped, int(found.group(1)))
+            if found := ORDER_SELL_HELD_RE.search(line):
+                order_sell_held = max(order_sell_held, int(found.group(1)))
             if found := LEDGER_GEN_RE.search(line):
                 generation = int(found.group(1))
                 # 같은 판 번호가 두 번 실리면 그사이에 사본이 한 판도 안 나간 것이다. 줄어든 것은
@@ -2258,6 +2263,11 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
         # 통로가 새면 같은 주문이 두 번 가거나 전략이 답을 영영 못 받아 기다림 표가 샌다.
         channel_row("주문 통로 무결", order_duplicate == 0 and order_response_dropped == 0, "FAIL",
                     f"중복 거름 {order_duplicate}건 · 버린 응답 {order_response_dropped}건 (둘 다 기대 0)"),
+        # 요청 큐가 차면 매수는 버리고(HEALTH 버린 건수에 실린다) 매도는 들고 있다가 먼저 넣는다. 매도는 늦게라도
+        #  나갔지만, 0이 아니면 주문 스레드가 증권사 왕복에 오래 묶여 청산이 밀린 날이다.
+        ("매도 신호 보류", order_sell_held <= 0, "WARN",
+         "[큐 고수위] 줄에 order_sell_held 칸 없음 — 판정 안 함" if order_sell_held < 0 else
+         f"큐가 차서 들고 있던 매도 {order_sell_held}건 (기대 0 — 버리지는 않고 자리가 나면 먼저 넣었다)"),
         # 요청 면에서 꺼낸 값이 말이 안 되면 그 신호는 주문이 되지 않고 사라진다 — 건너편이 덮였다는 뜻이라 FAIL이다.
         channel_row("요청 값 성함", order_implausible <= 0, "FAIL",
                     f"말이 안 돼 버린 요청 {order_implausible}건 (기대 0 — 0이 아니면 그만큼 주문이 안 나갔다)"),

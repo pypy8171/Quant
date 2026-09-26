@@ -180,6 +180,51 @@ private:
     uint64_t           evicted_  = 0;
 };
 
+// 요청 큐가 가득 차 못 넣은 신규 매도를 들고 있다가 자리가 나면 먼저 넣는다. 매수는 여기 오지 않는다 — 늦게
+//  나가는 매수는 그 사이 값이 움직여 안 나가느니만 못하고, 조건이 남아 있으면 다음 틱이 다시 만든다. 매도는
+//  보유를 줄이는 주문이라 늦어도 나가는 편이 낫다(손절·강제청산이 여기 걸린다).
+//  같은 종목·계좌의 매도는 가장 최근 것 하나만 남긴다 — 그래서 든 수는 보유 종목 수를 넘지 않는다.
+//  [inv] 전략 스레드 하나만 부른다 — 동기화는 없다. 요청 큐에 넣는 쪽도 그 스레드 하나로 남는다. [why D-063]
+class HeldSellRequests
+{
+public:
+    // 들고 있을 요청인가. 신규 매도만 참이다 — 취소·정정은 원주문 번호가 대상이라 종목으로 묶으면 안 된다.
+    [[nodiscard]] static bool holds(const OrderRequest& request) noexcept;
+
+    // 들고 있는다. 같은 종목·계좌의 것이 이미 있으면 그 자리(줄 순서)를 새 것으로 바꾸고 참을 준다.
+    bool hold(const OrderRequest& request);
+
+    // 먼저 든 것부터 push에 넘긴다. push가 거짓을 주면(큐가 다시 찼다) 거기서 멈추고 나머지는 계속 든다.
+    //  넘긴 수를 준다.
+    template <typename Push>
+    size_t drain(Push&& push)
+    {
+        size_t sent = 0;
+
+        while (sent < held_.size() && push(held_[sent]))
+        {
+            ++sent;
+        }
+
+        held_.erase(held_.begin(), held_.begin() + static_cast<std::ptrdiff_t>(sent));
+        return sent;
+    }
+
+    [[nodiscard]] bool empty() const noexcept
+    {
+        return held_.empty();
+    }
+
+    [[nodiscard]] size_t size() const noexcept
+    {
+        return held_.size();
+    }
+
+private:
+    // 든 순서대로 늘어선다. 보유 종목 수만큼이라 작아서 찾기는 앞에서부터 훑는다.
+    std::vector<OrderRequest> held_;
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 주문 쪽 — 같은 순번은 한 번만
 // ─────────────────────────────────────────────────────────────────────────────

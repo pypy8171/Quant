@@ -208,8 +208,8 @@ flowchart LR
    `Quant/src/core/EngineFeed.cpp:322` · `void Engine::fan_out_trade(uint32_t lane, const TradeData& trade)`
 53. [`shard::Matrix::push_to`](../Quant/include/core/ShardMatrix.h#L87) — 행(생산자)×열(소비자) SPSC 셀에 push. `consumer_of(sym)`이 종목 해시로 열을 고른다(원칙 2)  
    `Quant/include/core/ShardMatrix.h:87` · `[[nodiscard]] bool push_to(uint32_t producer, uint32_t consumer, const T& value)` · 시험 [test_shard_matrix](../Quant/tests/test_shard_matrix.cpp)
-54. [`Engine::shard_thread_fn`](../Quant/src/core/EngineStrategyThread.cpp#L437) — 전략 집합 버전이 바뀌면 `rebuild`, 아니면 `step`. 비면 `WakeGate`로 잠든다. `emit`은 `pipeline_.shard_out` push + 디스패치 스레드 깨우기  
-   `Quant/src/core/EngineStrategyThread.cpp:437` · `void Engine::shard_thread_fn(std::stop_token stop_token, uint32_t row)`
+54. [`Engine::shard_thread_fn`](../Quant/src/core/EngineStrategyThread.cpp#L480) — 전략 집합 버전이 바뀌면 `rebuild`, 아니면 `step`. 비면 `WakeGate`로 잠든다. `emit`은 `pipeline_.shard_out` push + 디스패치 스레드 깨우기  
+   `Quant/src/core/EngineStrategyThread.cpp:480` · `void Engine::shard_thread_fn(std::stop_token stop_token, uint32_t row)`
 55. [`strategy::Shard::step`](../Quant/include/core/StrategyShard.h#L96) — 열의 호가·체결·봉 셀을 순서대로 비우고 전략 배치 훅을 부른다. `on_price`로 현재가 캐시 갱신  
    `Quant/include/core/StrategyShard.h:96` · `bool step(Emit&& emit, OnPrice&& on_price, SymbolIdOf&& symbol_id_of)` · 시험 [test_strategy_shard](../Quant/tests/test_strategy_shard.cpp)
 56. [`strategy::Router::for_each`](../Quant/include/core/StrategyRouter.h#L78) — 종목 id → 그 종목을 구독한 전략 목록. 구독을 안 밝힌 전략은 전부 받는다  
@@ -259,7 +259,7 @@ flowchart LR
 리뷰할 때 볼 것:
 
 - 요청 링 push가 이 스레드에서만 일어나는지(SPSC 불변식)
-- 링이 차면 기다리지 않고 버리고 세는지(`order_dropped`, D-073)
+- 링이 차면 기다리지 않는지 — 매수는 버리고 세고(`order_dropped`, D-073), 신규 매도는 종목·계좌마다 들고 있다가 먼저 넣는지(`HeldSellRequests`, `order_sell_held`)
 - 교체 진입(displace) — 최약체 매도가 나간 뒤에만 매수가 풀리는지(`flush_held`)
 - 응답이 늦은 요청(`oldest_overdue`)과 주문 프로세스 박동 끊김을 따로 세는지
 
@@ -333,14 +333,14 @@ flowchart LR
 
 프로세스 사이 제어 명령·박동 감시, 국면(전략 집합 선택)·유니버스 재스캔·잔고 대조·토큰 갱신·WS 끊김 복구는 파이프라인 스레드에 걸리지 않게 데이터·제어 스레드가 돈다.
 
-92. [`Engine::control_thread_fn`](../Quant/src/core/EngineControlThread.cpp#L106) — 5초 주기 — 주문 쪽 재기동·종료 사유 감지(붙은 쪽은 따라 종료) → 큐 고수위 로그 → 토큰 선갱신 → 장 마감 판정 → [시세] 박동·구독 요청 적용·소켓 재배분·재접속  
-   `Quant/src/core/EngineControlThread.cpp:106` · `void Engine::control_thread_fn(std::stop_token stop_token)`
+92. [`Engine::control_thread_fn`](../Quant/src/core/EngineControlThread.cpp#L107) — 5초 주기 — 주문 쪽 재기동·종료 사유 감지(붙은 쪽은 따라 종료) → 큐 고수위 로그 → 토큰 선갱신 → 장 마감 판정 → [시세] 박동·구독 요청 적용·소켓 재배분·재접속  
+   `Quant/src/core/EngineControlThread.cpp:107` · `void Engine::control_thread_fn(std::stop_token stop_token)`
 93. [`ControlPlane::apply`](../Quant/src/core/ControlPlane.cpp#L95) — [주문] 제어 링의 명령 적용 — 종목·전략 등록, 스위치(킬·정지·배율), 보호주문, 슬롯 예외. 보내는 쪽은 `send`, 전략 스레드가 `relay`로 주문·시세 링을 고른다  
    `Quant/src/core/ControlPlane.cpp:95` · `void ControlPlane::apply()` · 시험 [test_control_plane](../Quant/tests/test_control_plane.cpp)
 94. [`ipc::HeartbeatMonitor::observe`](../Quant/src/ipc/Heartbeat.cpp#L28) — 상대의 마지막 박동으로 늦음·멈춤·죽음 판정. 주문이 전략·시세를, 전략이 주문을 본다. 시세가 죽으면 `activate_rest_fallback`  
    `Quant/src/ipc/Heartbeat.cpp:28` · `HeartbeatMonitor::Step HeartbeatMonitor::observe(int64_t now_ns, int64_t last_beat_ns)` · 시험 [test_heartbeat](../Quant/tests/test_heartbeat.cpp)
-95. [`Engine::activate_rest_fallback`](../Quant/src/core/EngineControlThread.cpp#L68) — WS가 stale이거나 시세 프로세스가 죽으면 REST 현재가 폴링으로 대체 틱(`received_ns`=0). 복귀는 `deactivate_rest_fallback`  
-   `Quant/src/core/EngineControlThread.cpp:68` · `bool Engine::activate_rest_fallback(const std::string& reason)`
+95. [`Engine::activate_rest_fallback`](../Quant/src/core/EngineControlThread.cpp#L69) — WS가 stale이거나 시세 프로세스가 죽으면 REST 현재가 폴링으로 대체 틱(`received_ns`=0). 복귀는 `deactivate_rest_fallback`  
+   `Quant/src/core/EngineControlThread.cpp:69` · `bool Engine::activate_rest_fallback(const std::string& reason)`
 96. [`Engine::poll_regime_file`](../Quant/src/core/EngineRegime.cpp#L184) — [전략] 데이터 스레드가 부른다. `regime.json` 축 — `entry_halt`(신규매수 차단)·`entry_scale`(매수비율)·`force_liquidate`, 그리고 라벨 전이 때 `apply_regime_selection`(전략 집합 선택, D-084). 상태기계는 `RegimeFileJudge.h`  
    `Quant/src/core/EngineRegime.cpp:184` · `void Engine::poll_regime_file()` · 시험 [test_regime_file_judge](../Quant/tests/test_regime_file_judge.cpp)
 97. [`Engine::apply_regime_selection`](../Quant/src/core/EngineRegime.cpp#L28) — 국면 → `regime_strategies` 집합으로 전략 활성/비활성. 청산은 하지 않는다  

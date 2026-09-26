@@ -479,7 +479,7 @@ name = "4. 디스패치 — [전략] 신호가 요청 링에 들어가기 전 �
 summary = "디스패치 스레드(`strategy_thread_fn`)는 `pipeline_.shard_out`의 단일 소비자이자 요청 링(`pipeline_.requests`)의 단일 생산자다. 순번 stamp·비활성 차단·청산 관리 종목 차단·교체 진입·강제청산 재발주·한도 초과 정리를 `SignalDispatcher`가 맡고, 싱크가 신호를 고정 크기 요청으로 바꿔 링에 넣는다. 주문 결과는 응답 링으로 돌아온다."
 review = [
   "요청 링 push가 이 스레드에서만 일어나는지(SPSC 불변식)",
-  "링이 차면 기다리지 않고 버리고 세는지(`order_dropped`, D-073)",
+  "링이 차면 기다리지 않는지 — 매수는 버리고 세고(`order_dropped`, D-073), 신규 매도는 종목·계좌마다 들고 있다가 먼저 넣는지(`HeldSellRequests`, `order_sell_held`)",
   "교체 진입(displace) — 최약체 매도가 나간 뒤에만 매수가 풀리는지(`flush_held`)",
   "응답이 늦은 요청(`oldest_overdue`)과 주문 프로세스 박동 끊김을 따로 세는지",
 ]

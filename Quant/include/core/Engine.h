@@ -402,6 +402,7 @@ public:
         uint64_t shard_dropped    = 0;
         uint64_t order_dropped    = 0;
         uint64_t order_stale      = 0; // 큐에서 너무 오래 기다려 버린 신규 매수 수 [why D-127]
+        uint64_t order_sell_held  = 0; // 큐가 가득 차 버리지 않고 들고 있던 매도 수(자리가 나면 먼저 넣는다)
         uint64_t fill_dropped     = 0;
         uint64_t order_duplicate  = 0; // 주문 쪽이 같은 순번을 두 번 받아 거른 수. 0이 아니면 통로가 샜다
         uint64_t order_response_dropped = 0; // 전략이 답을 안 가져가 버린 수
@@ -981,6 +982,7 @@ private:
         std::atomic<bool>     fill_producing{false};
         std::atomic<uint64_t> fill_producer_overlap{0};
         std::atomic<uint64_t> order_dropped{0};  // 요청 면이 가득 차 버린 신호 수. [큐 고수위] 줄에 같이 찍힌다
+        std::atomic<uint64_t> order_sell_held{0}; // 요청 면이 가득 차 버리지 않고 들고 있던 매도 수. 같은 줄에 찍힌다
         std::atomic<uint64_t> order_stale{0};    // 큐에서 너무 오래 기다려 꺼낼 때 버린 신규 매수 수 [why D-127]
         std::atomic<uint64_t> order_implausible{0};      // 값이 말이 안 돼 버린 요청 수. 0이 아니면 통로가 덮였다
         std::atomic<uint64_t> order_reason_truncated{0}; // 판단 근거·주문 이름이 칸을 넘어 잘린 신호 수

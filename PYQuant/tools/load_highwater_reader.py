@@ -74,6 +74,7 @@ COMPARE_WITH_BOTH = (
     "shard_dropped",
     "fill_dropped",
     "order_dropped",
+    "order_sell_held",
     "order_stale",
     "order_duplicate",
     "order_implausible",

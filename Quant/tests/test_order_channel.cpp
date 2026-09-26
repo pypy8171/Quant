@@ -13,6 +13,7 @@
 //   ⑧ 큐에서 꺼낸 요청·응답의 값이 말이 되는지 보는가(D-114 단계 4 — 건너편을 믿지 않는다)
 //   ⑨ 신호가 레코드를 건너갔다 돌아와도 그대로인가 — 글자 칸까지(D-114 단계 4)
 //   ⑩ 액션마다 기준이 다른가 — 취소는 수량 0·방향 NONE 도 맞는 주문이다
+//   ⑪ 큐가 차서 못 넣은 매도를 종목·계좌마다 하나씩 들고 있다가 든 순서대로 넣는가(매수는 안 든다)
 //
 //   사용법: test_order_channel
 
@@ -25,6 +26,7 @@
 #include <limits>
 #include <string>
 #include <type_traits>
+#include <vector>
 
 namespace
 {
@@ -395,6 +397,80 @@ int main()
         ipc::OrderRequest unterminated = cancel;
         std::memset(unterminated.reason, 'x', ipc::kSignalReasonMax);
         check(!ipc::is_plausible(unterminated, limits), "근거 칸이 칸 안에서 안 끝나면 버린다");
+    }
+
+    // ── ⑪ 큐가 차면 매도는 들고 있다가 먼저 넣는다 ─────────────────────
+    {
+        const auto make_request = [](uint64_t sequence, symbol::SymbolId symbol_id, uint8_t side, const char* account)
+        {
+            ipc::OrderRequest request;
+            request.sequence  = sequence;
+            request.symbol_id = symbol_id;
+            request.quantity  = 10;
+            request.side      = side;
+            request.action    = static_cast<uint8_t>(OrderAction::NEW);
+            std::strncpy(request.account_id, account, ipc::kAccountIdMax - 1);
+            return request;
+        };
+
+        const ipc::OrderRequest sell_a = make_request(1, 41, OrderSide::SELL, "1111");
+        const ipc::OrderRequest sell_b = make_request(2, 42, OrderSide::SELL, "1111");
+        const ipc::OrderRequest buy_a  = make_request(3, 41, OrderSide::BUY, "1111");
+
+        ipc::OrderRequest cancel_a = sell_a;
+        cancel_a.action            = static_cast<uint8_t>(OrderAction::CANCEL);
+
+        check(ipc::HeldSellRequests::holds(sell_a), "신규 매도는 든다");
+        check(!ipc::HeldSellRequests::holds(buy_a), "매수는 안 든다 — 늦은 매수는 버린다");
+        check(!ipc::HeldSellRequests::holds(cancel_a), "취소는 안 든다 — 대상이 종목이 아니라 원주문이다");
+
+        ipc::HeldSellRequests held;
+        check(!held.hold(sell_a), "처음 든 종목은 새 자리다");
+        check(!held.hold(sell_b), "다른 종목은 따로 든다");
+
+        ipc::OrderRequest sell_a_later = sell_a;
+        sell_a_later.sequence          = 5;
+        sell_a_later.quantity          = 7;
+        check(held.hold(sell_a_later), "같은 종목·계좌의 매도는 가장 최근 것으로 바뀐다");
+        check(held.size() == 2, "종목마다 하나라 보유 종목 수를 넘지 않는다");
+
+        const ipc::OrderRequest sell_a_other_account = make_request(6, 41, OrderSide::SELL, "2222");
+        check(!held.hold(sell_a_other_account), "같은 종목이라도 계좌가 다르면 따로 든다");
+        check(held.size() == 3, "계좌가 다른 매도는 바뀌지 않는다");
+
+        // 큐에 한 자리만 난 상황 — 첫 것만 넣고 멈춘다.
+        std::vector<uint64_t> pushed;
+        size_t                room = 1;
+        const auto            push = [&pushed, &room](const ipc::OrderRequest& request)
+        {
+            if (room == 0)
+            {
+                return false;
+            }
+
+            --room;
+            pushed.push_back(request.sequence);
+            return true;
+        };
+
+        check(held.drain(push) == 1 && pushed.size() == 1, "자리가 하나면 하나만 넣고 멈춘다");
+        check(pushed[0] == 5, "먼저 든 종목부터 넣는다 — 바뀐 것은 원래 자리를 지킨다");
+        check(held.size() == 2, "못 넣은 것은 계속 든다");
+
+        room = 10;
+        check(held.drain(push) == 2 && held.empty(), "자리가 나면 나머지를 다 넣는다");
+        check(pushed[1] == 2 && pushed[2] == 6, "넣는 순서는 든 순서다");
+
+        // 표에 아직 없는 종목은 번호가 없어 코드 글자로 맞춘다.
+        ipc::OrderRequest fresh_first = make_request(7, symbol::kNone, OrderSide::SELL, "1111");
+        fresh_first.ticker            = "068270";
+        ipc::OrderRequest fresh_other = fresh_first;
+        fresh_other.sequence          = 8;
+        fresh_other.ticker            = "000660";
+        ipc::OrderRequest fresh_again = fresh_first;
+        fresh_again.sequence          = 9;
+        check(!held.hold(fresh_first) && !held.hold(fresh_other), "번호 없는 종목은 코드 글자로 가른다");
+        check(held.hold(fresh_again) && held.size() == 2, "번호 없는 같은 종목은 코드 글자로 맞춰 바꾼다");
     }
 
     std::cout << "test_order_channel: " << g_checks << " checks passed\n";
