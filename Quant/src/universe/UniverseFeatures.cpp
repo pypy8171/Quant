@@ -201,7 +201,7 @@ DailyLookupCache g_lookup_cache;
 
 namespace
 {
-// 후보 하나의 일봉을 받아 SMA·롤오프·ATR로 요약한다. 60봉 미만이면 bars만 채워 돌려준다.
+// 후보 하나의 일봉을 받아 SMA·롤오프·ATR로 요약한다. 20봉 미만이면 bars만 채워 돌려준다.
 //  조회 간격은 호출자가 책임진다.
 DailyLookup fetch_daily_lookup(KisClient& kis, const DevScanCfg& config, const std::string& ticker,
                        const std::string& date_yyyymmdd)

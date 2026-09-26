@@ -2159,7 +2159,7 @@
       "PYQuant/tests/test_adjust_splits.py",
       "PYQuant/tests/test_backtest_engine.py",
       "PYQuant/tests/test_costs_golden.py",
-      "PYQuant/tests/test_db_copy.py",
+      "PYQuant/tests/test_db_client.py",
       "PYQuant/tests/test_indicators.py",
       "PYQuant/tests/test_metrics.py",
       "PYQuant/tests/test_point_in_time.py",
@@ -2386,7 +2386,8 @@
         "backtest.costs",
         "backtest.ledger"
       ],
-      "PYQuant/tests/test_db_copy.py": [
+      "PYQuant/tests/test_db_client.py": [
+        "db",
         "db.client"
       ],
       "PYQuant/tests/test_indicators.py": [
@@ -2678,9 +2679,12 @@
       "data.yfinance_source": [
         "PYQuant/main.py"
       ],
+      "db": [
+        "PYQuant/tests/test_db_client.py"
+      ],
       "db.client": [
         "PYQuant/main.py",
-        "PYQuant/tests/test_db_copy.py",
+        "PYQuant/tests/test_db_client.py",
         "PYQuant/tools/bench_market_open.py",
         "PYQuant/tools/bench_recorder.py",
         "PYQuant/tools/ledger_recorder.py",
@@ -2966,7 +2970,7 @@
       {
         "from": "PYQuant/tests",
         "to": "PYQuant/db",
-        "weight": 1
+        "weight": 2
       },
       {
         "from": "PYQuant/tests",

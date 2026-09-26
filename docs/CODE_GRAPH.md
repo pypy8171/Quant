@@ -855,7 +855,7 @@ graph LR
   p_PYQuant_strategy -->|6| p_PYQuant_kis
   p_PYQuant_tests -->|6| p_PYQuant_backtest
   p_PYQuant_tests -->|3| p_PYQuant_data
-  p_PYQuant_tests --> p_PYQuant_db
+  p_PYQuant_tests -->|2| p_PYQuant_db
   p_PYQuant_tests --> p_PYQuant_exit_ev
   p_PYQuant_tests --> p_PYQuant_features
   p_PYQuant_tests -->|3| p_PYQuant_kis
@@ -910,7 +910,7 @@ graph LR
 | `PYQuant/tests/test_adjust_splits.py` | `data.datagokr_source` |
 | `PYQuant/tests/test_backtest_engine.py` | `backtest.engine`, `data.krx_source`, `kis.client`, `strategy.supply_demand_rank`, `strategy.value_contrary` |
 | `PYQuant/tests/test_costs_golden.py` | `backtest.costs`, `backtest.ledger` |
-| `PYQuant/tests/test_db_copy.py` | `db.client` |
+| `PYQuant/tests/test_db_client.py` | `db`, `db.client` |
 | `PYQuant/tests/test_indicators.py` | `kis.client`, `strategy.indicators` |
 | `PYQuant/tests/test_metrics.py` | `backtest.metrics` |
 | `PYQuant/tests/test_point_in_time.py` | `data.point_in_time` |

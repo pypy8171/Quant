@@ -197,8 +197,8 @@ struct LookupStats
     long long sleep_ms = 0;   // 계측: 일봉 조회 사이에 실제로 쉰 간격 합(계좌 종류에 따라 150ms 또는 600ms씩)
 };
 
-// 2단: 정배열 프리필터 — 후보를 일봉으로 검사해 정배열=Y(≥60봉)만 통과시킨다.
-//  데이터부족(신규상장 <60봉)은 여기서 자동 제외된다. 일봉 조회 비용은 align_lookup_max로
+// 2단: 정배열 프리필터 — 후보를 일봉으로 검사해 정배열=Y(≥20봉)만 통과시킨다.
+//  데이터부족(신규상장 <20봉)은 여기서 자동 제외된다. 일봉 조회 비용은 align_lookup_max로
 //  캡하되 캐시 히트는 예산을 쓰지 않는다. 정배열 규칙은 MaAlign.h의 quant::moving_average::aligned 하나를 전략과 같이 쓴다.
 std::vector<Features> lookup_and_filter(KisClient& kis, const DevScanCfg& config, const std::string& date_yyyymmdd,
                                    const CandidateSet& candidates, const QuoteTable& quotes,

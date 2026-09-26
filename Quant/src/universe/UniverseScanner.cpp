@@ -99,7 +99,7 @@ ScanResult scan_devscale(KisClient& kis, const DevScanCfg& config, symbol::Symbo
              " 캐시=" + std::to_string(statistics.cache_hit) + ")" +
              " 정배열=" + std::to_string(statistics.aligned) +
              " 역배열컷=" + std::to_string(statistics.misaligned) +
-             " 데이터부족(<60봉)=" + std::to_string(statistics.short_bars) +
+             " 데이터부족(<20봉)=" + std::to_string(statistics.short_bars) +
              " 과확장컷=" + std::to_string(statistics.overext) +
              " 거래대금미달=" + std::to_string(statistics.illiquid) +
              " 예산소진=" + std::to_string(statistics.budget_skipped) +
