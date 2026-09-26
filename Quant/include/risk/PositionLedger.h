@@ -69,6 +69,7 @@ public:
         const PosMap<int>& reserved() const noexcept { return ledger_.reserved_; }
         const PosMap<double>& reserved_price() const noexcept { return ledger_.reserved_price_; }
         const PosMap<double>& average_prices() const noexcept { return ledger_.average_prices_; }
+        const PosMap<double>& mark_prices() const noexcept { return ledger_.mark_prices_; }
         const PosMap<int>& sellable() const noexcept { return ledger_.sellable_; }
         const PosMap<TimePoint>& opened_at() const noexcept { return ledger_.opened_at_; }
         const std::unordered_set<symbol::SymbolId>& slot_exempt() const noexcept { return ledger_.slot_exempt_; }
@@ -227,6 +228,11 @@ public:
     //  KIS가 40250000으로 전량 거부한다(2026-09-08 59건).
     void set_available_cash(double available_cash);
     double available_cash() const { return available_cash_.load(std::memory_order_relaxed); }
+
+    // 보유 종목 시가(원). 잔고 대조가 잔고 응답의 현재가로 계좌 몫을 통째 갈아 끼운다 — 잔고에 없는 종목의 값은
+    //  지워진다. §3d 총노출 분자가 원가 대신 이 값을 쓰고, 값이 없는 종목은 평단으로 대신한다. 저널에는
+    //  적지 않는다 — 재기동 뒤 첫 대조가 다시 채운다. 가격이 0 이하인 줄은 건너뛴다.
+    void replace_mark_prices(const std::string& account, const std::vector<std::pair<std::string, double>>& marks);
 
     // ── 원장 부트스트랩 (G5) — 기동 시 실계좌 보유분을 원장에 시드 ─────────────
     // 체결이 아니므로 reserved_/daily_pnl_은 불변. 기동 때와 데이터 스레드의 재동기(LedgerReconciler) 때 부른다.
@@ -468,6 +474,7 @@ private:
     std::unordered_map<uint64_t, OpenIntent> open_intents_;
     PosMap<int>    positions_;   // (account,ticker) → 실체결 순보유 수량 (양수=롱)
     PosMap<double> average_prices_;
+    PosMap<double> mark_prices_;    // (account,ticker) → 잔고 현재가(§3d 총노출 분자). 잔고 대조가 통째 갈아 끼운다
     // account:ticker -> 매도가능수량. 보유수량과 다르다: 기동 전 세션이 남긴 미체결 매도,
     //  미결제분 때문에 KIS가 실제로 받아주는 매도 수량은 보유보다 적을 수 있다. 이걸 모르면
     //  전량 청산이 40240000(주문가능분 없음)으로 통째 거부돼 한 주도 못 빠져나온다.

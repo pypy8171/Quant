@@ -19,6 +19,7 @@
 //  23. 장부 사본이 원본과 같은 값을 싣는다 — 보유·선점·매도가능·평단·면제·전역값 전부 (D-114)
 //  24. 판정은 거부 코드와 숫자만 돌려주고 문장은 describe가 만든다 (CODE_REVIEW W-8)
 //  25. 하루 리셋은 거래일당 한 번 — 장중 재기동·US 개장이 되살린 선점과 당일 손익을 안 지운다 (전수조사 A-4)
+//  26. 총노출(§3d)은 보유를 잔고 현재가로 잰다 — 오른 보유분이 한도에서 빠지지 않고, 현재가가 없으면 평단 (전수조사 B1-6)
 
 #include "risk/OrderGate.h"
 #include "ipc/LedgerSnapshot.h"
@@ -744,6 +745,33 @@ void test_reset_daily_once_per_trading_date()
     PASS("reset_daily_once_per_trading_date");
 }
 
+// ─── 테스트 26: 총노출은 현재가로 잰다 ───────────────────────────────────
+//  자본 100만, 한도 100%. 005930 10주를 평단 5만에 들고 있고 현재가는 9만이다.
+//  000660 2주(20만)를 더 사면 원가로는 70만이라 통과지만 시가로는 110만이라 막혀야 한다.
+void test_gross_exposure_uses_mark_price()
+{
+    OrderGate::Config config;
+    config.max_gross_exposure_percent = 1.0;
+    config.max_orders_per_min         = 100;
+    config.max_orders_per_sec         = 100;
+    OrderGate gate(config);
+    gate.ledger().seed_position("005930", 10, 50000.0);
+    gate.ledger().set_equity(1'000'000.0);
+    gate.ledger().replace_mark_prices("", {{"005930", 90000.0}, {"035420", 0.0}});
+
+    const OrderSignal buy = make_signal("000660", OrderSide::BUY, 2);
+    const GateVerdict blocked = gate.evaluate(buy);
+    assert(blocked.code == GateReject::GrossExposure);
+    assert(blocked.amount == 1'100'000);
+    assert(blocked.ceiling == 1'000'000);
+    assert(gate.clamp_buy_quantity(buy) == 1); // 남은 여유 10만 = 1주
+
+    // 잔고에서 빠진 종목의 현재가는 지워진다 — 평단 5만으로 돌아가 70만이라 통과
+    gate.ledger().replace_mark_prices("", {});
+    assert(gate.evaluate(buy).passed());
+    PASS("gross_exposure_uses_mark_price");
+}
+
 int main()
 {
 #ifdef _WIN32
@@ -773,6 +801,7 @@ int main()
     test_publish_ledger_matches_gate();
     test_verdict_codes_and_describe();
     test_reset_daily_once_per_trading_date();
+    test_gross_exposure_uses_mark_price();
     std::cout << "=== All tests passed ===\n";
     return 0;
 }

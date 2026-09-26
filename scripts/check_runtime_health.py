@@ -1182,6 +1182,34 @@ def job_attach_row(date: str) -> tuple:
     return (name, ok, "FAIL", detail)
 
 
+def gross_exposure_config_row() -> tuple:
+    """실계좌 설정의 총노출 한도가 자본의 100%를 넘는지 본다.
+
+    총노출은 보유를 현재가로 재고(2026-09-26부터, 그 전에는 평단) 분모는 총평가금이다. 1.0을 넘기면
+    가진 돈보다 많이 사는 것을 허용한다는 뜻이라 한도가 사실상 꺼진다. 평단으로 재던 때 물린 이월분에
+    BUY가 다 막혀 2.0으로 임시로 연 일이 있어(09-25), 그 완화가 남아 있으면 매매일지에 뜨게 한다.
+    값을 바꾸는 것은 사람이 정한다 — 이 행은 알리기만 해서 WARN이다.
+    """
+    name = "실계좌 총노출 한도"
+    config_path = REPO / "Quant" / "config" / "config_live.json"
+
+    if not config_path.exists():
+        return (name, True, "WARN", "Quant/config/config_live.json 없음 — 판정 안 함")
+
+    try:
+        risk = json.loads(config_path.read_text(encoding="utf-8")).get("risk", {})
+    except (OSError, ValueError) as error:
+        return (name, False, "WARN", f"Quant/config/config_live.json 읽기 실패: {error}")
+
+    limit = risk.get("max_gross_exposure_pct")
+
+    if not isinstance(limit, (int, float)):
+        return (name, True, "WARN", "risk.max_gross_exposure_pct 없음 — 게이트 꺼짐(0과 같다)")
+
+    return (name, limit <= 1.0, "WARN",
+            f"risk.max_gross_exposure_pct={limit} (기준 1.0 이하 — 넘으면 자본보다 많이 살 수 있다)")
+
+
 def orphan_process_rows() -> list:
     """부모가 이미 죽었는데 혼자 남은 프로세스를 지금 이 순간 기준으로 센다.
 
@@ -1345,6 +1373,7 @@ def global_rows(date: str) -> list:
         pinned_capture_row(date),
         scan_registration_row(date),
         job_attach_row(date),
+        gross_exposure_config_row(),
         *orphan_process_rows(),
         tsan_row(date),
     ]

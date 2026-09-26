@@ -169,10 +169,11 @@ int test_option_number()
 int test_decode_holding()
 {
     json node = {{"pdno", "005930"}, {"prdt_name", "삼성전자"}, {"hldg_qty", "12"}, {"pchs_avg_pric", "71000.0000"},
-              {"ord_psbl_qty", "10 "}, {"evlu_pfls_amt", "-1200"}};
+              {"ord_psbl_qty", "10 "}, {"evlu_pfls_amt", "-1200"}, {"prpr", "70900"}};
     Holding decoded_holding = kis_rest::decode_holding(node);
     CHECK(decoded_holding.ticker == "005930" && decoded_holding.name == "삼성전자" && decoded_holding.quantity == 12 && decoded_holding.average_price == 71000.0);
     CHECK(decoded_holding.evaluation_pnl == -1200.0);
+    CHECK(decoded_holding.current_price == 70900.0);
     CHECK(decoded_holding.sellable_quantity && *decoded_holding.sellable_quantity == 10); // 꼬리 공백 허용
 
     // ord_psbl_qty 없음·숫자 아님 → 비어 있음("모름"). 0은 "매도 가능 0주"로 남는다.
@@ -290,7 +291,7 @@ int test_kis_result()
     KisResult<AccountBalance> failed = kis_fail("EGW00201", "초당 거래건수 초과");
     CHECK(!failed && !failed.has_value() && failed.error().code == "EGW00201" && error_text(failed) == "EGW00201 초당 거래건수 초과");
     AccountBalance balance;
-    balance.holdings.push_back(Holding{"005930", "삼성전자", 1, 70000.0, 0.0, std::nullopt});
+    balance.holdings.push_back(Holding{"005930", "삼성전자", 1, 70000.0, 0.0, 0.0, std::nullopt});
     KisResult<AccountBalance> moved = std::move(balance);
     CHECK(moved && error_text(moved).empty() && moved->holdings.size() == 1 && (*moved).holdings[0].ticker == "005930");
     // 실패 → 값 대입으로 성공 봉투가 된다(LedgerReconciler 부트스트랩의 "init" 실패 → 재시도 루프 대입).

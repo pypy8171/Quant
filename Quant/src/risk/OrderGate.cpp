@@ -70,6 +70,44 @@ double session_remaining_ratio()
     return static_cast<double>(kSessionBarEndMin - now_min) /
            static_cast<double>(kSessionBarEndMin - kSessionOpenMin);
 }
+
+// 총노출(§3d) 분자 — 보유는 잔고 대조가 넣은 현재가로, 현재가가 아직 없는 종목(대조 사이에 새로 산 것)은
+//  평단으로 잰다. 미체결 매수 선점은 선점가로 더하고 매도 선점(-)은 노출을 줄이는 쪽이라 보수적으로 뺀다.
+//  분모 equity가 시가 총평가금이라 분자도 시가로 맞춘다 — 원가로 재면 오른 보유분이 한도에서 빠진다.
+double gross_exposure(const PositionLedger::Reader& ledger)
+{
+    double gross = 0.0;
+
+    for (const auto& entry : ledger.positions())
+    {
+        if (entry.second <= 0)
+        {
+            continue;
+        }
+
+        if (auto mark_iterator = ledger.mark_prices().find(entry.first); mark_iterator != ledger.mark_prices().end())
+        {
+            gross += entry.second * mark_iterator->second;
+            continue;
+        }
+
+        auto average_price_iterator = ledger.average_prices().find(entry.first);
+        gross += entry.second * (average_price_iterator != ledger.average_prices().end() ? average_price_iterator->second : 0.0);
+    }
+
+    for (const auto& entry : ledger.reserved())
+    {
+        if (entry.second <= 0)
+        {
+            continue;
+        }
+
+        auto reserved_price_iterator = ledger.reserved_price().find(entry.first);
+        gross += entry.second * (reserved_price_iterator != ledger.reserved_price().end() ? reserved_price_iterator->second : 0.0);
+    }
+
+    return gross;
+}
 } // namespace
 
 // ─── 주문 검증 ──────────────────────────────────────────────────────────────
@@ -180,35 +218,12 @@ int OrderGate::clamp_buy_quantity(const OrderSignal& signal)
             }
         }
 
-        // 총노출(§3d)도 같은 방식으로 남은 여유를 수량으로 환산한다. 보유는 평단, 선점은 선점가로
-        //  재는 것까지 check()와 동일하게 둔다.
+        // 총노출(§3d)도 같은 방식으로 남은 여유를 수량으로 환산한다. 재는 법은 check()와 같은 gross_exposure()다.
         const double equity = ledger_.equity();
 
         if (config_.max_gross_exposure_percent > 0.0 && equity > 0.0 && evaluation_price > 0.0)
         {
-            double gross = 0.0;
-
-            for (const auto& entry : ledger.positions())
-            {
-                if (entry.second <= 0)
-                {
-                    continue;
-                }
-
-                auto average_price_iterator = ledger.average_prices().find(entry.first);
-                gross += entry.second * (average_price_iterator != ledger.average_prices().end() ? average_price_iterator->second : 0.0);
-            }
-
-            for (const auto& entry : ledger.reserved())
-            {
-                if (entry.second <= 0)
-                {
-                    continue;
-                }
-
-                auto reserved_price_iterator = ledger.reserved_price().find(entry.first);
-                gross += entry.second * (reserved_price_iterator != ledger.reserved_price().end() ? reserved_price_iterator->second : 0.0);
-            }
+            const double gross = gross_exposure(ledger);
 
             const double exposure_ceiling  = config_.max_gross_exposure_percent * equity;
             const int    room = quantity_from_notional(exposure_ceiling - gross, evaluation_price);
@@ -622,37 +637,15 @@ GateVerdict OrderGate::evaluate(const OrderSignal& signal)
             }
         }
 
-        // 3d. 포트폴리오 총노출 상한 — 모든 종목 보유(positions_×평단)+미체결 선점(reserved_×선점가) 합이
+        // 3d. 포트폴리오 총노출 상한 — 모든 종목 보유(positions_×시가)+미체결 선점(reserved_×선점가) 합이
         //     자본의 max_gross_exposure_percent를 넘게 만드는 BUY를 차단(신규·물타기 공통). 청산(SELL)은 위에서 제외.
         //     종목당 명목(15%)×동시보유(10)=150% 같은 과노출을 총합 단에서 막는다. equity 미주입(0)이면 비활성.
-        //     보유분은 원가(평단)로, 분모 equity는 시장 총평가금이라 상승장 과소·하락장 과대의 근사(수용).
+        //     재는 법은 gross_exposure() — 보유는 현재가(없으면 평단), 선점은 선점가.
         const double equity = ledger_.equity();
 
         if (config_.max_gross_exposure_percent > 0.0 && equity > 0.0 && evaluation_price > 0.0)
         {
-            double gross = 0.0;
-
-            for (const auto& entry : ledger.positions())
-            {
-                if (entry.second <= 0)
-                {
-                    continue;
-                }
-
-                auto average_price_iterator = ledger.average_prices().find(entry.first);
-                gross += entry.second * (average_price_iterator != ledger.average_prices().end() ? average_price_iterator->second : 0.0);
-            }
-
-            for (const auto& entry : ledger.reserved())
-            {
-                if (entry.second <= 0)
-                {
-                    continue;  // BUY 선점(+)만 노출 증가. SELL 선점(-)은 축소라 보수적으로 무시
-                }
-
-                auto reserved_price_iterator = ledger.reserved_price().find(entry.first);
-                gross += entry.second * (reserved_price_iterator != ledger.reserved_price().end() ? reserved_price_iterator->second : 0.0);
-            }
+            const double gross = gross_exposure(ledger);
 
             const double exposure_ceiling        = config_.max_gross_exposure_percent * equity;
             const double next_gross = gross + signal.quantity * evaluation_price;
@@ -802,28 +795,7 @@ bool OrderGate::capacity_full() const
     double gross = 0.0;
     {
         const PositionLedger::Reader ledger = ledger_.read();
-
-        for (const auto& entry : ledger.positions())
-        {
-            if (entry.second <= 0)
-            {
-                continue;
-            }
-
-            auto average_price_iterator = ledger.average_prices().find(entry.first);
-            gross += entry.second * (average_price_iterator != ledger.average_prices().end() ? average_price_iterator->second : 0.0);
-        }
-
-        for (const auto& entry : ledger.reserved())
-        {
-            if (entry.second <= 0)
-            {
-                continue;
-            }
-
-            auto reserved_price_iterator = ledger.reserved_price().find(entry.first);
-            gross += entry.second * (reserved_price_iterator != ledger.reserved_price().end() ? reserved_price_iterator->second : 0.0);
-        }
+        gross = gross_exposure(ledger); // check() §3d와 같은 셈 — 한 곳이라도 원가로 재면 판단이 갈린다
     }
 
     // 상한의 95%를 넘으면 여력 없음으로 본다. 정확히 상한에 닿기를 기다리면 한 종목분

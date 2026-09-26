@@ -210,6 +210,7 @@ Holding decode_holding(const nlohmann::json& node)
     holding.quantity = static_cast<int>(number(node, "hldg_qty"));
     holding.average_price = number(node, "pchs_avg_pric");
     holding.evaluation_pnl = number(node, "evlu_pfls_amt");
+    holding.current_price = number(node, "prpr"); // 필드 확인 2026-09-26 KIS 공식 샘플 inquire_balance output1
     const std::string psbl = node.value("ord_psbl_qty", "");
 
     if (!psbl.empty() && psbl.find_first_not_of("0123456789 ") == std::string::npos)

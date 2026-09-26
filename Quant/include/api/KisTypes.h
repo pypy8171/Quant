@@ -14,6 +14,7 @@ struct Holding
     int         quantity = 0;              // [wire] hldg_qty. 주
     double      average_price = 0.0;      // [wire] pchs_avg_pric. 원
     double      evaluation_pnl = 0.0;       // [wire] evlu_pfls_amt. 평가손익, 원 — 표시 전용
+    double      current_price = 0.0;        // [wire] prpr. 현재가, 원 — 총노출 한도(§3d)의 시가. 0이면 모름
     std::optional<int> sellable_quantity;  // [wire] ord_psbl_qty. 필드가 없거나 숫자가 아니면 비어 있다("모름") —
                                       //  호출자는 보유수량을 대신 쓴다. 0은 "매도 가능 0주"라 비어 있음과 다르다
 };

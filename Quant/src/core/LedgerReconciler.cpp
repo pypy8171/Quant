@@ -48,9 +48,11 @@ bool LedgerReconciler::bootstrap(int attempts, std::chrono::milliseconds retry_d
         }
 
         int count = 0;
+        std::vector<std::pair<std::string, double>> marks; // 총노출 한도(§3d)용 시가
 
         for (const Holding& holding : balance->holdings)
         {
+            marks.emplace_back(holding.ticker, holding.current_price);
             // 주문가능수량(ord_psbl_qty)을 게이트에 함께 시드한다. 보유수량과 다르면(직전
             //  세션이 남긴 미체결 매도·미결제분) 전량 청산이 40240000으로 통째 거부돼
             //  한 주도 못 빠져나온다(09-08 047050 254주·381주 연속 거부). 필드가 없거나
@@ -69,6 +71,7 @@ bool LedgerReconciler::bootstrap(int attempts, std::chrono::milliseconds retry_d
             ++count;
         }
 
+        gate_.ledger().replace_mark_prices(std::string(), marks);
         LOG_INFO("[Engine] 원장 부트스트랩 완료: " + std::to_string(count) + "종목 시드");
         return true;
     }
@@ -107,6 +110,7 @@ void LedgerReconciler::resync_holdings(const AccountBalance& balance, bool resyn
 
     // 잔고에 있는 종목을 모으면서, 재동기 모드면 원장까지 덮어쓴다.
     std::vector<std::string> held;
+    std::vector<std::pair<std::string, double>> marks; // 총노출 한도(§3d)용 시가 — 재동기 모드와 무관하게 매번 갈아 끼운다
 
     for (const Holding& holding : balance.holdings)
     {
@@ -114,6 +118,7 @@ void LedgerReconciler::resync_holdings(const AccountBalance& balance, bool resyn
         const int    quantity  = holding.quantity;
         const double average_value = holding.average_price;
         held.push_back(code);
+        marks.emplace_back(code, holding.current_price);
         broker_now.push_back(reconcile::Held{code, quantity, average_value, position_ledger.intern_symbol(code)}); // 잔고 응답의 문자열 티커 — 여기서 id가 된다
 
         if (resync_positions)
@@ -150,6 +155,8 @@ void LedgerReconciler::resync_holdings(const AccountBalance& balance, bool resyn
             }
         }
     }
+
+    position_ledger.replace_mark_prices(std::string(), marks);
 
     // 잔고에 없는데 원장에 남은 종목을 걷어낸다. 이 유령이 슬롯을 물고 있으면
     //  실제 보유가 20인데 "동시 보유 종목 한도 초과 (25 >= 25)"가 난다(09-09 관측).

@@ -471,6 +471,21 @@ void PositionLedger::set_equity(double equity)
     journal_flush();
 }
 
+void PositionLedger::replace_mark_prices(const std::string& account, const std::vector<std::pair<std::string, double>>& marks)
+{
+    std::lock_guard<std::mutex> lock(positions_mutex_);
+    const uint32_t              account_id = keys_.account_index(account, true);
+    std::erase_if(mark_prices_, [account_id](const auto& entry) { return entry.first.account == account_id; });
+
+    for (const auto& [ticker, price] : marks)
+    {
+        if (price > 0.0)
+        {
+            mark_prices_[keys_.make(account, ticker)] = price;
+        }
+    }
+}
+
 void PositionLedger::set_available_cash(double available_cash)
 {
     available_cash_.store(available_cash, std::memory_order_relaxed);
@@ -1198,7 +1213,8 @@ void PositionLedger::publish(ipc::LedgerSnapshot& snapshot, const std::function<
                     ++open_slots;
                 }
 
-                gross += entry.second * average_price;
+                const auto mark_iterator = mark_prices_.find(key); // 총노출은 게이트 gross_exposure()와 같이 현재가 우선
+                gross += entry.second * ((mark_iterator != mark_prices_.end()) ? mark_iterator->second : average_price);
 
                 int        sellable_limit    = entry.second;
                 const auto sellable_iterator = sellable_.find(key);
