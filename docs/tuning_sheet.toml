@@ -27,9 +27,9 @@ note = "PYQuant/tools/macro_regime_feed.py 가 regime.json 을 쓰고 엔진 데
 
 [[config_group]]
 name = "유니버스 스캔 — KIS 랭킹 · data.go.kr · 업종"
-keys = ["universe_file", "universe_from_scan", "full_market", "scan_top_n", "value_top_n", "sector_*", "max_universe", "score_top_n",
+keys = ["universe_file", "universe_from_scan", "full_market", "turnover_top_n", "value_top_n", "sector_*", "max_universe", "score_top_n",
         "min_price", "max_price", "min_turnover", "risk_off_index_pct*", "kosdaq_enabled", "union_refresh_sec", "prices_file"]
-note = "후보 합집합(data.go.kr 파일 ∪ KIS 시총·거래대금 랭킹 ∪ 업종 등락 축)을 union_refresh_sec 마다 다시 만든다."
+note = "후보 합집합(data.go.kr 파일 ∪ 시세 거래대금 상위 ∪ KIS 거래대금 랭킹 ∪ 업종 등락 축, 시총 축은 D-146에서 뺌)을 union_refresh_sec 마다 다시 만든다."
 
 [[config_group]]
 name = "유니버스 판정 — 정배열·이격·리스캔"
@@ -1082,7 +1082,7 @@ used_for = "④ 이격(max_dev_pct)·가격 필터(min_price {min_price}원)·�
 
 [[cycle]]
 step = "③ 후보 합집합"
-source = "KIS 랭킹 REST — 시총 상위·거래대금 상위(요청 {scan_top_n}·{value_top_n}, 서버가 축당 {kis_ranking_rows_fixed}행 고정) + 업종 등락 상위 축(업종별 {sector_top_n}종목, 26콜 × {scanner_sector_call_sleep_ms} 간격) + ① 파일"
+source = "시세 표 거래대금 상위 {turnover_top_n}(재스캔마다, 조회 없음) + KIS 랭킹 REST — 거래대금·거래증가율 상위(요청 {value_top_n}, 서버가 축당 {kis_ranking_rows_fixed}행 고정) + 업종 등락 상위 축(업종별 {sector_top_n}종목, 26콜 × {scanner_sector_call_sleep_ms} 간격) + ① 파일"
 what = "이 세 축을 합친 후보 목록"
 every = "{union_refresh_sec}"
 used_for = "④ 가 판정할 종목 풀(슬리브별 최대 {align_lookup_max}종목)"

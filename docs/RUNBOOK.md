@@ -115,7 +115,7 @@ wsl -e docker ps -a --filter name=quant-tsdb
 
 ## 2. 장중 매매를 창 5개로 손으로 띄우기
 
-<!-- sync: PYQuant/tools/macro_regime_feed.py@ba04c66 PYQuant/tools/universe_feed.py@17110bf scripts/notify_trades.py@41177d1 -->
+<!-- sync: PYQuant/tools/macro_regime_feed.py@ba04c66 PYQuant/tools/universe_feed.py@b9b84c6 scripts/notify_trades.py@41177d1 -->
 
 1절 감시견이 도는 날에는 쓰지 않는다(트레이더가 둘이 된다). 대상은 DevScale 모의계좌 `Quant\config\config_dev_paper.json` —
 `Quant\config\config.json`은 실계좌라 장중 시험에 쓰지 않는다. 각 창은 별도 프로세스이고 닫으면 그 부분만 멈춘다.
@@ -128,14 +128,14 @@ $env:PYTHONUTF8 = "1"
 .\PYQuant\.venv-win\Scripts\python.exe PYQuant\tools\macro_regime_feed.py --interval 180 --out Quant\config\regime.json
 ```
 
-창 2 — 유니버스 갱신(장 전 1회, 끝나면 닫아도 된다). 코스피+코스닥 시총 100 ∪ 거래대금 100(기본값). 이 파일은 후보 목록이고, 장중 재랭킹은 엔진이 1분마다 따로 한다(D-142). 실패해도 KIS 랭킹 폴백으로 매매는 된다.
-종목 목록은 T-1 data.go.kr, 시총·거래대금은 실행 시점 네이버 값이다(`--no-live`면 스냅샷 값). `[universe_feed] 기록 완료 → … (N종목, 목록 기준일 …)`이 찍히면 성공.
+창 2 — 유니버스 갱신(장 전 1회, 끝나면 닫아도 된다). 코스피+코스닥 각각 거래대금 상위 100(시총 축은 D-146부터 끔). 이 파일은 후보 목록이고, 장중 재랭킹은 엔진이 1분마다 따로 한다(D-142). 실패해도 KIS 랭킹 폴백으로 매매는 된다.
+종목 목록은 T-1 data.go.kr, 거래대금은 실행 시점 네이버 값이다(`--no-live`면 스냅샷 값). `[universe_feed] 기록 완료 → … (N종목, 목록 기준일 …)`이 찍히면 성공.
 
 ```powershell
 cd {ROOT}
 $env:PYTHONUTF8 = "1"
 $env:DATA_GO_KR_KEY = "<발급키>"
-.\PYQuant\.venv-win\Scripts\python.exe PYQuant\tools\universe_feed.py --market ALL --n-mktcap 100 --n-turnover 100 --out Quant\config\universe_scan.json
+.\PYQuant\.venv-win\Scripts\python.exe PYQuant\tools\universe_feed.py --market ALL --n-turnover 100 --out Quant\config\universe_scan.json
 ```
 
 창 3 — 트레이더 엔진(09:00 직전). 항상 저장소 루트에서 띄운다 — `build_win\` 안에서 띄우면 config 상대경로가 어긋나
@@ -159,7 +159,7 @@ config별 전략: `config_dev_paper.json` DEVIATION_SCALE(일봉 정배열+눌�
 
 ## 3. 실시간 대시보드
 
-<!-- sync: scripts/dashboard_server.py@215e6c5 -->
+<!-- sync: scripts/dashboard_server.py@fa7b033 -->
 
 엔진 재빌드 없이 이미 있는 데이터(KIS 잔고·`regime.json`·`universe_scan.json`·로그·체결원장)를 브라우저에 3초마다
 표시한다. 종목 행 클릭 → 일/주/5분/3분봉 차트. 종목 뉴스·속보(네이버, 보유 종목 전부 + 유니버스 순환)와 증권사 리서치(매시간 갱신) 카드도 같은 화면에 있다. 라이브 데이터는 이 로컬 서버가 있어야 뜬다(발행 URL 하나로는 안 된다).

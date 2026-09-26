@@ -737,16 +737,16 @@ static void load_deviation_scale(LoadPass& context, const json& node)
 
     if (node.value("universe_from_scan", false))
     {
-        // ── 전체 시장 자동 선정 ("둘 다": 시총 상위 ∪ 거래대금 상위) ─────────
-        //  1단(스캐너): 시총 상위(넓은 유동 유니버스) + 거래대금 상위(장중 급변 종목)의
-        //             합집합을 최소·최대가 필터로 압축 + 정배열 프리필터.
+        // ── 전체 시장 자동 선정 (거래대금 상위 축들의 합집합) ─────────
+        //  1단(스캐너): 시세 표 거래대금 상위 + KIS 거래대금·거래증가율 상위 + 업종 축의
+        //             합집합을 최소·최대가 필터로 압축 + 정배열 프리필터. 시총 축은 D-146에서 뺐다.
         //  2단(전략): 등록된 각 DeviationScale이 자기 일봉으로 정배열+눌림 존을 판정 →
         //             자격 종목만 실제 오실레이션.
         universe::DevScanCfg scan_config;
-        scan_config.scan_top_n      = node.value("scan_top_n", 80);   // 시총 상위 스캔 수(넓은 유니버스)
         // 거래대금 상위 스캔 수(장중 급변). 30을 넘기면 가격 구간을 갈라 두 번 부르므로 REST 호출이
         //  하나 는다 — 그 대신 ETF를 뺀 개별주를 60종목까지 볼 수 있다.
         scan_config.value_top_n     = node.value("value_top_n", 30);
+        scan_config.turnover_top_n  = node.value("turnover_top_n", 0);  // 시세 표 거래대금 상위 N, 0=끄기
         scan_config.min_price       = node.value("min_price", 5000.0);
         scan_config.max_price       = node.value("max_price", 0.0);   // 0이면 상한 없음(고가주 포함)
         scan_config.max_register    = node.value("max_universe", 40);

@@ -53,7 +53,7 @@ def main() -> int:
     ap.add_argument("--start", required=True, help="시작일 YYYY-MM-DD (포함)")
     ap.add_argument("--end",   required=True, help="종료일 YYYY-MM-DD (포함)")
     ap.add_argument("--market", default="KOSPI", choices=["KOSPI", "KOSDAQ", "ALL"])
-    ap.add_argument("--n-mktcap",   type=int,   default=100)
+    ap.add_argument("--n-mktcap",   type=int,   default=0)     # 라이브와 같게 시총 축 끔(D-146)
     ap.add_argument("--n-turnover", type=int,   default=100)
     ap.add_argument("--min-turnover", type=float, default=1e9)
     ap.add_argument("--config", default="Quant/config/config_dev_paper.json",

@@ -1,5 +1,6 @@
 // 유니버스 횡단면 점수(universe::detail::score_cross_section) 단위 테스트. 입력만 보는 순수 함수라 z-score 정규화·
 //  ±2 절단·눌림 부호 반전·거래대금 결측 중앙값 대체·가중합을 손으로 계산한 값에 고정해 둔다. 관련 결정: D-018.
+//  후보 수집의 거래대금 상위 축(take_turnover_top)도 시세 표만 보는 함수라 여기서 고정한다. 관련 결정: D-146.
 #include "../src/universe/detail/Pipeline.h"
 
 #include <cassert>
@@ -12,6 +13,8 @@ namespace
 using universe::DevScanCfg;
 using universe::detail::Features;
 using universe::detail::score_cross_section;
+using universe::detail::CandidateSet;
+using universe::detail::take_turnover_top;
 
 bool near(double actual, double expected)
 {
@@ -92,12 +95,53 @@ void check_liquidity()
 }
 } // namespace
 
+// 거래대금 상위 축: 가격·거래대금 하한·ETF 이름에 걸린 종목은 순위에서 빠지고 N에도 세지 않는다.
+//  거래대금이 같으면 티커 순이다. market_map이 있으면 사전에 없는 종목은 보지 않는다.
+void check_turnover_top()
+{
+    symbol::SymbolTable symbols(16);
+    const symbol::SymbolId first  = symbols.intern("000001");
+    const symbol::SymbolId second = symbols.intern("000002");
+    const symbol::SymbolId cheap  = symbols.intern("000003");
+    const symbol::SymbolId etf    = symbols.intern("000004");
+    const symbol::SymbolId tie    = symbols.intern("000005");
+    const symbol::SymbolId thin   = symbols.intern("000006");
+    universe::QuoteTable quotes(symbols.capacity());
+    quotes[first]  = {10000.0, 5e9, 0.0, "가나전자"};
+    quotes[second] = {20000.0, 9e9, 0.0, "다라화학"};
+    quotes[cheap]  = {3000.0, 1e10, 0.0, "싼종목"};      // min_price 5000 미만
+    quotes[etf]    = {10000.0, 8e9, 0.0, "KODEX 200"};   // ETF 이름
+    quotes[tie]    = {10000.0, 5e9, 0.0, "마바건설"};      // first와 거래대금 같음, 티커가 뒤
+    quotes[thin]   = {10000.0, 1e8, 0.0, "얇은종목"};      // min_turnover 미만
+
+    DevScanCfg config;
+    config.min_turnover   = 1e9;
+    config.turnover_top_n = 2;
+
+    CandidateSet candidates(symbols.capacity());
+    take_turnover_top(config, quotes, candidates, symbols);
+    assert((candidates.symbols == std::vector<symbol::SymbolId>{second, first}));
+    assert(candidates.etf_drop == 1);
+
+    CandidateSet listed(symbols.capacity());
+    listed.set_market(second, universe::detail::Market::Kospi);
+    listed.have_market_map = true;
+    take_turnover_top(config, quotes, listed, symbols);
+    assert((listed.symbols == std::vector<symbol::SymbolId>{second}));
+
+    config.turnover_top_n = 0;
+    CandidateSet off(symbols.capacity());
+    take_turnover_top(config, quotes, off, symbols);
+    assert(off.symbols.empty());
+}
+
 int main()
 {
     check_degenerate();
     check_weighted_sum();
     check_clip();
     check_liquidity();
+    check_turnover_top();
     std::cout << "test_universe_scoring: all passed" << std::endl;
     return 0;
 }

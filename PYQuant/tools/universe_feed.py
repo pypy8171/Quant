@@ -1,4 +1,5 @@
-"""data.go.kr 시총∪거래대금 top-N 유니버스 피드 → Quant/config/universe_scan.json.
+"""data.go.kr 거래대금 top-N 유니버스 피드 → Quant/config/universe_scan.json.
+시총 top-N 축은 기본 0이다(D-146) — --n-mktcap으로 옛 시총∪거래대금 선정을 다시 켤 수 있다.
 
 C++ DeviationScale 스캐너의 4번째 후보 축(ETF-free·KIS 30행캡 우회)을 채운다.
 data.go.kr 스냅샷은 종목 목록(코드·이름·시장, ETF 없음)만 쓰고, 시총·거래대금·종가는 네이버 벌크
@@ -246,25 +247,26 @@ def build(on_date: str, n_mktcap: int, n_turnover: int,
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="data.go.kr 시총∪거래대금 유니버스 피드")
-    ap.add_argument("--n-mktcap",   type=int, default=100, help="시총 상위 N")
-    ap.add_argument("--n-turnover", type=int, default=100, help="거래대금 상위 N")
-    ap.add_argument("--date", default=None, help="기준일 YYYY-MM-DD (기본 T-1, 백오프 자동)")
-    ap.add_argument("--min-turnover", type=float, default=1e9, help="최소 거래대금(원)")
-    ap.add_argument("--market", default="ALL", choices=["KOSPI", "KOSDAQ", "ALL"],
-                    help="유니버스 시장(기본 ALL). ALL=코스피·코스닥 각각 top-N union, 종목별 market 태그 부여.")
-    ap.add_argument("--out", default=str(_OUT_PATH), help="출력 JSON 경로")
-    ap.add_argument("--no-live", action="store_true",
-                    help="네이버 시세로 시총·거래대금을 바꾸지 않고 data.go.kr 스냅샷 값만 쓴다(백필·점검용).")
-    args = ap.parse_args()
+    parser = argparse.ArgumentParser(description="data.go.kr 거래대금 상위 유니버스 피드")
+    # 시총 축은 기본으로 끈다 — 대형주가 거래 없이도 자리를 먹었다(D-146). 옛 선정을 재현할 때만 준다.
+    parser.add_argument("--n-mktcap",   type=int, default=0, help="시총 상위 N(기본 0=끔, D-146)")
+    parser.add_argument("--n-turnover", type=int, default=100, help="거래대금 상위 N")
+    parser.add_argument("--date", default=None, help="기준일 YYYY-MM-DD (기본 T-1, 백오프 자동)")
+    parser.add_argument("--min-turnover", type=float, default=1e9, help="최소 거래대금(원)")
+    parser.add_argument("--market", default="ALL", choices=["KOSPI", "KOSDAQ", "ALL"],
+                        help="유니버스 시장(기본 ALL). ALL=코스피·코스닥 각각 top-N union, 종목별 market 태그 부여.")
+    parser.add_argument("--out", default=str(_OUT_PATH), help="출력 JSON 경로")
+    parser.add_argument("--no-live", action="store_true",
+                        help="네이버 시세로 시총·거래대금을 바꾸지 않고 data.go.kr 스냅샷 값만 쓴다(백필·점검용).")
+    arguments = parser.parse_args()
 
-    on_date = args.date or _yesterday_iso()
-    doc = build(on_date, args.n_mktcap, args.n_turnover, args.min_turnover, args.market,
-                with_market_map=True, use_live=not args.no_live)
+    on_date = arguments.date or _yesterday_iso()
+    doc = build(on_date, arguments.n_mktcap, arguments.n_turnover, arguments.min_turnover, arguments.market,
+                with_market_map=True, use_live=not arguments.no_live)
     if doc is None:
         return 1
 
-    out = Path(args.out)
+    out = Path(arguments.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     # 엔진이 파일이 다시 쓰일 때마다 읽으므로 반쯤 쓰인 파일이 보이면 안 된다 —
     #  임시 파일에 다 쓴 뒤 한 번에 바꿔 넣는다(os.replace는 같은 볼륨에서 원자적).

@@ -26,7 +26,7 @@
 
 ## 유니버스가 만들어지는 순서
 
-1. 장 전 `universe_feed.py` — data.go.kr 스냅샷 → 시장별 시총∪거래대금 → `universe_scan.json`(축 4).
+1. 장 전 `universe_feed.py` — data.go.kr 스냅샷 → 시장별 거래대금 상위(시총 축은 D-146부터 0) → `universe_scan.json`(축 4).
 2. 기동 시 엔진 `UniverseScanner` — KIS 순위 3축(시총·거래대금·업종 등락률) + 파일 축을 합쳐 후보를 만들고, KIS 일봉으로 정배열·이격을 판정해 `max_universe`(100)까지 등록한다.
 3. 장중 `live_prices_feed.py`가 5초마다 네이버 시세를 갈아 끼우고, 엔진은 `rescan_interval_sec`마다 캐시된 일봉 + 이 파일 현재가로 재판정한다(REST 0). 감시견이 1분마다 `universe_feed.py`를 다시 돌려 시총·거래대금 축을 당일 값으로 재랭킹한다 — 시세는 `prices_live.json` 재사용이라 외부 조회 0(D-142).
 4. 등록 종목 중 40건까지 KIS WS 실시간, 나머지는 REST 폴링.

@@ -165,8 +165,13 @@ struct MarketGate
 //  [lock-order] g_index_latch_mutex는 REST 호출 밖에서만 잡는다. g_candidate_mutex와 겹치지 않는다.
 MarketGate build_market_gate(KisClient& kis, const DevScanCfg& config);
 
+// 시세 표의 당일 누적 거래대금 상위 turnover_top_n종목을 candidates에 붓는다. 0이면 아무것도 안 한다.
+//  가격·거래대금 하한·ETF·리츠 필터를 거치고, market_map이 있으면 상장 종목만 본다 [why D-146].
+void take_turnover_top(const DevScanCfg& config, const QuoteTable& quotes, CandidateSet& candidates,
+                       const symbol::SymbolTable& symbols);
+
 // 후보 합집합을 채운다. union_refresh_sec 안에 다시 불리면 수집을 통째로 건너뛰고
-//  지난 집합을 그대로 쓴다 — 이 단계만 KIS REST 랭킹 3콜 + 업종 코드 수만큼(sector_codes, 250ms 간격)이고 이후 재판정은 0콜이다(D-028).
+//  지난 집합을 그대로 쓴다 — 이 단계만 KIS REST 랭킹 2축 + 업종 코드 수만큼(sector_codes, 250ms 간격)이고 이후 재판정은 0콜이다(D-028).
 //  0이면 매 호출 새로 모은다(기존 동작).
 void collect_candidates(KisClient& kis, const DevScanCfg& config, const std::string& date_yyyymmdd,
                         QuoteTable& quotes, CandidateSet& candidates, symbol::SymbolTable& symbols);

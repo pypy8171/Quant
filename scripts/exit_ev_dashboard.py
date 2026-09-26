@@ -85,7 +85,7 @@ RULES = (
     {
         "family": "DEVSCALE", "index": 0, "title": "DEVSCALE — 눌림 되돌림", "one_line": "일봉 정배열 종목이 SMA20 근처로 눌렸을 때 3분봉 SMA 기준으로 사고, 평단 위에서 판다. 평단 대비 손절과 존 이탈로 나가고, 장 마감 청산 시각이 2400이면 팔지 않고 다음 날로 넘긴다.",
         "steps": (
-            {"phase": "후보", "what": "장중 스캔 상위 {scan_top_n} → 점수 상위 {score_top_n}(max_universe {max_universe}). 가격 {min_price}원 이상, 거래대금 {min_turnover}원 이상, 코스닥 포함({kosdaq_enabled}). 지수가 {risk_off_index_pct}% 아래면 신규 진입 안 함."},
+            {"phase": "후보", "what": "장중 거래대금 상위 {turnover_top_n} 스캔 → 점수 상위 {score_top_n}(max_universe {max_universe}). 가격 {min_price}원 이상, 거래대금 {min_turnover}원 이상, 코스닥 포함({kosdaq_enabled}). 지수가 {risk_off_index_pct}% 아래면 신규 진입 안 함."},
             {"phase": "하루 진입 필터", "what": "전일 ATR14/SMA20이 {entry_atr_max_pct}%를 넘거나 개장 봉 이격이 {entry_open_dev_min_pct}% 아래인 날은 새로 사지 않는다(보유분 관리는 그대로)."},
             {"phase": "진입 조건", "what": "정배열이고 이격이 −{pullback_pct}% ~ +{entry_upper_pct}% 안(존, max_dev_pct {max_dev_pct}). 존 히스테리시스 {zone_hyst_pct}%."},
             {"phase": "매수 주문", "what": "3분봉(interval_min {interval_min}) SMA{sma_period} 기준 지정가. SMA 아래에서만(add_below_sma_only {add_below_sma_only}). 추가 매수 없음(buy_split_steps {buy_split_steps}). 금액 = 자산 × {base_pct} (바닥 {notional_floor_krw}원 ~ 상한 {notional_cap_krw}원, 스프레드 가중 {weight_spread})."},

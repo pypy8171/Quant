@@ -1140,7 +1140,7 @@ def build_criteria(cfg: dict):
             continue
         out["strategies"].append({
             "type": s.get("type"),
-            "scan_top_n": s.get("scan_top_n"),
+            "turnover_top_n": s.get("turnover_top_n"),
             "value_top_n": s.get("value_top_n"),
             "max_universe": s.get("max_universe"),
             "require_aligned": s.get("require_aligned"),
@@ -1715,8 +1715,8 @@ async function tick(){
   const rs=c.regime_strategies||{}; const rk=c.risk||{};
   document.getElementById('criteria').innerHTML=`
     <div><span class="k">국면별 전략</span> RISK_ON=[${eb((rs.RISK_ON||[]).join(', '))}] · NEUTRAL=[${eb((rs.NEUTRAL||[]).join(', '))}] · RISK_OFF=[${eb((rs.RISK_OFF||[]).join(', '))||'없음(신규 진입 안 함)'}]</div>
-    <div><span class="k">진입 로직</span> 시총상위∪거래대금상위 스캔 → 일봉 정배열(SMA5&gt;10&gt;20)${st.require_aligned?' 필수':''} + 눌림 존</div>
-    <div><span class="k">스캔 규모</span> 시총 top ${eb(st.scan_top_n)} ∪ 거래대금 top ${eb(st.value_top_n)} → 등록상한 ${eb(st.max_universe)}종목</div>
+    <div><span class="k">진입 로직</span> 거래대금 상위 축 합집합 스캔 → 일봉 정배열(SMA5&gt;10&gt;20)${st.require_aligned?' 필수':''} + 눌림 존</div>
+    <div><span class="k">스캔 규모</span> 시세 거래대금 top ${eb(st.turnover_top_n)} ∪ KIS 거래대금 top ${eb(st.value_top_n)} → 등록상한 ${eb(st.max_universe)}종목</div>
     <div><span class="k">가격 필터</span> ${won(st.min_price)}원 이상${st.max_price?(' ~ '+won(st.max_price)+'원'):' (상한 무제한)'} · 과확장컷 ${eb(st.max_dev_pct)}</div>
     <div><span class="k">코스닥</span> ${c.kosdaq_enabled?'참여':'미참여(코스피만)'} · 폴링 ${eb(c.fetch_interval_sec)}s · 시세 ${c.rest_price_feed?'REST폴링':'WS'}</div>
     <div><span class="k">리스크 한도</span> 동시보유 ${eb(rk.max_concurrent_positions)} · 종목당 명목 ${won(rk.max_notional_per_ticker)}원 · 총노출 ${rk.max_gross_exposure_pct?(rk.max_gross_exposure_pct*100).toFixed(0)+'%':'미설정'} · 일손실 한도 ${won(rk.daily_loss_limit)}원</div>

@@ -32,7 +32,7 @@ namespace
 //  초당 한도에 걸린다(09-23: 100ms 일 때 이 축에서만 되보냄 452건, 전날 0건).
 constexpr int kSectorCallIntervalMs = 250;
 
-// 캐시는 둘로 나눈다. KIS 축(랭킹 3개·업종 23콜, 약 6.5초)은 union_refresh_sec마다 새로 받고, 유니버스 파일 축은
+// 캐시는 둘로 나눈다. KIS 축(랭킹 2개·업종 23콜, 약 6.5초)은 union_refresh_sec마다 새로 받고, 유니버스 파일 축은
 //  파일이 다시 쓰일 때마다(감시견이 1분마다, D-142) 읽는다. 둘을 한 캐시에 묶으면 파일의 1분 재랭킹이
 //  KIS 주기(120초)만큼 늦게 들어온다.
 CandidateSet g_kis_axes_cache;
@@ -106,7 +106,7 @@ void take_ranking(const std::vector<KisClient::RankingStock>& rank, const DevSca
     }
 }
 
-// data.go.kr 시총∪거래대금 유니버스 피드. KIS 30행캡·ETF 잠식을 우회한 개별주 깊은 집합이라
+// data.go.kr 종목 목록 기반 거래대금 상위 유니버스 피드(시총 축은 D-146부터 0). KIS 30행캡·ETF 잠식을 우회한 개별주 깊은 집합이라
 //  후보 집합 맨 앞에 넣어 일봉 조회 우선순위를 준다. 파일이 없으면 조용히 스킵한다(하위호환).
 //  전종목 코드→시장 사전(market_map)을 top-N보다 먼저 적재해, KIS 랭킹축 티커의 시장도
 //  해석되게 한다 — 없으면 kosdaq_enabled 게이트가 그쪽으로 샌다.
@@ -353,6 +353,94 @@ void take_full_market(const DevScanCfg& config, const QuoteTable& quotes, Candid
 }
 } // namespace
 
+// 거래대금 상위 축 — 시세 표(재스캔마다 새로 읽는 전 종목 장중 시세)에서 당일 누적 거래대금 상위
+//  turnover_top_n종목을 붓는다. KIS 랭킹은 한 번에 30행, 가격 구간을 갈라도 60행이 끝이라 그보다 깊은
+//  거래대금 순위는 여기서만 나온다. 추가 조회는 없다. 시가총액 축은 대형주가 거래 없이도 자리를
+//  먹어 뺐다 [why D-146].
+//  market_map이 있으면 코스피·코스닥 상장 종목만 본다(ETN·ETF 코드는 사전에 없다). 순위가 같으면
+//  티커 순으로 자른다 — 같은 시세 파일이면 같은 집합이 나오게.
+void take_turnover_top(const DevScanCfg& config, const QuoteTable& quotes, CandidateSet& candidates,
+                       const symbol::SymbolTable& symbols)
+{
+    if (config.turnover_top_n <= 0)
+    {
+        return;
+    }
+
+    struct Ranked
+    {
+        double           value;
+        symbol::Ticker   ticker;
+        symbol::SymbolId symbol;
+    };
+
+    std::vector<Ranked> ranked;
+
+    for (std::size_t index = 0; index < quotes.size(); ++index)
+    {
+        const symbol::SymbolId symbol = static_cast<symbol::SymbolId>(index);
+        const MarketQuote& quote = quotes[index];
+
+        if (quote.price <= 0.0 || quote.value <= 0.0 || quote.name.empty())
+        {
+            continue;
+        }
+
+        if (candidates.have_market_map &&
+            (index >= candidates.market.size() || candidates.market[index] == Market::Unlisted))
+        {
+            continue;
+        }
+
+        if (quote.price < config.min_price || (config.max_price > 0.0 && quote.price > config.max_price))
+        {
+            continue;
+        }
+
+        if (quote.value < config.min_turnover)
+        {
+            continue;
+        }
+
+        ranked.push_back({quote.value, symbols.name(symbol), symbol});
+    }
+
+    std::sort(ranked.begin(), ranked.end(), [](const Ranked& left, const Ranked& right)
+    {
+        if (left.value != right.value)
+        {
+            return left.value > right.value;
+        }
+
+        return left.ticker.view() < right.ticker.view();
+    });
+
+    const std::size_t before = candidates.symbols.size();
+    int taken = 0;
+
+    for (const Ranked& entry : ranked)
+    {
+        if (taken >= config.turnover_top_n)
+        {
+            break;
+        }
+
+        const std::string& name = quotes[entry.symbol].name;
+
+        if (excluded_by_name(name, candidates.etf_drop, candidates.reit_drop))
+        {
+            continue;
+        }
+
+        ++taken;
+        candidates.add(entry.symbol, name);
+    }
+
+    LOG_INFO("[Main] DEVSCALE 거래대금 상위 축: 상위 " + std::to_string(taken) + "종목 중 신규 " +
+             std::to_string(candidates.symbols.size() - before) + " union (시세 " +
+             std::to_string(ranked.size()) + "종목에서)");
+}
+
 Market market_from_text(std::string_view text)
 {
     if (text == "KOSPI")
@@ -428,8 +516,9 @@ void collect_candidates(KisClient& kis, const DevScanCfg& config, const std::str
                         QuoteTable& quotes, CandidateSet& candidates, symbol::SymbolTable& symbols)
 {
     // 정배열 프리필터로 상당수가 탈락하므로 여기선 max_register로 자르지 않고 넓게 모은다.
-    //  축 순서(파일 → KIS 랭킹 → 업종 → 전 종목)가 일봉 조회 우선순위라 캐시를 나눠도 이 순서로 합친다.
+    //  축 순서(파일 → 거래대금 상위 → KIS 랭킹 → 업종 → 전 종목)가 일봉 조회 우선순위라 캐시를 나눠도 이 순서로 합친다.
     take_universe_file_cached(config, candidates, symbols);
+    take_turnover_top(config, quotes, candidates, symbols);
 
     CandidateSet kis_axes(symbols.capacity());
     long long age = -1;
@@ -456,10 +545,9 @@ void collect_candidates(KisClient& kis, const DevScanCfg& config, const std::str
     }
     else
     {
-        take_ranking(kis.fetch_kr_ranking(config.scan_top_n, "J"), config, quotes, kis_axes, symbols);            // 시총 상위
         take_ranking(kis.fetch_value_ranking(config.value_top_n, "J", "3"), config, quotes, kis_axes, symbols);   // 거래대금 상위
         // 랭킹 TR은 축마다 상위 30행 고정(연속조회 불가)이라 정렬축을 하나 더 union해 집합을 넓힌다.
-        //  거래증가율(1)은 대형주에 편중된 시총·거래대금축과 겹침이 적어(중소형 모멘텀) 정배열 후보를 늘린다.
+        //  거래증가율(1)은 대형주에 편중된 거래대금축과 겹침이 적어(중소형 모멘텀) 정배열 후보를 늘린다.
         take_ranking(kis.fetch_value_ranking(config.value_top_n, "J", "1"), config, quotes, kis_axes, symbols);   // 거래증가율 상위
         take_sector_ranking(kis, config, quotes, kis_axes, symbols);
 
