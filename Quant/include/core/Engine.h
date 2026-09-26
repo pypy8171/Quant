@@ -31,6 +31,7 @@
 #ifdef HAS_ZMQ
 #include "ipc/ZmqBridge.h"
 #endif
+#include "ipc/DbManager.h"
 #include "ipc/Heartbeat.h"
 #include "ipc/OrderChannel.h"
 #include "ipc/ControlChannel.h"
@@ -239,6 +240,8 @@ public:
     void set_capture_tickers(const std::vector<std::string>& tickers) { feed_.capture_tickers = tickers; }
     // 전략이 안 봐도 WS 칸을 가장 앞 순위로 쥐는 종목(체결만). [why D-138]
     void set_websocket_pin_tickers(const std::vector<std::string>& tickers) { websocket_pin_tickers_ = tickers; }
+    // 체결을 TimescaleDB에 바로 넣는 적재기 설정. enabled면 시세를 받는 프로세스(Both·Feed)만 start()에서 만든다. [why D-148]
+    void set_database(const db::DbConfig& config) { database_config_ = config; }
 
     // 원장 저널 폴더 — 거래일마다 ledger_YYYYMMDD.bin 하나(틱 캡처와 달리 재기동이 같은 파일에 이어 쓴다, 다음 기동이
     //  리플레이해야 하므로). start()가 열고 리플레이하며, 못 열면 기동을 거부한다. 빈 문자열이면 저널 없이 동작
@@ -936,6 +939,11 @@ private:
 
 #ifdef HAS_ZMQ
     std::unique_ptr<ZmqBridge> zmq_bridge_;
+#endif
+    db::DbConfig database_config_;
+#ifdef HAS_PQ
+    // WS 수신 스레드(소켓마다 하나)가 on_trade를 부른다. start()가 만들고 stop()이 수신 스레드를 거둔 뒤 멈춘다. [why D-148]
+    std::unique_ptr<db::DbManager> database_;
 #endif
 
     // ── 운영 채널(Ops·수동주문) ──────────────────────────────────────────────

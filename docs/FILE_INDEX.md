@@ -169,7 +169,6 @@
 - [test_adjust_splits.py](../PYQuant/tests/test_adjust_splits.py) — 수정주가 분할 보정 회귀 테스트
 - [test_backtest_engine.py](../PYQuant/tests/test_backtest_engine.py) — 백테스트 엔진 리팩터 회귀 테스트
 - [test_costs_golden.py](../PYQuant/tests/test_costs_golden.py) — costs·ledger 골든 테스트 10케이스. C++ OrderGate 수식·원장 CSV 실제 행과 0원 오차, 상수는 C++ 소스에서 다시 읽어 대조
-- [test_db_client.py](../PYQuant/tests/test_db_client.py) — DbClient의 COPY 글자 변환과 WSL 직결 주소 조회 검사(DB가 떠 있으면 실제 왕복까지)
 - [test_indicators.py](../PYQuant/tests/test_indicators.py) — 지표 함수 pytest 검증
 - [test_metrics.py](../PYQuant/tests/test_metrics.py) — 경로 시뮬레이션 손계산 검증
 - [test_point_in_time.py](../PYQuant/tests/test_point_in_time.py) — `as_of_join` 테스트 5건: 미래 행 차단·정정 우선·첫 공시 전 결측·max_age·왼쪽 순서 보존
@@ -182,7 +181,6 @@
 
 - [__init__.py](../PYQuant/tools/__init__.py) — 빈 패키지 초기화 파일
 - [bench_market_open.py](../PYQuant/tools/bench_market_open.py) — 개장 동시호가 부하를 재현해 틱·신호·주문·체결을 bench_* 테이블에 적재하는 벤치마크
-- [bench_recorder.py](../PYQuant/tools/bench_recorder.py) — 적재기 한 프로세스의 구간별 초당 행 수 측정(json.loads·버퍼·행 변환·DB 쓰기, D-144)
 - [compare_ws_bars.py](../PYQuant/tools/compare_ws_bars.py) — WS 1분봉과 REST 분봉 비교표 생성
 - [dart_fin_history_fill.py](../PYQuant/tools/dart_fin_history_fill.py) — DART 주요계정(fnlttMultiAcnt) 2015~ 전 상장사를 100종목 묶음으로 받아 원본·정리본 parquet(PYQuant/data/fin/)에 append-only 적재, 발효일은 rcept_no 앞 8자리
 - [dart_shares_history_fill.py](../PYQuant/tools/dart_shares_history_fill.py) — 상장주식수 시점 고정 표 적재: 2015~2019 DART stockTotqySttus 사업보고서(B) + 2020~ data.go.kr 월말 스냅샷(A) → `PYQuant/data/fin/shares_point_in_time.parquet`
@@ -291,6 +289,7 @@
 ### Quant/include/ipc/
 
 - [ControlChannel.h](../Quant/include/ipc/ControlChannel.h) — 전략→주문 제어 요청 레코드와 표 모으기 규칙(문자열·포인터 없음, D-114 단계 2.5 갈래 B)
+- [DbManager.h](../Quant/include/ipc/DbManager.h) — 엔진 DB 적재 — 수신 스레드는 체결을 큐에 넣기만 하고, 전용 적재 워커가 TimescaleDB ticks 표에 COPY로 넣는다(파이썬 적재기와 같은 표·열, D-148)
 - [FillChannel.h](../Quant/include/ipc/FillChannel.h) — 시세→주문 체결통보 통로 — 체결 한 건을 고정 칸 레코드(FillNotice)로 옮겨 큐 하나로 나른다(문자열·포인터 없음, D-114 단계 5)
 - [FillKey.h](../Quant/include/ipc/FillKey.h) — 체결통보 중복 키 — 날짜·주문번호·시각·수량·가격 정수 5개와 해시(D-112)
 - [Heartbeat.h](../Quant/include/ipc/Heartbeat.h) — 심장박동 — 박동 공백만으로 상대의 생사를 판정한다(시계·스레드 없음, D-114 단계 2)
@@ -438,6 +437,7 @@
 ### Quant/src/ipc/
 
 - [ControlChannel.cpp](../Quant/src/ipc/ControlChannel.cpp) — ControlChannel.h 구현 — 계좌 칸 넣고 빼기, 여러 줄로 오는 표를 온전할 때만 거는 모으개(D-114 단계 2.5 갈래 B)
+- [DbManager.cpp](../Quant/src/ipc/DbManager.cpp) — DbManager.h 구현 — 적재 워커, 워커가 나눠 보는 연결 상태표, 시간 한도 있는 종료, COPY 글자, 윈도우에서는 WSL 주소로 바로 붙기(D-148)
 - [FillChannel.cpp](../Quant/src/ipc/FillChannel.cpp) — FillChannel.h 구현 — 글자 경계에서 자르는 칸 옮기기, 말이 안 되는 레코드 버리고 세기(D-114 단계 5)
 - [FillKey.cpp](../Quant/src/ipc/FillKey.cpp) — FillKey.h 구현 — 체결통보 중복 키 — 날짜·주문번호·시각·수량·가격 정수 5개와 해시(D-112)
 - [Heartbeat.cpp](../Quant/src/ipc/Heartbeat.cpp) — Heartbeat.h 구현 — 박동 찍기와 정상·의심·사망 전이 판정(D-114 단계 2)
@@ -536,6 +536,7 @@
 - [test_control_channel.cpp](../Quant/tests/test_control_channel.cpp) — 제어 요청 단위 테스트: 계좌 칸, 표 모으기, 남의 표 줄·반쪽 표·닫기 누락을 안 거는지 검증(D-114 단계 2.5 갈래 B)
 - [test_control_plane.cpp](../Quant/tests/test_control_plane.cpp) — 제어 요청 통로 단위 테스트: 순번·낱말별 줄 가르기·주문 쪽 적용·표 모으기·보호 주문 창구·가득 참 셈(D-114)
 - [test_data_poller.cpp](../Quant/tests/test_data_poller.cpp) — REST 현재가 폴러 단위 테스트(D-053·D-062)
+- [test_db_manager.cpp](../Quant/tests/test_db_manager.cpp) — 엔진 DB 적재 단위 테스트: COPY 글자·시각, 비밀번호 없으면 꺼짐, DB 없을 때 넘침·종료 시간, TSDB_PASSWORD가 있으면 ticks 왕복·표 잠금 중 종료(D-148)
 - [test_devscale_rules.cpp](../Quant/tests/test_devscale_rules.cpp) — DevScale 순수 판정 단위 테스트 25검사(트레일 경계·원장 읽기·ATR·진입 허용, D-111)
 - [test_displacement_desk.cpp](../Quant/tests/test_displacement_desk.cpp) — 교체 진입 창구 단위 테스트: 최약체 매도 앞세우기, 매수 보류·자리 나면 발주·시한 만료(D-114 단계 2.5 갈래 B)
 - [test_engine.cpp](../Quant/tests/test_engine.cpp) — Engine 한 바퀴 단위 테스트(시험용 시세 주입, KIS·소켓 없이 틱→주문→모의 체결→원장, 수신 스레드 1×샤드 1과 2×2, 캡처 파일 리플레이는 KIS 없이)
@@ -597,6 +598,7 @@
 
 ### Quant/tools/
 
+- [bench_db_manager.cpp](../Quant/tools/bench_db_manager.cpp) — 엔진 DB 적재 처리량 측정 — 적재 워커 수별 COPY 행/초(D-148)
 - [bench_rest_pool.cpp](../Quant/tools/bench_rest_pool.cpp) — REST 커넥션 풀링 효과 측정 벤치
 - [feed_latency_measure.cpp](../Quant/tools/feed_latency_measure.cpp) — 실 KIS WS 다세션 시세 수신 지연 측정 도구
 - [future_quote_check.cpp](../Quant/tools/future_quote_check.cpp) — 국내 선물 시세 조회 점검 도구(필드명 확정용)

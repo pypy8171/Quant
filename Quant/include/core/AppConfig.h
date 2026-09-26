@@ -6,6 +6,7 @@
 #include "api/KisClient.h"
 #include "core/RegimeFileJudge.h"
 #include "core/Types.h"
+#include "ipc/DbManager.h"
 #include "regime/RegimeFeed.h"
 #include "risk/OrderGate.h"
 
@@ -50,6 +51,8 @@ struct AppConfig
     int                    load_test_session_hhmmss = 0; // 체결에 찍을 장중 시각 시작점. 0이면 실제 시계
     // 기동 때 종목 순번표를 적을 파일. 인젝터가 이것을 읽어 순번을 맞춘다. 비면 안 적는다
     std::string            load_test_universe_out;
+    // 체결을 엔진이 TimescaleDB ticks 표에 바로 넣는다. 끄면 예전처럼 파이썬 적재기가 ZMQ로 받아 넣는다. [why D-148]
+    db::DbConfig           database;
     std::string            regime_file;
     int                    regime_stale_sec = kDefaultRegimeStaleSec;
     int                    regime_halt_expire_min = kDefaultRegimeHaltExpireMin;

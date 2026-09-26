@@ -8,9 +8,9 @@
 
 ### 스레드 모델
 
-<!-- sync: Quant/include/core/Engine.h@b8135d9 Quant/src/core/Engine.cpp@6dd162b Quant/include/core/DataPoller.h@684eb50 Quant/include/core/SignalDispatcher.h@d27c5ea Quant/include/core/OrderRateLimiter.h@2650fb2 Quant/include/core/LedgerReconciler.h@9d218c7 Quant/include/core/WakeGate.h@b842ec7 Quant/include/core/BarAggregator.h@f50287c Quant/include/core/LatencyTrace.h@b01b770 Quant/include/core/ReconcilePlan.h@5e8d897 -->
+<!-- sync: Quant/include/core/Engine.h@c035ead Quant/src/core/Engine.cpp@3dfc0e3 Quant/include/core/DataPoller.h@684eb50 Quant/include/core/SignalDispatcher.h@d27c5ea Quant/include/core/OrderRateLimiter.h@2650fb2 Quant/include/core/LedgerReconciler.h@9d218c7 Quant/include/core/WakeGate.h@b842ec7 Quant/include/core/BarAggregator.h@f50287c Quant/include/core/LatencyTrace.h@b01b770 Quant/include/core/ReconcilePlan.h@5e8d897 -->
 스레드는 다섯 개(데이터·전략·주문·체결·제어)에 전략 샤드 M개(config `strategy_shards`, 기본 1, 상한 64), 소켓마다
-수신 스레드 하나, 프리페치 풀(코어/4, 2~8개)을 더한다. 스레드끼리는 락 없는 큐로만 넘긴다. 각 스레드는 기동 직후
+수신 스레드 하나, 프리페치 풀(코어/4, 2~8개)을 더한다. `database.enabled`면 시세 쪽에 DB 적재 워커 M개가 더 붙는다(D-148). 스레드끼리는 락 없는 큐로만 넘긴다. 각 스레드는 기동 직후
 `thread_name::set_current`(`Quant/include/utils/ThreadName.h`)로 이름을 붙여 procwatch와 디버거에 그 이름으로 보인다.
 
 #### 한 프로세스로 띄울 때 (`Both`, 기본)
@@ -47,6 +47,7 @@ flowchart LR
 | 제어 | 토큰 선갱신, 시세 끊김 대응(재연결·REST 대체), 구독 요청 반영·구독 칸 재배정(D-132), 큐 고수위 기록, 마감 자기 종료, 갈라 띄운 날에는 짝이 종료 사유를 적고 나갔는지 5초마다 보고 따라 내려가기 | 주기 작업 | `Quant/include/core/FeedSupervisor.h`·`Quant/include/core/SessionEndJudge.h` |
 | 프리페치 ×2~8 | 전략이 `on_start`에서 맡긴 REST 당기기를 3초 간격으로 | 전략 스냅샷 | `Quant/include/core/PrefetchPool.h` · `test_prefetch_pool` (D-115) |
 | 줄 스레드 ×(소켓+1) | 갈라 띄울 때만. 시세 통로 한 줄을 꺼내 행렬로 나눈다 | 시세 통로 → 행렬 | `Engine::feed_lane_thread_fn` · `test_market_feed_channel` |
+| DB 적재 워커 ×M | `database.enabled`이고 시세 쪽일 때만. 엔진이 맨 먼저 띄우고 맨 나중에 거둔다(D-148). 체결을 `symbol_id % M`으로 나눠 받아 TimescaleDB `ticks`에 COPY로 넣는다. 워커마다 DB 연결 하나. 수신 스레드는 큐에 넣기만 해 DB가 멈춰도 기다리지 않는다. 접속 실패는 워커가 나눠 보는 상태표에 적혀 한 워커만 다시 붙어 본다. 종료는 `database.stop_grace_ms` 뒤 취소를 보내 끝낸다 | 적재 큐 → `ticks` 표 | `Quant/include/ipc/DbManager.h` · `test_db_manager` |
 
 #### 큐
 
@@ -64,6 +65,7 @@ flowchart LR
 | `manual_inbox` | MPSC | 운영단말 서버 → 주문 | 256 | 단말에 거부로 답한다 |
 | 시세 통로 (갈라 띄울 때) | 줄별 SPSC 한 쌍 (`Quant/include/ipc/MarketFeedChannel.h`) | 시세 쪽 수신 → 전략 쪽 줄 스레드 | 체결 16,384·호가 8,192 | 버리고 센다 (`feed_channel_overflow`) |
 | 체결 통로 (갈라 띄울 때) | SPSC 하나 (`Quant/include/ipc/FillChannel.h`) | 시세 쪽 수신 → 주문 쪽 체결 스레드 | 1,024 | 버리고 센다 (`fill_channel_overflow`) |
+| DB 적재 큐 (켰을 때) | 적재 워커마다 MPSC (`Quant/include/ipc/DbManager.h`) | 수신 여럿 → 적재 워커 k (`symbol_id % 적재 워커 수`) | 262,144 (`database.tick_queue_capacity`) | 버리고 센다. 합계는 종료 줄 `[DbManager] 종료`에 싣는다 |
 
 버리고 세는 카운터는 제어 스레드가 1분마다 `[큐 고수위]` 줄에 싣고, `scripts/check_runtime_health.py`가 0이 아니면 FAIL로 판정한다.
 큐가 비면 소비자는 `Quant/include/core/WakeGate.h`의 `wake::WakeGate`에서 잠들고 생산자가 깨운다 — 전략은 200us yield 뒤,
@@ -199,7 +201,7 @@ flowchart LR
 
 ### 남는 것과 가는 곳
 
-엔진은 같은 사건을 네 군데에 따로 남긴다. 넷은 서로 상류·하류가 아니라 각자 독립이라, 하나가 막혀도 나머지는 남는다.
+엔진은 같은 사건을 네 군데(DB 관리자를 켜면 다섯 군데)에 따로 남긴다. 이들은 서로 상류·하류가 아니라 각자 독립이라, 하나가 막혀도 나머지는 남는다.
 
 | 남는 것 | 무엇이 | 형식 | 켜는 설정 | DB까지 |
 |---|---|---|---|---|
@@ -207,13 +209,14 @@ flowchart LR
 | 원장 저널 `ledger_YYYYMMDD.bin` | 주문 의도·접수·거부·체결·취소·조정·시드·현금·당일손익 | 바이너리 — 192바이트 고정 레코드, 순번·CRC32 ([LedgerJournal.h](../Quant/include/risk/LedgerJournal.h)) | `ledger_journal_dir` | [PYQuant/tools/ledger_recorder.py](../PYQuant/tools/ledger_recorder.py)가 파일 꼬리를 따라 읽어 `ledger_events`, 거기서 `fills`·`orders`·`positions`로 옮긴다 |
 | 시세 캡처 `ticks_<기동시각>.bin` | 체결·호가·일봉·그날 유니버스 | 바이너리 — QTCAP v2 ([TickCapture.h](../Quant/include/core/TickCapture.h)) | `capture_dir` | 안 간다. 리플레이 백테스트 입력이다 |
 | ZMQ 발행 | 체결틱·신호·주문·체결·엔진 상태 | 토픽 한 프레임 + JSON 한 프레임 ([ZmqBridge.cpp](../Quant/src/ipc/ZmqBridge.cpp)) | `zmq_pub_port` 블록 (ZeroMQ가 링크돼 있으면 늘 켜짐) | [PYQuant/main.py](../PYQuant/main.py) `record`가 구독해 체결틱·신호·엔진 상태만 넣는다. 주문·체결은 저널 쪽이 넣는다(D-113) |
+| 엔진 DB 적재 | 체결틱 | libpq COPY 글자 — 파이썬 적재기와 같은 `ticks` 표·열, `ts`는 큐에 넣은 벽시계 ms([DbManager.cpp](../Quant/src/ipc/DbManager.cpp)) | `database.enabled` (기본 꺼짐, 비밀번호는 환경변수 `TSDB_PASSWORD`) | 엔진이 바로 넣는다. 켠 날에는 `record`를 `--record-ticks` 없이 띄운다 — 둘 다 넣으면 같은 체결이 두 번 들어간다(D-148) |
 
 읽을 때 헷갈리기 쉬운 세 가지.
 
 - 주문은 **ZMQ 발행이 CSV 기록보다 먼저** 나간다. CSV가 발행의 상류가 아니다.
 - 시세는 캡처와 발행이 담는 것이 다르다 — 호가와 일봉은 캡처에만 있고 발행되지 않는다.
 - 잃는 방식이 다르다. 저널은 못 적으면 주문을 아예 안 보내고(그래서 정본), 캡처는 큐가 차면 버리고 센 다음 넘어가며,
-  ZMQ는 구독자가 느리면 큐 상한에서 버린다. 되짚을 근거로 삼을 것은 저널이고 DB는 그 복제본이다.
+  ZMQ는 구독자가 느리면 큐 상한에서 버린다. 엔진 DB 적재도 큐가 차면 버리고 센다. 되짚을 근거로 삼을 것은 저널이고 DB는 그 복제본이다.
 
 ### 핵심 타입 (`Quant/include/core/Types.h`)
 

@@ -22,16 +22,16 @@ graph LR
   api -->|13| core
   api -->|8| utils
   core -->|11| api
-  core -->|13| ipc
+  core -->|15| ipc
   core -->|10| risk
   core -->|4| strategy
   core -->|38| utils
   exchange -->|7| core
   exchange -->|3| utils
   ipc -->|2| api
-  ipc -->|16| core
+  ipc -->|19| core
   ipc --> risk
-  ipc -->|6| utils
+  ipc -->|8| utils
   main -->|4| core
   main --> strategy
   main -->|2| utils
@@ -59,14 +59,14 @@ graph LR
 
 | 헤더 | 유입 수 |
 |---|---|
-| `utils/Logger.h` | 53 |
-| `core/Types.h` | 47 |
+| `utils/Logger.h` | 54 |
+| `core/Types.h` | 48 |
 | `core/KstTime.h` | 32 |
-| `utils/ThreadName.h` | 24 |
+| `utils/ThreadName.h` | 25 |
 | `core/SymbolTable.h` | 22 |
 | `core/Engine.h` | 16 |
+| `core/WakeGate.h` | 13 |
 | `core/LatencyTrace.h` | 12 |
-| `core/WakeGate.h` | 12 |
 
 ## 파일 단위 상세
 
@@ -179,6 +179,8 @@ graph LR
   subgraph ipc
     n_ipc_ControlChannel_cpp["ipc/ControlChannel.cpp"]
     n_ipc_ControlChannel_h["ipc/ControlChannel.h"]
+    n_ipc_DbManager_cpp["ipc/DbManager.cpp"]
+    n_ipc_DbManager_h["ipc/DbManager.h"]
     n_ipc_FillChannel_cpp["ipc/FillChannel.cpp"]
     n_ipc_FillChannel_h["ipc/FillChannel.h"]
     n_ipc_FillKey_cpp["ipc/FillKey.cpp"]
@@ -333,6 +335,7 @@ graph LR
   n_core_AppConfig_h --> n_api_KisClient_h
   n_core_AppConfig_h --> n_core_RegimeFileJudge_h
   n_core_AppConfig_h --> n_core_Types_h
+  n_core_AppConfig_h --> n_ipc_DbManager_h
   n_core_AppConfig_h --> n_risk_OrderGate_h
   n_core_BarAggregator_cpp --> n_core_BarAggregator_h
   n_core_BarAggregator_cpp --> n_core_KstTime_h
@@ -390,6 +393,7 @@ graph LR
   n_core_Engine_h --> n_core_WakeGate_h
   n_core_Engine_h --> n_core_WebSocketSlotPlan_h
   n_core_Engine_h --> n_ipc_ControlChannel_h
+  n_core_Engine_h --> n_ipc_DbManager_h
   n_core_Engine_h --> n_ipc_Heartbeat_h
   n_core_Engine_h --> n_ipc_LedgerSnapshot_h
   n_core_Engine_h --> n_ipc_OpsServer_h
@@ -555,6 +559,12 @@ graph LR
   n_exchange_ZmqOrderFeed_h --> n_core_SymbolTable_h
   n_ipc_ControlChannel_cpp --> n_ipc_ControlChannel_h
   n_ipc_ControlChannel_h --> n_core_Types_h
+  n_ipc_DbManager_cpp --> n_core_MpscQueue_h
+  n_ipc_DbManager_cpp --> n_core_WakeGate_h
+  n_ipc_DbManager_cpp --> n_ipc_DbManager_h
+  n_ipc_DbManager_cpp --> n_utils_Logger_h
+  n_ipc_DbManager_cpp --> n_utils_ThreadName_h
+  n_ipc_DbManager_h --> n_core_Types_h
   n_ipc_FillChannel_cpp --> n_ipc_FillChannel_h
   n_ipc_FillChannel_h --> n_core_Types_h
   n_ipc_FillChannel_h --> n_ipc_SharedSpscRing_h

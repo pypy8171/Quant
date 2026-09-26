@@ -538,6 +538,15 @@ void Engine::start()
         return;
     }
 
+#ifdef HAS_PQ
+    // DB 적재 워커는 다른 스레드보다 먼저 띄워 끝까지 둔다. 체결은 시세 쪽 수신 스레드로만 들어오므로
+    //  시세 쪽 프로세스에만 둔다. [why D-148]
+    if (database_config_.enabled && runs_feed_side())
+    {
+        database_ = std::make_unique<db::DbManager>(database_config_);
+    }
+#endif
+
 #ifdef HAS_ZMQ
     // 발행 채널은 역할마다 하나씩 둔다 — 시세는 체결을, 전략은 신호를, 주문은 주문·체결통보를 낸다.
     //  제어(KILL·잔고 조회)는 주문 쪽 포트에만 붙어 전략이 멎어도 살아 있다. [why D-114]
@@ -785,6 +794,15 @@ void Engine::stop()
 
     reap_retired(/*force=*/true);
     prefetch_pool_.stop(); // 전략이 전부 자기 작업을 뗀 뒤 스레드를 접는다
+
+#ifdef HAS_PQ
+    // 맨 먼저 띄운 DB 워커는 맨 나중에 거둔다 — 체결을 넣는 수신 스레드가 다 멈춘 뒤라야 남은 행이 다 들어간다.
+    if (database_)
+    {
+        database_->stop();
+    }
+#endif
+
     print_statistics();
 
     // 여기까지 왔으면 스레드를 다 회수한 깨끗한 종료다. 쪽지에 사유를 적어 둬야 짝과 다음 기동이

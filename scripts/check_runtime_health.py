@@ -144,6 +144,9 @@ LEDGER_UNNUMBERED_RE = re.compile(r"\[OrderRouter\] 재기동 미결 주문 짝 
 LEDGER_RESOLVE_RE = re.compile(r"\[Engine\] 원장 미결 주문 대조: 되살림 (\d+)건 · 선점해제 (\d+)건 · 저널기록실패 (\d+)건")
 # 주문 앞 선기록(OrderRouter)과 잠금 밖 묶음 기록(PositionLedger, W-2) 실패를 같이 센다.
 LEDGER_WRITE_FAIL_RE = re.compile(r"\[(?:OrderRouter|PositionLedger)\] 원장 저널 기록 실패")
+# 엔진 DB 관리자(D-148) — 시작 줄이 있으면 켜진 것, 종료 줄에 받은·넣은·버린 행 수가 있다.
+DB_WRITER_START_RE = re.compile(r"\[DbManager\] 시작 — ")
+DB_WRITER_END_RE = re.compile(r"\[DbManager\] 종료 — 받음 (\d+), 넣음 (\d+), 큐 넘쳐 버림 (\d+), 거절 (\d+), 모호 (\d+)")
 # 하루 리셋은 거래일당 한 번이다 — 같은 날짜로 두 번 찍히면 재기동이 되살린 선점·당일 손익을 지운 것이다(전수조사 A-4)
 DAILY_RESET_RE = re.compile(r"\[OrderGate\] 하루 리셋 - 거래일\((\d{8})\)")
 # 미체결 조회가 실패하면 재기동 대조는 접수된 주문을 살려 두고 넘어간다 — 잦으면 선점 대조가 그날 안 된 것이다(전수조사 B1-2)
@@ -1735,6 +1738,8 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
     ledger_unnumbered = 0                        # 되살림 가운데 접수 응답 전에 끊겨 미체결과 짝지은 주문
     ledger_start_failures = 0                    # 기동 시점 저널 기록 실패 누계(기동마다 한 줄)
     ledger_write_fails = 0                       # 장중 저널 기록 실패(안 나간 주문 + 파일이 원장보다 뒤처진 묶음)
+    db_writer_starts = 0                         # 엔진 DB 관리자 시작 줄 수(D-148)
+    db_writer_counts = [0, 0, 0, 0, 0]           # 종료 줄 합: 받음·넣음·큐 넘쳐 버림·거절·모호
     daily_resets: dict[str, int] = {}            # 거래일(yyyymmdd) → 하루 리셋 횟수. 1보다 크면 A-4 재발
     open_order_fails = 0                         # 미체결 조회 실패 줄 수
     beat_dead = 0                                # 주문 스레드가 전략을 죽었다고 본 횟수
@@ -1818,6 +1823,10 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
                 ledger_start_failures = max(ledger_start_failures, int(found.group(3)))
             if LEDGER_WRITE_FAIL_RE.search(line):
                 ledger_write_fails += 1
+            if DB_WRITER_START_RE.search(line):
+                db_writer_starts += 1
+            if found := DB_WRITER_END_RE.search(line):
+                db_writer_counts = [total + int(value) for total, value in zip(db_writer_counts, found.groups())]
             if found := DAILY_RESET_RE.search(line):
                 daily_resets[found.group(1)] = daily_resets.get(found.group(1), 0) + 1
             if OPEN_ORDER_FAIL_RE.search(line):
@@ -2352,6 +2361,12 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
         ledger_row("원장 저널 기록", ledger_failures == 0, "FAIL",
                    f"저널 기록 실패 {ledger_failures}건 (기대 0 — 못 적은 주문은 보내지 않으니 그만큼 매매가 빈다."
                    f" 기동 {ledger_start_failures}건 · 장중 {ledger_write_fails}건)"),
+        ("DB 적재(엔진)",
+         db_writer_starts == 0 or sum(db_writer_counts[2:]) == 0, "WARN",
+         "적재기 꺼짐 — 판정 안 함" if db_writer_starts == 0 else
+         f"받음 {db_writer_counts[0]} · 넣음 {db_writer_counts[1]} · 큐 넘쳐 버림 {db_writer_counts[2]}"
+         f" · 거절 {db_writer_counts[3]} · 모호 {db_writer_counts[4]} (기대: 버림·거절·모호 0."
+         f" 모호는 들어갔는지 모르는 행, 종료 줄이 없는 기동은 세지 못한다)"),
         ledger_row("원장 재기동 대조", ledger_released == 0 and ledger_truncated == 0, "WARN",
                    f"되살림 {ledger_restored}건(접수 응답 전 끊김 짝지음 {ledger_unnumbered}) · 선점해제 {ledger_released}건 · 꼬리 잘림 {ledger_truncated}회"
                    f" (리플레이 최대 {max(ledger_replays, default=0)}건 — 선점해제는 원장에 적고 KIS엔 안 간 주문,"

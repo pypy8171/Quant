@@ -67,6 +67,7 @@ void configure_channels(Engine& engine, const AppConfig& app)
     engine.set_capture_directory(app.capture_directory);
     engine.set_capture_tickers(app.capture_tickers);
     engine.set_websocket_pin_tickers(app.websocket_pin_tickers);
+    engine.set_database(app.database);
     engine.set_ledger_journal(app.ledger_journal_directory, app.ledger_journal_fsync);
     engine.set_strategy_shards(app.strategy_shards);
 

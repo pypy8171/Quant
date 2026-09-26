@@ -30,7 +30,7 @@
     {
       "from": "core",
       "to": "ipc",
-      "weight": 13
+      "weight": 15
     },
     {
       "from": "core",
@@ -65,7 +65,7 @@
     {
       "from": "ipc",
       "to": "core",
-      "weight": 16
+      "weight": 19
     },
     {
       "from": "ipc",
@@ -75,7 +75,7 @@
     {
       "from": "ipc",
       "to": "utils",
-      "weight": 6
+      "weight": 8
     },
     {
       "from": "main",
@@ -223,6 +223,7 @@
     "exchange/OrderWire.h": "exchange",
     "exchange/ZmqOrderFeed.h": "exchange",
     "ipc/ControlChannel.h": "ipc",
+    "ipc/DbManager.h": "ipc",
     "ipc/FillChannel.h": "ipc",
     "ipc/FillKey.h": "ipc",
     "ipc/Heartbeat.h": "ipc",
@@ -340,6 +341,7 @@
     "exchange/OrderWire.cpp": "exchange",
     "exchange/ZmqOrderFeed.cpp": "exchange",
     "ipc/ControlChannel.cpp": "ipc",
+    "ipc/DbManager.cpp": "ipc",
     "ipc/FillChannel.cpp": "ipc",
     "ipc/FillKey.cpp": "ipc",
     "ipc/Heartbeat.cpp": "ipc",
@@ -494,6 +496,7 @@
       "api/KisClient.h",
       "core/RegimeFileJudge.h",
       "core/Types.h",
+      "ipc/DbManager.h",
       "risk/OrderGate.h"
     ],
     "core/BarAggregator.cpp": [
@@ -569,6 +572,7 @@
       "core/WakeGate.h",
       "core/WebSocketSlotPlan.h",
       "ipc/ControlChannel.h",
+      "ipc/DbManager.h",
       "ipc/Heartbeat.h",
       "ipc/LedgerSnapshot.h",
       "ipc/OpsServer.h",
@@ -867,6 +871,16 @@
       "ipc/ControlChannel.h"
     ],
     "ipc/ControlChannel.h": [
+      "core/Types.h"
+    ],
+    "ipc/DbManager.cpp": [
+      "core/MpscQueue.h",
+      "core/WakeGate.h",
+      "ipc/DbManager.h",
+      "utils/Logger.h",
+      "utils/ThreadName.h"
+    ],
+    "ipc/DbManager.h": [
       "core/Types.h"
     ],
     "ipc/FillChannel.cpp": [
@@ -1484,6 +1498,7 @@
       "core/Engine.h",
       "core/TickCapture.h",
       "exchange/ZmqOrderFeed.h",
+      "ipc/DbManager.cpp",
       "ipc/ZmqBridge.h",
       "utils/Logger.cpp"
     ],
@@ -1614,6 +1629,7 @@
       "core/WebSocketSlotPlan.h",
       "exchange/MatchingEngine.h",
       "ipc/ControlChannel.h",
+      "ipc/DbManager.h",
       "ipc/FillChannel.h",
       "ipc/MarketFeedChannel.h",
       "ipc/OrderChannel.h",
@@ -1656,6 +1672,7 @@
       "core/StrategyShard.h",
       "core/TickCapture.h",
       "core/WakeGate.cpp",
+      "ipc/DbManager.cpp",
       "ipc/OrderRouter.cpp",
       "ipc/ZmqBridge.h",
       "strategy/DeviationScaleStrategy.h"
@@ -1669,6 +1686,11 @@
       "core/Engine.h",
       "ipc/ControlChannel.cpp",
       "ipc/SharedLayout.h"
+    ],
+    "ipc/DbManager.h": [
+      "core/AppConfig.h",
+      "core/Engine.h",
+      "ipc/DbManager.cpp"
     ],
     "ipc/FillChannel.h": [
       "ipc/FillChannel.cpp",
@@ -1950,6 +1972,7 @@
       "core/SignalDispatcher.cpp",
       "core/UniverseRescan.cpp",
       "exchange/ZmqOrderFeed.cpp",
+      "ipc/DbManager.cpp",
       "ipc/OpsServer.cpp",
       "ipc/OrderRouter.cpp",
       "ipc/ZmqBridge.cpp",
@@ -1992,6 +2015,7 @@
       "core/ReplaySource.cpp",
       "core/TickCapture.cpp",
       "exchange/ZmqOrderFeed.cpp",
+      "ipc/DbManager.cpp",
       "ipc/OpsServer.cpp",
       "ipc/OrderRouter.cpp",
       "ipc/ZmqBridge.cpp",
@@ -2012,11 +2036,11 @@
   "hubs": [
     {
       "header": "utils/Logger.h",
-      "in_degree": 53
+      "in_degree": 54
     },
     {
       "header": "core/Types.h",
-      "in_degree": 47
+      "in_degree": 48
     },
     {
       "header": "core/KstTime.h",
@@ -2024,7 +2048,7 @@
     },
     {
       "header": "utils/ThreadName.h",
-      "in_degree": 24
+      "in_degree": 25
     },
     {
       "header": "core/SymbolTable.h",
@@ -2035,11 +2059,11 @@
       "in_degree": 16
     },
     {
-      "header": "core/LatencyTrace.h",
-      "in_degree": 12
+      "header": "core/WakeGate.h",
+      "in_degree": 13
     },
     {
-      "header": "core/WakeGate.h",
+      "header": "core/LatencyTrace.h",
       "in_degree": 12
     },
     {
@@ -2067,15 +2091,15 @@
       "in_degree": 9
     },
     {
+      "header": "core/MpscQueue.h",
+      "in_degree": 7
+    },
+    {
       "header": "ipc/LedgerSnapshot.h",
       "in_degree": 7
     },
     {
       "header": "core/MarketSession.h",
-      "in_degree": 6
-    },
-    {
-      "header": "core/MpscQueue.h",
       "in_degree": 6
     },
     {

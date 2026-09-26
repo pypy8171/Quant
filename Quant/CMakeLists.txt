@@ -97,6 +97,16 @@ else()
   set(ZMQ_FOUND FALSE)
 endif()
 
+# ─── 의존성: libpq (선택적) — 엔진 체결 적재 DbManager [why D-148] ──
+# Windows: vcpkg install libpq  /  Linux: sudo apt install libpq-dev
+find_package(PostgreSQL QUIET)
+if(PostgreSQL_FOUND)
+  message(STATUS "libpq found: ${PostgreSQL_LIBRARIES}")
+  add_compile_definitions(HAS_PQ)
+else()
+  message(STATUS "libpq not found — DB writer disabled")
+endif()
+
 # ─── 소스 파일 ────────────────────────────────────────────────────────────
 # KisClient 구현은 도메인별 7파일이다(D-048). 도구·벤치 타깃도 이 목록을 그대로 쓴다.
 set(KIS_CLIENT_SOURCES
@@ -239,6 +249,10 @@ if(ZMQ_FOUND)
   list(APPEND ENGINE_SOURCES src/ipc/ZmqBridge.cpp)
 endif()
 
+if(PostgreSQL_FOUND)
+  list(APPEND ENGINE_SOURCES src/ipc/DbManager.cpp)
+endif()
+
 # ─── 헤더에서 내려온 구현 ────────────────────────────
 add_library(quant_header_impl STATIC ${HEADER_IMPL_SOURCES})
 target_include_directories(quant_header_impl PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -285,6 +299,10 @@ endif()
 
 if(ZMQ_FOUND)
   target_link_libraries(quant_engine PUBLIC ${ZMQ_LIB})
+endif()
+
+if(PostgreSQL_FOUND)
+  target_link_libraries(quant_engine PUBLIC PostgreSQL::PostgreSQL)
 endif()
 
 # ─── 실행 파일 ──────────────────────────────────────
@@ -604,6 +622,15 @@ add_executable(test_tick_capture tests/test_tick_capture.cpp)
 target_include_directories(test_tick_capture PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 if(UNIX)
     target_link_libraries(test_tick_capture PRIVATE pthread)
+endif()
+
+# ─── 테스트 타겟: DbManager COPY 글자·DB 없을 때 넘침·종료 한도, DB가 있으면 넣고 되읽기 (D-148) ──
+if(PostgreSQL_FOUND)
+  add_executable(test_db_manager tests/test_db_manager.cpp)
+  target_link_libraries(test_db_manager PRIVATE quant_engine)
+  # 처리량 벤치 — ctest에는 넣지 않는다(DB와 비밀번호가 있어야 돈다).
+  add_executable(bench_db_manager tools/bench_db_manager.cpp)
+  target_link_libraries(bench_db_manager PRIVATE quant_engine)
 endif()
 
 # ─── 테스트 타겟: ReplaySource 순서 보존·종목 필터·속도·도중 정지 (헤더 전용, D-071) ──
@@ -967,6 +994,9 @@ set(QUANT_ASSERT_TARGETS
     test_universe_rescan
     test_control_plane
 )
+if(PostgreSQL_FOUND)
+    list(APPEND QUANT_ASSERT_TARGETS test_db_manager)
+endif()
 foreach(_qt IN LISTS QUANT_ASSERT_TARGETS)
     if(MSVC)
         target_compile_options(${_qt} PRIVATE /UNDEBUG)

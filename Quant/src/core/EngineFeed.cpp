@@ -658,6 +658,14 @@ void Engine::connect_feed()
                            }
 #endif
 
+#ifdef HAS_PQ
+                           // DB 적재도 같은 자리 — 큐에 넣기만 하고, 차면 버리고 센다. [why D-148]
+                           if (database_)
+                           {
+                               database_->on_trade(trade);
+                           }
+#endif
+
                            if (role_ == ProcessRole::Feed)
                            {
                                push_feed_trade(lane, trade);

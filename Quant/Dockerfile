@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libcurl4-openssl-dev \
     libssl-dev \
     libzmq3-dev \
+    libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
@@ -30,6 +31,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libcurl4 \
     libssl3 \
     libzmq5 \
+    libpq5 \
     tzdata \
     ca-certificates \
     && ln -snf /usr/share/zoneinfo/$TZ /etc/localtime \

@@ -229,6 +229,19 @@ AppConfig parse_config(const json& document)
     app.load_test_session_hhmmss      = load_test_node.value("session_start_hhmmss", 0);
     app.load_test_universe_out        = load_test_node.value("universe_out", std::string());
 
+    const json& database_node              = jsonx::object_or_empty(document, "database");
+    db::DbConfig& database                 = app.database;
+    database.enabled                       = database_node.value("enabled", false);
+    database.host                          = database_node.value("host", database.host);
+    database.port                          = database_node.value("port", database.port);
+    database.dbname                        = database_node.value("dbname", database.dbname);
+    database.user                          = database_node.value("user", database.user);
+    database.tick_workers                  = database_node.value("tick_workers", database.tick_workers);
+    database.tick_queue_capacity           = database_node.value("tick_queue_capacity", database.tick_queue_capacity);
+    database.batch_rows                    = database_node.value("batch_rows", database.batch_rows);
+    database.flush_ms                      = database_node.value("flush_ms", database.flush_ms);
+    database.stop_grace_ms                 = database_node.value("stop_grace_ms", database.stop_grace_ms);
+
     app.regime_file                   = document.value("regime_file", std::string());
     app.regime_stale_sec              = document.value("regime_stale_sec", app.regime_stale_sec);
     app.regime_halt_expire_min        = document.value("regime_halt_expire_min", app.regime_halt_expire_min);

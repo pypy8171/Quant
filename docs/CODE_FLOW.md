@@ -61,8 +61,8 @@ config를 `AppConfig`로 읽고 `Engine::configure`가 세터에 옮기고 전�
    `Quant/src/core/AppConfig.cpp:196` · `AppConfig parse_config(const json& document)`
 3. [`run_trade`](../Quant/src/main.cpp#L258) — `Engine engine(...)` → `engine.configure(app)` → `load_strategies` → `engine.start()` → `is_running` 대기 → `engine.stop()`. join은 여기 한 곳  
    `Quant/src/main.cpp:258` · `static int run_trade(const AppConfig& app, ProcessRole role)`
-4. [`Engine::configure`](../Quant/src/core/EngineConfigure.cpp#L197) — AppConfig 값을 엔진 세터로 — 채널(ZMQ·운영단말)·국면별 전략 집합·시세 전용 KIS·리스크(게이트 한도·매매 창) 네 묶음  
-   `Quant/src/core/EngineConfigure.cpp:197` · `void Engine::configure(const AppConfig& app)`
+4. [`Engine::configure`](../Quant/src/core/EngineConfigure.cpp#L198) — AppConfig 값을 엔진 세터로 — 채널(ZMQ·운영단말)·국면별 전략 집합·시세 전용 KIS·리스크(게이트 한도·매매 창) 네 묶음  
+   `Quant/src/core/EngineConfigure.cpp:198` · `void Engine::configure(const AppConfig& app)`
 5. [`load_strategies`](../Quant/src/strategy/StrategyFactory.cpp#L1139) — config `strategies[]`를 전략 객체로. 새 전략을 붙이는 자리(docs/ENGINE_ARCHITECTURE.md '전략 추가하기')  
    `Quant/src/strategy/StrategyFactory.cpp:1139` · `void load_strategies(StrategyLoadCtx& context, const json& strategies)`
 6. [`Engine::add_strategy`](../Quant/src/core/EngineStrategyThread.cpp#L23) — 전략 등록. 심볼 해석기(`set_symbol_resolver` → `SymbolTable::intern`)가 여기서 주입된다  
@@ -252,10 +252,10 @@ config를 `AppConfig`로 읽고 `Engine::configure`가 세터에 옮기고 전�
 
 SIGINT·운영단말 종료 → `request_shutdown` → `stop`. 체결 큐는 비울 때까지 돌고 로거는 `flush`한다.
 
-60. [`Engine::request_shutdown`](../Quant/src/core/Engine.cpp#L665) — 시그널 핸들러에서 불려도 되는 최소 동작(플래그·깨우기)만  
-   `Quant/src/core/Engine.cpp:665` · `void Engine::request_shutdown(std::string_view reason, ipc::SharedShutdownReason recorded_reason)`
-61. [`Engine::stop`](../Quant/src/core/Engine.cpp#L696) — stop_token 요청 → join 순서(control → order → 샤드 → strategy → data → WS 끊기 → fill 마지막, 큐를 비우고 끝난다) → ZMQ·운영단말 서버 정지 → 전략 `on_stop` → 통계 출력. 미체결 예약주문 기억은 여기서 사라진다(재기동 규칙, CLAUDE.md '장중 운영')  
-   `Quant/src/core/Engine.cpp:696` · `void Engine::stop()`
+60. [`Engine::request_shutdown`](../Quant/src/core/Engine.cpp#L674) — 시그널 핸들러에서 불려도 되는 최소 동작(플래그·깨우기)만  
+   `Quant/src/core/Engine.cpp:674` · `void Engine::request_shutdown(std::string_view reason, ipc::SharedShutdownReason recorded_reason)`
+61. [`Engine::stop`](../Quant/src/core/Engine.cpp#L705) — stop_token 요청 → join 순서(control → order → 샤드 → strategy → data → WS 끊기 → fill 마지막, 큐를 비우고 끝난다) → ZMQ·운영단말 서버 정지 → 전략 `on_stop` → 통계 출력. 미체결 예약주문 기억은 여기서 사라진다(재기동 규칙, CLAUDE.md '장중 운영')  
+   `Quant/src/core/Engine.cpp:705` · `void Engine::stop()`
 
 ## 부록. 실계좌 없이 같은 경로를 돌리는 것
 

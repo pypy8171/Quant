@@ -377,6 +377,7 @@ cmake --build Quant/build_win
 
 # ZMQ 사용 시 먼저:
 # vcpkg install zeromq:x64-windows
+# 엔진 DB 관리자(database, D-148) 사용 시: vcpkg install libpq:x64-windows
 
 # 실행
 .\Quant\build_win\quant_trader.exe Quant\config\config.json
@@ -409,7 +410,7 @@ docker compose up -d
 
 **Linux 로컬 빌드 (Docker 없이):**
 ```bash
-sudo apt install -y cmake ninja-build g++-14 libcurl4-openssl-dev libzmq3-dev
+sudo apt install -y cmake ninja-build g++-14 libcurl4-openssl-dev libzmq3-dev libpq-dev
 cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-14 -B Quant/build -S Quant
 cmake --build Quant/build
 ./Quant/build/quant_trader Quant/config/config.json
@@ -425,6 +426,8 @@ cmake --build Quant/build
 | 컴파일 플래그 | `/utf-8 /D_WIN32_WINNT=0x0A00` | `-Wall -Wextra -fsanitize=address(debug)` |
 | ZeroMQ | vcpkg install zeromq | `apt install libzmq3-dev` |
 | ZMQ 없을 때 | HAS_ZMQ 미정의 → ZmqBridge 전체 비활성 | 동일 |
+| libpq(엔진 DB 관리자) | vcpkg install libpq | `apt install libpq-dev` |
+| libpq 없을 때 | HAS_PQ 미정의 → DbManager 빌드 안 함, `database` 설정은 무시 | 동일 |
 
 ---
 
