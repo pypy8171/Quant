@@ -65,7 +65,11 @@ void Engine::data_thread_fn(std::stop_token stop_token)
 
         if (!market_now)
         {
-            wake::sleep_unless_stopped(stop_token, 60s); // 정지 요청이면 바로 깬다 — 장 외 종료가 60초를 기다리지 않는다
+            // 개장은 모두 정각 분(09:00·16:00·22:30)에 온다. 60초씩 자면 개장 전이를 최대 60초 늦게 잡아 개장 직후
+            //  주문의 선점·초당 주문 창이 늦은 리셋에 지워진다(전수조사 A-4) — 다음 정각 분 직후까지만 잔다.
+            // 정지 요청이면 바로 깬다 — 장 외 종료가 대기를 다 채우지 않는다.
+            const int seconds_into_minute = ::kst::sec_of_day(std::time(nullptr)) % 60;
+            wake::sleep_unless_stopped(stop_token, std::chrono::seconds(60 - seconds_into_minute) + 200ms);
             continue;
         }
 
