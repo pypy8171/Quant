@@ -7157,6 +7157,11 @@ Yahoo 차트·FRED CSV를 받아 파이썬과 같은 식으로 `regime.json`·�
 요청(Connection 줄만)과 브라우저 UA에는 응답하지 않고 연결을 붙잡는다(20초 시간 초과) — 파이썬 requests와 같은
 `Accept`·`Accept-Encoding` 줄을 붙이면 0.1초에 온다.
 
+**6단계 — 파이썬 시세·재랭킹 경로 걷기**(같은 날): 시세판을 끈 설정에서만 쓰던 길을 지운다 — `scripts/live_prices_feed.py`,
+감시견의 `universe_feed.py` 1분 재실행과 시세 창, config `prices_file`과 스캐너의 파일 읽기. 시세판이 없거나 첫 판 전이면 표를
+비우고 KIS 랭킹 축 가격만 쓴다(`clear_quote_table`). 파일 폴백은 아무도 갱신하지 않는 파일을 읽어 정배열·이격 판정을 전일
+종가에 묶었으므로 비우는 편이 낫다. `universe_feed.py`는 손 실행과 `pit_universe_backfill.py`용으로 남긴다.
+
 **연결**: D-028 · D-142 · D-146 · `Quant/include/universe/MarketBoard.h` · `Quant/src/universe/UniverseCandidates.cpp`
 `take_board_axis` · `scripts/auto_trade_day.ps1` `BoardInEngine`·`regimeInEngine` · `Quant/include/regime/RegimeFeed.h` ·
 `Quant/tools/regime_feed_once.cpp`(한 사이클 대조 도구).

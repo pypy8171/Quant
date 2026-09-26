@@ -153,7 +153,7 @@ id = "universe"
 name = "1. 유니버스 — [전략] 볼 종목을 고르고 구독을 요청하기까지"
 summary = "예전에는 파이썬이 종목 목록과 시세 파일을 만들었다. 지금은 전략 프로세스의 `MarketBoard` 스레드가 네이버에서 전 종목 목록과 현재가·거래대금·시총을 받고, `scan_devscale`이 KIS 일봉으로 걸러 점수를 매긴다. 고른 종목은 전략 객체가 되고, 구독 요청은 제어 링으로 시세 프로세스에 간다."
 review = [
-  "시세판이 비었을 때(첫 5초·네이버 실패) 스캔이 파일판(`universe_scan.json`·`prices_live.json`)으로 넘어가는지",
+  "시세판이 비었을 때(첫 5초·네이버 실패) 스캔이 전날 `universe_scan.json`과 KIS 랭킹 축 가격만으로 도는지",
   "스캔이 REST를 많이 부르는 구간(일봉)이 장 전 `DailyWarm` 캐시로 빠지는지",
   "보유 종목·청산 관리 종목이 스캔 신규 등록에서 빠지는지",
 ]
@@ -171,7 +171,7 @@ review = [
   [[stage.step]]
   sym = "start_scan_services"
   file = "Quant/src/strategy/DevScaleLoader.cpp"
-  what = "`market_board:true`면 MarketBoard 스레드와 DailyWarm 스레드를 띄운다. false면 파이썬 `PYQuant/tools/universe_feed.py`가 쓰는 파일을 읽는다"
+  what = "`market_board:true`면 MarketBoard 스레드와 DailyWarm 스레드를 띄운다. false면 두 스레드 없이 KIS 랭킹 축과 전날 `universe_scan.json`만 쓴다"
 
   [[stage.step]]
   sym = "universe::MarketBoard::run"

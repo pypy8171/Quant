@@ -47,8 +47,8 @@ graph LR
   strategy -->|5| universe
   strategy -->|9| utils
   universe -->|2| api
-  universe -->|17| core
-  universe -->|25| utils
+  universe -->|16| core
+  universe -->|23| utils
   utils --> core
 ```
 
@@ -61,7 +61,7 @@ graph LR
 |---|---|
 | `utils/Logger.h` | 56 |
 | `core/Types.h` | 49 |
-| `core/KstTime.h` | 32 |
+| `core/KstTime.h` | 31 |
 | `utils/ThreadName.h` | 26 |
 | `core/SymbolTable.h` | 22 |
 | `core/Engine.h` | 18 |
@@ -783,12 +783,8 @@ graph LR
   n_universe_UniverseItb_cpp --> n_utils_EtfFilter_h
   n_universe_UniverseItb_cpp --> n_utils_JsonNode_h
   n_universe_UniverseItb_cpp --> n_utils_Logger_h
-  n_universe_UniverseQuotes_cpp --> n_core_KstTime_h
   n_universe_UniverseQuotes_cpp --> n_core_Types_h
-  n_universe_UniverseQuotes_cpp --> n_universe_MaAlign_h
   n_universe_UniverseQuotes_cpp --> n_universe_MarketBoard_h
-  n_universe_UniverseQuotes_cpp --> n_utils_EtfFilter_h
-  n_universe_UniverseQuotes_cpp --> n_utils_JsonNode_h
   n_universe_UniverseQuotes_cpp --> n_utils_Logger_h
   n_universe_UniverseRiskGate_cpp --> n_core_KstTime_h
   n_universe_UniverseRiskGate_cpp --> n_core_Types_h
@@ -978,9 +974,8 @@ C++ 엔진·Python 보조 프로세스·스크립트가 파일로 주고받는 �
 | 파일 | 쓰는 쪽 | 읽는 쪽 | 언급만 |
 |---|---|---|---|
 | `regime.json` | `PYQuant/tools/macro_regime_feed.py`, `Quant/src/core/EngineRegime.cpp` | `PYQuant/tools/macro_regime_feed.py`, `Quant/src/core/AppConfig.cpp`, `Quant/src/core/EngineDataThread.cpp`, `Quant/src/core/EngineRegime.cpp`, `Quant/src/core/RegimeFileJudge.cpp`, `scripts/dashboard_server.py`, `scripts/notify_trades.py` | `Quant/include/core/AppConfig.h`, `Quant/include/core/Engine.h`, `Quant/include/core/RegimeFileJudge.h`, `Quant/src/core/EngineConfigure.cpp`, `Quant/src/ipc/ZmqBridge.cpp` |
-| `prices_live.json` | `scripts/live_prices_feed.py` | `PYQuant/tools/universe_feed.py`, `scripts/live_prices_feed.py` |  |
 | `trades_*.csv` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/backfill_fills_db.py`, `scripts/exit_ev_dashboard.py` | `PYQuant/dashboard/backfill_live.py`, `PYQuant/tests/test_stats.py`, `Quant/src/ipc/OrderRouter.cpp`, `Quant/src/strategy/DevScaleLoader.cpp`, `scripts/backfill_fills_db.py`, `scripts/check_runtime_health.py`, `scripts/exit_ev.py`, `scripts/exit_ev_dashboard.py`, `scripts/parse_quant_log.py`, `scripts/trade_costs.py` | `scripts/_logdir.py`, `scripts/notify_trades.py` |
-| `universe*.json` | `PYQuant/tools/load_injector.py`, `Quant/src/universe/MarketBoard.cpp`, `scripts/make_load_test_config.py` | `PYQuant/main.py`, `PYQuant/tools/full_universe_dump.py`, `PYQuant/tools/load_injector.py`, `PYQuant/tools/universe_feed.py`, `Quant/src/strategy/DevScaleLoader.cpp`, `Quant/src/universe/UniverseCandidates.cpp`, `scripts/exit_ev_dashboard.py`, `scripts/live_prices_feed.py`, `scripts/make_load_test_config.py`, `scripts/market_close_minute_backfill.py`, `scripts/notify_trades.py` | `Quant/include/universe/MarketBoard.h`, `Quant/include/universe/UniverseScanner.h`, `Quant/src/api/KisUniverse.cpp`, `scripts/dashboard_server.py` |
+| `universe*.json` | `PYQuant/tools/load_injector.py`, `Quant/src/universe/MarketBoard.cpp`, `scripts/make_load_test_config.py` | `PYQuant/main.py`, `PYQuant/tools/full_universe_dump.py`, `PYQuant/tools/load_injector.py`, `PYQuant/tools/universe_feed.py`, `Quant/src/strategy/DevScaleLoader.cpp`, `Quant/src/universe/UniverseCandidates.cpp`, `scripts/exit_ev_dashboard.py`, `scripts/make_load_test_config.py`, `scripts/market_close_minute_backfill.py`, `scripts/notify_trades.py` | `Quant/include/universe/MarketBoard.h`, `Quant/include/universe/UniverseScanner.h`, `Quant/src/api/KisUniverse.cpp`, `scripts/dashboard_server.py` |
 | `open_orders.txt` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/seed_open_orders.py` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/seed_open_orders.py` |  |
 | `quant_trader.log` | `PYQuant/tools/log_report.py`, `scripts/build_review_entry.py`, `scripts/dashboard_server.py`, `scripts/summarize_trading_day.py` | `PYQuant/tools/compare_ws_bars.py`, `scripts/check_runtime_health.py`, `scripts/dashboard_server.py`, `scripts/extract_swap_what_if.py`, `scripts/notify_trades.py`, `scripts/parse_quant_log.py`, `scripts/seed_open_orders.py`, `scripts/summarize_trading_day.py` | `Quant/src/core/CommandLine.cpp`, `scripts/_logdir.py`, `scripts/exit_ev_dashboard.py` |
 | `kis_token_*.json` |  |  | `PYQuant/kis/client.py`, `Quant/src/api/KisAuth.cpp` |

@@ -127,7 +127,7 @@ def fetch_yahoo(sym: str, timeout: float = 8.0) -> dict:
 #  직후 몇 분간 전날 종가에 멈춰 있는데(09-15 09:01 실측: 개장 1분 지났는데도 premarket 판정을
 #  못 벗어나 어제 -3.26%를 그대로 오늘로 표결, 매수비율이 30%까지 눌림 — 사용자 보고), 네이버는
 #  marketStatus로 개장 여부를 직접 주고 지연도 없다(같은 시각 KIS 실측 -0.30%/+0.38%와 일치).
-#  scripts/live_prices_feed.py가 이미 같은 네이버 벌크 시세로 종목 가격을 받는 패턴이라 인증도 새로 안 든다.
+#  엔진 안 시세판(Quant/src/universe/MarketBoard.cpp)이 같은 네이버 벌크 시세로 종목 가격을 받는 패턴이라 인증도 새로 안 든다.
 NAVER_INDEX_UA = {"User-Agent": "Mozilla/5.0", "Referer": "https://finance.naver.com/"}
 NAVER_INDEX_SYMBOLS = {"KOSPI": "KOSPI", "KOSDAQ": "KOSDAQ"}  # SYMBOLS 키 → 네이버 itemCode
 

@@ -90,7 +90,10 @@ struct DevScaleSizing
     double krw_cap       = 0.0;  // 원, 종목당 천장
     double krw_cap_z     = 1.5;  // 천장에 닿는 점수 z
 
-    bool krw_on() const { return krw_floor > 0.0 && krw_cap >= krw_floor; }
+    bool krw_on() const
+    {
+        return krw_floor > 0.0 && krw_cap >= krw_floor;
+    }
 };
 
 // 주기적 재스캔의 시계. 판정은 core/UniverseExit.h [why D-077].
@@ -185,7 +188,10 @@ void publish_entry_priority(Engine& engine, EntryPriorityMerger& merger, const s
 
 void drop_marked(std::vector<symbol::SymbolId>& scanned, const std::vector<bool>& marks)
 {
-    std::erase_if(scanned, [&marks](symbol::SymbolId symbol) { return has_symbol(marks, symbol); });
+    std::erase_if(scanned, [&marks](symbol::SymbolId symbol)
+    {
+        return has_symbol(marks, symbol);
+    });
 }
 
 // ─── 슬리브 ─────────────────────────────────────────────────────────────────
@@ -198,8 +204,15 @@ public:
     DevScaleSleeve(Engine& engine, DevScaleParams parameters, universe::DevScanCfg scan_config, DevScaleSizing sizing,
                    std::shared_ptr<EntryPriorityMerger> merger);
 
-    const DevScaleParams&       parameters() const { return parameters_; }
-    const universe::DevScanCfg& scan_config() const { return scan_config_; }
+    const DevScaleParams&       parameters() const
+    {
+        return parameters_;
+    }
+
+    const universe::DevScanCfg& scan_config() const
+    {
+        return scan_config_;
+    }
 
     // 종목 하나의 전략을 만든다(초기 등록·재스캔 공용).
     std::unique_ptr<StrategyBase> make(symbol::SymbolId symbol) const;
@@ -447,8 +460,7 @@ universe::DevScanCfg parse_scan_config(const json& node, const DevScaleParams& p
     //  기존 동작(재스캔마다 새로 수집)이 유지된다.
     read_or_keep(node, "union_refresh_sec", config.union_refresh_sec);
     read_or_keep(node, "max_dev_pct", config.max_deviation_percent);
-    read_or_keep(node, "universe_file", config.universe_file); // 거래대금 상위 종목 파일(시세판 또는 universe_feed.py가 씀), 비면 KIS 랭킹만
-    read_or_keep(node, "prices_file", config.prices_file);
+    read_or_keep(node, "universe_file", config.universe_file); // 거래대금 상위 종목 파일(시세판이 씀), 비면 KIS 랭킹만
     read_or_keep(node, "market_board", config.market_board);
     read_or_keep(node, "min_turnover", config.min_turnover);
     read_or_keep(node, "full_market", config.full_market);
@@ -684,8 +696,14 @@ void register_scan_universe(LoadPass& context, const std::shared_ptr<DevScaleSle
 
     // 등록 총수 상한은 스캔 1회 상한(max_universe)과 같게 둔다 — 해제가 느리게 따라오므로
     //  상한이 없으면 총수가 그 값을 넘어 는다.
-    engine.set_universe_rescan([sleeve](KisClient& kis) { return sleeve->rescan(kis); },
-                               gate_factory(context, [sleeve](symbol::SymbolId symbol) { return sleeve->make(symbol); }),
+    engine.set_universe_rescan([sleeve](KisClient& kis)
+    {
+        return sleeve->rescan(kis);
+    },
+                               gate_factory(context, [sleeve](symbol::SymbolId symbol)
+                               {
+                                   return sleeve->make(symbol);
+                               }),
                                policy.rescan_sec, static_cast<size_t>(sleeve->scan_config().max_register),
                                policy.drop_after_sec, policy.block_after_sec, policy.return_confirm);
     engine.seed_universe_rescan(seeded);

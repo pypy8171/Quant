@@ -1,6 +1,6 @@
 // universe/MarketBoard.h — 전 종목 시세판. 엔진 안의 스레드 하나가 네이버에서 종목 목록(하루 한 번)과 전 종목
 //  시세(몇 초마다)를 받아 들고 있고, 1분마다 시장별 시총 상위 ∪ 거래대금 상위로 유니버스를 다시 뽑는다.
-//  왜 있나: 이 일을 하던 파이썬 보조 프로세스 둘(scripts/live_prices_feed.py·PYQuant/tools/universe_feed.py)이
+//  왜 있나: 이 일을 하던 파이썬 보조 프로세스 둘(시세 파일 전달·PYQuant/tools/universe_feed.py 재랭킹, 09-26 걷음)이
 //  파일로 값을 넘겼다. 엔진 밖 프로세스가 죽으면 판정이 조용히 전일 값으로 얼어붙었고, 엔진은 같은 값을 파일
 //  파싱으로 다시 읽었다. 여기서 받으면 파일도 파싱 왕복도 없다. [why D-147]
 //
@@ -104,7 +104,10 @@ public:
     void stop(); // 되돌아올 때 스레드는 멈춰 있다
     ~MarketBoard();
 
-    bool running() const { return running_.load(std::memory_order_acquire); }
+    bool running() const
+    {
+        return running_.load(std::memory_order_acquire);
+    }
 
     // 아직 한 바퀴도 못 받았으면 nullptr.
     std::shared_ptr<const BoardSnapshot> snapshot() const;

@@ -48,8 +48,8 @@ FILL_RE = re.compile(r"체결통보 ODNO=\d+ (\d{6}) (BUY|SELL) (\d+)주")
 RATE_RE = re.compile(r"EGW00201|초당 거래건수")
 WSFALL_RE = re.compile(r"WS → REST 폴링 폴백")
 # 전 종목 시세가 10분 넘게 안 바뀌면 엔진이 재스캔마다 이 경고를 찍는다 — 그동안 정배열·이격 판정이
-#  전일 종가로 얼어붙는 가장 조용한 실패다(UniverseQuotes.cpp). 시세는 엔진 안 시세판(MarketBoard, 5초)이나
-#  보조 프로세스(scripts/live_prices_feed.py, 시세판을 끈 config)가 받는다. 이 줄은 0건이어야 정상이다.
+#  전일 종가로 얼어붙는 가장 조용한 실패다(UniverseQuotes.cpp). 시세는 엔진 안 시세판(MarketBoard, 5초)이
+#  받는다. 이 줄은 0건이어야 정상이다.
 PRICES_STALE_RE = re.compile(r"전 종목 시세가 (\d+)초 지났다")
 # 시세판 한 바퀴(5초)의 모든 요청이 빈 본문으로 끝난 줄. 몇 번은 네이버 쪽 일시 오류지만 1분치(12번)를
 #  넘으면 판이 멈춘 것이다. 재랭킹 보류는 장 시작 직후(누적 거래대금이 비어 가는 동안)에만 정상이다. [why D-147]

@@ -44,7 +44,9 @@ ScanResult scan_devscale(KisClient& kis, const DevScanCfg& config, symbol::Symbo
     using scan_clock = std::chrono::steady_clock;
     const auto scan_start = scan_clock::now();
     auto ms_since = [](scan_clock::time_point from) -> long long
-    { return std::chrono::duration_cast<std::chrono::milliseconds>(scan_clock::now() - from).count(); };
+    {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(scan_clock::now() - from).count();
+    };
 
     const std::string date_yyyymmdd = local_ymd();   // 일봉 캐시·후보 집합 캐시의 거래일 키
     g_lookup_cache.load_today(date_yyyymmdd, symbols); // 장중 재기동 시 일봉 재조회를 막는다
@@ -64,11 +66,11 @@ ScanResult scan_devscale(KisClient& kis, const DevScanCfg& config, symbol::Symbo
     }
     else
     {
-        load_quote_table(config.prices_file, quotes, symbols);   // 시세판 꺼짐, 또는 첫 판 받기 전
+        clear_quote_table(quotes, symbols);   // 시세판 꺼짐, 또는 첫 판 받기 전 — 랭킹 축 가격만 쓴다
     }
 
     const MarketGate gate = build_market_gate(kis, config);
-    const long long gate_ms = ms_since(scan_start);   // 시세 파일 적재 + 지수 조회(REST)
+    const long long gate_ms = ms_since(scan_start);   // 시세 표 적재 + 지수 조회(REST)
 
     if (gate.closed())
     {

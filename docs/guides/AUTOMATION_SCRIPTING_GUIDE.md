@@ -412,7 +412,6 @@ $p.ExitCode           # 이제 채워진다
 while (-not $p.HasExited) {
   if ($p.WaitForExit(60000)) { break }   # 60초 안에 끝나면 true
   Restore-Windows                        # 매 60초마다 부속 창 점검
-  Refresh-Universe                       # 유니버스 재스캔 카운터
 }
 ```
 
@@ -497,8 +496,8 @@ Start-Sleep -Seconds 5; Start-Sleep -Milliseconds 200
 [Xml.XmlConvert]::ToTimeSpan("PT7H").TotalHours             # 예약작업 XML의 ISO 8601 기간
 ```
 
-**시각을 인자로 받을 때** `-Until "15:35"`처럼 문자열로 받고 스크립트 안에서 `ParseExact`로 오늘 날짜에 붙인다. 카운터(`$script:UnivNext`)는
-"다음 실행 시각"을 DateTime으로 들고 `if ($now -lt $script:UnivNext) { return }`로 건너뛴다. 시간대별 간격은 함수 하나(`Get-UnivIntervalMin`)에 모은다.
+**시각을 인자로 받을 때** `-Until "15:35"`처럼 문자열로 받고 스크립트 안에서 `ParseExact`로 오늘 날짜에 붙인다. 주기 작업의 카운터는
+"다음 실행 시각"을 DateTime으로 들고 `if ($now -lt $script:<작업>Next) { return }`로 건너뛴다. 시간대별 간격은 함수 하나에 모은다.
 
 ---
 
@@ -538,7 +537,7 @@ $task.Actions[0].Arguments -match '-Until\s+(\S+)'                     # 등록�
 # 2부 — Python
 
 파이썬 스크립트는 두 부류다. **마감 뒤 결정론 경로**(`market_close_autodoc`·`gen_facts`·`maintain`·`check_*`: 입력 파일을 읽어 문서·JSON을 만들고
-종료코드를 낸다)와 **장중 상주 프로세스**(`dashboard_server`·`notify_trades`·`live_prices_feed`: PowerShell 부속 창 안에서 하루 종일 돈다).
+종료코드를 낸다)와 **장중 상주 프로세스**(`dashboard_server`·`notify_trades`·`macro_regime_feed`: PowerShell 부속 창 안에서 하루 종일 돈다).
 둘 다 표준 라이브러리만으로 짜는 것이 원칙이고(`requests` 하나 예외), 파이썬은 반드시 `py` 런처로 부른다(`python`은 스토어 스텁).
 
 ## 9. 뼈대 — 모든 파이썬 스크립트가 같은 머리를 가진다

@@ -54,7 +54,7 @@
 | 스크립트 | 역할 | 소비자 |
 |---|---|---|
 | `../quant-devtools/gen_facts.py` | 저장소를 세어 `docs/facts.json`을 만들고 표식 블록을 블록 범위로 치환한다. 항목: C++ 전략·전략 로더·Python 전략, OrderGate 거부 지점(`reject_reason =` 개수), 빌드 타깃·ctest 배선 여부, 커맨드·에이전트·스킬·훅(settings.json)·config 파일, 디렉터리 트리, config 키, 80줄 초과 함수. `_private/`·`logs/`·`out/`·`build_*/`는 제외하고 경로는 저장소 상대로만 찍는다 | PROJECT_FACTS.md, HARNESS.md, PROJECT_GUIDE.md, GLOSSARY.md, README.md, CODE_GRAPH_GUIDE.md |
-| `../quant-devtools/gen_code_graph.py` | C++ include 그래프(현행) + Python import 그래프 + 프로세스 경계 파일(regime.json·prices_live.json·trades_*.csv) | CODE_GRAPH.md, code_graph.json |
+| `../quant-devtools/gen_code_graph.py` | C++ include 그래프(현행) + Python import 그래프 + 프로세스 경계 파일(regime.json·universe_scan.json·trades_*.csv) | CODE_GRAPH.md, code_graph.json |
 | `../quant-devtools/check_code_refs.py` | 문서의 경로·`파일::심볼` 실재 검사, `파일:숫자` 줄번호 참조 신규 금지. 심볼 매칭은 `\b심볼\b`만 보고 시그니처·오버로드는 보지 않는다. `auto 이름 = [`(람다)·`#define 이름`도 정의로 인정 | docs-gate |
 | `../quant-devtools/check_plain_language.py` | 기존 + 코드 모드에서 `re.*(` 인자·dict 키·비교식 우변·키워드 인자 값 보호, `--fix`는 보호 줄을 건너뛰고 경고 | lexicon-gate, committer(승인 후) |
 | `scripts/log_patterns.py` | C++ 로그 문구 정규식의 단일 소유자. 구·신 문구 양쪽 허용 | market_close_autodoc, market_close_collect, notify_trades, summarize_trading_day, check_runtime_health |

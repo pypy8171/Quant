@@ -28,7 +28,7 @@ note = "PYQuant/tools/macro_regime_feed.py 가 regime.json 을 쓰고 엔진 데
 [[config_group]]
 name = "유니버스 스캔 — KIS 랭킹 · data.go.kr · 업종"
 keys = ["universe_file", "universe_from_scan", "full_market", "turnover_top_n", "value_top_n", "sector_*", "max_universe", "score_top_n",
-        "min_price", "max_price", "min_turnover", "risk_off_index_pct*", "kosdaq_enabled", "union_refresh_sec", "prices_file"]
+        "min_price", "max_price", "min_turnover", "risk_off_index_pct*", "kosdaq_enabled", "union_refresh_sec", "market_board*"]
 note = "후보 합집합(data.go.kr 파일 ∪ 시세 거래대금 상위 ∪ KIS 거래대금 랭킹 ∪ 업종 등락 축, 시총 축은 D-146에서 뺌)을 union_refresh_sec 마다 다시 만든다."
 
 [[config_group]]
@@ -145,12 +145,12 @@ name = "KIS WebSocket — 구독·재연결·감독"
 note = "한 세션 구독 상한 40(문서 41). 넘치는 종목은 DataPoller 가 REST 현재가로 대신 본다."
 
 [[code_value_group]]
-name = "네이버 시세 보조 프로세스 — prices_live.json"
-note = "scripts/live_prices_feed.py 가 전 후보 종목 현재가·시총을 5초마다 파일로 쓴다(900종목씩 요청 3개 병렬, D-142). 유니버스 재판정(rescan_interval_sec)과 universe_feed.py 재랭킹이 이 파일을 본다."
+name = "엔진 안 시세판 — Quant/src/universe/MarketBoard.h"
+note = "전략 프로세스 안 시세판 스레드가 네이버 종목 목록·벌크 시세를 받아 스캐너에 메모리로 넘기고, 재랭킹 결과를 universe_scan.json 에 쓴다(D-147). 값은 기본값이고 config market_board_* 키가 덮어쓴다."
 
 [[code_value_group]]
-name = "data.go.kr 유니버스 피드 — universe_scan.json"
-note = "PYQuant/tools/universe_feed.py. 감시견이 기동 때 1회 + 장중 1분 간격으로 다시 돌린다(아래 감시견 묶음). 시세는 prices_live.json 재사용이라 재랭킹 한 번의 외부 조회 0(D-142)."
+name = "data.go.kr 유니버스 피드(손 실행·PIT 백필) — universe_feed.py"
+note = "PYQuant/tools/universe_feed.py 는 라이브에서 빠졌고(D-147) 손 실행과 pit_universe_backfill.py 가 쓴다."
 
 [[code_value_group]]
 name = "엔진 — 스레드 주기·장 시간"
@@ -324,8 +324,8 @@ id = "scanner_prices_stale_warn_sec"
 file = "Quant/src/universe/UniverseQuotes.cpp"
 regex = 'constexpr int kPricesStaleWarnSec = (\d+);'
 unit = "초"
-group = "네이버 시세 보조 프로세스 — prices_live.json"
-meaning = "시세 파일이 이보다 오래되면 경고(판정은 계속 그 값으로)"
+group = "엔진 안 시세판 — Quant/src/universe/MarketBoard.h"
+meaning = "시세판의 판이 이보다 오래되면 경고(판정은 계속 그 값으로)"
 
 # --- KIS WS ---
 [[code_value]]
@@ -403,51 +403,59 @@ meaning = "이 초 넘게 틱 없는 보유 종목만 REST 로 보충"
 # --- 네이버 ---
 [[code_value]]
 id = "naver_prices_period_sec"
-file = "scripts/live_prices_feed.py"
-regex = "PERIOD = int\\(os\\.environ\\.get\\('PRICES_PERIOD_SEC', '(\\d+)'\\)\\)"
+file = "Quant/include/universe/MarketBoard.h"
+regex = 'int\s+period_sec\s+= (\d+);'
 unit = "초"
-group = "네이버 시세 보조 프로세스 — prices_live.json"
-meaning = "전 후보 종목 현재가 갱신 주기(env PRICES_PERIOD_SEC 로 덮어씀). rescan_interval_sec 를 여기에 맞춘다"
+group = "엔진 안 시세판 — Quant/src/universe/MarketBoard.h"
+meaning = "전 종목 현재가 한 바퀴 주기(config market_board_period_sec 로 덮어씀). rescan_interval_sec 를 여기에 맞춘다"
 
 [[code_value]]
 id = "naver_prices_chunk"
-file = "scripts/live_prices_feed.py"
-regex = '^CHUNK = (\d+)'
+file = "Quant/include/universe/MarketBoard.h"
+regex = 'size_t\s+codes_per_call\s+= (\d+);'
 unit = "종목/요청"
-group = "네이버 시세 보조 프로세스 — prices_live.json"
+group = "엔진 안 시세판 — Quant/src/universe/MarketBoard.h"
 meaning = "벌크 요청 묶음 크기"
 
 # --- data.go.kr ---
 [[code_value]]
 id = "universe_n_mktcap"
-file = "PYQuant/tools/universe_feed.py"
-regex = '"--n-mktcap",\s+type=int, default=(\d+)'
+file = "Quant/include/universe/MarketBoard.h"
+regex = 'int\s+n_market_value\s+= (\d+);'
 unit = "종목/시장"
-group = "data.go.kr 유니버스 피드 — universe_scan.json"
-meaning = "시총 상위 N(감시견은 인자 없이 → 이 기본)"
+group = "엔진 안 시세판 — Quant/src/universe/MarketBoard.h"
+meaning = "시총 상위 N(0 = 시총 축 끔, D-146. config market_board_n_market_value 로 덮어씀)"
 
 [[code_value]]
 id = "universe_n_turnover"
-file = "PYQuant/tools/universe_feed.py"
-regex = '"--n-turnover", type=int, default=(\d+)'
+file = "Quant/include/universe/MarketBoard.h"
+regex = 'int\s+n_turnover\s+= (\d+);'
 unit = "종목/시장"
-group = "data.go.kr 유니버스 피드 — universe_scan.json"
-meaning = "거래대금 상위 N"
+group = "엔진 안 시세판 — Quant/src/universe/MarketBoard.h"
+meaning = "거래대금 상위 N(config market_board_n_turnover 로 덮어씀)"
 
 [[code_value]]
 id = "universe_min_turnover"
-file = "PYQuant/tools/universe_feed.py"
-regex = '"--min-turnover", type=float, default=([\de.]+)'
+file = "Quant/include/universe/MarketBoard.h"
+regex = 'double\s+min_turnover\s+= ([\de.]+);'
 unit = "원"
-group = "data.go.kr 유니버스 피드 — universe_scan.json"
-meaning = "최소 거래대금"
+group = "엔진 안 시세판 — Quant/src/universe/MarketBoard.h"
+meaning = "재랭킹 후보의 거래대금 하한"
+
+[[code_value]]
+id = "board_rerank_sec"
+file = "Quant/include/universe/MarketBoard.h"
+regex = 'int\s+rerank_sec\s+= (\d+);'
+unit = "초"
+group = "엔진 안 시세판 — Quant/src/universe/MarketBoard.h"
+meaning = "재랭킹 주기(config market_board_rerank_sec 로 덮어씀)"
 
 [[code_value]]
 id = "datagokr_snapshot_min_rows"
 file = "PYQuant/data/datagokr_source.py"
 regex = '^\s+SNAPSHOT_MIN_ROWS = (\d+)'
 unit = "행"
-group = "data.go.kr 유니버스 피드 — universe_scan.json"
+group = "data.go.kr 유니버스 피드(손 실행·PIT 백필) — universe_feed.py"
 meaning = "스냅샷이 이보다 적으면 부분 응답으로 보고 버린다"
 
 # --- 국면 보조 프로세스 (config 묶음에 합류) ---
@@ -910,22 +918,6 @@ group = "감시견·예약작업 — scripts/auto_trade_day.ps1 · market_close_
 meaning = "이 시각 뒤엔 트레이더를 다시 띄우지 않는다(스크립트 기본, 실제는 market_close_timetable 이 넘김)"
 
 [[code_value]]
-id = "watchdog_universe_rescan_min"
-file = "scripts/auto_trade_day.ps1"
-regex = 'function Get-UnivIntervalMin \{\r?\n\s*return (\d+)'
-unit = "분"
-group = "감시견·예약작업 — scripts/auto_trade_day.ps1 · market_close_timetable.ps1"
-meaning = "장중 universe_feed.py 재실행 간격(재사용 경로라 외부 조회 0, 1분 고정)"
-
-[[code_value]]
-id = "watchdog_universe_rescan_stop_hhmm"
-file = "scripts/auto_trade_day.ps1"
-regex = '-ge "(\d{4})"\) \{ return \}'
-unit = "hhmm"
-group = "감시견·예약작업 — scripts/auto_trade_day.ps1 · market_close_timetable.ps1"
-meaning = "이 시각부터 유니버스 재실행 안 함"
-
-[[code_value]]
 id = "watchdog_regime_interval_arg"
 file = "scripts/auto_trade_day.ps1"
 regex = 'macro_regime_feed\.py --interval (\d+)'
@@ -1068,16 +1060,16 @@ meaning = "네이버 테마 조회 주기"
 
 [[cycle]]
 step = "① 전 종목 시총·거래대금 → 후보 파일"
-source = "data.go.kr(전 종목 약 2,700, 전영업일 스냅샷·하루 1회 캐시) + 네이버 실시간(시총·거래대금을 덮어씀)"
+source = "엔진 안 시세판 — 네이버 종목 목록(하루 1회) + ② 의 전 종목 시세"
 what = "시장(코스피·코스닥)별 시총 top{universe_n_mktcap} ∪ 거래대금 top{universe_n_turnover}, 거래대금 ≥ {universe_min_turnover}원 → `Quant/config/universe_scan.json`(약 280종목)"
-every = "감시견이 {watchdog_universe_rescan_min}마다, {watchdog_universe_rescan_stop_hhmm} 까지"
+every = "{board_rerank_sec}마다(시세판 스레드)"
 used_for = "③ 후보 합집합의 한 축. ② 가 현재가를 받을 종목 목록(market_map)"
 
 [[cycle]]
 step = "② 전 종목 현재가"
 source = "네이버 polling API — universe_scan.json 의 market_map 전 종목(약 2,700)을 {naver_prices_chunk}종목씩"
-what = "현재가·등락률·거래대금 → `Quant/config/prices_live.json`"
-every = "{naver_prices_period_sec} (scripts/live_prices_feed.py, 파일이 {scanner_prices_stale_warn_sec} 넘게 낡으면 경고)"
+what = "현재가·거래대금·시총 → 시세판 메모리(스캐너가 재스캔마다 가져감, 파일 없음)"
+every = "{naver_prices_period_sec} (시세판 스레드, 판이 {scanner_prices_stale_warn_sec} 넘게 낡으면 경고)"
 used_for = "④ 이격(max_dev_pct)·가격 필터(min_price {min_price}원)·거래대금 필터(min_turnover). KIS REST 를 안 쓰려고 네이버로"
 
 [[cycle]]

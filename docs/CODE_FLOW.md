@@ -67,8 +67,8 @@ flowchart LR
 
 감시견이 같은 exe를 `--role`만 달리해 띄운다. 구역을 만드는 쪽은 주문이라 주문을 먼저 띄우고, 전략·시세는 30초까지 붙기를 다시 시도한다. `Engine::start()`와 `spawn_threads()`가 `runs_order_side`·`runs_strategy_side`·`runs_feed_side`로 역할마다 부품과 스레드를 고른다.
 
-1. [`Start-TraderProcess`](../scripts/auto_trade_day.ps1#L632) — 감시견이 `quant_trader.exe <config> --role <역할>`로 띄운다. `-Roles order,strategy,feed`면 셋, 기본은 `both` 하나. 하나가 죽으면 정상 종료면 20초 기다리고, 아니면 나머지를 바로 내린다  
-   `scripts/auto_trade_day.ps1:632` · `function Start-TraderProcess([string]$roleName)`
+1. [`Start-TraderProcess`](../scripts/auto_trade_day.ps1#L584) — 감시견이 `quant_trader.exe <config> --role <역할>`로 띄운다. `-Roles order,strategy,feed`면 셋, 기본은 `both` 하나. 하나가 죽으면 정상 종료면 20초 기다리고, 아니면 나머지를 바로 내린다  
+   `scripts/auto_trade_day.ps1:584` · `function Start-TraderProcess([string]$roleName)`
 2. [`main`](../Quant/src/main.cpp#L315) — 진입. 번호 주석이 초기화 순서다 — 콘솔·로거(역할별 로그 파일) → 인자 → `parse_config` → 로그 임계값 → 크래시 핸들러 → `run_trade`  
    `Quant/src/main.cpp:315` · `int main(int argc, char* argv[])`
 3. [`parse_command_line`](../Quant/src/core/CommandLine.cpp#L88) — `--role X`를 `ProcessRole`(Both·Order·Strategy·Feed)로. 이후 모든 역할 분기는 `CommandLine.h`의 `runs_*_side` 세 함수로 본다  
@@ -107,10 +107,10 @@ flowchart LR
 
 14. [`load_strategies`](../Quant/src/strategy/StrategyFactory.cpp#L497) — config `strategies[]`를 타입별 로더로 나눈다. 새 전략을 붙이는 자리(docs/ENGINE_ARCHITECTURE.md '전략 추가하기')  
    `Quant/src/strategy/StrategyFactory.cpp:497` · `void load_strategies(StrategyLoadCtx& context, const json& strategies)`
-15. [`strategy_load::load_deviation_scale`](../Quant/src/strategy/DevScaleLoader.cpp#L729) — DEVIATION_SCALE 로더 — 보유 스냅숏 → 시세판 기동 → 초기 스캔 → 종목마다 전략 등록 → 재스캔 job 등록  
-   `Quant/src/strategy/DevScaleLoader.cpp:729` · `void load_deviation_scale(LoadPass& context, const json& node)`
-16. [`start_scan_services`](../Quant/src/strategy/DevScaleLoader.cpp#L468) — `market_board:true`면 MarketBoard 스레드와 DailyWarm 스레드를 띄운다. false면 파이썬 `PYQuant/tools/universe_feed.py`가 쓰는 파일을 읽는다  
-   `Quant/src/strategy/DevScaleLoader.cpp:468` · `void start_scan_services(const LoadPass& context, const json& node, const universe::DevScanCfg& scan_config)`
+15. [`strategy_load::load_deviation_scale`](../Quant/src/strategy/DevScaleLoader.cpp#L747) — DEVIATION_SCALE 로더 — 보유 스냅숏 → 시세판 기동 → 초기 스캔 → 종목마다 전략 등록 → 재스캔 job 등록  
+   `Quant/src/strategy/DevScaleLoader.cpp:747` · `void load_deviation_scale(LoadPass& context, const json& node)`
+16. [`start_scan_services`](../Quant/src/strategy/DevScaleLoader.cpp#L480) — `market_board:true`면 MarketBoard 스레드와 DailyWarm 스레드를 띄운다. false면 두 스레드 없이 KIS 랭킹 축과 전날 `universe_scan.json`만 쓴다  
+   `Quant/src/strategy/DevScaleLoader.cpp:480` · `void start_scan_services(const LoadPass& context, const json& node, const universe::DevScanCfg& scan_config)`
 17. [`universe::MarketBoard::run`](../Quant/src/universe/MarketBoard.cpp#L366) — KST 날짜가 바뀌면 목록을 새로 받고, 5초마다 시세 한 바퀴, 60초마다 재랭킹  
    `Quant/src/universe/MarketBoard.cpp:366` · `void MarketBoard::run()` · 시험 [test_market_board](../Quant/tests/test_market_board.cpp)
 18. [`universe::MarketBoard::refresh_listing`](../Quant/src/universe/MarketBoard.cpp#L412) — 네이버 `marketValue/{KOSPI,KOSDAQ}`로 전 종목 목록(ETF·ETN 제외). 900종목씩 묶은 폴링 URL을 만든다. data.go.kr 목록을 대신한 자리  
@@ -123,8 +123,8 @@ flowchart LR
    `Quant/src/universe/UniverseFeatures.cpp:641` · `void start_daily_warm(const KisConfig& kis_config, const DevScanCfg& config)`
 22. [`universe::scan_devscale`](../Quant/src/universe/UniverseScanner.cpp#L40) — 스캔 본체 — 시세 표 → 지수 게이트 → 후보 수집 → 일봉 필터 → 점수 → 자르기. 아래 걸음이 이 함수 안의 순서다  
    `Quant/src/universe/UniverseScanner.cpp:40` · `ScanResult scan_devscale(KisClient& kis, const DevScanCfg& config, symbol::SymbolTable& symbols, …`
-23. [`load_quote_table (시세판)`](../Quant/src/universe/UniverseQuotes.cpp#L185) — MarketBoard 판을 시세 표(`QuoteTable`)로 붓는다. 판이 없으면 바로 위 오버로드가 파일판을 읽는다  
-   `Quant/src/universe/UniverseQuotes.cpp:185` · `void load_quote_table(const BoardSnapshot& board, QuoteTable& quotes, symbol::SymbolTable& symbols)`
+23. [`load_quote_table (시세판)`](../Quant/src/universe/UniverseQuotes.cpp#L59) — MarketBoard 판을 시세 표(`QuoteTable`)로 붓는다. 판이 없으면 바로 위 오버로드가 파일판을 읽는다  
+   `Quant/src/universe/UniverseQuotes.cpp:59` · `void load_quote_table(const BoardSnapshot& board, QuoteTable& quotes, symbol::SymbolTable& symbols)`
 24. [`build_market_gate`](../Quant/src/universe/UniverseRiskGate.cpp#L124) — KIS 지수 등락으로 시장별 risk-off. 둘 다 닫히면 빈 결과  
    `Quant/src/universe/UniverseRiskGate.cpp:124` · `MarketGate build_market_gate(KisClient& kis, const DevScanCfg& config)`
 25. [`detail::collect_candidates`](../Quant/src/universe/UniverseCandidates.cpp#L575) — 후보 축 — 시세판 순위 → 거래대금 상위(REST 없음) → KIS 랭킹 → 업종 → 전 종목(`full_market`)  
@@ -146,7 +146,7 @@ flowchart LR
 
 리뷰할 때 볼 것:
 
-- 시세판이 비었을 때(첫 5초·네이버 실패) 스캔이 파일판(`universe_scan.json`·`prices_live.json`)으로 넘어가는지
+- 시세판이 비었을 때(첫 5초·네이버 실패) 스캔이 전날 `universe_scan.json`과 KIS 랭킹 축 가격만으로 도는지
 - 스캔이 REST를 많이 부르는 구간(일봉)이 장 전 `DailyWarm` 캐시로 빠지는지
 - 보유 종목·청산 관리 종목이 스캔 신규 등록에서 빠지는지
 

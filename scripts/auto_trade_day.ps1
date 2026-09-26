@@ -22,14 +22,12 @@ param(
   [string]$Config = "Quant\config\config_dev_paper.json",
   [string]$Until = "15:35",          # 이 시각을 넘으면 재기동하지 않는다. 모의는 15:30이 매매 끝. 실계좌 전환 때 20:05(애프터마켓 20:00 + 여유, D-097·T-18)
   [switch]$NoRegimeFeed,
-  [switch]$NoUniverse,
   [switch]$NoDashboard,
   [switch]$NoNotify,                 # 체결·포지션 메신저 알림 창을 띄우지 않는다
-  [switch]$NoPrices,                 # 전 종목 시세 파일 전달(네이버 벌크) 창을 띄우지 않는다
   [switch]$NoRecorder,               # ZMQ 체결·주문을 TimescaleDB에 적재하는 창을 띄우지 않는다
   [switch]$NoMarketClose,                    # 마감 뒤 사실 문서·대시보드 갱신을 건너뛴다
   [switch]$NoBuild,                  # 기동 전 재빌드를 건너뛴다(exe를 손으로 바꾼 날). 이때는 소스가 exe보다 새면 중단
-  [switch]$NoTrader,                 # 트레이더를 이 창이 띄우지 않는다(리눅스 등 다른 곳이 띄우는 날). 부속 창·유니버스 갱신·마감 정리는 그대로
+  [switch]$NoTrader,                 # 트레이더를 이 창이 띄우지 않는다(리눅스 등 다른 곳이 띄우는 날). 부속 창·마감 정리는 그대로
   [string[]]$Roles = @('both'),      # 트레이더를 어떤 역할로 띄울지. both 하나이거나 order,strategy,feed 셋이다(D-114 단계 5)
   [switch]$DryRun
 )
@@ -302,47 +300,9 @@ function Restore-Windows {
   }
 }
 
-# 유니버스 스캔은 시총·거래대금을 네이버 실행 시점 값으로 받는다(universe_feed.py). 장중에는 당일 누적
-#  거래대금이 그날 강한 종목을 가장 잘 가리키므로 15:30 까지 1분마다 다시 돌려 파일만 바꿔 둔다 — 엔진은
-#  재스캔(20초)마다 파일이 다시 쓰였는지 보고 바뀌었으면 읽는다. 스캔이 실패하면(장 전에 누적치가 없고 data.go.kr 목록이 이틀
-#  전이면 rc=1) 직전 파일을 그대로 두고 다음 간격에 다시 본다(09-14 실측: 이틀 전 기준으로 하루를 보내
-#  보안주 3종·라온시큐어가 풀에 없었다).
-# 09-16 실측: 08시대(사전장) 스캔은 거래대금이 전 종목 0이라 이 가드에 거의 매번 걸려 rc=1이고,
-#  30분 카운터는 스크립트 기동 시각 기준이라 09:00과 우연히 맞지 않으면 장 시작 뒤에도 한참(최대
-#  30분) 전날 파일로 매매한다 — 주도주는 매일 바뀌므로 이 창이 위험하다. 카운터와 별개로 09:00~09:04
-#  구간에 한 번 강제 재확인해 그 창을 최대 5분으로 줄인다.
-# 09-18 실측: 09:00 재확인은 거래대금 35초치라 1,471종목만 값이 있어 104종목에 그쳤고, 09:30에야 277종목이
-#  됐다. 첫 한 시간은 거래대금 순위가 가장 빠르게 바뀌는 구간이라 간격을 시간대별로 둔다.
-# 09-26: 재랭킹 한 번의 외부 조회가 0이 됐다 — 종목 목록은 data.go.kr 하루치 parquet 캐시, 시세는
-#  prices_live.json(5초 주기 보조 프로세스) 재사용. 외부 조회가 없으니 시간대별로 아낄 이유도 없어져
-#  1분 고정으로 당긴다(옛 3/10분, 같은 날 잠깐 뒀던 10:00 전 1분/뒤 2분도 걷음).
-# 09-26 D-147: config에 "market_board": true 가 있으면 엔진 안 시세판이 시세(5초)·재랭킹(1분)·
-#  universe_scan.json 쓰기를 한다. 그때는 이 재스캔과 시세 창을 띄우지 않는다(같은 파일을 둘이 쓰지 않게).
+# 시세·유니버스는 엔진 안 시세판이 받는다(config "market_board": true, D-147). 이 일을 하던 파이썬 보조 프로세스
+#  (시세 파일 전달·universe_feed.py 1분 재랭킹)는 09-26에 걷었다. 시세판을 끈 config는 KIS 랭킹 축만으로 스캔한다.
 $script:BoardInEngine = [bool](Select-String -Path $Config -Pattern '"market_board"\s*:\s*true' -Quiet)
-function Get-UnivIntervalMin {
-  return 1
-}
-$script:UnivNext = (Get-Date).AddMinutes((Get-UnivIntervalMin))   # 장중 재기동이면 첫 카운터도 같은 규칙
-$script:UnivOpenRetryDone = $false
-function Refresh-Universe {
-  if ($DryRun -or $NoUniverse -or $script:BoardInEngine) { return }
-  $now = Get-Date
-  if ($now.ToString("HHmm") -ge "1530") { return }
-  if (-not $script:UnivOpenRetryDone -and $now.ToString("HHmm") -ge "0900" -and $now.ToString("HHmm") -lt "0905") {
-    $script:UnivOpenRetryDone = $true
-    Say "장 시작 직후 유니버스 재확인 — 정기 카운터와 별개(사전장 rc=1 대비)."
-    $rc = Run-Native "`"$py`" PYQuant\tools\universe_feed.py --market ALL --out Quant\config\universe_scan.json"
-    if ($rc -ne 0) { Say "유니버스 재스캔 실패(rc=$rc) — 직전 파일 유지." "WARN" }
-    else { $script:UnivNext = $now.AddMinutes((Get-UnivIntervalMin)) }
-    return
-  }
-  if ($now -lt $script:UnivNext) { return }
-  $interval = Get-UnivIntervalMin
-  $script:UnivNext = $now.AddMinutes($interval)
-  Say "유니버스 스캔을 다시 돌린다(시총·거래대금 현재 값, ${interval}분 뒤 재확인)."
-  $rc = Run-Native "`"$py`" PYQuant\tools\universe_feed.py --market ALL --out Quant\config\universe_scan.json"
-  if ($rc -ne 0) { Say "유니버스 재스캔 실패(rc=$rc) — 직전 파일 유지." "WARN" }
-}
 
 # ─────────────── 사전 점검 ───────────────
 Say "자동매매 하루 루프 시작 — config=$Config until=$Until$(if($DryRun){' (dry-run)'})"
@@ -542,17 +502,9 @@ try {
 } catch { }
 if ($regimeInEngine) { Say "  국면 판정은 엔진이 쓴다(regime_feed.out = regime_file) — 파이썬 피드 창을 띄우지 않는다" }
 if (-not $NoRegimeFeed -and -not $regimeInEngine) { Start-Window "quant-regime"   "& '$py' PYQuant\tools\macro_regime_feed.py --interval 180 --out Quant\config\regime.json" "macro_regime_feed.py" }
-if ($script:BoardInEngine) {
-  Say "시세·유니버스는 엔진 안 시세판이 받는다(market_board, D-147) — 유니버스 스캔·시세 창을 띄우지 않는다."
+if (-not $script:BoardInEngine) {
+  Say "config에 market_board가 꺼져 있다 — 전 종목 시세 없이 KIS 랭킹 축만으로 유니버스를 고른다(D-147)." "WARN"
 }
-if (-not $NoUniverse -and -not $script:BoardInEngine)  {
-  Say "유니버스 스캔(ALL) — 완료까지 기다린다. 이게 없으면 전략이 붙을 종목이 없다."
-  if (-not $DryRun) {
-    $rc = Run-Native "`"$py`" PYQuant\tools\universe_feed.py --market ALL --out Quant\config\universe_scan.json"
-    if ($rc -ne 0) { Say "유니버스 스캔 실패(rc=$rc) — 직전 스캔 파일로 진행한다." "WARN" }
-  }
-}
-if (-not $NoPrices -and -not $script:BoardInEngine)    { Start-Window "quant-prices"    "& '$py' scripts\live_prices_feed.py" "live_prices_feed.py" }
 if (-not $NoDashboard)
 {
   # --config·--port 를 안 넘기면 dashboard_server.py 는 기본값(config_dev_paper.json·8787)을 읽는다.
@@ -659,11 +611,11 @@ $crashMaxExits = 3
 $exitTimes     = @()
 if ($NoTrader) {
   # 트레이더는 다른 곳(리눅스)이 띄운다 — 같은 계좌에 Windows 트레이더까지 띄우면 이중 발주다(09-11).
-  # 이 창은 부속 창 생존·유니버스 갱신만 하며 마감까지 기다리고, 마감 뒤 사실 정리는 평소와 같이 한다.
+  # 이 창은 부속 창 생존만 지키며 마감까지 기다리고, 마감 뒤 사실 정리는 평소와 같이 한다.
   Say "-NoTrader — 트레이더를 띄우지 않는다. 부속 창만 지키며 $Until 까지 기다린다."
   Save-Status "running" @{ trader = "external" }
-  if ($DryRun) { Say "  (dry) $Until 까지 60초마다 부속 창 생존·유니버스 갱신만 한다"; exit 0 }
-  while ((Get-Date) -lt $deadline) { Start-Sleep -Seconds 60; Restore-Windows; Refresh-Universe }
+  if ($DryRun) { Say "  (dry) $Until 까지 60초마다 부속 창 생존만 확인한다"; exit 0 }
+  while ((Get-Date) -lt $deadline) { Start-Sleep -Seconds 60; Restore-Windows }
 }
 while (-not $NoTrader -and (Get-Date) -lt $deadline) {
   $n = $script:Sessions.Count + 1
@@ -710,7 +662,7 @@ while (-not $NoTrader -and (Get-Date) -lt $deadline) {
   #  주문 쪽이 없으면 전략 쪽은 발주를 못 하고, 전략 쪽이 없으면 주문 쪽은 신호가 없다. 시세 쪽이 없으면
   #  틱도 체결통보도 안 들어온다. 체결통보가 끊기면 주문 쪽의 선점분이 안 풀려 총노출이 이중계상되므로
   #  시세가 죽은 날도 남은 둘을 내리고 셋을 같이 다시 띄운다.
-  #  부속 창·유니버스 갱신은 예전처럼 60초에 한 번만 한다(REST 호출이 붙는다). [why D-114]
+  #  부속 창 확인은 예전처럼 60초에 한 번만 한다. [why D-114]
   $exitedMember = $null
   $lastChores   = Get-Date
   while (-not $exitedMember) {
@@ -722,7 +674,6 @@ while (-not $NoTrader -and (Get-Date) -lt $deadline) {
     if (((Get-Date) - $lastChores).TotalSeconds -ge 60) {
       $lastChores = Get-Date
       Restore-Windows
-      Refresh-Universe
     }
   }
 

@@ -7,8 +7,8 @@
 
 | 플랫폼 | 받는 것 | 규모·주기 | 만드는 파일 / 쓰는 코드 |
 |---|---|---|---|
-| **data.go.kr** (금융위 `getStockPriceInfo`) | 전 종목 T-1 시세 스냅샷 — 시총·거래대금·종가. ETF/ETN은 구조적으로 없음 | 코스피+코스닥 2,765종목 스냅샷에서 시장별 시총 top100 ∪ 거래대금 top100 → 오늘 277종목. data.go.kr 조회는 하루 1회(parquet 캐시), `universe_feed.py` 재랭킹은 장 전 1회 + 장중 1분마다(`scripts/auto_trade_day.ps1`가 돌림, D-142). 공시가 1~3영업일 늦어 08시 스캔은 T-2를 받기도 한다 | `PYQuant/tools/universe_feed.py` → `Quant/config/universe_scan.json`(`universe` 277 + `market_map` 2,765). 전 종목 코드 덤프는 `PYQuant/tools/full_universe_dump.py` → `Quant/config/universe_full.json` |
-| **네이버 증권** (비공식, 키 없음) | ① 전 종목 장중 시세 — 현재가·누적거래량·누적거래대금 ② 테마(인포스탁 분류) 목록·구성 종목 | ① `market_map`의 2,683종목을 900개씩 요청 3개(병렬)로 5초마다 — 한 요청 1,000종목까지 받고 1,500부터 HTTP 400(09-26 실측, D-142) ② 하루 1회 | ① `scripts/live_prices_feed.py` → `Quant/config/prices_live.json`(엔진 재스캔의 현재가, 09:30 뒤 `universe_feed.py --live-prices`가 거래대금 축을 이 값으로 바꿈) ② `PYQuant/tools/fetch_naver_themes.py`·`PYQuant/naver/theme.py` → `PYQuant/data/themes/latest.json` |
+| **data.go.kr** (금융위 `getStockPriceInfo`) | 전 종목 T-1 시세 스냅샷 — 시총·거래대금·종가. ETF/ETN은 구조적으로 없음 | 코스피+코스닥 2,765종목 스냅샷에서 시장별 시총 top100 ∪ 거래대금 top100 → 오늘 277종목. data.go.kr 조회는 하루 1회(parquet 캐시), `universe_feed.py`는 손 실행·PIT 백필용(라이브 재랭킹은 엔진 안 시세판, D-147). 공시가 1~3영업일 늦어 08시 스캔은 T-2를 받기도 한다 | `PYQuant/tools/universe_feed.py` → `Quant/config/universe_scan.json`(`universe` 277 + `market_map` 2,765). 전 종목 코드 덤프는 `PYQuant/tools/full_universe_dump.py` → `Quant/config/universe_full.json` |
+| **네이버 증권** (비공식, 키 없음) | ① 전 종목 장중 시세 — 현재가·누적거래량·누적거래대금 ② 테마(인포스탁 분류) 목록·구성 종목 | ① `market_map`의 2,683종목을 900개씩 요청 3개(병렬)로 5초마다 — 한 요청 1,000종목까지 받고 1,500부터 HTTP 400(09-26 실측, D-142) ② 하루 1회 | ① 엔진 안 시세판 `Quant/src/universe/MarketBoard.cpp`(메모리로 스캐너에 넘김, 파일 없음, D-147) ② `PYQuant/tools/fetch_naver_themes.py`·`PYQuant/naver/theme.py` → `PYQuant/data/themes/latest.json` |
 | **KIS REST** | 순위 3축(시총 `FHPST01720000`·거래대금 `FHPST01710000`·업종별 등락률 `FHPST01700000`, 축마다 30행 상한), 종목 일봉·분봉·현재가, 지수 일봉·현재값, 잔고·미체결·주문 | 순위는 기동·재스캔마다, 일봉은 종목·일 1회 캐시(`align_lookup_max` 800), 현재가 폴링은 WS에서 밀린 종목만 | `Quant/src/api/KisUniverse.cpp`(순위·업종), `KisMarket.cpp`(봉·현재가), `KisIndex.cpp`(지수), `KisAccount.cpp`·`KisOrder.cpp`. 폴링은 `Quant/include/core/DataPoller.h` |
 | **KIS WebSocket** | 실시간 체결(`H0STCNT0`, 통합 `H0UNCNT0`)·호가(`H0STASP0`, 통합 `H0UNASP0`)·체결통보 | 세션당 구독 40건(`kMaxWsSubs`, 문서상 41). 오늘: 구독 대상 57종목 중 체결통보 1 + 시세 39, 나머지 18종목은 REST 폴링으로 대체 | `Quant/src/api/WebSocketClient.cpp`. 소켓을 더 달면(`feed_keys`) `FeedMux`가 상한을 소켓 수만큼 늘린다 |
 | **Yahoo chart** (무료, FDR 폴백) | 매크로 국면 입력 — 코스피·코스닥·나스닥 선물·S&P 선물·VIX·10년물·USD/KRW·WTI 현재가(표), FRED 30Y·2Y·하이일드(참고) | 3분마다 갱신, `regime.json` 파일 전달 | `PYQuant/tools/macro_regime_feed.py` → `Quant/config/regime.json`(엔진 `entry_scale` 매수 비율·`entry_halt`·`force_liquidate`) |
@@ -26,9 +26,9 @@
 
 ## 유니버스가 만들어지는 순서
 
-1. 장 전 `universe_feed.py` — data.go.kr 스냅샷 → 시장별 거래대금 상위(시총 축은 D-146부터 0) → `universe_scan.json`(축 4).
+1. 엔진 안 시세판(`Quant/src/universe/MarketBoard.cpp`) — 네이버 종목 목록·벌크 시세 → 1분마다 시장별 거래대금 상위(시총 축은 D-146부터 0) → `universe_scan.json`(축 4). 옛 `universe_feed.py`(data.go.kr 스냅샷)는 손 실행과 백테스트용 PIT 백필에만 남았다(D-147).
 2. 기동 시 엔진 `UniverseScanner` — KIS 순위 3축(시총·거래대금·업종 등락률) + 파일 축을 합쳐 후보를 만들고, KIS 일봉으로 정배열·이격을 판정해 `max_universe`(100)까지 등록한다.
-3. 장중 `live_prices_feed.py`가 5초마다 네이버 시세를 갈아 끼우고, 엔진은 `rescan_interval_sec`마다 캐시된 일봉 + 이 파일 현재가로 재판정한다(REST 0). 감시견이 1분마다 `universe_feed.py`를 다시 돌려 시총·거래대금 축을 당일 값으로 재랭킹한다 — 시세는 `prices_live.json` 재사용이라 외부 조회 0(D-142).
+3. 장중 시세판이 5초마다 네이버 시세를 갈아 끼우고, 엔진은 `rescan_interval_sec`마다 캐시된 일봉 + 시세판 현재가로 재판정한다(REST 0). 재랭킹도 시세판이 1분마다 한다(D-147).
 4. 등록 종목 중 40건까지 KIS WS 실시간, 나머지는 REST 폴링.
 
 ## 키·환경

@@ -155,12 +155,12 @@
     {
       "from": "universe",
       "to": "core",
-      "weight": 17
+      "weight": 16
     },
     {
       "from": "universe",
       "to": "utils",
-      "weight": 25
+      "weight": 23
     },
     {
       "from": "utils",
@@ -1260,12 +1260,8 @@
       "utils/Logger.h"
     ],
     "universe/UniverseQuotes.cpp": [
-      "core/KstTime.h",
       "core/Types.h",
-      "universe/MaAlign.h",
       "universe/MarketBoard.h",
-      "utils/EtfFilter.h",
-      "utils/JsonNode.h",
       "utils/Logger.h"
     ],
     "universe/UniverseRiskGate.cpp": [
@@ -1484,7 +1480,6 @@
       "universe/UniverseCandidates.cpp",
       "universe/UniverseFeatures.cpp",
       "universe/UniverseItb.cpp",
-      "universe/UniverseQuotes.cpp",
       "universe/UniverseRiskGate.cpp",
       "universe/UniverseScanner.cpp",
       "universe/UniverseScoring.cpp"
@@ -1916,7 +1911,6 @@
       "universe/UniverseCandidates.cpp",
       "universe/UniverseFeatures.cpp",
       "universe/UniverseItb.cpp",
-      "universe/UniverseQuotes.cpp",
       "universe/UniverseRiskGate.cpp",
       "universe/UniverseScanner.cpp",
       "universe/UniverseScoring.cpp"
@@ -1950,7 +1944,6 @@
       "universe/UniverseCandidates.cpp",
       "universe/UniverseFeatures.cpp",
       "universe/UniverseItb.cpp",
-      "universe/UniverseQuotes.cpp",
       "universe/UniverseRiskGate.cpp",
       "universe/UniverseScanner.cpp",
       "universe/UniverseScoring.cpp",
@@ -1963,7 +1956,6 @@
       "universe/UniverseCandidates.cpp",
       "universe/UniverseFeatures.cpp",
       "universe/UniverseItb.cpp",
-      "universe/UniverseQuotes.cpp",
       "universe/UniverseRiskGate.cpp",
       "universe/UniverseScanner.cpp",
       "universe/UniverseScoring.cpp",
@@ -2073,7 +2065,7 @@
     },
     {
       "header": "core/KstTime.h",
-      "in_degree": 32
+      "in_degree": 31
     },
     {
       "header": "utils/ThreadName.h",
@@ -2100,11 +2092,11 @@
       "in_degree": 12
     },
     {
-      "header": "utils/JsonNode.h",
-      "in_degree": 11
+      "header": "api/KisClient.h",
+      "in_degree": 10
     },
     {
-      "header": "api/KisClient.h",
+      "header": "utils/JsonNode.h",
       "in_degree": 10
     },
     {
@@ -2113,11 +2105,11 @@
     },
     {
       "header": "universe/MaAlign.h",
-      "in_degree": 9
+      "in_degree": 8
     },
     {
       "header": "utils/EtfFilter.h",
-      "in_degree": 9
+      "in_degree": 8
     },
     {
       "header": "core/MpscQueue.h",
@@ -2255,7 +2247,6 @@
       "scripts/exit_ev_dashboard.py",
       "scripts/extract_swap_what_if.py",
       "scripts/gen_tuning_sheet.py",
-      "scripts/live_prices_feed.py",
       "scripts/log_patterns.py",
       "scripts/make_load_test_config.py",
       "scripts/market_close_autodoc.py",
@@ -3058,19 +3049,6 @@
         "scripts/notify_trades.py"
       ]
     },
-    "prices_live.json": {
-      "writers": [
-        "scripts/live_prices_feed.py"
-      ],
-      "readers": [
-        "PYQuant/tools/universe_feed.py",
-        "scripts/live_prices_feed.py"
-      ],
-      "mentions": [
-        "PYQuant/tools/universe_feed.py",
-        "scripts/live_prices_feed.py"
-      ]
-    },
     "trades_*.csv": {
       "writers": [
         "Quant/src/ipc/OrderRouter.cpp",
@@ -3118,7 +3096,6 @@
         "Quant/src/strategy/DevScaleLoader.cpp",
         "Quant/src/universe/UniverseCandidates.cpp",
         "scripts/exit_ev_dashboard.py",
-        "scripts/live_prices_feed.py",
         "scripts/make_load_test_config.py",
         "scripts/market_close_minute_backfill.py",
         "scripts/notify_trades.py"
@@ -3136,7 +3113,6 @@
         "Quant/src/universe/UniverseCandidates.cpp",
         "scripts/dashboard_server.py",
         "scripts/exit_ev_dashboard.py",
-        "scripts/live_prices_feed.py",
         "scripts/make_load_test_config.py",
         "scripts/market_close_minute_backfill.py",
         "scripts/notify_trades.py"

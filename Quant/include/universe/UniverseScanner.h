@@ -62,9 +62,8 @@ struct DevScanCfg
     //  1.0 이상이면 이 조건 자체가 사라져 2조건(SMA5>SMA10)만 남는다.
     double align_moving_average_tolerance_percent = 0.0;
     std::string universe_file;       // data.go.kr 거래대금 상위 피드 경로. 비면 KIS 랭킹 축만 [why D-015]
-    std::string prices_file;         // 전 종목 장중 시세 파일(`scripts/live_prices_feed.py` 산출) [why D-029]
-    // 엔진 안 시세판(universe/MarketBoard.h)에서 시세·유니버스를 받는다. 켜져 있으면 위 두 파일은 시세판이
-    //  아직 첫 판을 못 받았을 때만 읽는다(장 전 기동 직후) [why D-147]
+    // 엔진 안 시세판(universe/MarketBoard.h)에서 시세·유니버스를 받는다. 켜져 있으면 universe_file은 시세판이
+    //  아직 첫 판을 못 받았을 때만 읽는다(장 전 기동 직후). 꺼져 있으면 전 종목 시세 없이 KIS 랭킹 축만 쓴다 [why D-147]
     bool   market_board = false;
     // 장 전 일봉 캐시 데우기 마감(KST HHMM). 0=끄기. 시세판 목록의 전 종목(직전 세션 거래대금 순)을 이 시각까지
     //  받아 둔다 — 장 중 첫 스캔이 일봉 REST 수백 건으로 밀리지 않게 [why D-147]
@@ -103,10 +102,10 @@ struct ScanResult
     ScoreList                     scores;
 };
 
-// 전 종목 장중 시세 파일(`prices_file`) 한 줄. 종목 id가 칸 번호다.
+// 전 종목 장중 시세(시세판의 판) 한 줄. 종목 id가 칸 번호다.
 struct MarketQuote
 {
-    double      price  = 0.0; // 원, 0이면 이번 파일에 없는 종목
+    double      price  = 0.0; // 원, 0이면 이번 판에 없는 종목
     double      value  = 0.0; // 원, 누적 거래대금
     double      volume = 0.0; // 주, 누적 거래량
     std::string name;
@@ -114,13 +113,14 @@ struct MarketQuote
 
 using QuoteTable = std::vector<MarketQuote>;
 
-// 시세 파일을 읽어 quotes의 칸을 다시 채운다. 이번 파일에 없는 종목의 가격·거래대금·거래량은 0으로 비운다.
-//  표는 호출자가 재스캔 사이에 들고 있다 — 매번 새로 잡지 않고, 이름은 바뀐 때만 다시 복사한다.
-//  파일이 없거나 깨졌으면 전 칸이 비워진 채로 돌아온다.
-void load_quote_table(const std::string& prices_file, QuoteTable& quotes, symbol::SymbolTable& symbols);
+// 표를 비운다 — 시세판이 꺼져 있거나 첫 판 전이면 스캐너가 이쪽을 부른다. 표는 호출자가 재스캔 사이에 들고
+//  있다(매번 새로 잡지 않고, 이름 문자열 버퍼는 남긴다).
+void clear_quote_table(QuoteTable& quotes, const symbol::SymbolTable& symbols);
 
-// 같은 일을 시세판(universe/MarketBoard.h)의 판으로 한다. market_board가 켜져 있으면 스캐너가 이쪽을 부른다.
 struct BoardSnapshot;
+
+// 시세판(universe/MarketBoard.h)의 판으로 quotes의 칸을 다시 채운다. 이번 판에 없는 종목의 가격·거래대금·거래량은
+//  0으로 비우고, 이름은 바뀐 때만 다시 복사한다.
 void load_quote_table(const BoardSnapshot& board, QuoteTable& quotes, symbol::SymbolTable& symbols);
 
 // 장 전 일봉 캐시 데우기 스레드를 띄운다. 프로세스에 한 번만 뜨고, 마감 시각이 이미 지났으면 띄우지 않는다.

@@ -7,7 +7,7 @@
 //        목록에서의 자리로 정해지고(index % lane_count) 도는 동안 바뀌지 않는다.
 //
 //  ⚠ 주기·묶음 크기를 상수로 고정하지 않고 설정값으로 둔 이유 — 받는 쪽 사정에 맞춰 낮추거나 올리면서 재기 위해서다.
-//    라이브 트레이더의 유니버스 스캔(scripts/live_prices_feed.py)이 같은 곳을 같은 IP로 부른다 — 여기서
+//    라이브 트레이더의 시세판 스레드(Quant/src/universe/MarketBoard.cpp)가 같은 곳을 같은 IP로 부른다 — 여기서
 //    여기가 실패하면 실매매 시세도 같이 먼다. 두 쪽 주기를 같이 보고 정한다.
 #pragma once
 
@@ -62,7 +62,10 @@ public:
     void start();
     void stop(); // 되돌아올 때 수신 스레드는 전부 멈춰 있다
 
-    const Counters& counters() const { return counters_; }
+    const Counters& counters() const
+    {
+        return counters_;
+    }
 
 private:
     void run_lane(size_t lane);

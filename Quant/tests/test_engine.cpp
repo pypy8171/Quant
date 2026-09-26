@@ -13,6 +13,7 @@
 #include "core/ShardMatrix.h"
 #include "core/TickCapture.h"
 #include "strategy/StrategyBase.h"
+#include "universe/MarketBoard.h"
 #include "universe/ScoreWeight.h"
 #include "universe/UniverseScanner.h"
 #include "utils/Logger.h"
@@ -22,6 +23,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -55,7 +57,10 @@ class FakeFeed : public feed::IFeedSource
 public:
     explicit FakeFeed(uint32_t lanes) : lanes_(lanes) {}
 
-    uint32_t lanes() const override { return lanes_; }
+    uint32_t lanes() const override
+    {
+        return lanes_;
+    }
 
     void set_callbacks(OrderBookCb on_order_book, TradeCb on_trade) override
     {
@@ -77,7 +82,10 @@ public:
         return true;
     }
 
-    void disconnect() override { connected_ = false; }
+    void disconnect() override
+    {
+        connected_ = false;
+    }
 
     bool subscribe_incremental(const WatchSpec& specification) override
     {
@@ -101,9 +109,20 @@ public:
         return false;
     }
 
-    std::vector<WatchSpec> take_overflow_specifications() override { return {}; }
-    bool                   is_connected() const override { return connected_.load(); }
-    bool                   is_stale(int) const override { return false; }
+    std::vector<WatchSpec> take_overflow_specifications() override
+    {
+        return {};
+    }
+
+    bool                   is_connected() const override
+    {
+        return connected_.load();
+    }
+
+    bool                   is_stale(int) const override
+    {
+        return false;
+    }
 
     // 수신 스레드가 디코드 직후 부르는 자리 — 여기서는 테스트 스레드가 수신 스레드 lane의 역할을 한다.
     void emit_trade(uint32_t lane, const std::string& ticker, double price, int32_t hhmmss)
@@ -148,11 +167,25 @@ class BuyOnce : public StrategyBase
 public:
     explicit BuyOnce(std::string ticker) : ticker_(std::move(ticker)), id_("buy_once_" + ticker_) {}
 
-    const std::string& id() const override { return id_; }
-    std::string describe() const override { return "첫 틱에 1주 매수"; }
-    std::optional<OrderSignal> on_data(const MarketData&) override { return std::nullopt; }
+    const std::string& id() const override
+    {
+        return id_;
+    }
 
-    void on_start() override { symbol_id_ = symbol_of(ticker_); }
+    std::string describe() const override
+    {
+        return "첫 틱에 1주 매수";
+    }
+
+    std::optional<OrderSignal> on_data(const MarketData&) override
+    {
+        return std::nullopt;
+    }
+
+    void on_start() override
+    {
+        symbol_id_ = symbol_of(ticker_);
+    }
 
     std::vector<WatchSpec> get_watch_specifications() const override
     {
@@ -182,7 +215,11 @@ public:
         return signal;
     }
 
-    symbol::SymbolId    symbol_id() const { return symbol_id_; }
+    symbol::SymbolId    symbol_id() const
+    {
+        return symbol_id_;
+    }
+
     std::atomic<int> ticks_seen{0};
 
 private:
@@ -199,9 +236,20 @@ class BuyEachOnce : public StrategyBase
 public:
     explicit BuyEachOnce(std::vector<std::string> tickers) : tickers_(std::move(tickers)), id_("BuyEachOnce") {}
 
-    const std::string& id() const override { return id_; }
-    std::string describe() const override { return "종목마다 첫 틱에 1주 매수"; }
-    std::optional<OrderSignal> on_data(const MarketData&) override { return std::nullopt; }
+    const std::string& id() const override
+    {
+        return id_;
+    }
+
+    std::string describe() const override
+    {
+        return "종목마다 첫 틱에 1주 매수";
+    }
+
+    std::optional<OrderSignal> on_data(const MarketData&) override
+    {
+        return std::nullopt;
+    }
 
     void on_start() override
     {
@@ -251,7 +299,10 @@ public:
         return std::nullopt;
     }
 
-    const std::vector<symbol::SymbolId>& symbol_ids() const { return symbol_ids_; }
+    const std::vector<symbol::SymbolId>& symbol_ids() const
+    {
+        return symbol_ids_;
+    }
 
 private:
     std::vector<std::string>      tickers_;
@@ -729,27 +780,45 @@ int run_switch_role_case()
     };
 
     // 2. 뜨기 전에 넣은 줄도 잃지 않는다 — 전략 스레드가 옮기고 주문 스레드가 건다.
-    CHECK(settled([&engine] { return engine.is_entry_halted(); }));
+    CHECK(settled([&engine]
+    {
+        return engine.is_entry_halted();
+    }));
 
     // 3. 신규 진입 정지 — 끄고 다시 켠다. 뜬 뒤에는 역할을 바꾸지 않는다(스레드 구성이 그 값으로
     //  갈린다) — 전략 역할에서 같은 통로를 타는 것은 run_split_start_case 가 실제 두 프로세스로 본다.
     engine.request_entry_halt(false);
-    CHECK(settled([&engine] { return !engine.is_entry_halted(); }));
+    CHECK(settled([&engine]
+    {
+        return !engine.is_entry_halted();
+    }));
     engine.request_entry_halt(true);
-    CHECK(settled([&engine] { return engine.is_entry_halted(); }));
+    CHECK(settled([&engine]
+    {
+        return engine.is_entry_halted();
+    }));
 
     // 4. 매수 비율 — 스위치가 아니라 값이라 칸을 따로 둔다.
     constexpr double kScaleUnderTest = 0.4;
     engine.request_entry_scale(kScaleUnderTest);
-    CHECK(settled([&engine] { return std::fabs(engine.entry_scale() - kScaleUnderTest) < 1e-9; }));
+    CHECK(settled([&engine]
+    {
+        return std::fabs(engine.entry_scale() - kScaleUnderTest) < 1e-9;
+    }));
 
     // 5. 수동 정지 — 방향 칸이 같이 건너간다(매도만 걸고 매수는 그대로).
     engine.request_manual_halt(OrderSide::SELL, true);
-    CHECK(settled([&engine] { return engine.is_manual_sell_halted(); }));
+    CHECK(settled([&engine]
+    {
+        return engine.is_manual_sell_halted();
+    }));
 
     // 6. 전방향 차단 — 마지막에 건다.
     engine.request_kill_switch(true);
-    CHECK(settled([&engine] { return engine.is_killed(); }));
+    CHECK(settled([&engine]
+    {
+        return engine.is_killed();
+    }));
 
     engine.stop();
     CHECK(!engine.is_running());
@@ -1029,23 +1098,16 @@ int run_score_tie_order_case()
     return 0;
 }
 
-// 시세 표를 재스캔 사이에 이어 쓸 때, 이번 파일에 없는 종목 칸은 비워진다(옛 가격·이름이 남지 않는다).
+// 시세 표를 재스캔 사이에 이어 쓸 때, 이번 판에 없는 종목 칸은 비워진다(옛 가격·이름이 남지 않는다).
 int run_quote_table_reload_case()
 {
-    const std::filesystem::path directory = Logger::executable_directory() / "logs_test";
-    std::filesystem::create_directories(directory);
-    const std::string path = (directory / "quote_table_case.json").string();
-    auto write_file = [&path](const std::string& text)
-    {
-        std::ofstream file(path, std::ios::binary | std::ios::trunc);
-        file << text;
-    };
-
     symbol::SymbolTable  symbols(64);
     universe::QuoteTable quotes;
-    write_file(R"({"ts": 0, "prices": {"005930": {"px": 70000, "val": 1000, "vol": 10, "nm": "삼성전자"},)"  // [wire] prices.json 키
-               R"( "000660": {"px": 200000, "val": 2000, "vol": 20, "nm": "SK하이닉스"}}})");  // [wire] prices.json 키
-    universe::load_quote_table(path, quotes, symbols);
+    universe::BoardSnapshot board;
+    board.quotes = {{.code = "005930", .name = "삼성전자", .price = 70000, .volume = 10, .value = 1000},
+                    {.code = "000660", .name = "SK하이닉스", .price = 200000, .volume = 20, .value = 2000}};
+    board.received_at = std::time(nullptr);
+    universe::load_quote_table(board, quotes, symbols);
     const symbol::SymbolId samsung = symbols.lookup("005930");
     const symbol::SymbolId hynix   = symbols.lookup("000660");
     CHECK(samsung != symbol::kNone);
@@ -1054,8 +1116,8 @@ int run_quote_table_reload_case()
     CHECK(quotes[hynix].price == 200000.0);
     CHECK(quotes[hynix].name == "SK하이닉스");
 
-    write_file(R"({"ts": 0, "prices": {"005930": {"px": 71000, "val": 1500, "vol": 15, "nm": "삼성전자"}}})");  // [wire] prices.json 키
-    universe::load_quote_table(path, quotes, symbols);
+    board.quotes = {{.code = "005930", .name = "삼성전자", .price = 71000, .volume = 15, .value = 1500}};
+    universe::load_quote_table(board, quotes, symbols);
     CHECK(quotes[samsung].price == 71000.0);
     CHECK(quotes[samsung].value == 1500.0);
     CHECK(quotes[samsung].name == "삼성전자");
@@ -1064,9 +1126,8 @@ int run_quote_table_reload_case()
     CHECK(quotes[hynix].volume == 0.0);
     CHECK(quotes[hynix].name.empty());
 
-    // 파일이 없으면 전 칸이 비워진 채로 돌아온다.
-    std::filesystem::remove(path);
-    universe::load_quote_table(path, quotes, symbols);
+    // 판이 없으면(시세판 꺼짐·첫 판 전) 전 칸이 비워진다.
+    universe::clear_quote_table(quotes, symbols);
     CHECK(quotes[samsung].price == 0.0);
     CHECK(quotes[samsung].name.empty());
     return 0;

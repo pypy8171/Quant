@@ -1187,7 +1187,6 @@
 - [extract_swap_what_if.py](../scripts/extract_swap_what_if.py) — 슬롯 교체 가정 비교 표본 추출 스크립트
 - [gen_tuning_sheet.py](../scripts/gen_tuning_sheet.py) — 실행 중 config(`_private/_auto_trade_day.json` 의 config)와 `docs/tuning_sheet.toml` 코드 수치로 `_private/TUNING_SHEET.md`(상세)·`_private/TUNING_CYCLE.md`(요약)를 만든다. 주기 표(초 환산 정렬)·시각 표·묶음별 전체 표. `--check`는 낡음·코드 수치 실패면 exit 1, sync-gate가 매 턴 돌리고 감시견 기동·`maintain --daily`도 부른다
 - [kill_release.ps1](../scripts/kill_release.ps1) — 킬스위치 해제: `_private/state/kill_today_<날짜>` 표지 파일을 지우고 감시견 상태파일을 옆으로 치워 가드가 5분 안에 감시견을 다시 띄우게 한다(D-098)
-- [live_prices_feed.py](../scripts/live_prices_feed.py) — 전종목 실시간 시세 보조 프로세스
 - [log_patterns.py](../scripts/log_patterns.py) — 로그 파싱 공용 정규식 모듈
 - [logs.sh](../scripts/logs.sh) — Docker 컨테이너 로그 확인 스크립트
 - [make_load_test_config.py](../scripts/make_load_test_config.py) — 부하시험 config·유니버스 생성기 — 종목 수·포트·장중 시작시각을 받아 config_load_test.json을 적는다
