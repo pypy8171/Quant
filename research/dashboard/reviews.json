@@ -1298,7 +1298,7 @@
       },
       {
        "kind": "des",
-       "text_html": "물타기 제거는 방향에 이견이 없다. 다만 앵커가 현재가라 rung을 빼도 8초 취소·재발주는 그대로이고, SELL이 매도가능 0으로 스킵되면 <span class=\"mono\">live_</span>가 비어 3초 스핀한다(A5). A5·A4·A6 세 수정이 같이 가야 API 낭비와 과매도가 실제로 준다. 회의록 <span class=\"mono\">strategies/DeviationScale/MEETING_2026-09-11_TRENDX.md</span>"
+       "text_html": "물타기 제거는 방향에 이견이 없다. 다만 기준점이 현재가라 rung을 빼도 8초 취소·재발주는 그대로이고, SELL이 매도가능 0으로 스킵되면 <span class=\"mono\">live_</span>가 비어 3초 스핀한다(A5). A5·A4·A6 세 수정이 같이 가야 API 낭비와 과매도가 실제로 준다. 회의록 <span class=\"mono\">strategies/DeviationScale/MEETING_2026-09-11_TRENDX.md</span>"
       }
      ]
     }
@@ -1347,8 +1347,8 @@
         "cat": "전략",
         "eff": "M",
         "title": "TRENDX 재구성 스핀 (A5)",
-        "prob_html": "SELL이 매도가능 0으로 스킵되면 <span class=\"mono\">live_</span>가 비어 3초마다 재구성을 돈다. rung을 빼도 앵커가 현재가라 틱마다 시그니처가 바뀌어 8초 취소·재발주는 그대로다.",
-        "fix_html": "스킵된 SELL을 live_에 남겨 재구성을 막고, 앵커를 틱이 아니라 봉 기준으로 옮긴다. 물타기 rung 제거(T-08)와 같은 커밋으로 간다."
+        "prob_html": "SELL이 매도가능 0으로 스킵되면 <span class=\"mono\">live_</span>가 비어 3초마다 재구성을 돈다. rung을 빼도 기준점이 현재가라 틱마다 시그니처가 바뀌어 8초 취소·재발주는 그대로다.",
+        "fix_html": "스킵된 SELL을 live_에 남겨 재구성을 막고, 기준점을 틱이 아니라 봉 기준으로 옮긴다. 물타기 rung 제거(T-08)와 같은 커밋으로 간다."
        },
        {
         "id": "T-05",

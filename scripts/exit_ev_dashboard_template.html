@@ -212,14 +212,14 @@ tr.detail > td { white-space: normal; background: var(--ground); padding: 14px 1
       <tbody></tbody>
     </table>
   </div>
-  <p class="foot">α = 전략 총수익 − 같은 구간 벤치마크 총수익. 정직성 표식(honesty_label)은 스터디가 스스로 붙인 것 — robust(홀드아웃 통과)·honest_failure(못 이겼고 그대로 적음)·overfit_suspect(학습 구간만 좋음)·context_required(조건부)·unlabeled.</p>
+  <p class="foot">α = 전략 총수익 − 같은 구간 벤치마크 총수익. 한계 표식(honesty_label)은 스터디가 스스로 붙인 것 — robust(홀드아웃 통과)·honest_failure(못 이겼고 그대로 적음)·overfit_suspect(학습 구간만 좋음)·context_required(조건부)·unlabeled.</p>
 
   <h2>2. 스터디별 전략 행 <small>펼치면 전략·구간·이벤트별 지표</small></h2>
   <div id="btStudies"></div>
 
   <h2>3. 읽는 법</h2>
   <ul class="notes">
-    <li>여기 수치는 일봉 포트폴리오·오버레이 백테스트(2018~2025, 국면·위기 구간)다. 왼쪽 탭의 장중 매매(3분봉·모의 원장)와는 전략도 시간축도 다르다 — 한 화면에 둔 이유는 "결과를 같은 방식(통계·정직성 표식)으로 본다"를 보이기 위해서다.</li>
+    <li>여기 수치는 일봉 포트폴리오·오버레이 백테스트(2018~2025, 국면·위기 구간)다. 왼쪽 탭의 장중 매매(3분봉·모의 원장)와는 전략도 시간축도 다르다 — 한 화면에 둔 이유는 "결과를 같은 방식(통계·한계 표식)으로 본다"를 보이기 위해서다.</li>
     <li>honest_failure 가 많은 것이 정상이다. 벤치마크를 못 이긴 결과를 지우지 않고 그대로 두는 것이 이 저장소의 규칙이다(research/studies/README.md).</li>
     <li>장중 전략(DEVSCALE·TRENDX)의 오프라인 백테스트는 아직 없다 — 3분봉 데이터가 forward 적재뿐이라 그렇다. 그 자리는 왼쪽 탭의 원장 통계가 대신한다.</li>
   </ul>
@@ -416,7 +416,7 @@ tr.detail > td { white-space: normal; background: var(--ground); padding: 14px 1
     ["스터디", B.n_studies, "metrics.json 있는 폴더"],
     ["전략 행", B.n_strategy_rows, "전략×구간×이벤트, 벤치마크 제외"],
     ["벤치마크 이김", `${B.beat_bench} / ${B.n_strategy_rows}`, "α > 0 인 행"],
-    ["정직성 표식", `<span style="font-size:13px">${honesty || "—"}</span>`, "스터디가 스스로 붙인 것"],
+    ["한계 표식", `<span style="font-size:13px">${honesty || "—"}</span>`, "스터디가 스스로 붙인 것"],
   ].map(([k, v, n]) => `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div><div class="n">${n}</div></div>`).join("");
   document.querySelector("#btSummary tbody").innerHTML = B.studies.map(s =>
     `<tr><td><b>${esc(s.study_id)}</b> ${esc(s.name)}<div class="ci">${esc(s.folder)}</div></td><td>${esc(s.family)}</td><td class="r num">${s.n_rows}</td><td class="r num">${s.alpha_positive}/${s.n_rows}</td><td class="r">${pctR(s.alpha_median)}</td><td class="r num">${num(s.sharpe_median)}</td><td class="r">${mddR(s.mdd_median)}</td><td class="wrap ci">${s.windows.map(esc).join(" · ")}</td></tr>`).join("");

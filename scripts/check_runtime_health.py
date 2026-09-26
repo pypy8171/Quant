@@ -326,7 +326,7 @@ def resource_sampling_rows(date: str) -> list:
              + (" — 0이면 스레드 이름 배포 전 바이너리거나 Windows psutil 경로" if named_threads == 0 else "")),
             ("자원 표본 공백", float(max_gap_seconds) <= 120, "WARN",
              f"가장 긴 공백 {float(max_gap_seconds):.0f}초 (기대 120 이하), 마지막 표본 {last_sample}"
-             + (" — 수집기가 죽었다 되살아난 구간이다. logs/procwatch.log를 본다" if float(max_gap_seconds) > 120 else ""))]
+             + (" — 수집기가 멈췄다 되살아난 구간이다. logs/procwatch.log를 본다" if float(max_gap_seconds) > 120 else ""))]
 
 
 def feed_ledger_rows(date: str) -> list:

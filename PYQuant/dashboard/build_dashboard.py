@@ -66,7 +66,7 @@ HONESTY = {
     "honest_failure":  ("벤치 못 이김", "비용을 반영하면 벤치(그냥 보유)를 이기지 못한 결과를 그대로 보고."),
     "overfit_suspect": ("과최적화 의심", "표본·자유도 대비 성과가 과함 — 신뢰 보류(소표본 포함)."),
     "context_required":("맥락필수", "헤드라인 숫자가 오독을 부름(비참여·생존편향 등) — 캡션·짝 해석 필수."),
-    "unlabeled":       ("미분류", "정직성 라벨 미지정."),
+    "unlabeled":       ("미분류", "한계 표시 미지정."),
 }
 FAMILY = {
     "A_portfolio": ("계열 A · 종목 포트폴리오",
@@ -530,7 +530,7 @@ _STUDY_NOTES = """<div class="notes">
     <li><b>계열 분리</b> — 계열 B(지수 오버레이)는 종목 포트폴리오(계열 A)와 <b>직접 비교 불가</b>. 표를 계열·벤치마크로 나눈 이유.</li>
     <li><b>CAGR·Calmar가 1차</b> — 창 길이가 다르면(예 98년 vs 30년) <code>총수익%</code>는 복리로 부풀어 직접 비교 불가. 연환산한 <code>CAGR%</code>·<code>Calmar</code>를 먼저 보고, 총수익%(raw)는 참고로 둔다.</li>
     <li><b>초과CAGR(막대)</b> = 전략 CAGR − 매수 후 보유 CAGR(%p). 0 중심 바, +초록/−빨강. 그룹 최대치로 스케일.</li>
-    <li><b>정직성·비고</b> — <span class="cav">⚠</span>에 마우스=편향/해석 주의(생존편향·비참여·소표본·수정주가). 표 아래 <b>비고</b>에 전문.</li>
+    <li><b>한계·비고</b> — <span class="cav">⚠</span>에 마우스=편향/해석 주의(생존편향·비참여·소표본·수정주가). 표 아래 <b>비고</b>에 전문.</li>
     <li><b>맥락필수</b> 라벨 — regime-ON 비참여(현금)처럼 헤드라인 숫자가 오독을 부르는 행. 초록 '견고'와 구분.</li>
     <li><b>홀드아웃 배너</b> — 학습구간 Calmar + → 2022 − 전환(표본외 붕괴). 예뻐 보인 지표가 지우면 안 되는 사실.</li>
   </ul>
@@ -738,7 +738,7 @@ COLS_B = [
     ("초과CAGR%p", "alpha", "abar"), ("낙폭축소%p", "mdd_red", "signed"),
     ("총수익%(raw)", "total_return", "num"),
     ("활성%", "active_pct", "num1"), ("홀드아웃(train→2022)", "_holdout", "raw"),
-    ("정직성·비고", "_honesty", "raw"),
+    ("한계·비고", "_honesty", "raw"),
 ]
 # 계열 A(포트폴리오): 백필행은 cagr/calmar/sortino/turnover 없음 → 빈 컬럼 제외.
 COLS_A = [
@@ -746,7 +746,7 @@ COLS_A = [
     ("총수익%", "total_return", "num"), ("MDD%", "mdd", "num"),
     ("Sharpe", "sharpe", "num"), ("승률%", "win_rate", "num1"),
     ("체결수", "n_trades", "int"), ("초과%p", "alpha", "abar"),
-    ("정직성·비고", "_honesty", "raw"),
+    ("한계·비고", "_honesty", "raw"),
 ]
 
 BENCHMARK_SENTINELS = ("BH", "BUY_AND_HOLD")  # metrics.json 벤치 행 표식 — 옛 기록은 "BH", 새 기록은 "BUY_AND_HOLD"
@@ -1337,7 +1337,7 @@ def render(rows, live, reviews, premarket, rounds, study_index, variant="ops"):
         panels.append(f'<div class="panel" id="{panel_id}" role="tabpanel" aria-labelledby="{button_identifier}"'
                       f'{"" if index == 0 else " hidden"}>\n{body()}\n</div>')
         over.extend(f'<div class="stat"><b>{count}</b>{name}</div>' for count, name in overview_counts)
-    legend = ('<div class="legend"><span class="lbl">정직성:</span>' + "".join(
+    legend = ('<div class="legend"><span class="lbl">한계 표시:</span>' + "".join(
         f'<span class="badge b-{esc(grade)}" title="{esc(grade_label[1])}">{esc(grade_label[0])}</span>' for grade, grade_label in HONESTY.items())
         + '</div>') if "studies" in variant_specification["tabs"] else ""
 

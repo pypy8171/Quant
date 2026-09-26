@@ -23,9 +23,9 @@ $env:PYTHONUTF8 = "1"
 
 <!-- sync: scripts/auto_trade_day.ps1@a5f4064 scripts/auto_trade_guard.ps1@6a54b80 -->
 
-감시견 하나가 국면 보조 프로세스·유니버스·대시보드·알림·트레이더를 순서대로 띄우고, 장 마감까지 트레이더가 죽으면 다시
+감시견 하나가 국면 보조 프로세스·유니버스·대시보드·알림·트레이더를 순서대로 띄우고, 장 마감까지 트레이더가 멈추면 다시
 띄운다. 띄우기 전에 그날 장이 열리는지 KIS에 물어(`scripts/check_market_open.py`) 휴장일이면 아무것도 안 띄우고 끝낸다 —
-조회가 실패해 개장 여부를 모르는 날은 휴장으로 보지 않고 그대로 진행한다. 마감 뒤 `scripts/market_close_autodoc.py`(일지 사실 구간·리뷰 탭·대시보드)까지 돈다. 부속 창에는 체결 기록기·엔진 자원 표본기와 원장 저널 적재기(`quant-ledger`)가 있는데, 저널 적재기는 엔진이 주문 전에 파일로 적어 둔 원장(D-113)을 DB로 따라 적는다 — 죽어도 되살아나면 안 읽은 구간부터 따라잡는다. 트레이더는 이 감시견이 소유한다 —
+조회가 실패해 개장 여부를 모르는 날은 휴장으로 보지 않고 그대로 진행한다. 마감 뒤 `scripts/market_close_autodoc.py`(일지 사실 구간·리뷰 탭·대시보드)까지 돈다. 부속 창에는 체결 기록기·엔진 자원 표본기와 원장 저널 적재기(`quant-ledger`)가 있는데, 저널 적재기는 엔진이 주문 전에 파일로 적어 둔 원장(D-113)을 DB로 따라 적는다 — 멈췄다 되살아나면 안 읽은 구간부터 따라잡는다. 트레이더는 이 감시견이 소유한다 —
 손으로 따로 띄우면 엔진이 둘이 된다. 기동 전에 이미 떠 있는 `quant_trader`가 있으면 중단하는데, **발주하는 계좌가 같을 때만**
 센다 — 떠 있는 프로세스의 명령줄에서 config를 찾아 `kis.account_no`와 `is_paper`를 열쇠로 만든다. config에 `replay_file`이
 있는 프로세스(워크트리의 리플레이 측정)는 증권사에 주문을 내지 않으므로 세지 않고, 열쇠를 읽지 못하면 막는 쪽으로 남긴다.
@@ -61,7 +61,7 @@ powershell -ExecutionPolicy Bypass -File scripts\auto_trade_day.ps1
 | `-NoTrader` | 트레이더를 띄우지 않는다 — 리눅스(WSL)가 띄우는 날. 부속 창·유니버스·마감 정리는 그대로. 아래 1.1절 |
 
 진행 상태는 `_private\_auto_trade_day.json`(`phase`·`sessions`·`history`), 실행 로그는 `logs\auto_trade_day_YYYYMMDD.log`.
-감시견이 죽으면 잡(Job Object)이 부속 창과 트레이더를 같이 내리고, 감시자 예약작업(평일 08:45부터 5분마다)이 장중이면
+감시견이 내려가면 잡(Job Object)이 부속 창과 트레이더를 같이 내리고, 감시자 예약작업(평일 08:45부터 5분마다)이 장중이면
 다시 띄운다. 최초 1회 등록:
 
 ```powershell
@@ -73,14 +73,14 @@ powershell -ExecutionPolicy Bypass -File scripts\auto_trade_guard.ps1 -Uninstall
 
 오늘 `phase`가 멈춤 사유(`crash_loop`·`aborted`·`done`·`closed`·`past_deadline`)면 감시자는 되살리지 않는다 — 원인을 없앤 뒤
 손으로 한 번 띄우면 그다음부터 다시 감시자가 맡는다. 사유별 뜻과 감시견 로그 정리는 [AUTOMATION.md](AUTOMATION.md) 4절.
-감시견 로그에 `tail -f`를 걸지 않는다(파일 잠금으로 감시견이 죽는다) — `Get-Content -Tail`로 본다.
+감시견 로그에 `tail -f`를 걸지 않는다(파일 잠금으로 감시견이 멈춘다) — `Get-Content -Tail`로 본다.
 
 ### 1.1 트레이더를 리눅스(WSL2)에서 띄우는 날
 
 같은 계좌에 엔진은 하나여야 한다. Windows 쪽은 `-NoTrader`로 띄워 부속 창·유니버스·마감 정리만 맡기고(상태파일에
 `trader=external`이 남아 감시자 예약작업도 그날은 Windows 트레이더를 띄우지 않는다), 트레이더는 리눅스 쪽 하루 루프
 `scripts/auto_trade_day.sh`가 맡는다 — 기동 전 검사(WSL·Windows 양쪽 중복 프로세스, 모의계좌 확인), `ninja` 증분 재빌드,
-미체결 복원(`seed_open_orders.py`), 마감(`--until`, 기본 15:35)까지 죽으면 재기동, 30분 안 3회 종료면 크래시 루프로 멈춤(`exit 3`).
+미체결 복원(`seed_open_orders.py`), 마감(`--until`, 기본 15:35)까지 멈추면 재기동, 30분 안 3회 종료면 크래시 루프로 멈춤(`exit 3`).
 로그는 `QUANT_LOG_DIR`로 Windows 쪽 `Quant\build_win\logs`에 쓰게 해서 `parse_quant_log.py`·`check_runtime_health.py`·
 `market_close_autodoc.py`가 평소처럼 읽는다. 엔진은 마감 뒤 스스로 내려간다(D-098). 마감 정리는 Windows 창이 한다.
 순서: 08:40까지 Windows 창 → 이어서 cmd 창(wsl). 둘 다 08:45 감시자보다 먼저.
@@ -120,7 +120,7 @@ wsl -e docker ps -a --filter name=quant-tsdb
 1절 감시견이 도는 날에는 쓰지 않는다(트레이더가 둘이 된다). 대상은 DevScale 모의계좌 `Quant\config\config_dev_paper.json` —
 `Quant\config\config.json`은 실계좌라 장중 시험에 쓰지 않는다. 각 창은 별도 프로세스이고 닫으면 그 부분만 멈춘다.
 
-창 1 — 매크로 국면 보조 프로세스(제일 먼저, 장 끝까지 유지). 죽으면 `regime.json`이 낡아(기본 600초) 국면 게이트가 마지막 값으로 굳는다 — 새 정지·해제·매수 비율이 반영되지 않는다.
+창 1 — 매크로 국면 보조 프로세스(제일 먼저, 장 끝까지 유지). 멈추면 `regime.json`이 낡아(기본 600초) 국면 게이트가 마지막 값으로 굳는다 — 새 정지·해제·매수 비율이 반영되지 않는다.
 
 ```powershell
 cd {ROOT}
@@ -182,7 +182,7 @@ cd {ROOT}; $env:PYTHONUTF8="1"; Start-Process py -ArgumentList 'scripts\dashboar
 
 <!-- sync: scripts/parse_quant_log.py@6057b64 -->
 
-체결원장(CSV)에 없는 운영 이벤트(원장 저널 기록 실패·ERROR·KIS 거부·게이트 봉쇄·WS 재연결·HTTP 오류·주문·체결·15초 제한 시간 초과·잔고 조회 사이클 걸침)만 뽑는다. 손익은 지어내지
+체결원장(CSV)에 없는 운영 이벤트(원장 저널 기록 실패·ERROR·KIS 거부·게이트 차단·WS 재연결·HTTP 오류·주문·체결·15초 제한 시간 초과·잔고 조회 사이클 걸침)만 뽑는다. 손익은 지어내지
 않고 개수·사유만. 주문이 있는 창은 접수 지연 한 줄을 붙인다 — RTT 중앙값·3초 이상 건수·버킷대기 중앙값과 "서버 응답 지연인지 초당한도 버킷인지" 판정(임계는 `scripts/check_runtime_health.py`가 소유). 로그는 실행파일 옆 `Quant\build_win\logs\quant_trader.log`다(cwd가 아니라 exe 기준 — 정본 `scripts/_logdir.py`, 루트 `logs\`는 테스트 바이너리 것).
 7일 지난 날의 줄은 `archive\quant_trader_<날짜>.log.gz`로 옮겨져 있는데(`maintain.py --rotate-logs`), `--date`를 주면 그 gz를 이어서 읽는다.
 
