@@ -245,8 +245,16 @@ void ZmqBridge::thread_fn()
                     {
                         reply_string = command_handler_(command);
                     }
+                    catch (const std::exception& exception)
+                    {
+                        // 처리기가 실패했는데 "OK"를 돌려주면 부른 쪽은 성공으로 안다. [why 전수조사 B2b-11]
+                        reply_string = "ERROR";
+                        LOG_ERROR("[ZMQ] 명령 처리 실패 '" + command + "': " + exception.what());
+                    }
                     catch (...)
                     {
+                        reply_string = "ERROR";
+                        LOG_ERROR("[ZMQ] 명령 처리 실패 '" + command + "': 알 수 없는 예외");
                     }
                 }
 
@@ -321,6 +329,8 @@ uint64_t ZmqBridge::drop_count() const
 
 void ZmqBridge::enqueue(Topic topic, std::string payload)
 {
+    uint64_t critical_dropped = 0; // 버린 치명 메시지의 누적 번호 — 로그는 락 밖에서 남긴다
+
     {
         std::lock_guard<std::mutex> lock(queue_mutex_);
         // (C8) 토픽별 drop 차등 — 원장 정합성에 직결되는 FILL/ORDER/SIGNAL은
@@ -330,19 +340,26 @@ void ZmqBridge::enqueue(Topic topic, std::string payload)
 
         if (send_queue_.size() >= capacity)
         {
-            ++send_queue_full_drop_count_;
+            const uint64_t dropped = ++send_queue_full_drop_count_;
+            critical_dropped       = critical ? dropped : 0;
+        }
+        else
+        {
+            send_queue_.push({topic, std::move(payload)});
+        }
+    }
 
-            if (critical)
-            {
-                LOG_ERROR(std::string("[ZMQ] 치명적 메시지 drop! topic=") + topic_name(topic) +
-                          " queue=" + std::to_string(send_queue_.size()) +
-                          " (구독자 다운 의심) — 원장 불일치 위험");
-            }
-
-            return;
+    // 이 큐가 차는 것은 발행 스레드가 밀릴 때다 — 구독자가 죽으면 소켓 한도에서 버려 socket_full 로 센다.
+    //  폭주 때 건마다 락을 쥔 채 적으면 로그가 쏟아지고 락도 길어진다: 첫 건과 1,000건마다 한 줄. [why 전수조사 B2b-11]
+    if (critical_dropped != 0)
+    {
+        if (critical_dropped == 1 || critical_dropped % 1000 == 0)
+        {
+            LOG_ERROR(std::string("[ZMQ] 치명적 메시지 drop! topic=") + topic_name(topic) + " 누적=" +
+                      std::to_string(critical_dropped) + " (발행 큐 만석 — 발행 스레드 밀림) — 원장 불일치 위험");
         }
 
-        send_queue_.push({topic, std::move(payload)});
+        return;
     }
 
     // 깨우기는 반드시 queue_mutex_ 를 놓은 뒤에 — WakeGate 는 제 뮤텍스를 잡는다. 락을 쥔 채 부르면

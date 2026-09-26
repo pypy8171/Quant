@@ -565,7 +565,7 @@ HEALTH   {"ts":...,"role":"order","account":"<계좌>","data":123,"signal":5,"or
          서로소다 — data는 시세만, signal과 샤드 큐는 전략만, order와 지연은 주문만 올린다 (D-129)
 
 REP tcp://*:5556  요청/응답 — 주문 쪽 프로세스에만 있다 (시세·전략 다리는 PUB만 연다)
-  KILL <zmq_control_token> → "OK" (토큰이 없거나 틀리면 "DENIED")
+  KILL <zmq_control_token> → "OK" (토큰이 없거나 틀리면 "DENIED", 처리 중 예외가 나면 "ERROR")
   STATUS → {"running":true,"data":123,"signal":5,"order":3,"kill":false,"entry_halt":false, …}
 ```
 
