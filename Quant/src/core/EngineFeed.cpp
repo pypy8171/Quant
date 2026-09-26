@@ -49,7 +49,7 @@ uint32_t Engine::websocket_lane_count() const
         return static_cast<uint32_t>(feed_.extra_feed_cfgs.size() + 1);
     }
 
-    return 1u;
+    return ShardPipeline::kDefaultWebsocketLanes;
 }
 
 // 설정의 종목 목록을 그대로 구독 목록으로 깐다 — 전략이 없는 시세 프로세스에서 종목 순번표를 채우려면
@@ -247,7 +247,7 @@ void Engine::drain_pending_subscriptions()
 }
 
 // 소켓을 쥔 시세 프로세스가 디코드한 체결을 전략 프로세스로 넘긴다. 기다리지 않는다 — 큐가 차면 버리고 센다(원칙 3).
-//  [inv] 한 줄의 보내는 쪽은 스레드 하나다 — 소켓 줄은 그 수신 스레드, 마지막 줄(pipeline_.data_row)은 폴러의
+//  [inv] 한 줄의 보내는 쪽은 스레드 하나다 — 소켓 줄은 그 수신 스레드, 마지막 줄(pipeline_.data_row())은 폴러의
 //  조회 스레드. 한 줄을 두 스레드가 부르면 SPSC가 깨진다. [why D-114] [why D-138]
 void Engine::push_feed_trade(uint32_t lane, const TradeData& trade)
 {

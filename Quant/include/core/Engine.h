@@ -817,8 +817,9 @@ private:
         static constexpr size_t   kFillQueueCapacity  = 1024;
         static constexpr size_t   kOrderResponseCapacity = 1024; // 요청 하나에 답 하나 — 요청 큐와 같은 크기 [why D-114]
         static constexpr uint64_t kDropLogEvery       = 100; // 큐 가득으로 버린 신호는 첫 건과 이 배수마다만 WARN
-        uint32_t                  websocket_lanes        = 1;    // WS 수신 스레드 수 = 소켓 수. start()가 행 수로 쓴다
-        uint32_t                  data_row        = 1;    // trade_matrix의 데이터 스레드 행 = websocket_lanes
+        static constexpr uint32_t kDefaultWebsocketLanes = 1; // 앱키 하나 = 소켓 하나. 추가 앱키·주입 소스가 있을 때만 websocket_lane_count()가 늘린다
+        uint32_t                  websocket_lanes        = kDefaultWebsocketLanes; // WS 수신 스레드 수 = 소켓 수. start()가 행 수로 쓴다
+        uint32_t                  data_row() const { return websocket_lanes; } // trade_matrix의 데이터 스레드(REST 대체) 행 = 소켓 행 바로 뒤
         uint32_t                  strategy_shards = 1;    // config. start()가 열 수로 쓴다(상한 shard::kMaxShards)
         uint32_t                  next_shard      = 0;    // 다음 전략에 줄 샤드(라운드로빈 커서). strategy_.mutex 하에서
         shard::RouteTable         routes;                 // 종목 id → 그 종목을 보는 샤드 마스크. 수신 스레드가 틱마다 읽는다

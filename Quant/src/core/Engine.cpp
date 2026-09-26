@@ -59,7 +59,6 @@ void Engine::setup_shards()
     //  feed_.websocket->lanes()와 같다. 소켓을 만들기 전에 행 수가 필요해 config로 센다. 줄 수는 역할과 무관하게
     //  정한다 — 시세 역할도 공유 통로에 넣을 때 줄 번호를 쓴다(Engine::push_feed_trade). [why D-114]
     pipeline_.websocket_lanes = websocket_lane_count();
-    pipeline_.data_row        = pipeline_.websocket_lanes;
 
     // 샤드와 그 앞 큐 행렬·라우팅 표는 전략 역할만 읽는다. 갈라 띄우면 시세 쪽 수신부는 공유 통로에 넣고
     //  바로 돌아가고(Engine::push_feed_trade), 주문 쪽에는 전략이 아예 없다(load_strategies가 전략 역할에서만
@@ -314,7 +313,7 @@ void Engine::initialize_ledger_reconciler()
 void Engine::initialize_data_poller()
 {
     // REST 현재가 폴러. 시세는 시세 전용 클라이언트가 있으면 그쪽(실전 도메인 초당 한도가 높다). [why D-062]
-    //  [lock-order] 폴러 스레드는 pipeline_.trade_matrix의 WS 수신 스레드 행에 넣지 않는다 — 폴러의 틱은 자기 행(pipeline_.data_row)으로 간다.
+    //  [lock-order] 폴러 스레드는 pipeline_.trade_matrix의 WS 수신 스레드 행에 넣지 않는다 — 폴러의 틱은 자기 행(pipeline_.data_row())으로 간다.
     poller_ = std::make_unique<DataPoller>(
         [this](const std::string& ticker)
         {
@@ -331,14 +330,14 @@ void Engine::initialize_data_poller()
             //  단계 5부터 소켓과 넘침 폴러를 쥔 쪽은 시세 프로세스다 — 여기 넣는 쪽도 그쪽 하나다.
             if (role_ == ProcessRole::Feed)
             {
-                push_feed_trade(pipeline_.data_row, trade);
+                push_feed_trade(pipeline_.data_row(), trade);
                 return;
             }
 
             shard::for_each_shard(pipeline_.routes.mask(trade.symbol_id), pipeline_.trade_matrix.consumer_of(trade.symbol_id),
                                   [&](uint32_t consumer)
             {
-                while (!pipeline_.trade_matrix.push_to(pipeline_.data_row, consumer, trade) && running_.load(std::memory_order_acquire))
+                while (!pipeline_.trade_matrix.push_to(pipeline_.data_row(), consumer, trade) && running_.load(std::memory_order_acquire))
                 {
                     std::this_thread::sleep_for(1ms);
                 }
