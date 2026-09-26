@@ -48,6 +48,10 @@ public:
 
     const std::string& id() const override { return id_; }
 
+    // 그 시장의 정규장 안인가(KST hhmm). KR 09:00~15:30, US 22:30~05:00(서머타임 기준). 로더가 청산 시각을 이것으로
+    //  걸러낸다 — 틱 처리가 세션 밖에서 바로 돌아가므로 세션 밖 청산 시각에는 청산 분기가 닿지 않는다.
+    static bool in_session(Market market, int hhmm);
+
     std::string describe() const override;
 
     // ── 스크리닝 ──────────────────────────────────────────────────────────
@@ -75,8 +79,6 @@ private:
     std::optional<OrderSignal> check_entry_exit(symbol::SymbolId symbol_id, std::string_view ticker, int32_t hhmmss,
                                                 double reference_price);
 
-    // 장 세션 내 여부 (KST 기준)
-    bool is_in_session(int hhmm) const;
     // 장 시작부터의 순서로 편 hhmm. US는 자정 뒤(05:00 전)를 +2400 해 22:30 창 뒤로 놓는다. KR은 그대로.
     int session_order(int hhmm) const;
 

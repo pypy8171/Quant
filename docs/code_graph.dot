@@ -30,7 +30,7 @@ digraph code_graph {
   "risk" -> "ipc" [label="2"];
   "risk" -> "utils" [label="4"];
   "strategy" -> "api" [label="5"];
-  "strategy" -> "core" [label="23"];
+  "strategy" -> "core" [label="24"];
   "strategy" -> "risk" [label="1"];
   "strategy" -> "universe" [label="3"];
   "strategy" -> "utils" [label="11"];

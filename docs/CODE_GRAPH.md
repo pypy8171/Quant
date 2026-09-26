@@ -38,7 +38,7 @@ graph LR
   risk -->|2| ipc
   risk -->|4| utils
   strategy -->|5| api
-  strategy -->|23| core
+  strategy -->|24| core
   strategy --> risk
   strategy -->|3| universe
   strategy -->|11| utils
@@ -693,6 +693,7 @@ graph LR
   n_strategy_StrategyBase_h --> n_risk_ProtectiveRule_h
   n_strategy_StrategyFactory_cpp --> n_core_Engine_h
   n_strategy_StrategyFactory_cpp --> n_core_KstTime_h
+  n_strategy_StrategyFactory_cpp --> n_core_MarketSession_h
   n_strategy_StrategyFactory_cpp --> n_core_Types_h
   n_strategy_StrategyFactory_cpp --> n_core_UniverseExit_h
   n_strategy_StrategyFactory_cpp --> n_strategy_DevScaleRules_h

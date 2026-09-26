@@ -1,6 +1,7 @@
 #include "strategy/StrategyFactory.h"
 #include "core/Engine.h"
 #include "core/KstTime.h"
+#include "core/MarketSession.h"
 #include "core/Types.h"
 #include "core/UniverseExit.h"
 #include "strategy/DevScaleRules.h"
@@ -335,6 +336,15 @@ static void load_value_contrary(LoadPass& context, const json& node)
     std::string exchange = node.value("exchange", "");
     double pbr_max = node.value("pbr_max", 1.0);
     int market_close_hhmm = node.value("market_close_exit_hhmm", 1520);
+
+    // 청산 시각이 정규장 밖이면 사고 나서 팔지 않는다(청산 분기가 세션 판정 뒤에 있다) — 등록하지 않는다.
+    if (!ValueContraryStrategy::in_session(market, market_close_hhmm))
+    {
+        LOG_ERROR("[Main] ValueContrary 설정 오류: market_close_exit_hhmm " + std::to_string(market_close_hhmm) +
+                  "이 정규장 밖이라 청산이 나가지 않는다 — 등록 건너뜀");
+        return;
+    }
+
     add_gated(context, std::make_unique<ValueContraryStrategy>(market, std::move(exchange), pbr_max, quantity, market_close_hhmm));
 }
 
@@ -1134,6 +1144,15 @@ static void load_theme(LoadPass& context, const json& node)
     double volume_surge     = node.value("volume_surge_mult", 2.0);
     bool institution_filter     = node.value("inst_filter", true);
     int market_close_hhmm         = node.value("market_close_exit_hhmm", 1520);
+
+    // 청산 시각이 정규장(09:00~15:30) 밖이면 사고 나서 팔지 않는다(청산 분기가 세션 판정 뒤에 있다) — 등록하지 않는다.
+    if (!krx::in_session(market_close_hhmm))
+    {
+        LOG_ERROR("[Main] Theme 설정 오류: market_close_exit_hhmm " + std::to_string(market_close_hhmm) +
+                  "이 정규장 밖이라 청산이 나가지 않는다 — 등록 건너뜀");
+        return;
+    }
+
     add_gated(context, std::make_unique<ThemeStrategy>(
         std::move(sector_codes), top_n, volume_surge, institution_filter, quantity, market_close_hhmm));
 }

@@ -114,7 +114,7 @@
     {
       "from": "strategy",
       "to": "core",
-      "weight": 23
+      "weight": 24
     },
     {
       "from": "strategy",
@@ -1123,6 +1123,7 @@
     "strategy/StrategyFactory.cpp": [
       "core/Engine.h",
       "core/KstTime.h",
+      "core/MarketSession.h",
       "core/Types.h",
       "core/UniverseExit.h",
       "strategy/DevScaleRules.h",
@@ -1468,6 +1469,7 @@
       "core/TickCapture.h",
       "strategy/FixedIntervalStrategy.h",
       "strategy/PriceTargetStrategy.h",
+      "strategy/StrategyFactory.cpp",
       "strategy/ThemeStrategy.h",
       "strategy/ValueContraryStrategy.h"
     ],
@@ -2045,6 +2047,10 @@
       "in_degree": 11
     },
     {
+      "header": "core/MarketSession.h",
+      "in_degree": 9
+    },
+    {
       "header": "risk/OrderGate.h",
       "in_degree": 9
     },
@@ -2055,10 +2061,6 @@
     {
       "header": "utils/EtfFilter.h",
       "in_degree": 9
-    },
-    {
-      "header": "core/MarketSession.h",
-      "in_degree": 8
     },
     {
       "header": "ipc/LedgerSnapshot.h",

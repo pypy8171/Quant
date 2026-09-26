@@ -147,7 +147,7 @@ std::optional<OrderSignal> ValueContraryStrategy::check_entry_exit(symbol::Symbo
 {
     int hhmm = hhmmss / 100;
 
-    if (!is_in_session(hhmm))
+    if (!in_session(market_, hhmm))
     {
         return std::nullopt;
     }
@@ -209,9 +209,9 @@ std::optional<OrderSignal> ValueContraryStrategy::check_entry_exit(symbol::Symbo
     return std::nullopt;
 }
 
-bool ValueContraryStrategy::is_in_session(int hhmm) const
+bool ValueContraryStrategy::in_session(Market market, int hhmm)
 {
-    if (market_ == Market::KR)
+    if (market == Market::KR)
     {
         return krx::in_session(hhmm); // 09:00~15:30 정규장(core/MarketSession.h)
     }
