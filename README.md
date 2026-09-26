@@ -11,12 +11,14 @@
 
 ## 결과
 
+<!-- gen:readme-results -->
 | 내용 | 위치 |
 |---|---|
 | 백테스트 스터디와 모의계좌 매매 결과 | [대시보드](https://claude.ai/artifact/CVr332PFqRQbkoadjCfShP) |
 | 스터디별 코드와 표 | [research/studies/](research/studies/), 색인 [research/README.md](research/README.md) |
 | 날짜별 매매일지 | [strategies/DeviationScale/live/](strategies/DeviationScale/live/) |
-| 엔진 부하 시험 | [부하 시험 결과](https://claude.ai/artifact/2HR69XdJRKU4puWt3aoMz7) |
+| 엔진 부하 시험 | [부하 시험 결과](https://claude.ai/artifact/73wNFxyr7xK6hR7ZxcLN5i) |
+<!-- /gen:readme-results -->
 
 ## 흐름
 

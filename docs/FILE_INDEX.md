@@ -9,11 +9,11 @@
 - [(루트)](#루트) — 11개
 - [.vscode](#vscode) — 4개
 - [PYQuant](#pyquant) — 118개
-- [Quant](#quant) — 317개
-- [docs](#docs) — 100개
+- [Quant](#quant) — 334개
+- [docs](#docs) — 114개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 245개
-- [scripts](#scripts) — 49개
+- [scripts](#scripts) — 50개
 - [strategies](#strategies) — 34개
 - [tools](#tools) — 3개
 
@@ -508,7 +508,10 @@
 - [UniverseRiskGate.cpp](../Quant/src/universe/UniverseRiskGate.cpp) — DevScale 스캔 1단 — 지수 위험회피 게이트와 래치(D-033)
 - [UniverseScanner.cpp](../Quant/src/universe/UniverseScanner.cpp) — 유니버스 스캐너 입구 — scan_devscale 단계 순서와 계측 로그
 - [UniverseScoring.cpp](../Quant/src/universe/UniverseScoring.cpp) — DevScale 스캔 4단 — 횡단면 점수(순수 함수)·순위 절단
-- [detail/Pipeline.h](../Quant/src/universe/detail/Pipeline.h) — 유니버스 스캔 단계 파일 사이의 자료형·함수 선언(src/universe 안에서만)
+
+### Quant/src/universe/detail/
+
+- [Pipeline.h](../Quant/src/universe/detail/Pipeline.h) — 유니버스 스캔 단계 파일 사이의 자료형·함수 선언(src/universe 안에서만)
 
 ### Quant/src/utils/
 
@@ -590,8 +593,8 @@
 - [test_target_basket_strategy.cpp](../Quant/tests/test_target_basket_strategy.cpp) — 원장·시각 주입으로 집행 창·두 레그·예산·재기동 중복 방지·창 끝·dry_run 고정
 - [test_tick_capture.cpp](../Quant/tests/test_tick_capture.cpp) — 틱 캡처·리더 왕복·이어쓰기 단위 테스트
 - [test_ticker.cpp](../Quant/tests/test_ticker.cpp) — 티커 조회 방식 7가지(std::map·unordered_map·SymbolTable::intern·정수 id 배열·숫자 파싱 희소 배열·틱당 소비자 4곳 모델)를 2,700종목·1천만 회로 재는 벤치(체크섬 출력으로 데드코드 제거를 막는다)
-- [test_universe_scoring.cpp](../Quant/tests/test_universe_scoring.cpp) — 유니버스 횡단면 점수 단위 테스트: z-score·±2 절단·눌림 부호 반전·거래대금 결측 중앙값·가중합(D-018)
 - [test_universe_rescan.cpp](../Quant/tests/test_universe_rescan.cpp) — 유니버스 재스캔 장부 단위 테스트: 신규 등록·주기 대기·상한 교체·빈 스캔 무시·차단→해제·복귀 확인(D-077·D-087)
+- [test_universe_scoring.cpp](../Quant/tests/test_universe_scoring.cpp) — 유니버스 횡단면 점수 단위 테스트: z-score·±2 절단·눌림 부호 반전·거래대금 결측 중앙값·가중합(D-018)
 - [test_wake_gate.cpp](../Quant/tests/test_wake_gate.cpp) — WakeGate 소비자 깨우기 단위 테스트
 - [test_websocket_slot_plan.cpp](../Quant/tests/test_websocket_slot_plan.cpp) — 구독 칸 배정 단위 테스트 — 우선순위·빈 칸·보유 보호·유지 시간·순위 차·교체 상한(D-132)
 - [test_ws_decode.cpp](../Quant/tests/test_ws_decode.cpp) — KIS 실시간 채널 디코더 단위 테스트(D-037)
@@ -752,19 +755,18 @@
 - [2026-09-23_db_ingest_rows.csv](reports/stresstest/data/2026-09-23_db_ingest_rows.csv) — 회차 J·K·L이 DB 표(주문·체결·신호·시세)에 남긴 행 수와 초당 행, 주입 뒤 밀린 시간, 최소 여유 메모리
 - [2026-09-23_drop_breakdown.csv](reports/stresstest/data/2026-09-23_drop_breakdown.csv) — M회차를 적재기 있음·없음으로 돌리며 10초마다 STATUS 로 읽은 원인별 버린 건수와 가용 메모리 16행
 - [2026-09-23_order_stages.csv](reports/stresstest/data/2026-09-23_order_stages.csv) — 09-23 회차 E·F·G·H·I의 구간별 p50·p90·p99·최대 80행(창 둘: 첫 60초·전체). 원본 latency_trace.csv에서 뽑은 요약
-- [2026-09-25_Eboth_segments.csv](reports/stresstest/data/2026-09-25_Eboth_segments.csv) — 09-25 Eboth(한 프로세스, 300종목 × 1,000건, DB 끔) 12구간 지연 요약
 - [2026-09-25_Eboth_highwater.csv](reports/stresstest/data/2026-09-25_Eboth_highwater.csv) — 같은 회차의 큐 최고 수위·안전 계수기
-- [2026-09-25_Esplit_segments.csv](reports/stresstest/data/2026-09-25_Esplit_segments.csv) — 09-25 Esplit(세 프로세스, 같은 입력) 12구간 지연 요약 — Eboth와 짝
-- [2026-09-25_Esplit_highwater.csv](reports/stresstest/data/2026-09-25_Esplit_highwater.csv) — 같은 회차의 큐 최고 수위·안전 계수기(역할별)
+- [2026-09-25_Eboth_segments.csv](reports/stresstest/data/2026-09-25_Eboth_segments.csv) — 09-25 Eboth(한 프로세스, 300종목 × 1,000건, DB 끔) 12구간 지연 요약
 - [2026-09-25_Esplit_equivalence.txt](reports/stresstest/data/2026-09-25_Esplit_equivalence.txt) — 정합성 판정문 — 갈라진 종목 0·빠진 순번 0(판정은 이 파일로 낸다)
-- [2026-09-25_Jprime_segments.csv](reports/stresstest/data/2026-09-25_Jprime_segments.csv) — 09-25 Jprime(한 프로세스, 2,700종목 × 30,000건, DB 켬) 12구간 지연 요약
+- [2026-09-25_Esplit_highwater.csv](reports/stresstest/data/2026-09-25_Esplit_highwater.csv) — 같은 회차의 큐 최고 수위·안전 계수기(역할별)
+- [2026-09-25_Esplit_segments.csv](reports/stresstest/data/2026-09-25_Esplit_segments.csv) — 09-25 Esplit(세 프로세스, 같은 입력) 12구간 지연 요약 — Eboth와 짝
 - [2026-09-25_Jprime_highwater.csv](reports/stresstest/data/2026-09-25_Jprime_highwater.csv) — 같은 회차의 큐 최고 수위·안전 계수기
+- [2026-09-25_Jprime_segments.csv](reports/stresstest/data/2026-09-25_Jprime_segments.csv) — 09-25 Jprime(한 프로세스, 2,700종목 × 30,000건, DB 켬) 12구간 지연 요약
 - [2026-09-25_Jprime_status.csv](reports/stresstest/data/2026-09-25_Jprime_status.csv) — 같은 회차를 10초마다 STATUS로 읽은 원인별 버린 건수·가용 메모리
-- [2026-09-25_N_segments.csv](reports/stresstest/data/2026-09-25_N_segments.csv) — 09-25 N(세 프로세스, 같은 큰 입력) 12구간 지연 요약 — Jprime과 짝
-- [2026-09-25_N_highwater.csv](reports/stresstest/data/2026-09-25_N_highwater.csv) — 같은 회차의 큐 최고 수위·안전 계수기(역할별)
-- [2026-09-25_N_status.csv](reports/stresstest/data/2026-09-25_N_status.csv) — 같은 회차의 10초 주기 STATUS 표본
 - [2026-09-25_N_equivalence.txt](reports/stresstest/data/2026-09-25_N_equivalence.txt) — N 대 Jprime 정합성 출력 — 양쪽이 주문을 버리는 입력이라 판정에 쓰지 않는다(OVERVIEW 8절 9번)
-
+- [2026-09-25_N_highwater.csv](reports/stresstest/data/2026-09-25_N_highwater.csv) — 같은 회차의 큐 최고 수위·안전 계수기(역할별)
+- [2026-09-25_N_segments.csv](reports/stresstest/data/2026-09-25_N_segments.csv) — 09-25 N(세 프로세스, 같은 큰 입력) 12구간 지연 요약 — Jprime과 짝
+- [2026-09-25_N_status.csv](reports/stresstest/data/2026-09-25_N_status.csv) — 같은 회차의 10초 주기 STATUS 표본
 
 ## linux_practice
 
