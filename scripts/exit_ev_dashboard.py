@@ -73,7 +73,7 @@ CLAIMS = (
 
 # 지표 정의 — 규칙 탭 머리. 코드 정본은 Quant/include/strategy/DeviationScaleStrategy.h 설계 주석(25~57행).
 INDICATORS = (
-    ("정배열", "일봉 종가 단순이동평균 SMA5 > SMA10 > SMA20 (60일선 조건은 D-141에서 뺐다). 마지막 조건(SMA10>SMA20)만 align_ma_tol_pct 허용오차. 장 시작 전 일봉 250개(daily_lookback)로 계산하고 align_refresh_sec 마다 다시 본다."),
+    ("정배열", "일봉 종가 단순이동평균 SMA5 > SMA10 > SMA20 (60일선 조건은 D-141에서 뺐다). 마지막 조건(SMA10>SMA20)만 align_ma_tol_pct 허용오차. 전일까지의 일봉 250개(daily_lookback)에 오늘 현재가를 최신 봉 자리로 접어 넣어 재스캔마다 다시 본다."),
     ("이격(%)", "(현재가 ÷ 일봉 SMA20 − 1) × 100. 진입 존은 이 값의 구간이다 — DEVSCALE은 SMA20 아래로 눌린 쪽(−pullback_pct ~ +entry_upper_pct), TRENDX는 SMA20 위로 늘어난 쪽(entry_lower_pct ~ entry_upper_pct)."),
     ("존 히스테리시스", "존 경계에 zone_hyst_pct 를 더한 폭을 벗어나야 '존 이탈'로 본다. 경계에서 들락거리며 사고팔기를 막는다."),
     ("3분봉 SMA", "주문 가격 기준. interval_min 분봉 sma_period 개의 단순이동평균. base_on_price 가 참이면 SMA 대신 현재가에 기준점한다."),

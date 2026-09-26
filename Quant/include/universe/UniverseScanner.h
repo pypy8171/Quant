@@ -55,9 +55,6 @@ struct DevScanCfg
     bool   require_aligned = true;
     int    align_lookup_max = 60;   // 재스캔당 일봉 REST 상한
     int    align_daily_n   = 70;   // 봉, 한 종목당 받는 일봉 길이
-    // 장중 일봉 재조회. 기본은 꺼 둔다 — 일봉은 전일 확정치라 재조회해도 같은 값이 온다. [why D-029]
-    int    align_refresh_max = 0;    // 재스캔당 재조회 상한(0=끄기, 기본)
-    int    align_refresh_sec = 600;  // 초, 이 시간이 지난 조회분만 재조회 대상
     int    union_refresh_sec = 0;    // 초, 후보 합집합 재수집 주기. 0=매 재스캔 새로 수집 [why D-028]
     double max_deviation_percent     = 0.0;    // 이격 (price-SMA20)/SMA20 상한. 0=비활성 [why D-022]
     double min_deviation_percent     = 0.0;    // 같은 이격의 하한. max와 짝지어 슬리브 밴드를 만든다 [why D-022]

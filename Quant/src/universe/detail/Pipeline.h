@@ -37,7 +37,6 @@ struct DailyLookup
     //  s_n_live = (s_n*n - roll_n + price_live) / n — REST 없이 정배열을 장중 갱신한다.
     double r5 = 0.0, r10 = 0.0, r20 = 0.0;
     double atr_percent = 0.0;                  // ATR(14)/종가. 정배열 판정용 일봉 재활용(추가 REST 0)
-    std::time_t at = 0;                    // 마지막 조회 시각. 장중 재조회 순번을 이걸로 정한다
     // 저항·거래량 축(2026-09-11 회의 §3). 봉이 모자라면 있는 만큼으로 잰다. 0=미산출.
     double hi250    = 0.0;                 // 확보 봉 안 최고가(align_daily_n=250이면 52주 고가)
     double pivot_high = 0.0;                 // 최근 스윙 고점 — 좌우 5봉보다 높은 고가 중 가장 최근(당일 제외)
@@ -45,8 +44,7 @@ struct DailyLookup
     double close21  = 0.0;                 // 21봉 전 종가(≈1개월 수익률 분모)
 };
 
-// 일봉 요약 캐시 — 종목 id 인덱스 배열(date_yyyymmdd가 비면 없음). 스캔 스레드 하나가 쓰지만 재조회 대상
-//  선정과 조회가 같은 표를 보므로 락으로 감싼다. [inv] 프로세스 안 종목 테이블은 하나다(Engine의 symbols_.table, OrderGate에도 주입된다) — id는 지워지지
+// 일봉 요약 캐시 — 종목 id 인덱스 배열(date_yyyymmdd가 비면 없음). 표는 락으로 감싼다. [inv] 프로세스 안 종목 테이블은 하나다(Engine의 symbols_.table, OrderGate에도 주입된다) — id는 지워지지
 //  않으므로 전역 캐시가 id를 들어도 된다. 파일은 문자열 티커로 쓰고 읽을 때 intern한다. 디스크 사본은 장중 재기동 대비다 — 메모리 캐시가 비면 후보
 //  수백 건의 일봉을 실계좌 150ms, 모의 600ms 간격으로 다시 받아야 하고 그동안 발주 경로의 REST까지 밀린다.
 //  확정된 과거 일봉이라 같은 거래일 안에서는 그대로 재사용해도 된다. 파일은 거래일별로
@@ -64,17 +62,6 @@ public:
     bool get(symbol::SymbolId symbol, const std::string& date_yyyymmdd, DailyLookup& out) const;
 
     void put(symbol::SymbolId symbol, const DailyLookup& daily_lookup);
-
-    // 장중 재조회 대상 고르기 — 판정 재료인 현재가는 장중 내내 변하지만 일봉 요약은
-    //  조회 시각에 묶여 있다. 날짜만 보고 히트시키면 기동 시각의 판정이 마감까지 얼어붙어
-    //  재스캔이 같은 종목만 돌려준다. 그렇다고 매번 전량을 다시 조회할 수는 없다 — 3분봉
-    //  폴링이 이미 REST 초당 한도를 쓰고 있어 수백 건을 더 얹으면 발주 경로까지 밀린다.
-    //  그래서 가장 오래 안 본 순으로 예산만큼만 다시 본다. 재스캔이 반복되면 후보 전체를
-    //  순회하게 되고, 한 바퀴에 걸리는 시간은 후보수/예산 × 재스캔주기다.
-    //  미조회분은 넣지 않는다 — 어차피 미스라 조회 경로로 간다.
-    //  반환은 종목 id 인덱스 비트(캐시 표 크기) — 대상이 없으면 빈 벡터.
-    std::vector<bool> stale_targets(const std::vector<symbol::SymbolId>& cand, const std::string& date_yyyymmdd,
-                                    std::time_t fresh_sec, int budget, std::size_t& considered) const;
 
 private:
     static std::string cache_path(const std::string& date_yyyymmdd);
@@ -201,7 +188,7 @@ struct Features
 struct LookupStats
 {
     int looked_up = 0, aligned = 0, short_bars = 0, overext = 0;
-    int fetched = 0, cache_hit = 0, refreshed = 0;
+    int fetched = 0, cache_hit = 0;
     int illiquid = 0;         // 거래대금 하한 미달로 버린 수
     int misaligned = 0;       // 정배열 조건 미충족으로 버린 수(진단용)
     int budget_skipped = 0;   // 일봉 조회 예산이 끝났고 캐시도 없어 판정 못 한 수

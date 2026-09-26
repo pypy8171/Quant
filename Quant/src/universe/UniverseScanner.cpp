@@ -96,7 +96,6 @@ ScanResult scan_devscale(KisClient& kis, const DevScanCfg& config, symbol::Symbo
              " 리츠드롭=" + std::to_string(candidates.reit_drop) +
              " 검사=" + std::to_string(statistics.looked_up) +
              " (일봉조회=" + std::to_string(statistics.fetched) +
-             " 재조회=" + std::to_string(statistics.refreshed) +
              " 캐시=" + std::to_string(statistics.cache_hit) + ")" +
              " 정배열=" + std::to_string(statistics.aligned) +
              " 역배열컷=" + std::to_string(statistics.misaligned) +

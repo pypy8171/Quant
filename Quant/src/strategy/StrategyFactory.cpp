@@ -865,8 +865,6 @@ static void load_deviation_scale(LoadPass& context, const json& node)
 
         scan_config.sector_top_n   = node.value("sector_top_n", 10);
         scan_config.sector_min_change = node.value("sector_min_chg", 0.0);
-        scan_config.align_refresh_max = node.value("align_refresh_max", 0);
-        scan_config.align_refresh_sec = node.value("align_refresh_sec", 600);
         // 후보 합집합(KIS 랭킹·업종 REST) 갱신 주기. 미지정이면 재스캔 주기와 같아
         //  기존 동작(재스캔마다 새로 수집)이 유지된다.
         scan_config.union_refresh_sec = node.value("union_refresh_sec", 0);

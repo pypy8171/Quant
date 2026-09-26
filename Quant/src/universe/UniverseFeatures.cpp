@@ -63,9 +63,9 @@ void DailyLookupCache::load_today(const std::string& date_yyyymmdd, symbol::Symb
 
         for (auto iterator = document.begin(); iterator != document.end(); ++iterator)
         {
-            // 14칸이 지금 형식(D-141에서 60일선 칸 average_60·r60을 뺐다). 다른 칸수는 옛 파일 —
+            // 13칸이 지금 형식(D-141에서 60일선 칸을, 재조회 경로를 걷으며 조회 시각 칸을 뺐다). 다른 칸수는 옛 파일 —
             //  건너뛰면 캐시 미스와 같아서 그 종목만 다시 받는다.
-            if (!iterator.value().is_array() || iterator.value().size() != 14)
+            if (!iterator.value().is_array() || iterator.value().size() != 13)
             {
                 continue;
             }
@@ -89,11 +89,10 @@ void DailyLookupCache::load_today(const std::string& date_yyyymmdd, symbol::Symb
             daily_lookup.r10     = value[6].get<double>();
             daily_lookup.r20     = value[7].get<double>();
             daily_lookup.atr_percent = value[8].get<double>();
-            daily_lookup.at      = static_cast<std::time_t>(value[9].get<long long>());
-            daily_lookup.hi250     = value[10].get<double>();
-            daily_lookup.pivot_high  = value[11].get<double>();
-            daily_lookup.average_vol20 = value[12].get<double>();
-            daily_lookup.close21   = value[13].get<double>();
+            daily_lookup.hi250     = value[9].get<double>();
+            daily_lookup.pivot_high  = value[10].get<double>();
+            daily_lookup.average_vol20 = value[11].get<double>();
+            daily_lookup.close21   = value[12].get<double>();
 
             by_symbol_[symbol] = std::move(daily_lookup);
             ++count;
@@ -113,8 +112,8 @@ void DailyLookupCache::load_today(const std::string& date_yyyymmdd, symbol::Symb
 
 void DailyLookupCache::save_today(const std::string& date_yyyymmdd, const symbol::SymbolTable& symbols) const
 {
-    // [wire] 값 순서: bars, average_5, average_10, average_20, close, r5, r10, r20, atr_percent, at,
-    //  hi250, pivot_high, average_vol20, close21 — 14칸 고정(읽는 쪽이 칸수로 형식을 가린다)
+    // [wire] 값 순서: bars, average_5, average_10, average_20, close, r5, r10, r20, atr_percent,
+    //  hi250, pivot_high, average_vol20, close21 — 13칸 고정(읽는 쪽이 칸수로 형식을 가린다)
     nlohmann::json document = nlohmann::json::object();
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -130,7 +129,7 @@ void DailyLookupCache::save_today(const std::string& date_yyyymmdd, const symbol
 
             document[symbols.name(symbol).string()] = nlohmann::json::array({daily_lookup.bars, daily_lookup.average_5, daily_lookup.average_10, daily_lookup.average_20,
                                                  daily_lookup.close, daily_lookup.r5, daily_lookup.r10, daily_lookup.r20,
-                                                 daily_lookup.atr_percent, static_cast<long long>(daily_lookup.at),
+                                                 daily_lookup.atr_percent,
                                                  daily_lookup.hi250, daily_lookup.pivot_high, daily_lookup.average_vol20, daily_lookup.close21});
         }
     }
@@ -185,48 +184,6 @@ void DailyLookupCache::put(symbol::SymbolId symbol, const DailyLookup& daily_loo
     by_symbol_[symbol] = daily_lookup;
 }
 
-std::vector<bool> DailyLookupCache::stale_targets(const std::vector<symbol::SymbolId>& cand, const std::string& date_yyyymmdd,
-                                                  std::time_t fresh_sec, int budget, std::size_t& considered) const
-{
-    const std::time_t now_t = std::time(nullptr);
-    std::vector<std::pair<std::time_t, symbol::SymbolId>> stale;
-    std::vector<bool>                                     out;
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-
-        for (const symbol::SymbolId candidate : cand)
-        {
-            if (candidate >= by_symbol_.size() || by_symbol_[candidate].date_yyyymmdd != date_yyyymmdd)
-            {
-                continue;
-            }
-
-            if (now_t - by_symbol_[candidate].at < fresh_sec)
-            {
-                continue;
-            }
-
-            stale.emplace_back(by_symbol_[candidate].at, candidate);
-        }
-
-        if (!stale.empty())
-        {
-            out.assign(by_symbol_.size(), false);
-        }
-    }
-
-    std::ranges::sort(stale, {}, &std::pair<std::time_t, symbol::SymbolId>::first);
-    considered = stale.size();
-    const std::size_t take = std::min<std::size_t>(stale.size(), static_cast<std::size_t>(budget));
-
-    for (std::size_t take_index = 0; take_index < take; ++take_index)
-    {
-        out[stale[take_index].second] = true;
-    }
-
-    return out;
-}
-
 std::string DailyLookupCache::cache_path(const std::string& date_yyyymmdd)
 {
     return Logger::instance().path_for("daily_lookup_" + date_yyyymmdd + ".json").string();
@@ -252,7 +209,6 @@ DailyLookup fetch_daily_lookup(KisClient& kis, const DevScanCfg& config, const s
     auto daily_ohlcv = kis.get_daily_ohlcv(ticker, config.align_daily_n);
     DailyLookup daily_lookup;
     daily_lookup.date_yyyymmdd  = date_yyyymmdd;
-    daily_lookup.at   = std::time(nullptr);
     daily_lookup.bars = static_cast<int>(daily_ohlcv.size());
 
     if (daily_lookup.bars < 20)
@@ -336,25 +292,6 @@ std::vector<Features> lookup_and_filter(KisClient& kis, const DevScanCfg& config
                                    const MarketGate& gate, LookupStats& statistics, symbol::SymbolTable& symbols)
 {
     std::vector<Features> passed;
-    std::vector<bool>     refresh_set; // 종목 id 인덱스, 비면 대상 없음
-    std::size_t           refresh_count = 0;
-
-    if (config.align_refresh_max > 0)
-    {
-        std::size_t stale_n = 0;
-        refresh_set = g_lookup_cache.stale_targets(candidates.symbols, date_yyyymmdd,
-                                                  static_cast<std::time_t>(config.align_refresh_sec),
-                                                  config.align_refresh_max, stale_n);
-
-        if (stale_n > 0)
-        {
-            refresh_count = static_cast<std::size_t>(std::count(refresh_set.begin(), refresh_set.end(), true));
-            LOG_INFO("[Main] DEVSCALE 일봉 재조회: 대상 " + std::to_string(stale_n) +
-                     "종목 중 " + std::to_string(refresh_count) + "건 (예산 " +
-                     std::to_string(config.align_refresh_max) + ", 재조회 기준 " +
-                     std::to_string(config.align_refresh_sec) + "초)");
-        }
-    }
 
     for (const symbol::SymbolId symbol : candidates.symbols)
     {
@@ -381,56 +318,43 @@ std::vector<Features> lookup_and_filter(KisClient& kis, const DevScanCfg& config
         }
 
         DailyLookup daily_lookup;
-        bool       cached     = g_lookup_cache.get(symbol, date_yyyymmdd, daily_lookup);
-        const bool refresh_me = symbol < refresh_set.size() && refresh_set[symbol];   // 대상은 전부 오늘치가 있다
+        const bool  cached = g_lookup_cache.get(symbol, date_yyyymmdd, daily_lookup);
 
-        if (!cached || refresh_me)
+        if (!cached)
         {
             if (statistics.fetched >= config.align_lookup_max)
             {
-                // 예산은 REST에만 건다. 예전에는 여기서 루프를 끊어 뒤쪽 후보의 공짜 캐시
-                //  히트까지 같이 버렸고, 그래서 후보 집합을 넓힐수록 뒤쪽이 영구히 미검사로 남았다.
-                if (!cached)
-                {
-                    ++statistics.budget_skipped;
-                    continue;
-                }
-
-                ++statistics.cache_hit;
+                // 예산은 REST에만 건다. 루프를 끊으면 뒤쪽 후보의 캐시 히트까지 버려
+                //  후보 집합을 넓힐수록 뒤쪽이 영구히 미검사로 남는다.
+                ++statistics.budget_skipped;
+                continue;
             }
-            else
+
+            // 하루 첫 스캔은 수백 건이 연속으로 나간다. 60ms에서는 초당한도(EGW00201) 거부가
+            //  09-08 하루 149건 났고 CANCEL뿐 아니라 NEW에도 걸려 진입이 4초씩 밀렸다.
+            //  같은 날 주문 RTT p50이 09시 381ms에서 10시 1870ms로 단조증가한 것도 계좌 단위
+            //  REST 누적 부하로 보여 150ms로 올린다. 캐시 히트 경로에는 걸리지 않는다.
+            // 모의계좌는 키 한도가 초당 2건이라 150ms(초당 6.7건)로는 버킷이 계속 밀린다 —
+            //  09-22에 초당 한도 재시도 37건이 났다. 모의면 600ms(초당 1.7건)로 벌려 한도 안쪽에서 돈다.
+            constexpr int kDailyLookupSleepMs      = 150; // 실계좌 — 키 한도 초당 20건
+            constexpr int kDailyLookupSleepPaperMs = 600; // 모의계좌 — 키 한도 초당 2건
+
+            if (statistics.fetched > 0)
             {
-                if (refresh_me)
-                {
-                    ++statistics.refreshed;
-                }
-
-                // 하루 첫 스캔은 수백 건이 연속으로 나간다. 60ms에서는 초당한도(EGW00201) 거부가
-                //  09-08 하루 149건 났고 CANCEL뿐 아니라 NEW에도 걸려 진입이 4초씩 밀렸다.
-                //  같은 날 주문 RTT p50이 09시 381ms에서 10시 1870ms로 단조증가한 것도 계좌 단위
-                //  REST 누적 부하로 보여 150ms로 올린다. 캐시 히트 경로에는 걸리지 않는다.
-                // 모의계좌는 키 한도가 초당 2건이라 150ms(초당 6.7건)로는 버킷이 계속 밀린다 —
-                //  09-22에 초당 한도 재시도 37건이 났다. 모의면 600ms(초당 1.7건)로 벌려 한도 안쪽에서 돈다.
-                constexpr int kDailyLookupSleepMs      = 150; // 실계좌 — 키 한도 초당 20건
-                constexpr int kDailyLookupSleepPaperMs = 600; // 모의계좌 — 키 한도 초당 2건
-
-                if (statistics.fetched > 0)
-                {
-                    const int sleep_ms = kis.is_paper() ? kDailyLookupSleepPaperMs : kDailyLookupSleepMs;
-                    std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
-                    statistics.sleep_ms += sleep_ms;
-                }
-
-                const auto fetch_start = std::chrono::steady_clock::now();
-                const std::uint64_t wait_before_ns = KisClient::rate_wait_ns_this_thread();
-                daily_lookup = fetch_daily_lookup(kis, config, symbols.name(symbol).string(), date_yyyymmdd); // REST는 문자열
-                statistics.rest_ms += std::chrono::duration_cast<std::chrono::milliseconds>(
-                                     std::chrono::steady_clock::now() - fetch_start).count();
-                statistics.wait_ms += static_cast<long long>(
-                    (KisClient::rate_wait_ns_this_thread() - wait_before_ns) / 1000000ULL);
-                ++statistics.fetched;
-                g_lookup_cache.put(symbol, daily_lookup);
+                const int sleep_ms = kis.is_paper() ? kDailyLookupSleepPaperMs : kDailyLookupSleepMs;
+                std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
+                statistics.sleep_ms += sleep_ms;
             }
+
+            const auto fetch_start = std::chrono::steady_clock::now();
+            const std::uint64_t wait_before_ns = KisClient::rate_wait_ns_this_thread();
+            daily_lookup = fetch_daily_lookup(kis, config, symbols.name(symbol).string(), date_yyyymmdd); // REST는 문자열
+            statistics.rest_ms += std::chrono::duration_cast<std::chrono::milliseconds>(
+                                 std::chrono::steady_clock::now() - fetch_start).count();
+            statistics.wait_ms += static_cast<long long>(
+                (KisClient::rate_wait_ns_this_thread() - wait_before_ns) / 1000000ULL);
+            ++statistics.fetched;
+            g_lookup_cache.put(symbol, daily_lookup);
         }
         else
         {
