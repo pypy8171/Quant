@@ -146,11 +146,11 @@ note = "한 세션 구독 상한 40(문서 41). 넘치는 종목은 DataPoller �
 
 [[code_value_group]]
 name = "네이버 시세 보조 프로세스 — prices_live.json"
-note = "scripts/live_prices_feed.py 가 전 후보 종목 현재가를 20초마다 파일로 쓴다. 유니버스 재판정(rescan_interval_sec)이 이 파일을 본다."
+note = "scripts/live_prices_feed.py 가 전 후보 종목 현재가·시총을 5초마다 파일로 쓴다(900종목씩 요청 3개 병렬, D-142). 유니버스 재판정(rescan_interval_sec)과 universe_feed.py 재랭킹이 이 파일을 본다."
 
 [[code_value_group]]
 name = "data.go.kr 유니버스 피드 — universe_scan.json"
-note = "PYQuant/tools/universe_feed.py. 감시견이 기동 때 1회 + 장중 3분/10분 간격으로 다시 돌린다(아래 감시견 묶음)."
+note = "PYQuant/tools/universe_feed.py. 감시견이 기동 때 1회 + 장중 1분/2분 간격으로 다시 돌린다(아래 감시견 묶음). 시세는 prices_live.json 재사용이라 재랭킹 한 번의 외부 조회 0(D-142)."
 
 [[code_value_group]]
 name = "엔진 — 스레드 주기·장 시간"

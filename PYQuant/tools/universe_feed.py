@@ -4,7 +4,9 @@ C++ DeviationScale 스캐너의 4번째 후보 축(ETF-free·KIS 30행캡 우회
 data.go.kr 스냅샷은 종목 목록(코드·이름·시장, ETF 없음)만 쓰고, 시총·거래대금·종가는 네이버 벌크
 시세(polling API, marketValueFullRaw·accumulatedTradingValueRaw)에서 실행 시점 값으로 받는다.
 data.go.kr 는 전영업일 시세를 당일 오전 늦게 올려 08시 스캔이 이틀 전 기준을 받았고(09-14 실측), 그
-기준일로 하루를 보내면 전날·오늘 급등한 종목이 후보 풀에서 빠진다. 장중에는 감시견이 30분마다 다시 돌린다.
+기준일로 하루를 보내면 전날·오늘 급등한 종목이 후보 풀에서 빠진다. 장중에는 감시견이 1~2분마다 다시
+돌린다(2026-09-26부터) — 종목 목록은 하루치 parquet 캐시를 읽고 시세는 prices_live.json을 재사용하므로
+재랭킹 한 번의 외부 조회는 0이다.
 
 핵심 이점(data-sourcer 실측 확인):
   • getStockPriceInfo(금융위 주식시세정보)는 ETF/ETN을 구조적으로 서빙 안 함
@@ -51,7 +53,35 @@ def _yesterday_iso() -> str:
 
 _NAVER_URL = "https://polling.finance.naver.com/api/realtime/domestic/stock/"
 _NAVER_UA  = {"User-Agent": "Mozilla/5.0"}
-_NAVER_CHUNK = 100
+_NAVER_CHUNK = 900   # 한 요청 1,000종목까지 받아주고 1,500부터 HTTP 400 (2026-09-26 실측)
+
+_PRICES_LIVE_PATH = _REPO_ROOT / "Quant" / "config" / "prices_live.json"
+_PRICES_LIVE_MAX_AGE_SEC = 90.0
+
+
+def load_prices_live() -> dict[str, dict] | None:
+    """scripts/live_prices_feed.py 가 5초 주기로 떨구는 prices_live.json을 재사용한다 —
+    재랭킹을 1~2분마다 돌 때 네이버를 두 번 두드리지 않기 위해. 파일이 없거나 90초 넘게
+    낡았거나(보조 프로세스 죽음) 시총(mcap)이 없으면(옛 형식) None — 직접 조회로 넘어간다."""
+    try:
+        with open(_PRICES_LIVE_PATH, encoding="utf-8") as file:
+            doc = json.load(file)
+    except (OSError, ValueError):
+        return None
+
+    if time.time() - float(doc.get("ts", 0)) > _PRICES_LIVE_MAX_AGE_SEC:
+        return None
+
+    prices = doc.get("prices") or {}
+    out = {code: {"px": float(quote.get("px", 0.0)),
+                  "mcap": float(quote.get("mcap", 0.0)),
+                  "val": float(quote.get("val", 0.0))}
+           for code, quote in prices.items() if float(quote.get("px", 0.0)) > 0.0}
+    with_mcap = sum(1 for quote in out.values() if quote["mcap"] > 0.0)
+    if with_mcap < len(out) // 2:
+        return None
+
+    return out or None
 
 
 def _prev_weekday_ymd() -> str:
@@ -69,10 +99,10 @@ def _num(v) -> float:
 
 
 def fetch_naver_live(codes: list[str]) -> dict[str, dict]:
-    """네이버 벌크 시세 — 코드별 {px, mcap, val}. 100종목씩 한 요청, 전 시장 2,700종목이면 요청 27개.
+    """네이버 벌크 시세 — 코드별 {px, mcap, val}. 900종목씩 한 요청, 전 시장 2,760종목이면 요청 3개.
     장중에는 현재가·당일 누적 거래대금·현재 시총이고, 장 전에는 직전 종가 기준 값이다.
-    scripts/live_prices_feed.py 와 같은 엔드포인트인데, 그 파일은 이 스캔이 만든 코드 목록으로 돌아
-    (08시 첫 스캔 때는 아직 없다) 여기서 직접 받는다. 실패한 청크는 건너뛴다(그 종목은 data.go.kr 값 유지)."""
+    평소에는 load_prices_live()가 보조 프로세스 산출을 재사용하고, 그 파일이 없거나 낡았을 때만
+    (08시 첫 스캔 등) 여기서 직접 받는다. 실패한 청크는 건너뛴다(그 종목은 data.go.kr 값 유지)."""
     out: dict[str, dict] = {}
     miss = 0
     for i in range(0, len(codes), _NAVER_CHUNK):
@@ -122,11 +152,15 @@ def build(on_date: str, n_mktcap: int, n_turnover: int,
 
     # 시총·거래대금·종가를 네이버 실행 시점 값으로 바꾼다. 거래대금이 절반 넘게 0이면(장 전에 누적치가
     #  아직 없는 경우) 거래대금 축만 data.go.kr 로 두는데, 그 기준일이 직전 평일보다 오래됐으면 이틀 전
-    #  랭킹으로 유니버스를 만드는 것이라 실패로 친다 — 감시견이 직전 파일을 유지하고 30분 뒤 다시 돈다.
+    #  랭킹으로 유니버스를 만드는 것이라 실패로 친다 — 감시견이 직전 파일을 유지하고 1~2분 뒤 다시 돈다.
     live_hhmm = time.strftime("%H%M")
     mcap_src = val_src = f"data.go.kr {served}"
     if use_live:
-        live = fetch_naver_live([r["code"] for r in rows if r.get("code")])
+        live = load_prices_live()
+        if live is not None:
+            print(f"[universe_feed] prices_live.json 재사용({len(live)}종목) — 네이버 직접 조회 생략.")
+        else:
+            live = fetch_naver_live([row["code"] for row in rows if row.get("code")])
         n_cap = n_val = 0
         for r in rows:
             v = live.get(r.get("code", ""))

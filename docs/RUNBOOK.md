@@ -21,7 +21,7 @@ $env:PYTHONUTF8 = "1"
 
 ## 1. 자동매매 하루 루프 (한 창으로 끝내기)
 
-<!-- sync: scripts/auto_trade_day.ps1@a5f4064 scripts/auto_trade_guard.ps1@6a54b80 -->
+<!-- sync: scripts/auto_trade_day.ps1@226b139 scripts/auto_trade_guard.ps1@6a54b80 -->
 
 감시견 하나가 국면 보조 프로세스·유니버스·대시보드·알림·트레이더를 순서대로 띄우고, 장 마감까지 트레이더가 멈추면 다시
 띄운다. 띄우기 전에 그날 장이 열리는지 KIS에 물어(`scripts/check_market_open.py`) 휴장일이면 아무것도 안 띄우고 끝낸다 —
@@ -115,7 +115,7 @@ wsl -e docker ps -a --filter name=quant-tsdb
 
 ## 2. 장중 매매를 창 5개로 손으로 띄우기
 
-<!-- sync: PYQuant/tools/macro_regime_feed.py@712c14b PYQuant/tools/universe_feed.py@543096a scripts/notify_trades.py@41177d1 -->
+<!-- sync: PYQuant/tools/macro_regime_feed.py@712c14b PYQuant/tools/universe_feed.py@c4cb0d9 scripts/notify_trades.py@41177d1 -->
 
 1절 감시견이 도는 날에는 쓰지 않는다(트레이더가 둘이 된다). 대상은 DevScale 모의계좌 `Quant\config\config_dev_paper.json` —
 `Quant\config\config.json`은 실계좌라 장중 시험에 쓰지 않는다. 각 창은 별도 프로세스이고 닫으면 그 부분만 멈춘다.

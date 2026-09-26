@@ -3073,9 +3073,11 @@
         "scripts/live_prices_feed.py"
       ],
       "readers": [
+        "PYQuant/tools/universe_feed.py",
         "scripts/live_prices_feed.py"
       ],
       "mentions": [
+        "PYQuant/tools/universe_feed.py",
         "scripts/live_prices_feed.py"
       ]
     },

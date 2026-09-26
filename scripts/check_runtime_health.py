@@ -47,6 +47,10 @@ BREAKEVEN_RE = re.compile(r"본전탈출\)")
 FILL_RE = re.compile(r"체결통보 ODNO=\d+ (\d{6}) (BUY|SELL) (\d+)주")
 RATE_RE = re.compile(r"EGW00201|초당 거래건수")
 WSFALL_RE = re.compile(r"WS → REST 폴링 폴백")
+# 전 종목 시세 보조 프로세스(scripts/live_prices_feed.py)가 죽거나 밀리면 엔진이 재스캔마다 이 경고를
+#  찍는다 — 그동안 정배열·이격 판정이 전일 종가로 얼어붙는 가장 조용한 실패다(UniverseQuotes.cpp).
+#  09-26에 주기를 20초→5초로 당겼으니 이 줄은 0건이어야 정상이다.
+PRICES_STALE_RE = re.compile(r"전 종목 시세가 (\d+)초 지났다")
 # 거래대금 랭킹: 축·ETF드롭·생존 행수. ETF드롭이 0이 아니면 API단 제외 마스크가 안 먹는 것이다.
 VALUE_RANK_DIAG_RE = re.compile(r"거래대금랭킹 진단\(축=(\d).*?ETF드롭=(\d+).*?생존=(\d+)")
 VALUE_RANK_DONE_RE = re.compile(r"거래대금 랭킹 조회 완료: (\d+)종목 \(요청 count=(\d+)\)")
@@ -1526,6 +1530,7 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
     untracked_opens: list[tuple[int, str]] = []
     blocked_sells: list[tuple[int, str]] = []
     ws_fallbacks = 0
+    prices_stale_ages: list[int] = []   # 전 종목 시세 낡음 경고의 초 수 — 보조 프로세스 사망·지연 흔적
     rtts: list[int] = []
     bucket_waits: list[int] = []
     recon_slow: list[tuple[int, int]] = []   # (ms, 사이클)
@@ -1757,6 +1762,9 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
                 blocked_sells.append((second, found.group(1)))
             if WSFALL_RE.search(line):
                 ws_fallbacks += 1
+            found = PRICES_STALE_RE.search(line)
+            if found:
+                prices_stale_ages.append(int(found.group(1)))
             found = RTT_RE.search(line)
             if found:
                 rtts.append(int(found.group(1)))
@@ -2225,6 +2233,10 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
          + (f" — {', '.join(hhmm(second) for second in b2_on[:5])}" if b2_on else "")),
         ("WS 폴백", ws_fallbacks == 0, "WARN",
          f"REST 폴링 폴백 {ws_fallbacks}회 — 틱 주기 30초"),
+        ("전 종목 시세 낡음", not prices_stale_ages, "WARN",
+         f"시세 파일 낡음 경고 {len(prices_stale_ages)}건"
+         + (f" (최대 {max(prices_stale_ages)}초 전 갱신)" if prices_stale_ages else "")
+         + " — 보조 프로세스(live_prices_feed.py, 5초 주기)가 죽으면 정배열·이격 판정이 전일 종가로 얼어붙는다"),
         ("주문 접수 지연", orders_ok, "WARN", order_detail),
         ("잔고 조회 지연", http_timeouts <= MAX_HTTP_TIMEOUTS, "WARN", recon_detail),
         ("TRENDX 정지", max(trendx_registered, default=0) == 0, "FAIL",
