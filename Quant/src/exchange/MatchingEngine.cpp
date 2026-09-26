@@ -83,10 +83,51 @@ size_t SymbolBook::level_of_price(PriceKrw price_krw) const
     return static_cast<size_t>(found - level_price_.begin());
 }
 
-void SymbolBook::push_resting(PriceLevel& level, uint64_t order_id, int32_t quantity)
+OrderSlot SymbolBook::new_slot(uint64_t order_id, int32_t quantity)
 {
-    level.orders.push_back(RestingOrder{order_id, quantity, 0});
+    if (order_slot_count_ >= static_cast<size_t>(kNoSlot))
+    {
+        return kNoSlot; // 자리 번호가 32비트라 42억 건이 한계다. 부하시험 회차는 종목당 10만 건 수준이다
+    }
+
+    if ((order_slot_count_ & kOrderBlockMask) == 0)
+    {
+        order_blocks_.push_back(std::make_unique<RestingOrder[]>(kOrderBlockSize));
+    }
+
+    const OrderSlot slot = static_cast<OrderSlot>(order_slot_count_);
+    ++order_slot_count_;
+
+    RestingOrder& made      = slot_at(slot);
+    made.order_id           = order_id;
+    made.remaining_quantity = quantity;
+    made.next_slot          = kNoSlot;
+
+    return slot;
+}
+
+bool SymbolBook::push_resting(PriceLevel& level, uint64_t order_id, int32_t quantity)
+{
+    const OrderSlot slot = new_slot(order_id, quantity);
+
+    if (slot == kNoSlot)
+    {
+        return false;
+    }
+
+    if (level.last_slot == kNoSlot)
+    {
+        level.first_slot = slot;
+    }
+    else
+    {
+        slot_at(level.last_slot).next_slot = slot;
+    }
+
+    level.last_slot = slot;
     level.total_quantity += quantity;
+
+    return true;
 }
 
 bool SymbolBook::accumulate(const IncomingOrder& order)
@@ -105,15 +146,9 @@ bool SymbolBook::accumulate(const IncomingOrder& order)
 
     if (order.price_krw == kMarketOrderPrice)
     {
-        if (is_buy)
+        if (!push_resting(is_buy ? buy_market_ : sell_market_, order.order_id, order.quantity))
         {
-            buy_market_orders_.push_back(RestingOrder{order.order_id, order.quantity, 0});
-            buy_market_quantity_ += order.quantity;
-        }
-        else
-        {
-            sell_market_orders_.push_back(RestingOrder{order.order_id, order.quantity, 0});
-            sell_market_quantity_ += order.quantity;
+            return false;
         }
 
         ++resting_count_;
@@ -128,10 +163,15 @@ bool SymbolBook::accumulate(const IncomingOrder& order)
         return false;
     }
 
+    PriceLevel& level = is_buy ? buy_levels_[level_index] : sell_levels_[level_index];
+
+    if (!push_resting(level, order.order_id, order.quantity))
+    {
+        return false;
+    }
+
     if (is_buy)
     {
-        push_resting(buy_levels_[level_index], order.order_id, order.quantity);
-
         if (highest_buy_level_ == kNoLevel || level_index > highest_buy_level_)
         {
             highest_buy_level_ = level_index;
@@ -139,8 +179,6 @@ bool SymbolBook::accumulate(const IncomingOrder& order)
     }
     else
     {
-        push_resting(sell_levels_[level_index], order.order_id, order.quantity);
-
         if (lowest_sell_level_ == kNoLevel || level_index < lowest_sell_level_)
         {
             lowest_sell_level_ = level_index;
@@ -156,7 +194,7 @@ bool SymbolBook::accumulate(const IncomingOrder& order)
 int64_t SymbolBook::cumulative_buy_at(size_t level_index) const
 {
     // 가격 P 이상에 걸린 매수는 P에 체결돼도 손해가 아니라 전부 살 의향이 있다. 시장가는 가격을 안 가리니 항상 포함.
-    int64_t total = buy_market_quantity_;
+    int64_t total = buy_market_.total_quantity;
 
     for (size_t level = level_index; level < buy_levels_.size(); ++level)
     {
@@ -168,7 +206,7 @@ int64_t SymbolBook::cumulative_buy_at(size_t level_index) const
 
 int64_t SymbolBook::cumulative_sell_at(size_t level_index) const
 {
-    int64_t total = sell_market_quantity_;
+    int64_t total = sell_market_.total_quantity;
 
     for (size_t level = 0; level <= level_index && level < sell_levels_.size(); ++level)
     {
@@ -190,7 +228,7 @@ PriceKrw SymbolBook::find_auction_price() const
     std::vector<int64_t> buy_cumulative(level_count, 0);
     std::vector<int64_t> sell_cumulative(level_count, 0);
 
-    int64_t running = buy_market_quantity_;
+    int64_t running = buy_market_.total_quantity;
 
     for (size_t offset = 0; offset < level_count; ++offset)
     {
@@ -199,7 +237,7 @@ PriceKrw SymbolBook::find_auction_price() const
         buy_cumulative[level] = running;
     }
 
-    running = sell_market_quantity_;
+    running = sell_market_.total_quantity;
 
     for (size_t level = 0; level < level_count; ++level)
     {
@@ -285,34 +323,38 @@ int64_t SymbolBook::run_auction(const std::function<void(const Execution&)>& on_
     size_t buy_level_cursor  = buy_levels_.empty() ? 0 : buy_levels_.size() - 1;
     size_t sell_level_cursor = 0;
 
-    auto next_buy = [&]() -> RestingOrder*
+    // 한 줄에서 아직 수량이 남은 맨 앞 주문. 다 체결된 앞자리는 지나가며 버린다.
+    auto next_in_level = [&](PriceLevel& level) -> RestingOrder*
     {
-        while (buy_market_head_ < buy_market_orders_.size())
+        while (level.first_slot != kNoSlot)
         {
-            RestingOrder& candidate = buy_market_orders_[buy_market_head_];
+            RestingOrder& candidate = slot_at(level.first_slot);
 
             if (candidate.remaining_quantity > 0)
             {
                 return &candidate;
             }
 
-            ++buy_market_head_;
+            level.first_slot = candidate.next_slot;
+        }
+
+        level.last_slot = kNoSlot;
+
+        return nullptr;
+    };
+
+    auto next_buy = [&]() -> RestingOrder*
+    {
+        if (RestingOrder* from_market = next_in_level(buy_market_))
+        {
+            return from_market;
         }
 
         while (true)
         {
-            PriceLevel& level = buy_levels_[buy_level_cursor];
-
-            while (level.head_index < level.orders.size())
+            if (RestingOrder* found = next_in_level(buy_levels_[buy_level_cursor]))
             {
-                RestingOrder& candidate = level.orders[level.head_index];
-
-                if (candidate.remaining_quantity > 0)
-                {
-                    return &candidate;
-                }
-
-                ++level.head_index;
+                return found;
             }
 
             if (buy_level_cursor <= auction_level || buy_level_cursor == 0)
@@ -326,32 +368,16 @@ int64_t SymbolBook::run_auction(const std::function<void(const Execution&)>& on_
 
     auto next_sell = [&]() -> RestingOrder*
     {
-        while (sell_market_head_ < sell_market_orders_.size())
+        if (RestingOrder* from_market = next_in_level(sell_market_))
         {
-            RestingOrder& candidate = sell_market_orders_[sell_market_head_];
-
-            if (candidate.remaining_quantity > 0)
-            {
-                return &candidate;
-            }
-
-            ++sell_market_head_;
+            return from_market;
         }
 
         while (sell_level_cursor < sell_levels_.size())
         {
-            PriceLevel& level = sell_levels_[sell_level_cursor];
-
-            while (level.head_index < level.orders.size())
+            if (RestingOrder* found = next_in_level(sell_levels_[sell_level_cursor]))
             {
-                RestingOrder& candidate = level.orders[level.head_index];
-
-                if (candidate.remaining_quantity > 0)
-                {
-                    return &candidate;
-                }
-
-                ++level.head_index;
+                return found;
             }
 
             if (sell_level_cursor >= auction_level)
@@ -392,67 +418,47 @@ int64_t SymbolBook::run_auction(const std::function<void(const Execution&)>& on_
     // 단일가가 지나간 뒤의 잔량 집계는 다시 세는 편이 안전하다 — 커서가 지나간 자리에 부분 체결이 섞여 있다.
     resting_count_          = 0;
     resting_limit_quantity_ = 0;
-    buy_market_quantity_    = 0;
-    sell_market_quantity_   = 0;
     highest_buy_level_      = kNoLevel;
     lowest_sell_level_      = kNoLevel;
 
-    for (size_t head = buy_market_head_; head < buy_market_orders_.size(); ++head)
+    // 줄 하나를 다시 세어 total_quantity를 맞추고 그 값을 돌려준다.
+    const auto recount = [&](PriceLevel& level) -> int64_t
     {
-        if (buy_market_orders_[head].remaining_quantity > 0)
-        {
-            ++resting_count_;
-            buy_market_quantity_ += buy_market_orders_[head].remaining_quantity;
-        }
-    }
+        int64_t total = 0;
 
-    for (size_t head = sell_market_head_; head < sell_market_orders_.size(); ++head)
-    {
-        if (sell_market_orders_[head].remaining_quantity > 0)
+        for (OrderSlot slot = level.first_slot; slot != kNoSlot; slot = slot_at(slot).next_slot)
         {
-            ++resting_count_;
-            sell_market_quantity_ += sell_market_orders_[head].remaining_quantity;
-        }
-    }
+            const int32_t left = slot_at(slot).remaining_quantity;
 
-    for (size_t level = 0; level < buy_levels_.size(); ++level)
-    {
-        PriceLevel& buy_level = buy_levels_[level];
-        int64_t     total     = 0;
-
-        for (size_t head = buy_level.head_index; head < buy_level.orders.size(); ++head)
-        {
-            if (buy_level.orders[head].remaining_quantity > 0)
+            if (left > 0)
             {
                 ++resting_count_;
-                total += buy_level.orders[head].remaining_quantity;
+                total += left;
             }
         }
 
-        buy_level.total_quantity = total;
-        resting_limit_quantity_ += total;
+        level.total_quantity = total;
 
-        if (total > 0 && (highest_buy_level_ == kNoLevel || level > highest_buy_level_))
+        return total;
+    };
+
+    recount(buy_market_);
+    recount(sell_market_);
+
+    for (size_t level = 0; level < buy_levels_.size(); ++level)
+    {
+        const int64_t buy_total = recount(buy_levels_[level]);
+        resting_limit_quantity_ += buy_total;
+
+        if (buy_total > 0 && (highest_buy_level_ == kNoLevel || level > highest_buy_level_))
         {
             highest_buy_level_ = level;
         }
 
-        PriceLevel& sell_level = sell_levels_[level];
-        total                  = 0;
+        const int64_t sell_total = recount(sell_levels_[level]);
+        resting_limit_quantity_ += sell_total;
 
-        for (size_t head = sell_level.head_index; head < sell_level.orders.size(); ++head)
-        {
-            if (sell_level.orders[head].remaining_quantity > 0)
-            {
-                ++resting_count_;
-                total += sell_level.orders[head].remaining_quantity;
-            }
-        }
-
-        sell_level.total_quantity = total;
-        resting_limit_quantity_ += total;
-
-        if (total > 0 && lowest_sell_level_ == kNoLevel)
+        if (sell_total > 0 && lowest_sell_level_ == kNoLevel)
         {
             lowest_sell_level_ = level;
         }
@@ -467,13 +473,13 @@ int64_t SymbolBook::take_from_level(PriceLevel& level, int32_t wanted_quantity, 
 {
     int64_t taken = 0;
 
-    while (taken < wanted_quantity && level.head_index < level.orders.size())
+    while (taken < wanted_quantity && level.first_slot != kNoSlot)
     {
-        RestingOrder& resting = level.orders[level.head_index];
+        RestingOrder& resting = slot_at(level.first_slot);
 
         if (resting.remaining_quantity <= 0)
         {
-            ++level.head_index;
+            level.first_slot = resting.next_slot;
 
             continue;
         }
@@ -483,7 +489,6 @@ int64_t SymbolBook::take_from_level(PriceLevel& level, int32_t wanted_quantity, 
 
         resting.remaining_quantity -= quantity;
         level.total_quantity -= quantity;
-        resting_limit_quantity_ -= quantity;
         taken += quantity;
 
         if (resting.remaining_quantity == 0)
@@ -499,46 +504,9 @@ int64_t SymbolBook::take_from_level(PriceLevel& level, int32_t wanted_quantity, 
         }
     }
 
-    return taken;
-}
-
-int64_t SymbolBook::take_from_market_queue(std::vector<RestingOrder>& queue, size_t& head_index,
-                                           int64_t& queue_quantity, int32_t wanted_quantity,
-                                           uint64_t counterparty_order_id, OrderSide resting_side,
-                                           PriceKrw                                    execution_price,
-                                           const std::function<void(const Execution&)>& on_execution)
-{
-    int64_t taken = 0;
-
-    while (taken < wanted_quantity && head_index < queue.size())
+    if (level.first_slot == kNoSlot)
     {
-        RestingOrder& resting = queue[head_index];
-
-        if (resting.remaining_quantity <= 0)
-        {
-            ++head_index;
-
-            continue;
-        }
-
-        const int32_t quantity =
-            static_cast<int32_t>(std::min<int64_t>(resting.remaining_quantity, wanted_quantity - taken));
-
-        resting.remaining_quantity -= quantity;
-        queue_quantity -= quantity;
-        taken += quantity;
-
-        if (resting.remaining_quantity == 0)
-        {
-            --resting_count_;
-        }
-
-        if (on_execution)
-        {
-            const uint64_t buy_order_id  = resting_side == OrderSide::BUY ? resting.order_id : counterparty_order_id;
-            const uint64_t sell_order_id = resting_side == OrderSide::BUY ? counterparty_order_id : resting.order_id;
-            on_execution(Execution{buy_order_id, sell_order_id, symbol::kNone, execution_price, quantity});
-        }
+        level.last_slot = kNoSlot;
     }
 
     return taken;
@@ -563,16 +531,12 @@ int64_t SymbolBook::match(const IncomingOrder& order, const std::function<void(c
     // 상대편에 시장가가 남아 있으면 먼저 맞춘다 — 가격을 안 가린 주문이라 어느 가격에도 응한다.
     //  체결가는 들어온 쪽 가격을 쓰되, 들어온 쪽도 시장가면 기준가로 잡는다(둘 다 가격이 없는 경우).
     {
-        std::vector<RestingOrder>& opposite_queue    = is_buy ? sell_market_orders_ : buy_market_orders_;
-        size_t&                    opposite_head     = is_buy ? sell_market_head_ : buy_market_head_;
-        int64_t&                   opposite_quantity = is_buy ? sell_market_quantity_ : buy_market_quantity_;
-        const OrderSide            resting_side      = is_buy ? OrderSide::SELL : OrderSide::BUY;
-        const PriceKrw             price =
-            order.price_krw == kMarketOrderPrice ? reference_price_krw_ : order.price_krw;
+        PriceLevel&     opposite_queue = is_buy ? sell_market_ : buy_market_;
+        const OrderSide resting_side   = is_buy ? OrderSide::SELL : OrderSide::BUY;
+        const PriceKrw  price = order.price_krw == kMarketOrderPrice ? reference_price_krw_ : order.price_krw;
 
-        remaining -= static_cast<int32_t>(take_from_market_queue(opposite_queue, opposite_head, opposite_quantity,
-                                                                remaining, order.order_id, resting_side, price,
-                                                                on_execution));
+        remaining -= static_cast<int32_t>(
+            take_from_level(opposite_queue, remaining, order.order_id, resting_side, price, on_execution));
     }
 
     // 지정가 상대편을 최우선호가부터 훑는다. 매수가 들어왔으면 낮은 매도부터, 매도가 들어왔으면 높은 매수부터.
@@ -602,6 +566,7 @@ int64_t SymbolBook::match(const IncomingOrder& order, const std::function<void(c
         const int64_t   taken =
             take_from_level(level, remaining, order.order_id, resting_side, level_price, on_execution);
 
+        resting_limit_quantity_ -= taken;
         remaining -= static_cast<int32_t>(taken);
 
         if (level.total_quantity > 0)
@@ -667,24 +632,21 @@ void SymbolBook::clear_orders()
 {
     for (PriceLevel& level : buy_levels_)
     {
-        level.orders.clear();
-        level.total_quantity = 0;
-        level.head_index     = 0;
+        level = PriceLevel{};
     }
 
     for (PriceLevel& level : sell_levels_)
     {
-        level.orders.clear();
-        level.total_quantity = 0;
-        level.head_index     = 0;
+        level = PriceLevel{};
     }
 
-    buy_market_orders_.clear();
-    sell_market_orders_.clear();
-    buy_market_head_        = 0;
-    sell_market_head_       = 0;
-    buy_market_quantity_    = 0;
-    sell_market_quantity_   = 0;
+    buy_market_  = PriceLevel{};
+    sell_market_ = PriceLevel{};
+
+    // 자리는 줄에서 떼는 것으로 끝나지 않는다 — 저장소를 통째로 놓아야 메모리가 돌아온다.
+    order_blocks_.clear();
+    order_slot_count_ = 0;
+
     highest_buy_level_      = kNoLevel;
     lowest_sell_level_      = kNoLevel;
     resting_count_          = 0;

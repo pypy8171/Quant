@@ -239,7 +239,7 @@ def build_name_map(bal, uni, log_text=""):
 
 
 def _today_log_text(path, size, max_bytes=80_000_000):
-    """로그에서 오늘 날짜로 시작하는 첫 줄부터 끝까지. 피드 씨앗을 뿌릴 때 한 번만 쓴다."""
+    """로그에서 오늘 날짜로 시작하는 첫 줄부터 끝까지. 피드를 처음 채울 때 한 번만 쓴다."""
     today = datetime.now().strftime("%Y-%m-%d").encode()
     chunk = 4_000_000
     start = size
@@ -296,7 +296,7 @@ def _read_log_events_locked(max_events=40):
         size = 0
 
     if _FEED_OFFSET == 0 or _FEED_OFFSET > size:
-        # 첫 호출이거나 로그가 갈렸다 — 오늘치 전부로 씨앗을 뿌리고 거기서부터 잇는다.
+        # 첫 호출이거나 로그가 갈렸다 — 오늘치 전부로 처음 채우고 거기서부터 잇는다.
         text = _today_log_text(path, size)
         _FEED_OFFSET = size
         _FEED_EVENTS.clear()

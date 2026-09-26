@@ -46,6 +46,9 @@ FIELD_PATTERN = re.compile(r"(?P<name>[a-z_]+)=(?P<value>[^\s]+)")
 #  strategy_*      — 전략 이름표 등록을 못 받은 수(quant-53 이 뒤에 실었다. 없는 판이면 그냥 빠진다)
 #  watch_overflow  — 상한에 밀려 소켓에 못 건 종목(그 종목은 틱이 영영 안 온다)
 #  feed_channel_*  — 시세 통로가 차서 못 넘겼거나, 값이 말이 안 돼 꺼내는 쪽이 버린 건수
+#                    이 둘은 버린 건수다 — 기다린 횟수가 아니다. 보낸 수(sent)와 받은 수(received)가
+#                    같아도 유실이 없는 것이 아니다 — 둘 다 push 가 성공한 것만 세기 때문이다
+#                    (Quant/src/ipc/MarketFeedChannel.cpp push_trade). 2026-09-26 확인.
 #  fill_channel_*  — 체결 통로(시세→주문)가 차서 못 넘겼거나, 값이 말이 안 돼 버린 체결통보 건수.
 #                    여기서 새면 주문 쪽 선점분이 안 풀려 총노출을 이중계상한다(D-114 단계 5)
 MUST_BE_ZERO = (

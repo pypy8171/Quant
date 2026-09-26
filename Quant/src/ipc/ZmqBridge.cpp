@@ -31,6 +31,17 @@ constexpr size_t kNormalQueueCap   = 1000;   // HEALTH 하드캡
 //  목표라 먼저 닿는 천장이 여기다. 근본 해결은 폴링 10 ms 를 깨우기로 바꾸는 것이고 그건 따로 한다.
 //  [why D-137]
 constexpr size_t kTradeQueueCap    = 65536;
+// 한 프레임에 싣는 체결 건수. 건마다 프레임을 보내면 봉투 두 개 할당 + memcpy + zmq_msg_send 왕복이 건당
+//  붙어 발행 스레드 하나가 초당 51만 건에서 멎는다. 2026-09-25 재측정에서 들어온 것은 초당 75만 건이라
+//  링을 여덟 배로 넓혀도(65,536칸) 차는 시점만 1.6초 밀렸을 뿐 1,762만 건을 버렸다
+//  (docs/reports/stresstest/OVERVIEW.md 10절 (ㄱ)). 그래서 칸이 아니라 비우는 속도를 고친다 —
+//  체결 500건을 JSON 배열 한 프레임에 실어 보내면 건당 남는 것은 문자열 만들기 + append 뿐이다.
+//  500건이면 봉투 하나가 약 55 KB다. 더 키우면 한 프레임이 커져 받는 쪽 한 번의 파싱이 길어지고,
+//  프레임이 버려질 때 한꺼번에 사라지는 건수도 같이 커진다. 다른 토픽은 건수가 적어 그대로 한 건 한 프레임이다.
+//  [why D-139]
+constexpr size_t kTradeBatchMax    = 500;
+// 체결 한 건이 JSON 글자로 약 110 B라 넉넉하게 잡은 값이다. 묶음 버퍼를 기동 때 한 번만 늘리는 데 쓴다.
+constexpr size_t kTradeJsonBytesEach = 128;
 constexpr auto   kReplyPollTimeout = 10ms;   // REP 명령 수신 폴링 1회 대기 시간
 
 // 정수·실수를 JSON 숫자 표기로 붙인다. 실수는 nlohmann과 같은 최단 왕복 표기 + 정수처럼 보이면 ".0"을 붙여
@@ -57,6 +68,8 @@ void append_number(std::string& out, Number value)
 ZmqBridge::ZmqBridge(int pub_port, int rep_port)
     : pub_port_(pub_port), rep_port_(rep_port), trade_queue_(kTradeQueueCap)
 {
+    // 묶음 버퍼는 기동 때 한 번만 늘린다 — 한 봉투가 500건 × 약 110 B라 발행 중에 다시 늘 일이 없다.
+    trade_batch_.reserve(kTradeBatchMax * kTradeJsonBytesEach);
 }
 
 ZmqBridge::~ZmqBridge()
@@ -152,7 +165,9 @@ void ZmqBridge::thread_fn()
 
         // 멀티파트: frame1=topic, frame2=payload. 두 프레임 다 dontwait — 이 스레드가 REP 폴링도 맡아
         //  전송에서 멈추면 명령 채널까지 같이 선다. PUB는 HWM에서 드롭이 정상 동작이다.
-        const auto send_frames = [&](Topic topic, std::string_view payload)
+        // 돌려주는 값은 "소켓이 받았다"다 — 체결 묶음은 한 프레임에 여러 건이 실려, 버려졌으면 몇 건이
+        //  사라졌는지 부르는 쪽만 안다.
+        const auto send_frames = [&](Topic topic, std::string_view payload) -> bool
         {
             const std::string_view topic_text = topic_name(topic);
             zmq::message_t         topic_frame(topic_text.size());
@@ -165,32 +180,66 @@ void ZmqBridge::thread_fn()
                 if (publish_socket.send(topic_frame, zmq::send_flags::sndmore | zmq::send_flags::dontwait))
                 {
                     (void)publish_socket.send(payload_frame, zmq::send_flags::dontwait);
+                    return true;
                 }
-                else
-                {
-                    ++socket_full_drop_count_;
-                }
+
+                ++socket_full_drop_count_;
             }
             catch (const zmq::error_t& zmq_error)
             {
                 ++socket_error_drop_count_;
                 LOG_WARN(std::string("[ZMQ] publish 실패 topic=") + topic_name(topic) + " : " + zmq_error.what());
             }
+
+            return false;
         };
 
         while (!local.empty())
         {
             const auto& front = local.front();
-            send_frames(front.topic, front.payload);
+            (void)send_frames(front.topic, front.payload);
             local.pop();
         }
 
         // 1b. TRADE 링 소진 — 문자열은 여기서 만든다(버퍼 하나를 돌려 쓴다). 링 용량이 한 바퀴 상한이다.
+        //     한 건마다 보내지 않고 kTradeBatchMax 건씩 JSON 배열 한 프레임에 실어 보낸다. 배열이라
+        //     받는 쪽(PYQuant/ipc/subscriber.py)은 첫 글자로 갈라볼 필요 없이 푼 결과가 list 인지만 본다.
+        //     [why D-139]
+        size_t batch_count = 0;
+        trade_batch_.clear();
+
+        const auto flush_trade_batch = [&]()
+        {
+            if (batch_count == 0)
+            {
+                return;
+            }
+
+            trade_batch_.push_back(']');
+
+            if (!send_frames(Topic::Trade, trade_batch_))
+            {
+                // 프레임 하나가 버려지면 그 안의 체결이 통째로 사라진다 — 프레임 수가 아니라 건수로 센다.
+                trade_socket_drop_count_ += batch_count;
+            }
+
+            trade_batch_.clear();
+            batch_count = 0;
+        };
+
         while (const auto envelope = trade_queue_.pop())
         {
             format_trade(*envelope, account_no_, trade_payload_);
-            send_frames(Topic::Trade, trade_payload_);
+            trade_batch_.push_back(batch_count == 0 ? '[' : ',');
+            trade_batch_.append(trade_payload_);
+
+            if (++batch_count >= kTradeBatchMax)
+            {
+                flush_trade_batch();
+            }
         }
+
+        flush_trade_batch();
 
         // 2. 명령 수신 (REP, kReplyPollTimeout 타임아웃). 명령을 안 받는 프로세스는 폴링할 소켓이 없으니
         //    생산자가 깨울 때까지 잔다. sleep_for 로 쉬면 안 된다 — 윈도우 기본 타이머 격자에서 10 ms 를
@@ -487,6 +536,9 @@ void ZmqBridge::publish_health(const HealthSnapshot& snapshot)
     document["drop_socket_error"]    = socket_error_drop_count_.load();
     document["drop_send_queue_full"] = send_queue_full_drop_count_.load();
     document["drop_trade_ring_full"] = trade_ring_full_drop_count_.load();
+    // 합에 들어가지 않는 곁수 — 위 drop_socket_full 이 센 프레임 중 체결 묶음에 실려 있던 건수다.
+    //  프레임 하나가 500건까지 싣게 되면서(D-139) 프레임 수만으로는 몇 건이 사라졌는지 알 수 없다.
+    document["drop_trade_socket"]    = trade_socket_drop_count_.load();
     // 큐와 지연 — 적재기가 health 표의 같은 이름 열에 그대로 넣는다.
     document["queue_shard_high_water"]   = snapshot.shard_high_water;
     document["queue_shard_capacity"]     = snapshot.shard_capacity;

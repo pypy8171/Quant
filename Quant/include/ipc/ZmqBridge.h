@@ -30,6 +30,8 @@
 //  다른 스레드는 enqueue()로 메시지를 전달한다. TRADE만 예외다 — 수신 스레드(여럿일 수 있다)가 틱마다 부르는
 //  자리라 JSON도 뮤텍스도 없이 TradeData를 MpscQueue에 memcpy로 넣고, 문자열은 송신 스레드가 만든다.
 //  수신 스레드 비용 ~1,000 ns/틱 → ~26 ns/틱(Quant/tests/bench_zmq_publish.cpp, 2026-09-20). [why D-071]
+//  TRADE는 송신 쪽에서도 한 건 한 프레임이 아니다 — 최대 500건을 JSON 배열 한 프레임에 실어 보낸다.
+//  건마다 보내면 발행 스레드가 초당 51만 건에서 멎어 그 위로는 소켓이 조용히 버렸다. [why D-139]
 // ─────────────────────────────────────────────────────────────────────────────
 class ZmqBridge
 {
@@ -135,6 +137,7 @@ public:
     uint64_t socket_error_drop_count() const { return socket_error_drop_count_.load(); }
     uint64_t send_queue_full_drop_count() const { return send_queue_full_drop_count_.load(); }
     uint64_t trade_ring_full_drop_count() const { return trade_ring_full_drop_count_.load(); }
+    uint64_t trade_socket_drop_count() const { return trade_socket_drop_count_.load(); }
 
     // TRADE 전용 봉투 — ts는 부른 시각(수신 스레드)이라 송신이 밀려도 바뀌지 않는다. trivially copyable.
     struct TradeEnvelope
@@ -190,7 +193,8 @@ private:
     std::mutex queue_mutex_;
     std::queue<Message> send_queue_;
     MpscQueue<TradeEnvelope> trade_queue_;   // 생산자 = WS 수신 스레드 수(둘 이상일 수 있다) → MPSC [why D-071 원칙 5]
-    std::string              trade_payload_; // 송신 스레드 전용 재사용 버퍼
+    std::string              trade_payload_; // 송신 스레드 전용 재사용 버퍼(체결 한 건)
+    std::string              trade_batch_;   // 송신 스레드 전용 재사용 버퍼(체결 묶음 JSON 배열) [why D-139]
 
     // 발행 전용 다리(REP 없음)의 송신 스레드를 생산자가 깨운다 — 폴링할 소켓이 없는데 sleep_for로
     //  쉬면 윈도우 타이머 격자에 걸려 한 바퀴가 길어진다. 깃발은 "비우기 전에 내리고 넣은 뒤에 세운다"
@@ -203,6 +207,9 @@ private:
     std::atomic<uint64_t> socket_error_drop_count_{0};     // 보내다 예외가 났다
     std::atomic<uint64_t> send_queue_full_drop_count_{0};  // 줄서기 큐가 상한에 닿았다
     std::atomic<uint64_t> trade_ring_full_drop_count_{0};  // 체결 링이 찼다
+    // 소켓이 안 받은 체결 묶음 프레임에 실려 있던 건수. socket_full_drop_count_ 는 프레임을 세므로
+    //  묶음 하나가 버려지면 1만 는다 — 사라진 체결이 몇 건인지는 이 자리에서만 나온다. [why D-139]
+    std::atomic<uint64_t> trade_socket_drop_count_{0};
 };
 
 #endif // HAS_ZMQ

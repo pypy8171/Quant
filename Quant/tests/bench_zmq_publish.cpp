@@ -7,15 +7,23 @@
 //    이후(MpscQueue<TradeEnvelope> memcpy, JSON은 송신 스레드) :   ~26 ns/틱
 //  드롭 수는 이 벤치의 산물이다 — 200만 틱을 수십 ms에 밀어 넣으니 링(8,192칸 × 초당 100바퀴)이 넘친다.
 //  같은 실행이 와이어 포맷 검사도 한다 — format_trade 결과가 예전 nlohmann dump()와 글자 단위로 같아야 한다
-//  (구독자 PYQuant/ipc/subscriber.py·DB 적재는 손대지 않았다). 다르면 1을 돌려 ctest가 잡는다.
+//  (건 단위 형식은 그대로다. 묶어 보낼 때는 그 문자열을 JSON 배열 원소로 넣는다). 다르면 1을 돌려 ctest가 잡는다.
+//
+//  세 번째 측정은 발행 스레드 쪽 천장이다 — 부르는 쪽이 아무리 얇아도 비우는 쪽이 초당 몇 건인지가
+//  실제 상한이라 거기서 버림이 났다(docs/reports/stresstest/OVERVIEW.md 10절 (ㄱ)). 건마다 한 프레임을
+//  보낼 때와 500건을 한 프레임에 실을 때를 같은 자로 잰다. [why D-071 원칙 7 · D-139]
 #include "ipc/ZmqBridge.h"
 
+#include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <cstring>
 #include <nlohmann/json.hpp>
 #include <random>
 #include <string>
+#include <thread>
 #include <vector>
+#include <zmq.hpp>
 
 namespace
 {
@@ -64,6 +72,109 @@ bool wire_format_matches()
     }
 
     return all_same;
+}
+
+// 발행 스레드가 하는 일만 그대로 옮긴 측정 — 체결을 문자열로 만들고 PUB 소켓으로 내보낸다.
+//  받는 쪽이 없으면 PUB 은 소켓에서 바로 버려 TCP 쓰기 비용이 빠지므로, 같은 프로세스에 SUB 을 붙여
+//  실제로 흘려 보낸다. 재는 것은 보내는 쪽 시간뿐이다.
+double measure_drain(const char* label, const std::vector<TradeData>& ticks, int port, size_t batch_max)
+{
+    zmq::context_t context{1};
+    zmq::socket_t  publish_socket{context, zmq::socket_type::pub};
+    publish_socket.set(zmq::sockopt::sndhwm, 200000);
+    publish_socket.bind("tcp://127.0.0.1:" + std::to_string(port));
+
+    zmq::socket_t subscribe_socket{context, zmq::socket_type::sub};
+    subscribe_socket.set(zmq::sockopt::rcvhwm, 200000);
+    subscribe_socket.set(zmq::sockopt::subscribe, "");
+    subscribe_socket.connect("tcp://127.0.0.1:" + std::to_string(port));
+    // SUB 이 붙기 전에 보낸 것은 사라진다 — 연결이 설 때까지 기다린다.
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+    std::atomic<bool>     reading{true};
+    std::atomic<uint64_t> frames_read{0};
+    std::thread           reader(
+        [&]
+        {
+            subscribe_socket.set(zmq::sockopt::rcvtimeo, 100);
+
+            while (reading.load())
+            {
+                zmq::message_t frame;
+
+                if (subscribe_socket.recv(frame, zmq::recv_flags::none))
+                {
+                    ++frames_read;
+                }
+            }
+        });
+
+    std::string payload;
+    std::string batch;
+    batch.reserve(batch_max * 128);
+    size_t     batch_count = 0;
+    uint64_t   frames_sent = 0;
+
+    const auto send_frames = [&](std::string_view body)
+    {
+        zmq::message_t topic_frame(5);
+        zmq::message_t payload_frame(body.size());
+        std::memcpy(topic_frame.data(), "TRADE", 5);
+        std::memcpy(payload_frame.data(), body.data(), body.size());
+
+        if (publish_socket.send(topic_frame, zmq::send_flags::sndmore | zmq::send_flags::dontwait))
+        {
+            (void)publish_socket.send(payload_frame, zmq::send_flags::dontwait);
+        }
+
+        ++frames_sent;
+    };
+
+    const auto start = std::chrono::high_resolution_clock::now();
+
+    for (const auto& trade : ticks)
+    {
+        ZmqBridge::TradeEnvelope envelope;
+        envelope.ts_ms = 1758340000000;
+        envelope.trade = trade;
+        ZmqBridge::format_trade(envelope, "00000000", payload);
+
+        if (batch_max <= 1)
+        {
+            send_frames(payload);
+            continue;
+        }
+
+        batch.push_back(batch_count == 0 ? '[' : ',');
+        batch.append(payload);
+
+        if (++batch_count >= batch_max)
+        {
+            batch.push_back(']');
+            send_frames(batch);
+            batch.clear();
+            batch_count = 0;
+        }
+    }
+
+    if (batch_count > 0)
+    {
+        batch.push_back(']');
+        send_frames(batch);
+    }
+
+    const auto elapsed_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                std::chrono::high_resolution_clock::now() - start)
+                                .count();
+    reading.store(false);
+    reader.join();
+
+    const double per_trade_ns = static_cast<double>(elapsed_ns) / static_cast<double>(ticks.size());
+    const double per_second   = per_trade_ns > 0.0 ? 1e9 / per_trade_ns : 0.0;
+    std::printf("%s: %.0f ns/trade → 초당 %.0f건 (프레임 %llu, 받은 프레임 %llu)\n", label, per_trade_ns,
+                per_second, static_cast<unsigned long long>(frames_sent),
+                static_cast<unsigned long long>(frames_read.load()));
+    return per_second;
 }
 
 } // namespace
@@ -139,6 +250,16 @@ int main()
     if (!measure("PUB only", 15557, 0))
     {
         return 1;
+    }
+
+    // 발행 스레드 천장 — 전후 측정. 200만 건은 한 건씩 보내면 몇 초가 걸려 벤치가 길어지므로 20만 건만 쓴다.
+    const std::vector<TradeData> drain_ticks(ticks.begin(), ticks.begin() + 200'000);
+    const double                 one_by_one = measure_drain("체결 한 건 한 프레임", drain_ticks, 15558, 1);
+    const double                 batched    = measure_drain("체결 500건 한 프레임", drain_ticks, 15559, 500);
+
+    if (one_by_one > 0.0)
+    {
+        std::printf("발행 천장 %.1f배\n", batched / one_by_one);
     }
 
     return 0;

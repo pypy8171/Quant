@@ -1,0 +1,9 @@
+round,role,recorder,elapsed_seconds,data_events,signal_count,order_count,drop_total,drop_socket_full,drop_socket_error,drop_send_queue_full,drop_trade_ring_full,drop_trade_socket,available_gb
+Jprime,order,on,0.0,0,0,0,0,0,0,0,0,0,15.33
+Jprime,order,on,10.0,0,0,0,0,0,0,0,0,0,12.92
+Jprime,order,on,20.0,33467720,13683,8699,1850740,0,0,0,1850740,0,9.77
+Jprime,order,on,30.0,40239463,32785,18512,1944950,0,0,0,1944950,0,8.77
+Jprime,order,on,40.0,46974609,51739,28640,2014794,0,0,0,2014794,0,7.87
+Jprime,order,on,50.0,52380458,69584,38761,2322823,0,0,0,2322823,0,7.47
+Jprime,order,on,60.0,54246634,85564,48591,2357103,0,0,0,2357103,0,7.15
+Jprime,order,on,70.0,54507601,101459,58340,2357103,0,0,0,2357103,0,7.29

@@ -11,9 +11,13 @@ SUB 소켓은 bind가 아니라 connect라 한 소켓이 포트 여럿에 동시
   frame1: topic  bytes  (b"TRADE" | b"SIGNAL" | b"ORDER" | b"HEALTH" | b"FILL")
   frame2: payload bytes (JSON 문자열)
 
+TRADE 는 한 프레임에 체결 여럿을 JSON 배열로 싣는다(최대 500건, 엔진 쪽 kTradeBatchMax). 건마다 프레임을
+보내면 발행 스레드가 초당 51만 건에서 멎어 그 위로는 소켓이 조용히 버렸다(D-139). 나머지 토픽은 건수가 적어
+예전처럼 한 건 한 프레임이다. 그래서 payload 를 푼 결과는 dict 이거나 list 이고, 가르는 것은 EngineMonitor 다.
+
 사용 예:
     sub = ZmqSubscriber()
-    for topic, data in sub.iter_events():
+    for topic, data in sub.iterate_events():
         print(topic, data)
 """
 import json
@@ -57,8 +61,8 @@ class ZmqSubscriber:
         self._sock.setsockopt(zmq.RCVTIMEO, 1000)  # 1초 타임아웃
         logger.info(f"ZMQ-SUB {host} 포트 {', '.join(str(port) for port in ports)} 연결")
 
-    def recv_one(self) -> Optional[tuple[str, dict]]:
-        """이벤트 1개 수신. 타임아웃이면 None 반환."""
+    def recv_one(self) -> Optional[tuple[str, dict | list]]:
+        """프레임 1개 수신. 타임아웃이면 None 반환. TRADE 는 체결 여럿을 담은 list 로 온다."""
         try:
             frames = self._sock.recv_multipart()
             if len(frames) < 2:
@@ -69,7 +73,7 @@ class ZmqSubscriber:
         except zmq.Again:
             return None
 
-    def iter_events(self) -> Iterator[tuple[str, dict]]:
+    def iterate_events(self) -> Iterator[tuple[str, dict | list]]:
         """이벤트 무한 반복. KeyboardInterrupt로 종료."""
         while True:
             result = self.recv_one()
@@ -134,6 +138,18 @@ class EngineMonitor:
                     continue
 
                 topic, data = event
+
+                # TRADE 는 한 프레임에 여럿이 실려 온다(D-139). 받은 건수는 프레임이 아니라 체결로 세야
+                #  엔진이 HEALTH 에 싣는 발행 건수와 같은 자로 견줄 수 있다.
+                if isinstance(data, list):
+                    self.received[topic] = self.received.get(topic, 0) + len(data)
+
+                    if topic == "TRADE" and self.on_trade:
+                        for one in data:
+                            self.on_trade(one)
+
+                    continue
+
                 self.received[topic] = self.received.get(topic, 0) + 1
 
                 if   topic == "TRADE"  and self.on_trade:  self.on_trade(data)

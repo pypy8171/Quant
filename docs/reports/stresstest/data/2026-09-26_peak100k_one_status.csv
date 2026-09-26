@@ -1,0 +1,9 @@
+round,role,recorder,elapsed_seconds,data_events,signal_count,order_count,drop_total,drop_socket_full,drop_socket_error,drop_send_queue_full,drop_trade_ring_full,available_gb
+peak100k_one,order,on,0.0,0,0,0,0,0,0,0,0,6.68
+peak100k_one,order,on,10.0,0,0,0,0,0,0,0,0,4.28
+peak100k_one,order,on,20.0,0,0,0,0,0,0,0,0,3.33
+peak100k_one,order,on,30.0,0,0,0,0,0,0,0,0,3.39
+peak100k_one,order,on,40.0,40921067,1245,1245,4519668,0,0,0,4519668,3.46
+peak100k_one,order,on,50.0,90060862,4733,3545,11100216,0,0,0,11100216,3.45
+peak100k_one,order,on,60.0,131442201,26487,23768,13417913,0,0,0,13417913,3.59
+peak100k_one,order,on,70.1,172172324,48350,41122,15702687,0,0,0,15702687,3.49

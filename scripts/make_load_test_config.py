@@ -81,7 +81,7 @@ def build_config(tickers: list[str], arguments: argparse.Namespace) -> dict:
         # 주문 의도·수락·체결의 순서를 남긴다. 주문 수는 체결 수보다 네 자리 적어 부하에 영향이 없다.
         "ledger_journal_dir": arguments.ledger_journal_dir,
         # 받은 체결 원본. 체결 한 건이 84바이트라 전속력 회차에서는 초당 수백 MB가 되어 재려던 처리량을
-        #  바꿔 놓는다 — 같은 씨앗으로 입력이 재현되므로, 결과 대조가 필요한 짧은 회차에서만 켠다.
+        #  바꿔 놓는다 — 같은 난수 시드로 입력이 재현되므로, 결과 대조가 필요한 짧은 회차에서만 켠다.
         "capture_dir": arguments.capture_dir,
         "tickers": tickers,
         "risk": {

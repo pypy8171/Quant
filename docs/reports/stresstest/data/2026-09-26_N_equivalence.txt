@@ -1,0 +1,45 @@
+order equivalence
+  baseline : latency_trace_Jprime.csv (63372 orders)
+  compared : latency_trace_N.csv (79210 orders)
+
+check                                baseline     compared
+------------------------------------------------------------
+orders written                          63372        79210
+distinct order shapes                    7231         7126
+matched (both sides)                    60278        60278
+unmatched                                3094        18932
+
+gaps in order sequence                  37923        24192
+symbols that emitted orders              2700         2700
+symbols whose stream diverges            2699
+  갈라진 종목: 000100, 000150, 000250, 000270, 000500, 000660, 000720, 000810, 000880, 000990, 001440, 001820, 002990, 003160, 003230, 003380, 003490, 003550, 003670, 004020
+
+orders only in the baseline run:
+  x16     902056 FIXED_INTERVAL_902056 SELL NEW 0
+  x12     902587 FIXED_INTERVAL_902587 SELL NEW 0
+  x11     900598 FIXED_INTERVAL_900598 SELL NEW 0
+  x11     902453 FIXED_INTERVAL_902453 SELL NEW 0
+  x11     347700 FIXED_INTERVAL_347700 SELL NEW 0
+  x10     902275 FIXED_INTERVAL_902275 SELL NEW 0
+  x10     901733 FIXED_INTERVAL_901733 SELL NEW 0
+  x9      900419 FIXED_INTERVAL_900419 SELL NEW 0
+  x9      902544 FIXED_INTERVAL_902544 SELL NEW 0
+  x9      900986 FIXED_INTERVAL_900986 SELL NEW 0
+  x8      900576 FIXED_INTERVAL_900576 SELL NEW 0
+  x8      902684 FIXED_INTERVAL_902684 SELL NEW 0
+  ... 1326 more shapes
+
+orders only in the compared run:
+  x15     902056 FIXED_INTERVAL_902056 SELL NEW 1
+  x14     900598 FIXED_INTERVAL_900598 SELL NEW 1
+  x14     347700 FIXED_INTERVAL_347700 SELL NEW 1
+  x13     902587 FIXED_INTERVAL_902587 SELL NEW 1
+  x13     902608 FIXED_INTERVAL_902608 SELL NEW 1
+  x12     902699 FIXED_INTERVAL_902699 SELL NEW 1
+  x12     901733 FIXED_INTERVAL_901733 BUY NEW 1
+  x12     902453 FIXED_INTERVAL_902453 SELL NEW 1
+  x12     901628 FIXED_INTERVAL_901628 BUY NEW 1
+  x12     902684 FIXED_INTERVAL_902684 SELL NEW 1
+  x12     901016 FIXED_INTERVAL_901016 BUY NEW 1
+  x12     902597 FIXED_INTERVAL_902597 SELL NEW 1
+  ... 5822 more shapes

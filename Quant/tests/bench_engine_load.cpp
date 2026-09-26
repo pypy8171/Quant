@@ -393,7 +393,7 @@ std::vector<uint32_t> build_pick_table_from_weights(const std::vector<double>& w
 // ── 거래량 쏠림(Zipf) ────────────────────────────────────────────────────────
 // 실제 장은 대형주 몇 개가 체결 대부분을 차지한다. 종목을 균등하게 도는 루프로는 큐가 실제로 터지는
 //  국면(한 종목·한 샤드에 몰리는 순간)을 재현하지 못한다. 뽑기표를 미리 만들고 한 번 섞어 두었다가
-//  순서대로 읽는다 — hot loop에 난수와 나눗셈을 두지 않으려고. 씨앗 고정이라 구성 사이 비교가 된다.
+//  순서대로 읽는다 — hot loop에 난수와 나눗셈을 두지 않으려고. 난수 시드 고정이라 구성 사이 비교가 된다.
 std::vector<uint32_t> build_pick_table(size_t symbol_count, double skew, size_t table_size)
 {
     std::vector<uint32_t> table;

@@ -10,7 +10,7 @@
 - [.vscode](#vscode) — 4개
 - [PYQuant](#pyquant) — 118개
 - [Quant](#quant) — 334개
-- [docs](#docs) — 114개
+- [docs](#docs) — 132개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 245개
 - [scripts](#scripts) — 50개
@@ -201,7 +201,7 @@
 - [ledger_dump.py](../PYQuant/tools/ledger_dump.py) — 원장 저널 파일을 DB 없이 읽는 도구: 레코드 표·CSV·보유 재구성·미결 주문(D-113)
 - [ledger_recorder.py](../PYQuant/tools/ledger_recorder.py) — 원장 저널 꼬리를 따라 읽어 TimescaleDB ledger_events에 적재, 읽은 위치는 ledger_offsets(D-113)
 - [load_highwater_reader.py](../PYQuant/tools/load_highwater_reader.py) — 부하시험 큐 고수위 판독기 — 역할별 실행 로그의 `[큐 고수위]` 줄을 CSV 로 펴고, 0 이어야 하는 칸이 0 인지로 분리판 안전성을 판정한다
-- [load_injector.py](../PYQuant/tools/load_injector.py) — 부하시험 주문 인젝터 — 동시호가·연속매매 주문을 난수로 만들어 32바이트 전문으로 ZMQ PUSH, 씨앗을 고정하면 같은 주문열이 다시 나온다
+- [load_injector.py](../PYQuant/tools/load_injector.py) — 부하시험 주문 인젝터 — 동시호가·연속매매 주문을 난수로 만들어 32바이트 전문으로 ZMQ PUSH, 난수 시드를 고정하면 같은 주문열이 다시 나온다
 - [load_latency_reader.py](../PYQuant/tools/load_latency_reader.py) — 부하시험 구간 지연 판독기 — `latency_trace.csv` 를 시세 수신 → 전략 판단 → 주문 전송 → 응답 열두 칸으로 펴 분위수 표를 내고, 회차 둘을 칸별로 견줘 분리가 어느 칸에 얼마를 얹었는지를 한 줄로 낸다
 - [load_status_sampler.py](../PYQuant/tools/load_status_sampler.py) — 부하시험 상태 표본기 — 요청·응답 소켓의 STATUS 로 버린 건수를 원인별·역할별로 읽어 CSV 로 남긴다, 발행 큐가 포화해도 답한다
 - [log_report.py](../PYQuant/tools/log_report.py) — quant_trader 로그 운용 리포트 생성기
@@ -767,6 +767,24 @@
 - [2026-09-25_N_highwater.csv](reports/stresstest/data/2026-09-25_N_highwater.csv) — 같은 회차의 큐 최고 수위·안전 계수기(역할별)
 - [2026-09-25_N_segments.csv](reports/stresstest/data/2026-09-25_N_segments.csv) — 09-25 N(세 프로세스, 같은 큰 입력) 12구간 지연 요약 — Jprime과 짝
 - [2026-09-25_N_status.csv](reports/stresstest/data/2026-09-25_N_status.csv) — 같은 회차의 10초 주기 STATUS 표본
+- [2026-09-26_Eboth_highwater.csv](reports/stresstest/data/2026-09-26_Eboth_highwater.csv) — 같은 회차의 큐 최고 수위·안전 계수기
+- [2026-09-26_Eboth_segments.csv](reports/stresstest/data/2026-09-26_Eboth_segments.csv) — 09-26 Eboth(한 프로세스, 300종목 × 1,000건, DB 끔) 12구간 지연 요약 — 체결 발행 묶음(D-139) 뒤 재측정
+- [2026-09-26_Esplit_equivalence.txt](reports/stresstest/data/2026-09-26_Esplit_equivalence.txt) — 정합성 판정문 — 갈라진 종목 0·빠진 순번 0(판정은 이 파일로 낸다)
+- [2026-09-26_Esplit_highwater.csv](reports/stresstest/data/2026-09-26_Esplit_highwater.csv) — 같은 회차의 큐 최고 수위·안전 계수기(역할별)
+- [2026-09-26_Esplit_segments.csv](reports/stresstest/data/2026-09-26_Esplit_segments.csv) — 09-26 Esplit(세 프로세스, 같은 입력) 12구간 지연 요약 — Eboth와 짝
+- [2026-09-26_Jprime_highwater.csv](reports/stresstest/data/2026-09-26_Jprime_highwater.csv) — 같은 회차의 큐 최고 수위·안전 계수기
+- [2026-09-26_Jprime_segments.csv](reports/stresstest/data/2026-09-26_Jprime_segments.csv) — 09-26 Jprime(한 프로세스, 2,700종목 × 30,000건, DB 켬) 12구간 지연 요약
+- [2026-09-26_Jprime_status.csv](reports/stresstest/data/2026-09-26_Jprime_status.csv) — 같은 회차를 10초마다 STATUS로 읽은 원인별 버린 건수 — 체결소켓 칸(drop_trade_socket)이 새로 붙었다
+- [2026-09-26_N_equivalence.txt](reports/stresstest/data/2026-09-26_N_equivalence.txt) — N 대 Jprime 정합성 출력 — 양쪽이 주문을 버리는 입력이라 판정에 쓰지 않는다(OVERVIEW 11.5절)
+- [2026-09-26_N_highwater.csv](reports/stresstest/data/2026-09-26_N_highwater.csv) — 같은 회차의 큐 최고 수위·안전 계수기(역할별)
+- [2026-09-26_N_segments.csv](reports/stresstest/data/2026-09-26_N_segments.csv) — 09-26 N(세 프로세스, 같은 큰 입력) 12구간 지연 요약 — Jprime과 짝
+- [2026-09-26_N_status.csv](reports/stresstest/data/2026-09-26_N_status.csv) — 같은 회차의 10초 주기 STATUS 표본
+- [2026-09-26_peak100k_one_highwater.csv](reports/stresstest/data/2026-09-26_peak100k_one_highwater.csv) — 09-26 종목당 10만건(한 프로세스) 큐 최고 수위·안전 계수기
+- [2026-09-26_peak100k_one_segments.csv](reports/stresstest/data/2026-09-26_peak100k_one_segments.csv) — 같은 회차 12구간 지연 요약 — 전략 판단에서 주문 스레드가 꺼낼 때까지가 거의 전부다
+- [2026-09-26_peak100k_one_status.csv](reports/stresstest/data/2026-09-26_peak100k_one_status.csv) — 같은 회차를 10초마다 STATUS로 읽은 원인별 버린 건수
+- [2026-09-26_peak100k_split_highwater.csv](reports/stresstest/data/2026-09-26_peak100k_split_highwater.csv) — 09-26 종목당 10만건(세 프로세스) 역할별 큐 최고 수위 — 주문 요청 큐 660/1,024
+- [2026-09-26_peak100k_split_segments.csv](reports/stresstest/data/2026-09-26_peak100k_split_segments.csv) — 같은 회차 12구간 지연 요약 — peak100k_one과 짝
+- [2026-09-26_peak100k_split_status.csv](reports/stresstest/data/2026-09-26_peak100k_split_status.csv) — 같은 회차의 10초 주기 STATUS 표본 — 보낸 수와 받은 수가 같다
 
 ## linux_practice
 

@@ -1,0 +1,44 @@
+order equivalence
+  baseline : latency_trace_Eboth.csv (14023 orders)
+  compared : latency_trace_Esplit.csv (14455 orders)
+
+check                                baseline     compared
+------------------------------------------------------------
+orders written                          14023        14455
+distinct order shapes                     600          600
+matched (both sides)                    13917        13917
+unmatched                                 106          538
+
+gaps in order sequence                      0            0
+symbols that emitted orders               300          300
+symbols whose stream diverges               0
+
+orders only in the baseline run:
+  x2      010170 FIXED_INTERVAL_010170 SELL NEW 1
+  x2      028260 FIXED_INTERVAL_028260 SELL NEW 1
+  x2      353200 FIXED_INTERVAL_353200 BUY NEW 1
+  x2      047810 FIXED_INTERVAL_047810 BUY NEW 1
+  x2      353200 FIXED_INTERVAL_353200 SELL NEW 1
+  x2      032830 FIXED_INTERVAL_032830 BUY NEW 1
+  x2      066970 FIXED_INTERVAL_066970 BUY NEW 1
+  x2      125490 FIXED_INTERVAL_125490 BUY NEW 1
+  x2      032830 FIXED_INTERVAL_032830 SELL NEW 1
+  x2      260002 FIXED_INTERVAL_260002 SELL NEW 1
+  x2      003230 FIXED_INTERVAL_003230 BUY NEW 1
+  x2      086790 FIXED_INTERVAL_086790 SELL NEW 1
+  ... 77 more shapes
+
+orders only in the compared run:
+  x5      145020 FIXED_INTERVAL_145020 SELL NEW 1
+  x4      000150 FIXED_INTERVAL_000150 SELL NEW 1
+  x4      475150 FIXED_INTERVAL_475150 SELL NEW 1
+  x4      377300 FIXED_INTERVAL_377300 SELL NEW 1
+  x4      145020 FIXED_INTERVAL_145020 BUY NEW 1
+  x4      377300 FIXED_INTERVAL_377300 BUY NEW 1
+  x4      006400 FIXED_INTERVAL_006400 SELL NEW 1
+  x4      475150 FIXED_INTERVAL_475150 BUY NEW 1
+  x3      064350 FIXED_INTERVAL_064350 BUY NEW 1
+  x3      478340 FIXED_INTERVAL_478340 BUY NEW 1
+  x3      069540 FIXED_INTERVAL_069540 BUY NEW 1
+  x3      166090 FIXED_INTERVAL_166090 SELL NEW 1
+  ... 333 more shapes

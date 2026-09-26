@@ -45,6 +45,7 @@ STATUS_FIELDS = (
     "drop_socket_error",
     "drop_send_queue_full",
     "drop_trade_ring_full",
+    "drop_trade_socket",
 )
 
 CSV_COLUMNS = (
@@ -60,6 +61,7 @@ CSV_COLUMNS = (
     "drop_socket_error",
     "drop_send_queue_full",
     "drop_trade_ring_full",
+    "drop_trade_socket",
     "available_gb",
 )
 
@@ -150,6 +152,7 @@ def build_row(round_name: str, recorder: str, endpoint: Endpoint, status: dict,
         "drop_socket_error": status.get("drop_socket_error", ""),
         "drop_send_queue_full": status.get("drop_send_queue_full", ""),
         "drop_trade_ring_full": status.get("drop_trade_ring_full", ""),
+        "drop_trade_socket": status.get("drop_trade_socket", ""),
         "available_gb": available_gigabytes(),
     }
 
@@ -164,7 +167,8 @@ def format_line(row: dict) -> str:
         return head + f"  남은메모리 {row['available_gb']}GB"
 
     return (head + f"  (소켓 {row['drop_socket_full']}·예외 {row['drop_socket_error']}"
-            f"·발행큐 {row['drop_send_queue_full']}·체결링 {row['drop_trade_ring_full']})"
+            f"·발행큐 {row['drop_send_queue_full']}·체결링 {row['drop_trade_ring_full']}"
+            f"·체결소켓 {row['drop_trade_socket']})"
             f"  남은메모리 {row['available_gb']}GB")
 
 

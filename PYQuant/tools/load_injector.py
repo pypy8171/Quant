@@ -496,7 +496,7 @@ def parse_arguments(argument_list: list[str] | None = None) -> argparse.Namespac
         "--limit-orders-per-second", type=int, default=2, help="3단계에 종목당 초당 지정가 보충 건수"
     )
     parser.add_argument("--send-high-water-mark", type=int, default=100000, help="보내는 쪽 큐 길이")
-    parser.add_argument("--seed", type=int, default=20260923, help="난수 씨앗")
+    parser.add_argument("--seed", type=int, default=20260923, help="난수 시드")
     parser.add_argument(
         "--phase", choices=("all", "auction", "continuous"), default="all", help="돌릴 단계"
     )

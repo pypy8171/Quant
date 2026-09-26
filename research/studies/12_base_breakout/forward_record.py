@@ -142,24 +142,24 @@ def recent_event(idx, market):
 
 
 def seed_panel():
-    """과거 패널을 씨앗으로 복사한다. 처음 한 번만 든다."""
+    """과거 패널을 밑자료로 복사한다. 처음 한 번만 든다."""
     if PANEL.exists():
         return pd.read_parquet(PANEL)
 
     src = RAW / "universe_long.parquet"
 
     if not src.exists():
-        raise SystemExit("씨앗 패널이 없다: %s — fetch_universe_long.py를 먼저 돌린다" % src)
+        raise SystemExit("밑자료 패널이 없다: %s — fetch_universe_long.py를 먼저 돌린다" % src)
 
     d = pd.read_parquet(src)
-    # 씨앗을 장중에 받았으면 마지막 날짜가 미확정 종가다. 그 하루를 지우고 다음 갱신이 다시 받게 한다.
+    # 밑자료를 장중에 받았으면 마지막 날짜가 미확정 종가다. 그 하루를 지우고 다음 갱신이 다시 받게 한다.
     now = pd.Timestamp.now()
 
     if (now.hour, now.minute) < (15, 40):
         d = d[d["date"] < now.normalize()]
 
     d.to_parquet(PANEL, index=False)
-    print("패널 씨앗 복사: %d행 %d종목" % (len(d), d["code"].nunique()), flush=True)
+    print("패널 밑자료 복사: %d행 %d종목" % (len(d), d["code"].nunique()), flush=True)
 
     return d
 

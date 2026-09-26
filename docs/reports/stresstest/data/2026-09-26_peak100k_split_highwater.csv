@@ -1,0 +1,6 @@
+round,role,timestamp,shard,shard_out,shard_dropped,order,fill,fill_dropped,order_dropped,order_stale,order_duplicate,order_implausible,order_truncated,order_response_dropped,beat_gap_max,order_beat_gap_max,order_answer_overdue,feed_beat_gap_max,ledger_gen,ledger_foreign,control_dropped,control_relay_dropped,control_discarded,symbol_register_timeout,symbol_lookup_miss,strategy_register_timeout,watch_overflow,feed_channel_overflow,feed_channel_discarded,feed_channel_sent,feed_channel_received,fill_channel_overflow,fill_channel_discarded,fill_channel_sent,fill_channel_received
+peak100k_split,order,2026-09-26 13:44:17,/4096,0/4096,0,0/1024,0/1024,0,0,0,0,0,0,0,0ms,0ms,0,0ms,561,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+peak100k_split,order,2026-09-26 13:45:17,/4096,0/4096,0,0/1024,10/1024,0,0,0,0,0,0,0,11ms,0ms,0,5023ms,17092,0,0,0,0,0,0,0,0,0,0,97352970,97352968,0,0,0,0
+peak100k_split,feed,2026-09-26 13:45:22,/4096,0/4096,0,0/1024,0/1024,0,0,0,0,0,0,0,0ms,0ms,0,0ms,38145,0,0,0,0,0,0,0,0,0,0,119058087,119058087,0,0,0,0
+peak100k_split,strategy,2026-09-26 13:45:22,"4096,4096,4096,4096/4096",0/4096,0,660/1024,0/1024,0,0,0,0,0,0,0,0ms,277ms,0,0ms,38025,0,0,0,0,0,0,0,0,0,0,118947883,118947881,0,0,0,0
+peak100k_split,order,2026-09-26 13:46:17,/4096,0/4096,0,0/1024,10/1024,0,0,0,0,0,0,0,14ms,0ms,0,5023ms,160556,0,0,0,0,0,0,0,0,0,0,181673124,181673124,0,0,0,0
