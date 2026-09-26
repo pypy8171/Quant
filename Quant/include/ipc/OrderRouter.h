@@ -16,6 +16,7 @@
 #include <thread>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -66,6 +67,14 @@ public:
 
     // ── 체결통보 수신 — ODNO로 이력 조회 후 FILLED 상태 갱신 ────────────
     void on_fill(const FillNotification& fill_notification);
+
+    // ── 체결통보 구독 재개 — 끊긴 사이 놓친 체결 되찾기 ──────────────────────
+    //  소켓이 끊긴 사이의 체결통보는 다시 온다는 보장이 없다. 구독이 새로 붙었다는 표지를 받으면 복구 스레드가
+    //  잠시 기다린 뒤(KIS가 재전송하면 그것이 먼저 들어오게) 일별주문체결조회로 주문별 누적을 받아, 이 프로세스가
+    //  낸 주문의 누적과 견준 차이를 체결로 넣는다. 단가는 누적 금액 차이 ÷ 수량이다. 부르는 스레드는 바로 돌아온다. [why D-149]
+    void on_session_resumed(uint32_t session_generation);
+    // 위 조회·반영을 부르는 스레드에서 한 번 한다. 되찾은 주문 수를 돌려준다. 복구 스레드와 시험이 부른다.
+    int recover_missed_fills();
 
     // ── 잔고 대조 기록 (C-2) ────────────────────────────────────────────────
     //  Engine이 브로커 잔고와 원장을 비교한 결과를 원장 CSV에 `RECONCILE` 행으로 남긴다.
@@ -254,6 +263,15 @@ private:
     void          pop_history_front_locked();                        // 앞을 빼고 그 항목의 색인을 지운다
     ManagedOrder* history_at_locked(uint64_t history_sequence);
     ManagedOrder* find_by_order_number_locked(uint64_t kis_order_number);   // ODNO 정수
+    // 연결된 주문에 체결 incoming_quantity주를 넣고 원장·원장 CSV·미결 파일·발행까지 한다. 잔량을 넘으면 잔량으로
+    //  자른다. note가 비지 않으면 원장 CSV의 사유 칸에 적는다. [inv] lock은 history_mutex_를 쥔 채로 받고, 여기서 푼다.
+    void apply_linked_fill(std::unique_lock<std::mutex>& lock, ManagedOrder& managed_order,
+                           const FillNotification& fill_notification, int incoming_quantity, std::string_view note);
+    // 조회로 되찾은 몫에 드는 늦은 통보면 그 수량을 몫에서 깎고 돌려준다(원장에 다시 넣지 않을 수량).
+    //  [inv] history_mutex_를 쥐고 부른다.
+    [[nodiscard]] static int consume_recovered_credit_locked(ManagedOrder& managed_order,
+                                                             const FillNotification& fill_notification);
+    void fill_recovery_loop(std::stop_token stop_token);
     ManagedOrder* find_by_client_number_locked(uint64_t client_order_number);
     // 신호의 종목 id — 배선이 빠진 경로(테스트·수동)만 문자열로 한 번 채운다.
     symbol::SymbolId symbol_of(const OrderSignal& signal);
@@ -422,4 +440,14 @@ private:
     std::atomic<uint64_t> accepted_count_{0};
     std::atomic<uint64_t> rejected_count_{0};
     std::atomic<uint64_t> kis_calls_{0};      // [inv] kis_ 주문 호출 7곳(신규 2·취소 4·정정 1)과 되묻기 미체결조회 1곳, 호출 직전에만 올린다
+
+    // 놓친 체결 되찾기 요청. on_session_resumed가 올리고 복구 스레드가 따라잡는다(fill_recovery_mutex_로 보호).
+    std::mutex                  fill_recovery_mutex_;
+    std::condition_variable_any fill_recovery_wake_;
+    uint64_t                    fill_recovery_requests_ = 0;
+    // 복구 스레드. 위 멤버를 쓰므로 그 뒤에 선언한다 — 소멸자가 맨 먼저 세운다.
+    std::jthread fill_recovery_{[this](std::stop_token stop_token)
+    {
+        fill_recovery_loop(stop_token);
+    }};
 };

@@ -164,10 +164,10 @@ flowchart LR
    `Quant/src/api/WebSocketClient.cpp:83` · `void KisWebSocket::recv_loop(std::stop_token stop_token)` · 시험 [test_ws_frame](../Quant/tests/test_ws_frame.cpp)
 37. [`KisWebSocket::parse_message`](../Quant/src/api/KisWebSocketParse.cpp#L84) — `|`로 헤더 분리 → 암호화 여부(체결통보는 AES) → `dispatch_record`. PINGPONG·구독 응답 처리도 여기  
    `Quant/src/api/KisWebSocketParse.cpp:84` · `void KisWebSocket::parse_message(const std::string& message)`
-38. [`KisWebSocket::dispatch_record`](../Quant/src/api/KisWebSocketParse.cpp#L262) — tr_id로 채널 분기 — H0STCNT0 체결·H0STASP0 호가(KRX), H0UNCNT0/H0UNASP0(KRX+NXT 통합, D-096), H0STCNI0/H0STCNI9 체결통보(실/모의)  
-   `Quant/src/api/KisWebSocketParse.cpp:262` · `void KisWebSocket::dispatch_record(std::string_view transaction_id, kis_websocket::Fields fields)`
-39. [`KisWebSocket::parse_kr_trade`](../Quant/src/api/KisWebSocketParse.cpp#L336) — `decode_kr_trade` → `trade.symbol_id` → `received_ns` 스탬프 → `on_trade_` 콜백. 호가는 `parse_orderbook`이 같은 모양  
-   `Quant/src/api/KisWebSocketParse.cpp:336` · `void KisWebSocket::parse_kr_trade(kis_websocket::Fields fields)`
+38. [`KisWebSocket::dispatch_record`](../Quant/src/api/KisWebSocketParse.cpp#L273) — tr_id로 채널 분기 — H0STCNT0 체결·H0STASP0 호가(KRX), H0UNCNT0/H0UNASP0(KRX+NXT 통합, D-096), H0STCNI0/H0STCNI9 체결통보(실/모의)  
+   `Quant/src/api/KisWebSocketParse.cpp:273` · `void KisWebSocket::dispatch_record(std::string_view transaction_id, kis_websocket::Fields fields)`
+39. [`KisWebSocket::parse_kr_trade`](../Quant/src/api/KisWebSocketParse.cpp#L347) — `decode_kr_trade` → `trade.symbol_id` → `received_ns` 스탬프 → `on_trade_` 콜백. 호가는 `parse_orderbook`이 같은 모양  
+   `Quant/src/api/KisWebSocketParse.cpp:347` · `void KisWebSocket::parse_kr_trade(kis_websocket::Fields fields)`
 40. [`kis_websocket::decode_kr_trade`](../Quant/include/api/KisWsDecode.h#L146) — 순수 함수. 필드 인덱스 → `TradeData`(가격·수량·`hhmmss` 정수·방향). 필드 번호가 [wire] 정본  
    `Quant/include/api/KisWsDecode.h:146` · `Decode decode_kr_trade(Fields fields, TradeData& trade);` · 시험 [test_ws_decode](../Quant/tests/test_ws_decode.cpp)
 41. [`kis_websocket::decode_orderbook`](../Quant/include/api/KisWsDecode.h#L141) — 5단계 호가 → `OrderBook`. 매도·매수 가격/잔량 필드 위치  
@@ -306,18 +306,18 @@ flowchart LR
 
 체결통보(H0STCNI0/H0STCNI9)는 WS로 오므로 시세 프로세스가 복호화·디코드만 하고 공유 체결 채널에 넣는다. 원장을 쥔 주문 프로세스의 체결 스레드가 꺼내 라우터의 `on_fill`로 원장(`PositionLedger`)을 갱신하고, 원장 스냅숏을 발행해 전략 쪽이 읽게 한다. 한 프로세스면 채널 대신 `pipeline_.fill_queue`를 쓴다.
 
-84. [`KisWebSocket::parse_fill_notification`](../Quant/src/api/KisWebSocketParse.cpp#L378) — AES 복호화 → `decode_fill` → `on_fill_` 콜백  
-   `Quant/src/api/KisWebSocketParse.cpp:378` · `void KisWebSocket::parse_fill_notification(kis_websocket::Fields fields)`
+84. [`KisWebSocket::parse_fill_notification`](../Quant/src/api/KisWebSocketParse.cpp#L389) — AES 복호화 → `decode_fill` → `on_fill_` 콜백  
+   `Quant/src/api/KisWebSocketParse.cpp:389` · `void KisWebSocket::parse_fill_notification(kis_websocket::Fields fields)`
 85. [`kis_websocket::decode_fill`](../Quant/include/api/KisWsDecode.h#L165) — 체결통보 필드 → `FillNotification`(ODNO·체결/거부·수량·가격). 거부 통보도 같은 채널  
    `Quant/include/api/KisWsDecode.h:165` · `Decode decode_fill(Fields fields, FillNotification& fill_notification);` · 시험 [test_ws_decode](../Quant/tests/test_ws_decode.cpp)
 86. [`Engine::push_fill_notice`](../Quant/src/core/EngineFeed.cpp#L409) — 시세 역할이면 체결 채널로, 아니면 프로세스 안 `fill_queue`로. 채널이 차면 넘침 칸에 쌓고 control 스레드가 5초마다 다시 보낸다  
    `Quant/src/core/EngineFeed.cpp:409` · `bool Engine::push_fill_notice(const ipc::FillNotice& notice)`
-87. [`ipc::FillChannel::push`](../Quant/src/ipc/FillChannel.cpp#L178) — 고정 크기 `FillNotice` 링. 받는 쪽은 `pop` → `is_plausible` → `to_fill`  
-   `Quant/src/ipc/FillChannel.cpp:178` · `bool FillChannel::push(const FillNotice& notice) noexcept` · 시험 [test_fill_channel](../Quant/tests/test_fill_channel.cpp)
+87. [`ipc::FillChannel::push`](../Quant/src/ipc/FillChannel.cpp#L197) — 고정 크기 `FillNotice` 링. 받는 쪽은 `pop` → `is_plausible` → `to_fill`  
+   `Quant/src/ipc/FillChannel.cpp:197` · `bool FillChannel::push(const FillNotice& notice) noexcept` · 시험 [test_fill_channel](../Quant/tests/test_fill_channel.cpp)
 88. [`Engine::fill_thread_fn`](../Quant/src/core/EngineFillThread.cpp#L23) — 주문 역할이면 체결 채널에서(100ms 폴링), 아니면 `fill_queue`에서 꺼낸다 → `on_fill` → `ledger_->note_fill`(대조 5초 유예, D-074) → 운영단말 `broadcast`(FILL) → 원장 발행  
    `Quant/src/core/EngineFillThread.cpp:23` · `void Engine::fill_thread_fn(std::stop_token stop_token)`
-89. [`OrderRouter::on_fill`](../Quant/src/ipc/OrderRouter.cpp#L2536) — ODNO로 주문 찾기 → 상태 갱신 → `gate_.ledger().on_fill_confirmed` → 원장 CSV. 못 찾으면 미연결 체결 경로  
-   `Quant/src/ipc/OrderRouter.cpp:2536` · `void OrderRouter::on_fill(const FillNotification& fill_notification)` · 시험 [test_order_router](../Quant/tests/test_order_router.cpp)
+89. [`OrderRouter::on_fill`](../Quant/src/ipc/OrderRouter.cpp#L2545) — ODNO로 주문 찾기 → 상태 갱신 → `gate_.ledger().on_fill_confirmed` → 원장 CSV. 못 찾으면 미연결 체결 경로  
+   `Quant/src/ipc/OrderRouter.cpp:2545` · `void OrderRouter::on_fill(const FillNotification& fill_notification)` · 시험 [test_order_router](../Quant/tests/test_order_router.cpp)
 90. [`PositionLedger::on_fill_confirmed`](../Quant/src/risk/PositionLedger.cpp#L836) — 포지션·평단·실현손익 갱신, `reserved_` 해제. `FillResult`가 실현 PnL을 돌려준다  
    `Quant/src/risk/PositionLedger.cpp:836` · `PositionLedger::FillResult PositionLedger::on_fill_confirmed( …` · 시험 [test_position_ledger](../Quant/tests/test_position_ledger.cpp)
 91. [`OrderGate::publish_ledger`](../Quant/src/risk/OrderGate.cpp#L1094) — 보유·매도 가능 수량·진입 정지·배율을 원장 스냅숏에 쓴다(세대 번호를 올리며). 체결 직후·주문 직후·쉴 때 100ms마다  

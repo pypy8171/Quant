@@ -99,6 +99,18 @@ void Engine::fill_thread_fn(std::stop_token stop_token)
 
         const FillNotification& fill_notification = *option;
 
+        // 체결통보 구독이 새로 붙었다는 표지 — 원장·단말에 넣을 체결이 아니다. 라우터가 끊긴 사이 놓친 체결을
+        //  조회로 되찾게 한다(따로 도는 스레드라 여기는 바로 돌아온다). [why D-149]
+        if (fill_notification.kind == FillKind::SessionResumed)
+        {
+            if (order_router_)
+            {
+                order_router_->on_session_resumed(fill_notification.session_generation);
+            }
+
+            continue;
+        }
+
         try
         {
             if (order_router_)

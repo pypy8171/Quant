@@ -53,7 +53,7 @@ struct FillNotice
     int32_t  filled_quantity = 0;   // 체결수량 (CNTG_QTY)
     int32_t  order_quantity  = 0;   // 주문수량 (ODER_QTY). 짧은 전문에서는 0 = "모른다"
     uint8_t  side            = 0;   // OrderSide::Value
-    uint8_t  reserved0       = 0;
+    uint8_t  kind            = 0;   // FillKind. 빈 칸(reserved0)이던 자리라 옛 레코드는 0 = 체결로 읽힌다
     uint16_t reserved1       = 0;
     uint32_t session_generation = 0; // 실어 온 실시간 세션 번호(FillNotification::session_generation)
 

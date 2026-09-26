@@ -161,3 +161,62 @@ KisResult<std::vector<OpenOrder>> KisClient::get_open_orders()
 
     return kis_fail("truncated", "미체결 조회가 30쪽을 넘었다 — 목록이 잘렸다");
 }
+
+// ─── 오늘 누적 체결 조회 — inquire-daily-ccld ──────────────────────────────
+//  소켓이 끊긴 사이 온 체결통보는 다시 오지 않을 수 있다. 재연결 뒤 라우터가 이 목록의 주문별 누적과 제 누적을
+//  견줘 차이만큼 되찾는다. [why D-149]
+//  [wire] CCLD_DVSN=01(체결분만). 실계좌는 EXCG_ID_DVSN_CD=ALL이어야 KRX·NXT가 다 온다 — SOR·NXT로 물으면
+//  빈 목록이었다(2026-09-27 실계좌 조회). 모의는 이 칸 없이 불러 온 기존 호출을 따른다.
+//  한 쪽에 실전 100건·모의 15건이라(KIS 공식 샘플, 2026-09-27 확인) 모의는 쪽 수가 많다.
+KisResult<std::vector<DailyOrderFill>> KisClient::get_daily_order_fills()
+{
+    constexpr int kPageLimit = 100; // 모의 15건 × 100쪽 = 하루 1,500주문. 넘으면 잘렸다고 실패로 돌려준다
+
+    const bool        paper          = config_.is_paper;
+    const std::string transaction_id = paper ? "VTTC0081R" : "TTTC0081R";
+    const std::string today          = today_yyyymmdd();
+
+    std::vector<DailyOrderFill> result;
+    std::string forward_key, next_key, continuation;
+
+    for (int page = 0; page < kPageLimit; ++page)
+    {
+        std::string url = base_url() +
+                          "/uapi/domestic-stock/v1/trading/inquire-daily-ccld"
+                          "?CANO=" + config_.account_no + "&ACNT_PRDT_CD=" + config_.account_type +
+                          "&INQR_STRT_DT=" + today + "&INQR_END_DT=" + today +
+                          "&SLL_BUY_DVSN_CD=00&INQR_DVSN=00&PDNO=&CCLD_DVSN=01&ORD_GNO_BRNO=&ODNO="
+                          "&INQR_DVSN_3=00&INQR_DVSN_1=" +
+                          "&CTX_AREA_FK100=" + forward_key + "&CTX_AREA_NK100=" + next_key;
+
+        if (!paper)
+        {
+            url += "&EXCG_ID_DVSN_CD=ALL";
+        }
+
+        const std::string response = http_get(url, authentication_headers(transaction_id, {"tr_cont: " + continuation}));
+        auto decoded = kis_rest::decode_daily_fill_page(response);
+
+        if (!decoded)
+        {
+            LOG_WARN(std::format("[KIS] 일별주문체결 조회 {}쪽 실패: {}", page + 1, error_text(decoded)));
+            return std::unexpected(std::move(decoded.error()));
+        }
+
+        for (auto& fill : decoded->rows)
+        {
+            result.push_back(std::move(fill));
+        }
+
+        if (decoded->next_key.empty())
+        {
+            return result;
+        }
+
+        forward_key  = std::move(decoded->forward_key);
+        next_key     = std::move(decoded->next_key);
+        continuation = "N";
+    }
+
+    return kis_fail("truncated", "일별주문체결 조회가 100쪽을 넘었다 — 목록이 잘렸다");
+}

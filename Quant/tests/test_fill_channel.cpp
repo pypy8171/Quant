@@ -218,6 +218,30 @@ void test_implausible_is_dropped()
     check(receiver.discarded() == 1, "버린 건수를 센다");
 }
 
+// 체결통보 구독 재개 표시는 수량·가격이 없어도 통로를 지난다 — 놓친 체결 조회의 신호다. (D-149)
+void test_session_resumed_marker()
+{
+    const ipc::FillLimits limits{};
+    FillNotification      marker;
+    marker.kind               = FillKind::SessionResumed;
+    marker.session_generation = 3;
+    marker.timestamp          = std::chrono::system_clock::now();
+
+    const ipc::FillNotice notice = ipc::to_notice(marker, 1, 1);
+    check(ipc::is_plausible(notice, limits), "구독 재개 표시는 수량·가격 없이 받는다");
+
+    const FillNotification restored = ipc::to_fill(notice);
+    check(restored.kind == FillKind::SessionResumed, "표시 종류가 그대로 온다");
+    check(restored.session_generation == 3, "세션 번호가 그대로 온다");
+
+    ipc::FillNotice unknown_kind = notice;
+    unknown_kind.kind            = 7;
+    check(!ipc::is_plausible(unknown_kind, limits), "표 밖 종류는 안 받는다");
+
+    const ipc::FillNotice fill_notice = ipc::to_notice(fill_of("0000012345", 3, 70'000.0), 2, 2);
+    check(ipc::to_fill(fill_notice).kind == FillKind::Fill, "보통 체결은 체결 종류다");
+}
+
 void test_overflow()
 {
     ipc::FillChannel sender;
@@ -289,6 +313,7 @@ int main()
     test_order_is_kept();
     test_truncation();
     test_implausible_is_dropped();
+    test_session_resumed_marker();
     test_overflow();
     test_endpoints();
     test_refusals();

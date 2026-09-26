@@ -136,6 +136,17 @@ void KisWebSocket::handle_control_frame(const std::string& message)
                     aes_key_ = std::move(key);
                     aes_iv_  = std::move(value);
                     LOG_INFO("[WS] 체결통보 AES key/iv 확보 — 복호화 준비 완료");
+
+                    // 구독이 새로 붙었음을 체결과 같은 통로로 알린다. 주문 쪽이 받으면 끊긴 사이 놓친 체결을
+                    //  조회로 되찾는다. 첫 연결에도 보낸다 — 시세 프로세스만 다시 떴으면 그것이 곧 재연결이다. [why D-149]
+                    if (on_fill_)
+                    {
+                        FillNotification resumed;
+                        resumed.kind               = FillKind::SessionResumed;
+                        resumed.session_generation = session_generation_;
+                        resumed.timestamp          = std::chrono::system_clock::now();
+                        on_fill_(resumed);
+                    }
                 }
                 else
                 {

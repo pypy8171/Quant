@@ -49,6 +49,15 @@ std::string_view text_of(const char* field, size_t capacity) noexcept
     return std::string_view(field, length);
 }
 
+// 글자 칸이 모두 0으로 끝나는가.
+bool texts_terminated(const FillNotice& notice) noexcept
+{
+    return is_terminated(notice.kis_order_no, kFillOrderNumberMax) &&
+           is_terminated(notice.original_order_no, kFillOrderNumberMax) &&
+           is_terminated(notice.ticker, kFillTickerMax) && is_terminated(notice.fill_time, kFillTimeMax) &&
+           is_terminated(notice.exchange, kFillExchangeMax);
+}
+
 } // namespace
 
 bool is_plausible(const FillNotice& notice, const FillLimits& limits) noexcept
@@ -60,6 +69,17 @@ bool is_plausible(const FillNotice& notice, const FillLimits& limits) noexcept
 
     // 방향은 배열 첨자로 쓰이지는 않지만, 표 밖 값이 들어오면 아래 갈래가 전부 "매수"로 읽힌다.
     if (notice.side > static_cast<uint8_t>(OrderSide::NONE))
+    {
+        return false;
+    }
+
+    // 재연결 표지는 수량·가격·종목이 빈 레코드다. 종류 칸과 글자 칸 끝만 보고 받는다. [why D-149]
+    if (notice.kind == static_cast<uint8_t>(FillKind::SessionResumed))
+    {
+        return texts_terminated(notice);
+    }
+
+    if (notice.kind != static_cast<uint8_t>(FillKind::Fill))
     {
         return false;
     }
@@ -87,10 +107,7 @@ bool is_plausible(const FillNotice& notice, const FillLimits& limits) noexcept
         return false;
     }
 
-    return is_terminated(notice.kis_order_no, kFillOrderNumberMax) &&
-           is_terminated(notice.original_order_no, kFillOrderNumberMax) &&
-           is_terminated(notice.ticker, kFillTickerMax) && is_terminated(notice.fill_time, kFillTimeMax) &&
-           is_terminated(notice.exchange, kFillExchangeMax);
+    return texts_terminated(notice);
 }
 
 FillNotice to_notice(const FillNotification& fill, uint64_t sequence, int64_t sent_at_ns, bool* truncated) noexcept
@@ -104,6 +121,7 @@ FillNotice to_notice(const FillNotification& fill, uint64_t sequence, int64_t se
     notice.filled_quantity = fill.filled_quantity;
     notice.order_quantity  = fill.order_quantity;
     notice.session_generation = fill.session_generation;
+    notice.kind            = static_cast<uint8_t>(fill.kind);
     notice.side            = static_cast<uint8_t>(static_cast<OrderSide::Value>(fill.side));
 
     bool cut = copy_text(notice.kis_order_no, kFillOrderNumberMax, fill.kis_order_no);
@@ -131,6 +149,7 @@ FillNotification to_fill(const FillNotice& notice)
     fill.filled_price      = notice.filled_price;
     fill.fill_time         = std::string(text_of(notice.fill_time, kFillTimeMax));
     fill.session_generation = notice.session_generation;
+    fill.kind              = static_cast<FillKind>(notice.kind);
     fill.order_quantity    = notice.order_quantity;
     fill.exchange          = std::string(text_of(notice.exchange, kFillExchangeMax));
     fill.timestamp         = std::chrono::system_clock::time_point(

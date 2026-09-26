@@ -1,5 +1,7 @@
 #include "api/KisRestDecode.h"
 
+#include <cmath>
+
 namespace kis_rest
 {
 double number(const nlohmann::json& node, const char* key)
@@ -368,6 +370,56 @@ KisResult<OpenOrderPage> decode_open_order_page(std::string_view response, bool 
             if (!open_order.ticker.empty() && open_order.psbl_qty > 0)
             {
                 page.rows.push_back(std::move(open_order));
+            }
+        }
+    }
+
+    page.forward_key = trim_right(document.value("ctx_area_fk100", std::string()));
+    page.next_key    = trim_right(document.value("ctx_area_nk100", std::string()));
+    return page;
+}
+
+KisResult<DailyFillPage> decode_daily_fill_page(std::string_view response)
+{
+    if (response.empty())
+    {
+        return kis_fail("transport", "일별주문체결 조회 응답 없음");
+    }
+
+    const nlohmann::json document = nlohmann::json::parse(response, nullptr, /*allow_exceptions=*/false);
+
+    if (document.is_discarded() || !document.is_object())
+    {
+        return kis_fail("parse", "일별주문체결 조회 응답 해석 실패");
+    }
+
+    if (document.value("rt_cd", std::string()) != "0")
+    {
+        return kis_fail(document.value("msg_cd", std::string()), document.value("msg1", std::string()));
+    }
+
+    DailyFillPage page;
+    const auto    rows = document.find("output1");
+
+    if (rows != document.end() && rows->is_array())
+    {
+        for (const auto& node : *rows)
+        {
+            DailyOrderFill fill;
+            fill.kis_order_no      = node.value("odno", std::string());
+            fill.original_order_no = node.value("orgn_odno", std::string());
+            fill.ticker            = node.value("pdno", std::string());
+            fill.order_quantity    = static_cast<int>(number(node, "ord_qty"));
+            fill.filled_quantity   = static_cast<int>(number(node, "tot_ccld_qty"));
+            fill.filled_amount     = std::llround(number(node, "tot_ccld_amt"));
+            const std::string buy_sell_code = node.value("sll_buy_dvsn_cd", std::string());
+            fill.side = buy_sell_code == "01" ? OrderSide::SELL
+                        : buy_sell_code == "02" ? OrderSide::BUY
+                                                : OrderSide::NONE;
+
+            if (!fill.kis_order_no.empty() && fill.filled_quantity > 0)
+            {
+                page.rows.push_back(std::move(fill));
             }
         }
     }

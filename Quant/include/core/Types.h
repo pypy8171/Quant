@@ -197,6 +197,14 @@ static_assert(std::is_trivially_copyable_v<TradeData> && std::is_trivially_copya
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 체결통보 (H0STCNI0 실거래 / H0STCNI9 모의투자)
+// 체결 통로에 실리는 것의 종류. 체결 말고도 "체결통보 구독이 새로 붙었다"를 같은 통로로 보낸다 — 주문 쪽이
+//  그 신호를 받아 끊긴 사이 놓친 체결을 조회로 되찾는다. 통로를 따로 두면 체결과 신호의 순서가 어긋난다. [why D-149]
+enum class FillKind : uint8_t
+{
+    Fill           = 0, // 체결 한 건
+    SessionResumed = 1, // 체결통보 구독 확인(복호 키 수신). 수량·가격·종목이 비어 있고 session_generation만 뜻이 있다
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // [inv] 전문에 체결 건별 고유번호가 없다 — 식별자는 주문번호(ODER_NO)와 원주문번호(OODER_NO) 둘뿐이다.
 //  그래서 체결 한 건을 가리키려면 라우터가 (거래일:주문번호:체결시각:수량:단가) 조합키를 만든다(ipc/FillKey.h).
@@ -216,6 +224,7 @@ struct FillNotification
     // 이 통보를 실어 온 실시간 세션 번호. 소켓이 새로 붙을 때마다 1씩 오른다(0 = 소켓 밖, 모의 체결기).
     //  라우터가 재연결 뒤 다시 온 같은 체결을 실체결과 가르는 데 쓴다(OrderRouter::on_fill).
     uint32_t    session_generation = 0;
+    FillKind    kind = FillKind::Fill;
     std::chrono::system_clock::time_point timestamp;
 };
 
@@ -269,6 +278,14 @@ struct ManagedOrder
     OrderStatus   status{OrderStatus::PENDING};
     std::string   reject_reason;
     int           confirmed_quantity = 0; // 누적 체결 수량 (부분체결 추적)
+    int64_t       confirmed_amount   = 0; // 누적 체결 금액(원). 놓친 체결의 단가를 조회 누적 금액과의 차이로 구한다 [why D-149]
+    // 이 프로세스가 내서 접수받은 주문인가. 누적 체결의 시작점이 0이라 조회 누적과 바로 견줄 수 있는 주문만 참이다 —
+    //  재기동 복원 주문은 재기동 전 체결이 이미 잔고 시드에 들어 있어 견주면 두 번 센다. [why D-149]
+    bool          recoverable        = false;
+    // 조회로 되찾은 수량 중 아직 체결통보로 안 온 몫. 조회 시각(recovered_until_hhmmss, KST) 이전 체결시각의 통보가
+    //  늦게 오면 이 몫에서 깎고 원장에 다시 넣지 않는다. [why D-149]
+    int           recovered_credit_quantity = 0;
+    uint32_t      recovered_until_hhmmss    = 0;
     OrderStageTiming stages;      // 라우터 안 구간 시간 — 관측용, 매매 판단에는 안 쓴다
     std::chrono::system_clock::time_point submitted_at;
     std::chrono::system_clock::time_point updated_at;

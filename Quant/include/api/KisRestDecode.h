@@ -95,4 +95,18 @@ struct OpenOrderPage
 //  [wire] 모의(VTTC0081R)는 output1·rmn_qty(잔여)·cncl_yn, 실거래(TTTC0084R)는 output·psbl_qty(취소가능).
 KisResult<OpenOrderPage> decode_open_order_page(std::string_view response, bool paper);
 
+// 일별주문체결조회 한 쪽. rows는 주문번호가 있고 누적 체결이 0보다 큰 행만 담는다(취소 행은 체결 0이라 빠진다).
+struct DailyFillPage
+{
+    std::vector<DailyOrderFill> rows;
+    std::string                 forward_key; // ctx_area_fk100, 끝 공백을 뗀 값
+    std::string                 next_key;    // ctx_area_nk100, 끝 공백을 뗀 값. 비면 마지막 쪽이다
+};
+
+// 일별주문체결조회 응답 본문 한 쪽 → DailyFillPage. 실패 구분은 decode_open_order_page와 같다 — 한도 초과
+//  응답을 "체결 없음"으로 읽으면 놓친 체결을 못 되찾는다.
+//  [wire] 모의(VTTC0081R)·실거래(TTTC0081R) 모두 output1 배열에 odno·orgn_odno·pdno·sll_buy_dvsn_cd·ord_qty·
+//  tot_ccld_qty·tot_ccld_amt. 실계좌 응답으로 필드 이름 확인(2026-09-27).
+KisResult<DailyFillPage> decode_daily_fill_page(std::string_view response);
+
 } // namespace kis_rest

@@ -39,6 +39,19 @@ struct OpenOrder
     OrderSide   side = OrderSide::NONE; // sll_buy_dvsn_cd: 01=매도, 02=매수
 };
 
+// 일별주문체결조회 한 행 — 주문 하나의 오늘 누적 체결. 체결 한 건이 아니라 주문번호별 합계다.
+//  소켓이 끊긴 사이 놓친 체결을 되찾는 데 쓴다(OrderRouter::recover_missed_fills). [why D-149]
+struct DailyOrderFill
+{
+    std::string kis_order_no;              // odno
+    std::string original_order_no;         // orgn_odno. 정정·취소 행이면 고친 대상, 신규는 빈 값
+    std::string ticker;                    // pdno
+    OrderSide   side = OrderSide::NONE;    // sll_buy_dvsn_cd: 01=매도, 02=매수
+    int         order_quantity  = 0;       // ord_qty
+    int         filled_quantity = 0;       // tot_ccld_qty — 오늘 누적 체결 수량
+    int64_t     filled_amount   = 0;       // tot_ccld_amt — 오늘 누적 체결 금액(원)
+};
+
 // KIS API 또는 테스트 stub 중 어느 것이든 OrderRouter에 주입 가능한 추상 인터페이스
 class IOrderExecutor
 {
@@ -83,6 +96,13 @@ public:
     [[nodiscard]] virtual KisResult<std::vector<OpenOrder>> get_open_orders()
     {
         return std::vector<OpenOrder>{};
+    }
+
+    // 오늘 체결이 있는 주문의 누적 체결 (inquire-daily-ccld, CCLD_DVSN=01). 기본은 빈 목록.
+    //  [inv] 쪽을 하나라도 못 받으면 실패다 — 잘린 목록으로 차이를 재면 받은 쪽의 주문만 되찾고 나머지는 모른 채 넘어간다.
+    [[nodiscard]] virtual KisResult<std::vector<DailyOrderFill>> get_daily_order_fills()
+    {
+        return std::vector<DailyOrderFill>{};
     }
 
     // 계측: 이 스레드가 브로커 초당 한도 버킷에서 기다린 누적 시간(nanoseconds). 호출자가 전송 전후 차이로 자기 몫을 잰다.

@@ -285,6 +285,31 @@ int test_decode_open_order_page()
     return 0;
 }
 
+int test_decode_daily_fill_page()
+{
+    // 빈 본문·JSON 아님·rt_cd 실패는 실패 봉투다 — "체결 없음"으로 읽으면 놓친 체결을 못 되찾는다. (D-149)
+    CHECK(kis_rest::decode_daily_fill_page("").error().code == "transport");
+    CHECK(kis_rest::decode_daily_fill_page("<html>502</html>").error().code == "parse");
+    const auto throttled = kis_rest::decode_daily_fill_page(
+        R"({"rt_cd":"1","msg_cd":"EGW00201","msg1":"초당 거래건수를 초과하였습니다.","output1":[]})");
+    CHECK(!throttled && throttled.error().code == "EGW00201");
+
+    // 체결 수량 0 행·주문번호 없는 행은 버리고, 금액은 반올림 정수, 매도/매수 코드를 읽고, 커서 끝 공백을 뗀다.
+    const std::string page_text = R"({"rt_cd":"0","output1":[
+        {"odno":"0000011801","orgn_odno":"","pdno":"005930","sll_buy_dvsn_cd":"02","ord_qty":"10","tot_ccld_qty":"6","tot_ccld_amt":"453000.4"},
+        {"odno":"0000011802","pdno":"000660","sll_buy_dvsn_cd":"01","ord_qty":"5","tot_ccld_qty":"0","tot_ccld_amt":"0"},
+        {"odno":"","pdno":"035420","sll_buy_dvsn_cd":"02","ord_qty":"2","tot_ccld_qty":"2","tot_ccld_amt":"300000"},
+        {"odno":"0000011804","orgn_odno":"0000011800","pdno":"000660","sll_buy_dvsn_cd":"01","ord_qty":"3","tot_ccld_qty":"3","tot_ccld_amt":"360000"}],
+        "ctx_area_fk100":"FK9  ","ctx_area_nk100":"   "})"; // [wire] KIS 응답 필드명
+    const auto page = kis_rest::decode_daily_fill_page(page_text);
+    CHECK(page && page->rows.size() == 2);
+    CHECK(page->rows[0].kis_order_no == "0000011801" && page->rows[0].side == OrderSide::BUY);
+    CHECK(page->rows[0].order_quantity == 10 && page->rows[0].filled_quantity == 6 && page->rows[0].filled_amount == 453000);
+    CHECK(page->rows[1].original_order_no == "0000011800" && page->rows[1].side == OrderSide::SELL);
+    CHECK(page->forward_key == "FK9" && page->next_key.empty());
+    return 0;
+}
+
 int test_kis_result()
 {
     // 봉투(std::expected): 실패는 bool false·error_text, 성공은 값 접근. 실패 봉투에는 값이 없다.
@@ -306,7 +331,7 @@ int main()
 {
     if (test_number() || test_parse_dt() || test_parse_minute_page() || test_aggregate() || test_option_number() ||
         test_decode_holding() || test_decode_balance_page() || test_decode_future_board() || test_decode_open_order_page() ||
-        test_kis_result())
+        test_decode_daily_fill_page() || test_kis_result())
     {
         return 1;
     }

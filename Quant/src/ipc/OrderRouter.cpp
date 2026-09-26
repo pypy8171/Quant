@@ -416,6 +416,7 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
     if (!acknowledgement.kis_order_no.empty())
     {
         managed_order.status      = OrderStatus::ACCEPTED;
+        managed_order.recoverable = true; // 이 프로세스가 낸 주문 — 끊긴 사이 체결을 조회로 되찾을 수 있다 [why D-149]
         managed_order.kis_order_no = std::move(acknowledgement.kis_order_no);
         managed_order.kis_order_number = digits_to_number(managed_order.kis_order_no); // 전문 문자열이 정수가 되는 자리
         managed_order.krx_forwarding_org_no    = std::move(acknowledgement.krx_forwarding_org_no); // 정정/취소 시 원주문 조직번호로 재입력
@@ -1439,6 +1440,13 @@ OrderRouter::~OrderRouter()
 {
     // jthread 소멸자가 같은 일을 하지만 그건 멤버 소멸 순서 안에서다 — 스레드가 쓰는 멤버가 먼저 죽지 않게 여기서 회수한다.
     //  되묻기 스레드가 맨 먼저다 — 이 스레드가 쓰는 reconcile_busy_·kis_calls_는 선언이 뒤라 먼저 소멸한다.
+    fill_recovery_.request_stop(); // 조회 중이면 그 조회가 끝나야 멈춘다
+
+    if (fill_recovery_.joinable())
+    {
+        fill_recovery_.join();
+    }
+
     transport_reconcile_.request_stop();
 
     if (transport_reconcile_.joinable())
@@ -2519,6 +2527,7 @@ ManagedOrder OrderRouter::replace_route(const OrderSignal& signal)
     }
 
     managed_order.status       = OrderStatus::ACCEPTED;
+    managed_order.recoverable  = true; // 정정본은 새 주문번호라 누적 체결이 0에서 시작한다 [why D-149]
     managed_order.kis_order_no = std::move(revise_acknowledgement.kis_order_no);
     managed_order.kis_order_number = digits_to_number(managed_order.kis_order_no);
     managed_order.krx_forwarding_org_no    = std::move(krx_forwarding_org_no); // 정정 응답의 조직번호를 미파싱해 원 조직번호를 승계(통상 동일). TODO: 응답서 재캡처
@@ -2650,6 +2659,29 @@ void OrderRouter::on_fill(const FillNotification& fill_notification)
     {
         ManagedOrder& managed_order = *matched;
 
+        // 조회로 이미 되찾은 체결의 통보가 늦게 왔으면 그만큼은 원장에 다시 넣지 않는다. [why D-149]
+        const int credited          = consume_recovered_credit_locked(managed_order, fill_notification);
+        const int incoming_quantity = fill_notification.filled_quantity - credited;
+
+        if (credited > 0)
+        {
+            const int credit_left = managed_order.recovered_credit_quantity;
+
+            if (incoming_quantity <= 0)
+            {
+                lock.unlock();
+            }
+
+            LOG_INFO(std::format("[OrderRouter] 되찾은 체결의 늦은 통보 — {}주는 원장에 다시 안 넣음 ODNO={} {} 통보={}주 time={} (남은 몫 {}주)",
+                                 credited, fill_notification.kis_order_no, fill_notification.ticker,
+                                 fill_notification.filled_quantity, fill_notification.fill_time, credit_left));
+
+            if (incoming_quantity <= 0)
+            {
+                return;
+            }
+        }
+
         // 이미 전량 체결 완료된 주문은 재처리 방지
         if (managed_order.confirmed_quantity >= managed_order.signal.quantity)
         {
@@ -2657,70 +2689,8 @@ void OrderRouter::on_fill(const FillNotification& fill_notification)
         }
         else
         {
-
-        // 주문 잔량 상한 — 누적 체결이 주문수량을 넘지 못하게 클램프한다.
-        //  통보 재전송으로 같은 체결이 두 번 와도 과체결로 원장이 부풀지 않는다.
-        const int outstanding = managed_order.signal.quantity - managed_order.confirmed_quantity;
-        const int apply_quantity   = (fill_notification.filled_quantity > outstanding) ? outstanding : fill_notification.filled_quantity;
-
-        managed_order.confirmed_quantity += apply_quantity;
-        managed_order.updated_at     = fill_notification.timestamp;
-
-        if (managed_order.confirmed_quantity >= managed_order.signal.quantity)
-        {
-            managed_order.status = OrderStatus::FILLED;
-        }
-
-
-        // 포지션 원장 갱신 (average_price 재계산 + 실현손익) — 원주문의 계좌로 파티션.
-        // 현재는 단일 CANO 전제라 ODNO가 유일 → managed_order.signal.account_id 매핑이 정확하다.
-        // TODO(다계좌): 진짜 다중 CANO 라우팅 시 ODNO가 계좌별로 재사용되므로 체결 매칭 키를
-        //   (kis_order_no + account) 또는 CANO별 H0STCNI 피드 분리로 확장해야 오적립을 막는다.
-        auto result = ledger.on_fill_confirmed(managed_order.signal.account_id, fill_notification.ticker, fill_notification.side,
-                                              apply_quantity, fill_notification.filled_price, managed_order.signal.strategy_index,
-                                              OrderGate::OrderRef{digits_to_number(managed_order.order_id), order_number,
-                                                                  managed_order.signal.type});
-
-        // 락 밖에서 쓰려고 복사한다 — managed_order는 history_ 원소라 record()의 축출로 참조가 죽을 수 있다.
-        const ManagedOrder snapshot        = managed_order;
-        std::string        open_orders = snapshot_open_orders_locked(); // 잔량이 줄었으니 부속 파일을 다시 쓴다
-        const uint64_t     sequence         = ++open_orders_sequence_;
-        lock.unlock();
-
-        // 로그 문장은 락을 푼 뒤 사본으로 만든다 — 체결마다 도는 자리라 history_mutex_를 잡은 채 문자열을
-        //  잇지 않는다(CODE_REVIEW S-3).
-        if (apply_quantity < fill_notification.filled_quantity)
-        {
-            LOG_WARN(std::format("[OrderRouter] 주문잔량 초과 체결통보 — 잔량으로 클램프 [{}] ODNO={} 통보={}주 잔량={}주",
-                                 snapshot.order_id, fill_notification.kis_order_no, fill_notification.filled_quantity, outstanding));
-        }
-
-        LOG_INFO(std::format("[OrderRouter] 체결 확인 [{}] ODNO={} {} {} {}주 @{} (누적 {}/{}주)", snapshot.order_id,
-                             fill_notification.kis_order_no, fill_notification.ticker,
-                             fill_notification.side == OrderSide::BUY ? "BUY" : "SELL", apply_quantity,
-                             static_cast<int>(fill_notification.filled_price), snapshot.confirmed_quantity,
-                             snapshot.signal.quantity));
-
-        if (result.basis_unknown)
-        {
-            LOG_WARN(std::format("[OrderRouter] 평단 미상 SELL 체결 — 실현손익 미산정(0) [{}] {} {}주 @{} (원장 재시드 필요)",
-                                 snapshot.order_id, fill_notification.ticker, apply_quantity, static_cast<int>(fill_notification.filled_price)));
-        }
-
-        // 거래 원장 CSV — 실제 체결(부분/전량)을 한 줄로 영속화. 실현손익을 같이 남기려고
-        //   gate_.ledger().on_fill_confirmed() 뒤에 쓴다(managed_order.status는 위에서 이미 갱신됨).
-        write_trade_row("FILL", snapshot, apply_quantity, fill_notification.filled_price, result.realized_pnl,
-                        result.strategy_realized_pnl);
-        queue_open_orders_file(std::move(open_orders), sequence);
-#ifdef HAS_ZMQ
-        if (zmq_)
-        {
-            zmq_->publish_fill(fill_notification, snapshot.signal.strategy_id, result.commission, result.tax,
-                               result.average_price, result.net_quantity,
-                               result.realized_pnl);
-        }
-#endif
-        return;
+            apply_linked_fill(lock, managed_order, fill_notification, incoming_quantity, std::string_view());
+            return;
         }
     }
 
@@ -2841,6 +2811,256 @@ void OrderRouter::on_fill(const FillNotification& fill_notification)
 #endif
 }
 
+// ─── 연결된 주문에 체결 반영 ─────────────────────────────────────────────────
+//  체결통보와 조회로 되찾은 체결이 같은 길을 탄다 — 잔량 상한·원장·원장 CSV·미결 파일·발행이 한 곳에 있어야
+//  둘의 결과가 어긋나지 않는다.
+void OrderRouter::apply_linked_fill(std::unique_lock<std::mutex>& lock, ManagedOrder& managed_order,
+                                    const FillNotification& fill_notification, int incoming_quantity, std::string_view note)
+{
+    auto& ledger = gate_.ledger();
+
+    // 주문 잔량 상한 — 누적 체결이 주문수량을 넘지 못하게 클램프한다.
+    //  통보 재전송으로 같은 체결이 두 번 와도 과체결로 원장이 부풀지 않는다.
+    const int outstanding    = managed_order.signal.quantity - managed_order.confirmed_quantity;
+    const int apply_quantity = (incoming_quantity > outstanding) ? outstanding : incoming_quantity;
+
+    managed_order.confirmed_quantity += apply_quantity;
+    managed_order.confirmed_amount   += std::llround(apply_quantity * fill_notification.filled_price);
+    managed_order.updated_at          = fill_notification.timestamp;
+
+    if (managed_order.confirmed_quantity >= managed_order.signal.quantity)
+    {
+        managed_order.status = OrderStatus::FILLED;
+    }
+
+    // 포지션 원장 갱신 (average_price 재계산 + 실현손익) — 원주문의 계좌로 파티션.
+    // 현재는 단일 CANO 전제라 ODNO가 유일 → managed_order.signal.account_id 매핑이 정확하다.
+    // TODO(다계좌): 진짜 다중 CANO 라우팅 시 ODNO가 계좌별로 재사용되므로 체결 매칭 키를
+    //   (kis_order_no + account) 또는 CANO별 H0STCNI 피드 분리로 확장해야 오적립을 막는다.
+    const uint64_t order_number = digits_to_number(fill_notification.kis_order_no);
+    auto result = ledger.on_fill_confirmed(managed_order.signal.account_id, fill_notification.ticker, fill_notification.side,
+                                          apply_quantity, fill_notification.filled_price, managed_order.signal.strategy_index,
+                                          OrderGate::OrderRef{digits_to_number(managed_order.order_id), order_number,
+                                                              managed_order.signal.type});
+
+    // 락 밖에서 쓰려고 복사한다 — managed_order는 history_ 원소라 record()의 축출로 참조가 죽을 수 있다.
+    ManagedOrder   snapshot    = managed_order;
+    std::string    open_orders = snapshot_open_orders_locked(); // 잔량이 줄었으니 부속 파일을 다시 쓴다
+    const uint64_t sequence    = ++open_orders_sequence_;
+    lock.unlock();
+
+    if (!note.empty())
+    {
+        snapshot.reject_reason = std::string(note); // 원장 CSV 사유 칸 — 사본에만 적는다
+    }
+
+    // 로그 문장은 락을 푼 뒤 사본으로 만든다 — 체결마다 도는 자리라 history_mutex_를 잡은 채 문자열을
+    //  잇지 않는다(CODE_REVIEW S-3).
+    if (apply_quantity < incoming_quantity)
+    {
+        LOG_WARN(std::format("[OrderRouter] 주문잔량 초과 체결통보 — 잔량으로 클램프 [{}] ODNO={} 통보={}주 잔량={}주",
+                             snapshot.order_id, fill_notification.kis_order_no, incoming_quantity, outstanding));
+    }
+
+    LOG_INFO(std::format("[OrderRouter] 체결 확인 [{}] ODNO={} {} {} {}주 @{} (누적 {}/{}주){}", snapshot.order_id,
+                         fill_notification.kis_order_no, fill_notification.ticker,
+                         fill_notification.side == OrderSide::BUY ? "BUY" : "SELL", apply_quantity,
+                         static_cast<int>(fill_notification.filled_price), snapshot.confirmed_quantity,
+                         snapshot.signal.quantity, note.empty() ? std::string() : " — " + std::string(note)));
+
+    if (result.basis_unknown)
+    {
+        LOG_WARN(std::format("[OrderRouter] 평단 미상 SELL 체결 — 실현손익 미산정(0) [{}] {} {}주 @{} (원장 재시드 필요)",
+                             snapshot.order_id, fill_notification.ticker, apply_quantity, static_cast<int>(fill_notification.filled_price)));
+    }
+
+    // 거래 원장 CSV — 실제 체결(부분/전량)을 한 줄로 영속화. 실현손익을 같이 남기려고
+    //   gate_.ledger().on_fill_confirmed() 뒤에 쓴다(managed_order.status는 위에서 이미 갱신됨).
+    write_trade_row("FILL", snapshot, apply_quantity, fill_notification.filled_price, result.realized_pnl,
+                    result.strategy_realized_pnl);
+    queue_open_orders_file(std::move(open_orders), sequence);
+#ifdef HAS_ZMQ
+    if (zmq_)
+    {
+        zmq_->publish_fill(fill_notification, snapshot.signal.strategy_id, result.commission, result.tax,
+                           result.average_price, result.net_quantity,
+                           result.realized_pnl);
+    }
+#endif
+}
+
+int OrderRouter::consume_recovered_credit_locked(ManagedOrder& managed_order, const FillNotification& fill_notification)
+{
+    if (managed_order.recovered_credit_quantity <= 0)
+    {
+        return 0;
+    }
+
+    // 조회 시각 뒤에 난 체결은 조회에 없던 것이라 몫에 들지 않는다. 시각을 못 읽으면 몫에 넣지 않는다 —
+    //  잘못 깎으면 실체결이 사라지고, 잘못 넣으면 잔고 대조가 맞춘다.
+    const auto fill_hhmmss = static_cast<uint32_t>(digits_to_number(fill_notification.fill_time));
+
+    if (fill_hhmmss == 0 || fill_hhmmss > managed_order.recovered_until_hhmmss)
+    {
+        return 0;
+    }
+
+    const int credited = std::min(managed_order.recovered_credit_quantity, fill_notification.filled_quantity);
+    managed_order.recovered_credit_quantity -= credited;
+    return credited;
+}
+
+// ─── 체결통보 구독 재개 — 놓친 체결 되찾기 ─────────────────────────────────
+void OrderRouter::on_session_resumed(uint32_t session_generation)
+{
+    {
+        std::lock_guard<std::mutex> lock(fill_recovery_mutex_);
+        ++fill_recovery_requests_;
+    }
+
+    fill_recovery_wake_.notify_one();
+    LOG_INFO(std::format("[OrderRouter] 체결통보 구독 확인(세션 {}) — 잠시 뒤 끊긴 사이 체결을 조회로 맞춘다", session_generation));
+}
+
+void OrderRouter::fill_recovery_loop(std::stop_token stop_token)
+{
+    // KIS가 재구독 뒤 밀린 통보를 다시 보내면 그것이 먼저 들어오게 기다린다. 그러면 조회 차이는 0이고,
+    //  늦게 오는 통보는 되찾은 몫이 막는다.
+    constexpr auto kSettleDelay = std::chrono::seconds(3);
+
+    thread_name::set_current("FillRecovery");
+    uint64_t                     handled = 0;
+    std::unique_lock<std::mutex> lock(fill_recovery_mutex_);
+
+    while (!stop_token.stop_requested())
+    {
+        const bool requested = fill_recovery_wake_.wait(lock, stop_token, [&]
+        {
+            return fill_recovery_requests_ != handled;
+        });
+
+        if (!requested)
+        {
+            break; // 멈춤 요청
+        }
+
+        (void)fill_recovery_wake_.wait_for(lock, stop_token, kSettleDelay, []
+        {
+            return false;
+        });
+
+        if (stop_token.stop_requested())
+        {
+            break;
+        }
+
+        handled = fill_recovery_requests_; // 기다리는 사이 온 요청도 이번 조회 한 번이 맡는다
+        lock.unlock();
+
+        try
+        {
+            (void)recover_missed_fills();
+        }
+        catch (const std::exception& exception)
+        {
+            LOG_WARN("[OrderRouter] 놓친 체결 조회 실패 — 잔고 대조가 수량을 맞춘다: " + std::string(exception.what()));
+        }
+
+        lock.lock();
+    }
+}
+
+int OrderRouter::recover_missed_fills()
+{
+    {
+        std::lock_guard<std::mutex> lock(history_mutex_);
+        const bool any_open = std::any_of(history_.begin(), history_.end(), [](const ManagedOrder& managed_order)
+        {
+            return managed_order.recoverable && managed_order.status == OrderStatus::ACCEPTED;
+        });
+
+        if (!any_open)
+        {
+            return 0; // 이 프로세스가 낸 미결 주문이 없다 — 조회하지 않는다
+        }
+    }
+
+    // 조회를 보내기 전 시각이다. 이보다 늦은 체결은 조회에 없을 수 있어 되찾은 몫에 넣지 않는다.
+    constexpr int64_t kHourPlace   = 10'000; // HHMMSS의 시 자리
+    constexpr int64_t kMinutePlace = 100;    // HHMMSS의 분 자리
+
+    const auto     clock        = kst::time_of_day(std::time(nullptr));
+    const uint32_t until_hhmmss = static_cast<uint32_t>(clock.hours().count() * kHourPlace +
+                                                        clock.minutes().count() * kMinutePlace + clock.seconds().count());
+    const auto     daily_fills  = kis_.get_daily_order_fills();
+
+    if (!daily_fills)
+    {
+        LOG_WARN("[OrderRouter] 놓친 체결 조회 실패 — 잔고 대조가 수량을 맞춘다: " + error_text(daily_fills));
+        return 0;
+    }
+
+    int recovered_orders   = 0;
+    int recovered_quantity = 0;
+
+    for (const auto& row : *daily_fills)
+    {
+        std::unique_lock<std::mutex> lock(history_mutex_);
+        ManagedOrder* managed_order = find_by_order_number_locked(digits_to_number(row.kis_order_no));
+
+        // 재기동 복원 주문·취소·정정 전 주문은 건너뛴다 — 잔고 시드·취소 해제와 겹쳐 두 번 센다. 잔고 대조가 맡는다.
+        if (managed_order == nullptr || !managed_order->recoverable || managed_order->status != OrderStatus::ACCEPTED)
+        {
+            continue;
+        }
+
+        const int outstanding = managed_order->signal.quantity - managed_order->confirmed_quantity;
+        const int missing     = std::min(row.filled_quantity - managed_order->confirmed_quantity, outstanding);
+
+        if (missing <= 0)
+        {
+            continue;
+        }
+
+        if (row.side != managed_order->signal.side || row.ticker != managed_order->signal.ticker)
+        {
+            const std::string ticker = managed_order->signal.ticker;
+            lock.unlock();
+            LOG_WARN(std::format("[OrderRouter] 놓친 체결 조회 — 종목·방향이 이력과 달라 건너뜀 ODNO={} 조회={} 이력={}",
+                                 row.kis_order_no, row.ticker, ticker));
+            continue;
+        }
+
+        // 단가는 누적 금액 차이로 구한다. 앞서 받은 통보 단가의 반올림으로 차이가 0 이하가 되면 누적 평균가로 쓴다.
+        int64_t missing_amount = row.filled_amount - managed_order->confirmed_amount;
+
+        if (missing_amount <= 0)
+        {
+            missing_amount = row.filled_amount * missing / row.filled_quantity;
+        }
+
+        FillNotification recovered;
+        recovered.kis_order_no    = row.kis_order_no;
+        recovered.ticker          = managed_order->signal.ticker;
+        recovered.side            = managed_order->signal.side;
+        recovered.filled_quantity = missing;
+        recovered.filled_price    = static_cast<double>(missing_amount) / missing;
+        recovered.fill_time       = std::format("{:06}", until_hhmmss);
+        recovered.order_quantity  = row.order_quantity;
+        recovered.timestamp       = std::chrono::system_clock::now();
+
+        managed_order->recovered_credit_quantity += missing;
+        managed_order->recovered_until_hhmmss     = until_hhmmss;
+        apply_linked_fill(lock, *managed_order, recovered, missing, "소켓 끊김 중 체결 — 조회로 되찾음");
+        ++recovered_orders;
+        recovered_quantity += missing;
+    }
+
+    LOG_INFO(std::format("[OrderRouter] 놓친 체결 조회 완료 — 조회 {}건 중 되찾은 주문 {}건 {}주 (조회 시각 {:06})",
+                         daily_fills->size(), recovered_orders, recovered_quantity, until_hhmmss));
+    return recovered_orders;
+}
+
 // 같은 세션 안에서 같은 키가 다시 오면 분할체결로 받는다. 세션이 바뀌면 앞 세션까지 받은 횟수를
 //  기억해 두고, 새 세션에서 그 횟수 이하로 오는 통보는 재전송으로 본다 — 증권사가 재구독 뒤 옛 통보를
 //  다시 보내면 한 건씩 한 번 오므로, 앞에서 받은 수를 넘는 몫만 새 체결이다.
@@ -2887,6 +3107,12 @@ void OrderRouter::reset_daily()
     // 사유 기록도 거래일이 바뀌면 다시 읽는다(파일이 날짜별이라 어제 것을 들고 있으면 안 된다).
     order_reasons_.clear();
     order_reasons_loaded_ = false;
+
+    // 주문번호는 거래일마다 다시 쓰인다. 어제 주문이 오늘 조회의 같은 번호 행과 엮이지 않게 되찾기 대상에서 뺀다. [why D-149]
+    for (auto& managed_order : history_)
+    {
+        managed_order.recoverable = false;
+    }
 }
 
 // ─── 통계 ─────────────────────────────────────────────────────────────────

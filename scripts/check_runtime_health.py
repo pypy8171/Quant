@@ -1103,6 +1103,59 @@ def fill_notice_session_row(date: str) -> tuple:
     return (name, True, "FAIL", f"기동 {attached}회 모두 체결통보 세션을 잡았다")
 
 
+def missed_fill_recovery_row(date: str) -> tuple:
+    """체결통보가 끊긴 사이 난 체결을 조회로 되찾았는지. [why D-149]
+
+    체결통보 구독이 다시 붙을 때마다 엔진이 당일 체결 조회로 모자란 체결을 채운다. 조회가 실패하면
+    수량은 잔고 대조가 맞추지만 단가·손익 귀속은 비므로 실패를 드러낸다. 되찾은 건수와 늦은 통보를
+    몫에서 뺀 건수도 같이 적어, 끊김이 실제로 체결을 놓치게 했는지를 이 행 하나로 본다.
+    """
+    name = "놓친 체결 되찾기"
+    resumed = 0
+    queries = 0
+    failures: list[str] = []
+    recovered_orders = 0
+    recovered_quantity = 0
+    late_credited = 0
+    recovered_pattern = re.compile(r"되찾은 주문 (\d+)건 (\d+)주")
+
+    for account, engine_log in engine_logs():
+        try:
+            body = engine_log.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+
+        for line in body.splitlines():
+            if date not in line:
+                continue
+
+            if "체결통보 구독 확인(세션" in line:
+                resumed += 1
+            elif "놓친 체결 조회 완료" in line:
+                queries += 1
+                match = recovered_pattern.search(line)
+
+                if match:
+                    recovered_orders += int(match.group(1))
+                    recovered_quantity += int(match.group(2))
+            elif "놓친 체결 조회 실패" in line:
+                failures.append(f"{line[11:19]} [{account}]")
+            elif "되찾은 체결의 늦은 통보" in line:
+                late_credited += 1
+
+    if not resumed:
+        return (name, True, "WARN", f"{date} 체결통보 구독 재개 기록이 없다 — D-149 이전 exe거나 기동이 없다, 판정 안 함")
+
+    summary = (f"구독 재개 {resumed}회·조회 {queries}회·되찾은 주문 {recovered_orders}건 {recovered_quantity}주·"
+               f"늦은 통보를 몫에서 뺀 것 {late_credited}건")
+
+    if failures:
+        return (name, False, "WARN",
+                f"조회 실패 {len(failures)}회 — {', '.join(failures[:3])} (수량은 잔고 대조가 맞추지만 단가·손익 귀속이 빈다) · {summary}")
+
+    return (name, True, "WARN", summary)
+
+
 def market_open_gate_row(date: str) -> tuple:
     """감시견의 휴장일 관문(scripts/auto_trade_day.ps1)이 그날 제대로 갈렸는지.
 
@@ -1568,6 +1621,7 @@ def global_rows(date: str) -> list:
         shared_region_exit_row(date),
         order_answer_row(date),
         fill_notice_session_row(date),
+        missed_fill_recovery_row(date),
         pinned_capture_row(date),
         scan_registration_row(date),
         thread_label_row(date),

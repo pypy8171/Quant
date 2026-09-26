@@ -127,6 +127,8 @@ public:
 
     // 미체결(정정취소 가능) 예약주문 조회 — 실전 inquire-psbl-rvsecncl(TTTC0084R), 모의는 VTTC0081R(inquire-daily-ccld)
     [[nodiscard]] KisResult<std::vector<OpenOrder>> get_open_orders() override;
+    // 오늘 체결이 있는 주문의 누적 체결 — inquire-daily-ccld(실전 TTTC0081R / 모의 VTTC0081R), 체결분만(CCLD_DVSN=01)
+    [[nodiscard]] KisResult<std::vector<DailyOrderFill>> get_daily_order_fills() override;
     [[nodiscard]] std::uint64_t rate_limit_wait_ns_this_thread() const noexcept override
     {
         return rate_wait_ns_this_thread();
