@@ -36,7 +36,7 @@ for _s in (sys.stdout, sys.stderr):
         pass
 
 LINE_RE = re.compile(
-    r"^(\d{4}-\d{2}-\d{2}) (\d{2}):(\d{2}):\d{2}\.\d+ \[DEBUG\] \[[A-Z]+_(\d{6})\] 봉 닫힘 src=ws t=(\d{4}) "
+    r"^(\d{4}-\d{2}-\d{2}) (\d{2}):(\d{2}):\d{2}\.\d+ (?:\{[^}]*\}\s+)?\[DEBUG\] \[[A-Z]+_(\d{6})\] 봉 닫힘 src=ws t=(\d{4}) "
     r"o=([\d.]+) h=([\d.]+) l=([\d.]+) c=([\d.]+) v=(\d+)"
 )
 

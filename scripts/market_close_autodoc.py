@@ -44,7 +44,7 @@ RUN_LOG = REPO / "logs" / "market_close_autodoc.log"
 AUTO_BEGIN = "<!-- AUTO:BEGIN -->"
 AUTO_END = "<!-- AUTO:END -->"
 
-LINE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})\.\d+ \[(\w+)\s*\] (.*)$")
+LINE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})\.\d+ (?:\{[^}]*\}\s+)?\[(\w+)\s*\] (.*)$")
 SESSION_RE = re.compile(r"=== Quant Trader")
 SIZING_RE = re.compile(r"사이징 백스톱: 종목당 명목 (\d+)원, 동시보유 (\d+)종목")
 STAGE_PASS_RE = re.compile(r"정배열 프리필터: (.*)$")

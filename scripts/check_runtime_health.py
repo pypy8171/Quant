@@ -967,6 +967,58 @@ def scan_registration_row(date: str) -> tuple:
     return (name, True, "FAIL", f"모든 계좌가 등록했다 — {summary}")
 
 
+THREAD_LABEL_RE = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+ \{([^}]*)\} \[")
+UNNAMED_THREAD_RE = re.compile(r"^T\d+$")
+
+
+def thread_label_row(date: str) -> tuple:
+    """로그 줄마다 찍은 스레드 이름이 붙었는지, 이름 없이 번호(T12345)로 찍힌 스레드가 있는지.
+
+    여러 스레드가 섞어 쓰는 로그는 누가 찍었는지 없으면 선후 관계를 못 가린다. 스레드는 만들 때
+    thread_name::set_current 로 이름을 받고, 안 받은 스레드는 운영체제 번호로 찍힌다 — 번호가 보이면
+    이름 붙이기를 빠뜨린 스레드가 새로 생긴 것이다. 칸이 아예 없으면 그날 돈 exe가 이 변경 전 빌드다.
+    """
+    name = "로그 스레드 칸"
+    total = 0
+    labelled = 0
+    unnamed: dict = {}
+
+    for _account, engine_log in engine_logs():
+        try:
+            body = engine_log.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+
+        for line in body.splitlines():
+            if not line.startswith(date):
+                continue
+
+            total += 1
+            match = THREAD_LABEL_RE.match(line)
+
+            if match is None:
+                continue
+
+            labelled += 1
+            label = match.group(1)
+
+            if UNNAMED_THREAD_RE.match(label):
+                unnamed[label] = unnamed.get(label, 0) + 1
+
+    if total == 0:
+        return (name, True, "WARN", f"{date} 엔진 로그 줄 없음 — 판정 안 함")
+
+    if labelled == 0:
+        return (name, False, "WARN", f"{total}줄 모두 스레드 칸 없음 — 스레드 이름을 찍기 전 빌드가 돌았다")
+
+    if unnamed:
+        top = ", ".join(f"{label} {count}줄" for label, count in sorted(unnamed.items(), key=lambda item: -item[1])[:3])
+        return (name, False, "WARN",
+                f"이름 없는 스레드 {len(unnamed)}개가 찍었다({top}) — 그 스레드 시작점에 set_current를 넣는다")
+
+    return (name, True, "WARN", f"{labelled}/{total}줄에 스레드 이름이 찍혔다")
+
+
 def fill_notice_session_row(date: str) -> tuple:
     """체결통보 세션이 붙었는지. 없으면 체결이 원장에 안 실린다.
 
@@ -1372,6 +1424,7 @@ def global_rows(date: str) -> list:
         fill_notice_session_row(date),
         pinned_capture_row(date),
         scan_registration_row(date),
+        thread_label_row(date),
         job_attach_row(date),
         gross_exposure_config_row(),
         *orphan_process_rows(),

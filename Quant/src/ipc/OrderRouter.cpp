@@ -8,6 +8,8 @@
 #include <chrono>
 #include <cmath>
 #include "core/WakeGate.h"
+#include "utils/ThreadName.h"
+
 #include <ctime>
 #include <filesystem>
 #include <format>
@@ -1465,6 +1467,8 @@ void OrderRouter::reconcile_unknown_order_async(std::string ticker)
 
     transport_reconcile_ = std::jthread([this, ticker = std::move(ticker), symbol_id](std::stop_token stop_token)
     {
+        thread_name::set_current("Reconcile");
+
         // KIS가 접수를 조회에 반영할 틈을 준다. 곧바로 물으면 방금 낸 주문이 안 보인다.
         //  3초를 한 번에 자지 않고 잘게 나눠 멈춤 요청을 본다 — 소멸자가 이 스레드를 기다린다.
         for (int slice = 0; slice < 30 && !stop_token.stop_requested(); ++slice)
@@ -1720,6 +1724,8 @@ void OrderRouter::cancel_stale_orders_async()
     //  rows는 스레드가 이 함수보다 오래 살아 옮겨 넣는다(참조로 잡으면 반환 뒤 사라진다).
     stale_threshold_ = std::jthread([this, rows = std::move(rows)](std::stop_token stop_token)
     {
+        thread_name::set_current("StaleCancel");
+
         int cancelled = 0;
 
         for (const auto& row : rows)

@@ -1,4 +1,5 @@
 #include "core/FeedMux.h"
+#include "utils/ThreadName.h"
 
 namespace feed
 {
@@ -420,6 +421,8 @@ bool FeedMux::all_empty() const
 
 void FeedMux::multiplexer_loop(std::stop_token stop_token)
 {
+    thread_name::set_current("FeedMux");
+
     static constexpr size_t kBurst = 256;
 
     while (!stop_token.stop_requested())

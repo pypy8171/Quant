@@ -634,7 +634,7 @@ _logdir.find_log(date)     # 고른 원장 옆의 로그
 ### 10.1 엔진 로그는 정규식 한 벌로
 
 ```python
-LINE_RE    = re.compile(r"^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})\.\d+ \[(\w+)\s*\] (.*)$")   # 날짜 시각 [레벨] 본문
+LINE_RE    = re.compile(r"^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})\.\d+ (?:\{[^}]*\}\s+)?\[(\w+)\s*\] (.*)$")   # 날짜 시각 {스레드}(선택) [레벨] 본문
 SESSION_RE = re.compile(r"=== Quant Trader")                                                    # 세션 경계
 SIZING_RE  = re.compile(r"사이징 백스톱: 종목당 명목 (\d+)원, 동시보유 (\d+)종목")
 NAME_RE    = re.compile(r"(\d{6})\(([^)]{1,24})\)")                                             # 005930(삼성전자)

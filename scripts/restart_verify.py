@@ -129,7 +129,10 @@ def _judge_text(path: Path, text: str) -> LogVerdict | None:
         failed = next((mark for mark in FAIL_MARKS if mark in line), None)
         if failed:
             verdict.result = FAIL
-            verdict.detail = line[24:].strip()[:200]
+            detail = line[24:]
+            if detail.startswith("{"):  # 새 형식의 {스레드} 칸은 건너뛴다
+                detail = detail.partition("} ")[2]
+            verdict.detail = detail.strip()[:200]
             return verdict
 
     required = REQUIRED_MARKS.get(role, REQUIRED_MARKS["both"])

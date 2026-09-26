@@ -24,16 +24,16 @@ graph LR
   core -->|13| ipc
   core -->|10| risk
   core -->|4| strategy
-  core -->|33| utils
+  core -->|38| utils
   exchange -->|7| core
-  exchange -->|2| utils
+  exchange -->|3| utils
   ipc -->|2| api
   ipc -->|16| core
   ipc --> risk
-  ipc -->|5| utils
+  ipc -->|6| utils
   main -->|4| core
   main --> strategy
-  main --> utils
+  main -->|2| utils
   risk -->|12| core
   risk -->|2| ipc
   risk -->|4| utils
@@ -59,9 +59,9 @@ graph LR
 | `core/Types.h` | 48 |
 | `core/KstTime.h` | 31 |
 | `core/SymbolTable.h` | 22 |
+| `utils/ThreadName.h` | 21 |
 | `core/Engine.h` | 16 |
 | `strategy/StrategyBase.h` | 16 |
-| `utils/ThreadName.h` | 13 |
 | `core/LatencyTrace.h` | 12 |
 
 ## 파일 단위 상세
@@ -352,6 +352,7 @@ graph LR
   n_core_DataPoller_cpp --> n_core_KstTime_h
   n_core_DataPoller_cpp --> n_core_WakeGate_h
   n_core_DataPoller_cpp --> n_utils_Logger_h
+  n_core_DataPoller_cpp --> n_utils_ThreadName_h
   n_core_DataPoller_h --> n_core_Types_h
   n_core_Engine_cpp --> n_core_Engine_h
   n_core_Engine_cpp --> n_core_KstTime_h
@@ -449,6 +450,7 @@ graph LR
   n_core_EngineUniverse_cpp --> n_core_KstTime_h
   n_core_EngineUniverse_cpp --> n_utils_Logger_h
   n_core_FeedMux_cpp --> n_core_FeedMux_h
+  n_core_FeedMux_cpp --> n_utils_ThreadName_h
   n_core_FeedMux_h --> n_core_IFeedSource_h
   n_core_FeedMux_h --> n_core_RingBuffer_h
   n_core_FeedMux_h --> n_core_Types_h
@@ -457,6 +459,7 @@ graph LR
   n_core_HttpQuoteFeed_cpp --> n_api_HttpGet_h
   n_core_HttpQuoteFeed_cpp --> n_core_HttpQuoteFeed_h
   n_core_HttpQuoteFeed_cpp --> n_utils_Logger_h
+  n_core_HttpQuoteFeed_cpp --> n_utils_ThreadName_h
   n_core_HttpQuoteFeed_h --> n_core_Types_h
   n_core_IFeedSource_cpp --> n_core_IFeedSource_h
   n_core_IFeedSource_h --> n_core_Types_h
@@ -492,6 +495,7 @@ graph LR
   n_core_RegimeFileJudge_h --> n_core_KstTime_h
   n_core_RegimeFileJudge_h --> n_core_Types_h
   n_core_ReplaySource_cpp --> n_core_ReplaySource_h
+  n_core_ReplaySource_cpp --> n_utils_ThreadName_h
   n_core_ReplaySource_h --> n_core_IFeedSource_h
   n_core_ReplaySource_h --> n_core_TickCapture_h
   n_core_SessionEndJudge_cpp --> n_core_SessionEndJudge_h
@@ -517,6 +521,7 @@ graph LR
   n_core_StrategyTable_cpp --> n_core_StrategyTable_h
   n_core_SymbolTable_cpp --> n_core_SymbolTable_h
   n_core_TickCapture_cpp --> n_core_TickCapture_h
+  n_core_TickCapture_cpp --> n_utils_ThreadName_h
   n_core_TickCapture_h --> n_core_MarketSession_h
   n_core_TickCapture_h --> n_core_MpscQueue_h
   n_core_TickCapture_h --> n_core_Types_h
@@ -542,6 +547,7 @@ graph LR
   n_exchange_MatchingEngine_h --> n_core_Types_h
   n_exchange_ZmqOrderFeed_cpp --> n_core_KstTime_h
   n_exchange_ZmqOrderFeed_cpp --> n_utils_Logger_h
+  n_exchange_ZmqOrderFeed_cpp --> n_utils_ThreadName_h
   n_exchange_ZmqOrderFeed_cpp --> n_utils_Utf8_h
   n_exchange_ZmqOrderFeed_h --> n_core_IFeedSource_h
   n_exchange_ZmqOrderFeed_h --> n_core_MpscQueue_h
@@ -571,6 +577,7 @@ graph LR
   n_ipc_OrderRouter_cpp --> n_core_WakeGate_h
   n_ipc_OrderRouter_cpp --> n_ipc_OrderRouter_h
   n_ipc_OrderRouter_cpp --> n_utils_Logger_h
+  n_ipc_OrderRouter_cpp --> n_utils_ThreadName_h
   n_ipc_OrderRouter_h --> n_api_IOrderExecutor_h
   n_ipc_OrderRouter_h --> n_core_ReconcilePlan_h
   n_ipc_OrderRouter_h --> n_core_Types_h
@@ -615,6 +622,7 @@ graph LR
   n_main_cpp --> n_core_Types_h
   n_main_cpp --> n_strategy_StrategyFactory_h
   n_main_cpp --> n_utils_Logger_h
+  n_main_cpp --> n_utils_ThreadName_h
   n_risk_DisplacementDesk_cpp --> n_risk_DisplacementDesk_h
   n_risk_DisplacementDesk_cpp --> n_utils_Logger_h
   n_risk_DisplacementDesk_h --> n_core_Types_h

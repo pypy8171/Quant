@@ -3,8 +3,10 @@
 
 #include "core/MpscQueue.h"
 
+#include <array>
 #include <chrono>
 #include <condition_variable>
+#include <cstring>
 #include <cstdlib>
 #include <fstream>
 #include <iomanip>
@@ -35,6 +37,8 @@ struct Logger::Implementation
         std::chrono::system_clock::time_point timestamp;
         std::string message;
         std::atomic<bool>* flush_mark; // flush()의 표식. 아니면 nullptr
+        // 찍은 스레드 이름. 포인터로 들고 가면 그 스레드가 먼저 끝날 때 끊기므로 16바이트를 복사한다.
+        std::array<char, thread_name::kMaxLength> thread_label{};
     };
 
     Implementation()
@@ -80,6 +84,8 @@ struct Logger::Implementation
     void submit(LogLevel level, const std::string& message)
     {
         Record record{level, std::chrono::system_clock::now(), message, nullptr};
+        const char* thread_label = thread_name::current(); // 끝 NUL 포함 kMaxLength 이하가 보장된다
+        std::memcpy(record.thread_label.data(), thread_label, std::strlen(thread_label));
 
         if (!running_.load(std::memory_order_acquire))
         {
@@ -238,7 +244,8 @@ struct Logger::Implementation
 #endif
         std::ostringstream stream;
         stream << std::put_time(&time_buffer, "%Y-%m-%d %H:%M:%S") << '.' << std::setfill('0') << std::setw(3)
-           << milliseconds.count() << " [" << level_string(record.level) << "] " << record.message;
+           << milliseconds.count() << " {" << record.thread_label.data() << "} [" << level_string(record.level) << "] "
+           << record.message;
         return stream.str();
     }
 

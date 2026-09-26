@@ -76,8 +76,8 @@ def logs_dir() -> Path:
 def logfile() -> Path:
     return logs_dir() / "quant_trader.log"
 
-# 로그 라인:  2026-09-03 09:53:49.011 [INFO ] [태그] 메시지  (parse_quant_log.py와 동일 규약)
-_LINE = re.compile(r"^(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\.\d{3}\s+\[(?P<lvl>\w+)\s*\]\s+(?P<rest>.*)$")
+# 로그 라인:  2026-09-03 09:53:49.011 {Order} [INFO ] [태그] 메시지  ({스레드}는 선택, scripts/parse_quant_log.py와 같은 규약)
+_LINE = re.compile(r"^(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\.\d{3}\s+(?:\{[^}]*\}\s+)?\[(?P<lvl>\w+)\s*\]\s+(?P<rest>.*)$")
 _GATE = re.compile(r"→\s*(?P<reason>.+?)\s*$")
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -1,4 +1,5 @@
 #include "core/ReplaySource.h"
+#include "utils/ThreadName.h"
 
 namespace feed
 {
@@ -47,6 +48,8 @@ void ReplaySource::disconnect()
 
 void ReplaySource::run(std::stop_token stop_token, TickReader& reader)
 {
+    thread_name::set_current("Replay");
+
     Record record;
     int64_t previous_ns = 0;
 

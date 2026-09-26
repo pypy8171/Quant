@@ -4,6 +4,7 @@
 #include "core/Types.h"
 #include "strategy/StrategyFactory.h"
 #include "utils/Logger.h"
+#include "utils/ThreadName.h"
 #include <atomic>
 #include <chrono>
 #include <csignal>
@@ -303,6 +304,8 @@ static int run_trade(const AppConfig& app, ProcessRole role)
 // ═══════════════════════════════════════════════════════════════════════════
 int main(int argc, char* argv[])
 {
+    thread_name::set_current("Main");
+
 #ifdef _WIN32
     TimerResolution timer_resolution; // 1. 1ms 격자, 소멸자에서 되돌린다
     setup_console();                  // 2.

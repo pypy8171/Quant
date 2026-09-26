@@ -4,6 +4,7 @@
 #include "core/KstTime.h"
 #include "core/WakeGate.h"
 #include "utils/Logger.h"
+#include "utils/ThreadName.h"
 
 #include <thread>
 
@@ -42,6 +43,8 @@ void DataPoller::join()
 
 void DataPoller::loop(std::stop_token stop_token, const LoopSources& sources, std::chrono::milliseconds round_period)
 {
+    thread_name::set_current("RestPoller");
+
     LOG_INFO("[Engine] REST 조회 스레드 시작 — 목표 주기 " + std::to_string(round_period.count()) + "ms");
 
     while (!stop_token.stop_requested() && keep_going())

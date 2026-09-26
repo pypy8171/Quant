@@ -4,6 +4,7 @@
 #include "core/KstTime.h"
 #include "utils/Logger.h"
 #include "utils/Utf8.h"
+#include "utils/ThreadName.h"
 
 #include <chrono>
 #include <ctime>
@@ -616,6 +617,8 @@ void ZmqOrderFeed::report_throughput(uint32_t lane, std::chrono::steady_clock::t
 
 void ZmqOrderFeed::receive_loop(uint32_t lane)
 {
+    thread_name::set_current("ZmqOrderIn " + std::to_string(lane));
+
     const std::string endpoint = options_.bind_address + ":" + std::to_string(options_.base_port + static_cast<int>(lane));
 
     zmq::context_t context{1};

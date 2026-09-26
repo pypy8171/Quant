@@ -33,7 +33,7 @@ for _s in (sys.stdout, sys.stderr):
         pass
 
 SESSION_RE = re.compile(r"=== Quant Trader")
-LINE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})\.\d+ \[(\w+)\s*\] (.*)$")
+LINE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})\.\d+ (?:\{[^}]*\}\s+)?\[(\w+)\s*\] (.*)$")
 SEED_RE = re.compile(r"시드 (\d{6}) (\S+) (\d+)주 @평단 (\d+) 주문가능=(\d+)")
 DEV_REG_RE = re.compile(r"전략 등록: DeviationScale \| (\d{6})\(([^)]*)\)")
 ITB_REG_RE = re.compile(r"전략 등록: ITB \| (\d{6}).*hold=(\d+)")

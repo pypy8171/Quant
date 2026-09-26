@@ -50,10 +50,10 @@ LOGS = _logdir.log_dir()
 LOGFILE = LOGS / "quant_trader.log"
 STATE = LOGS / ".watch_intraday_state.json"
 
-# 라인 프리픽스:  2026-08-12 12:06:02.011 [INFO ] [태그] 메시지
+# 라인 프리픽스:  2026-08-12 12:06:02.011 {Order} [INFO ] [태그] 메시지  ({스레드}는 새 형식만, 옛 로그는 없음)
 _LINE = re.compile(
     r"^(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\.\d{3}\s+"
-    r"\[(?P<lvl>\w+)\s*\]\s+"
+    r"(?:\{[^}]*\}\s+)?\[(?P<lvl>\w+)\s*\]\s+"
     r"(?P<rest>.*)$"
 )
 

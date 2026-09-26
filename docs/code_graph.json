@@ -44,7 +44,7 @@
     {
       "from": "core",
       "to": "utils",
-      "weight": 33
+      "weight": 38
     },
     {
       "from": "exchange",
@@ -54,7 +54,7 @@
     {
       "from": "exchange",
       "to": "utils",
-      "weight": 2
+      "weight": 3
     },
     {
       "from": "ipc",
@@ -74,7 +74,7 @@
     {
       "from": "ipc",
       "to": "utils",
-      "weight": 5
+      "weight": 6
     },
     {
       "from": "main",
@@ -89,7 +89,7 @@
     {
       "from": "main",
       "to": "utils",
-      "weight": 1
+      "weight": 2
     },
     {
       "from": "risk",
@@ -511,7 +511,8 @@
       "core/DataPoller.h",
       "core/KstTime.h",
       "core/WakeGate.h",
-      "utils/Logger.h"
+      "utils/Logger.h",
+      "utils/ThreadName.h"
     ],
     "core/DataPoller.h": [
       "core/Types.h"
@@ -642,7 +643,8 @@
       "utils/Logger.h"
     ],
     "core/FeedMux.cpp": [
-      "core/FeedMux.h"
+      "core/FeedMux.h",
+      "utils/ThreadName.h"
     ],
     "core/FeedMux.h": [
       "core/IFeedSource.h",
@@ -656,7 +658,8 @@
     "core/HttpQuoteFeed.cpp": [
       "api/HttpGet.h",
       "core/HttpQuoteFeed.h",
-      "utils/Logger.h"
+      "utils/Logger.h",
+      "utils/ThreadName.h"
     ],
     "core/HttpQuoteFeed.h": [
       "core/Types.h"
@@ -729,7 +732,8 @@
       "core/Types.h"
     ],
     "core/ReplaySource.cpp": [
-      "core/ReplaySource.h"
+      "core/ReplaySource.h",
+      "utils/ThreadName.h"
     ],
     "core/ReplaySource.h": [
       "core/IFeedSource.h",
@@ -780,7 +784,8 @@
       "core/SymbolTable.h"
     ],
     "core/TickCapture.cpp": [
-      "core/TickCapture.h"
+      "core/TickCapture.h",
+      "utils/ThreadName.h"
     ],
     "core/TickCapture.h": [
       "core/MarketSession.h",
@@ -836,6 +841,7 @@
     "exchange/ZmqOrderFeed.cpp": [
       "core/KstTime.h",
       "utils/Logger.h",
+      "utils/ThreadName.h",
       "utils/Utf8.h"
     ],
     "exchange/ZmqOrderFeed.h": [
@@ -898,7 +904,8 @@
       "core/LatencyTrace.h",
       "core/WakeGate.h",
       "ipc/OrderRouter.h",
-      "utils/Logger.h"
+      "utils/Logger.h",
+      "utils/ThreadName.h"
     ],
     "ipc/OrderRouter.h": [
       "api/IOrderExecutor.h",
@@ -970,7 +977,8 @@
       "core/Engine.h",
       "core/Types.h",
       "strategy/StrategyFactory.h",
-      "utils/Logger.h"
+      "utils/Logger.h",
+      "utils/ThreadName.h"
     ],
     "risk/DisplacementDesk.cpp": [
       "risk/DisplacementDesk.h",
@@ -1981,6 +1989,7 @@
     ],
     "utils/ThreadName.h": [
       "api/WebSocketClient.cpp",
+      "core/DataPoller.cpp",
       "core/Engine.cpp",
       "core/EngineControlThread.cpp",
       "core/EngineDataThread.cpp",
@@ -1988,9 +1997,16 @@
       "core/EngineFillThread.cpp",
       "core/EngineOrderThread.cpp",
       "core/EngineStrategyThread.cpp",
+      "core/FeedMux.cpp",
+      "core/HttpQuoteFeed.cpp",
       "core/PrefetchPool.h",
+      "core/ReplaySource.cpp",
+      "core/TickCapture.cpp",
+      "exchange/ZmqOrderFeed.cpp",
       "ipc/OpsServer.cpp",
+      "ipc/OrderRouter.cpp",
       "ipc/ZmqBridge.cpp",
+      "main.cpp",
       "utils/Logger.cpp",
       "utils/ThreadName.cpp"
     ],
@@ -2019,16 +2035,16 @@
       "in_degree": 22
     },
     {
+      "header": "utils/ThreadName.h",
+      "in_degree": 21
+    },
+    {
       "header": "core/Engine.h",
       "in_degree": 16
     },
     {
       "header": "strategy/StrategyBase.h",
       "in_degree": 16
-    },
-    {
-      "header": "utils/ThreadName.h",
-      "in_degree": 13
     },
     {
       "header": "core/LatencyTrace.h",

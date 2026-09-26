@@ -38,7 +38,7 @@ TOL_SEC = 180          # 이벤트 시각과 가격 관측 사이 허용 간격
 CHUNK = 100
 UA = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.naver.com/'}
 
-TS = r'^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})\.\d{3}'
+TS = r'^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})\.\d{3}(?: \{[^}]*\})?'  # {스레드}는 새 형식만
 RE_PRICE = re.compile(TS + r'.*?\b(\d{6})\([^)]*\).*?현재가=([\d.]+)')
 RE_DISPLACE = re.compile(
     TS + r' \[INFO \] \[Displace\] (\d{6})\(([^)]*)\) 전량 매도 (\d+)주'

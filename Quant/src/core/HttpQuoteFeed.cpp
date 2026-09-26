@@ -3,6 +3,7 @@
 
 #include "api/HttpGet.h"
 #include "utils/Logger.h"
+#include "utils/ThreadName.h"
 
 #include <algorithm>
 #include <unordered_map>
@@ -178,6 +179,8 @@ void HttpQuoteFeed::stop()
 
 void HttpQuoteFeed::run_lane(size_t lane)
 {
+    thread_name::set_current("HttpLane " + std::to_string(lane));
+
     // [inv] 이 레인이 맡은 종목은 여기서 정해지고 끝까지 바뀌지 않는다 — 한 종목은 한 스레드만 내보낸다.
     std::vector<std::string> slice;
 

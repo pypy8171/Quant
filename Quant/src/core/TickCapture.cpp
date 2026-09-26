@@ -1,4 +1,5 @@
 #include "core/TickCapture.h"
+#include "utils/ThreadName.h"
 
 namespace feed
 {
@@ -278,6 +279,8 @@ void TickCapture::write_one(const Record& record)
 
 void TickCapture::writer_loop()
 {
+    thread_name::set_current("TickCapture");
+
     using namespace std::chrono_literals;
 
     while (true)
