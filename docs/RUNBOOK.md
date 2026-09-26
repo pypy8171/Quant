@@ -21,7 +21,7 @@ $env:PYTHONUTF8 = "1"
 
 ## 1. 자동매매 하루 루프 (한 창으로 끝내기)
 
-<!-- sync: scripts/auto_trade_day.ps1@7c69c3d scripts/auto_trade_guard.ps1@c4cbb8a -->
+<!-- sync: scripts/auto_trade_day.ps1@7c69c3d scripts/auto_trade_guard.ps1@db8a573 -->
 
 감시견 하나가 국면 보조 프로세스·유니버스·대시보드·알림·트레이더를 순서대로 띄우고, 장 마감까지 트레이더가 멈추면 다시
 띄운다. config에 `"market_board": true`가 있으면 유니버스 스캔·시세 창은 띄우지 않는다 — 엔진 안 시세판이 받는다(D-147). 감시자 예약작업은 07:30부터 돈다 — 엔진이 08:00 NXT 개장 전에 전 종목 일봉을 미리 받아 두게(config `daily_warm_until_hhmm`, D-147). 띄우기 전에 그날 장이 열리는지 KIS에 물어(`scripts/check_market_open.py`) 휴장일이면 아무것도 안 띄우고 끝낸다 —

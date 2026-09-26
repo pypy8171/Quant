@@ -68,7 +68,7 @@ if ($Install) {
   # 주간 트리거에는 반복 설정이 없다. 1회 트리거에서 Repetition만 떼어 붙인다.
   $trg.Repetition = (New-ScheduledTaskTrigger -Once -At $Open `
       -RepetitionInterval (New-TimeSpan -Minutes 5) `
-      -RepetitionDuration (New-TimeSpan -Hours $Hours)).Repetition
+      -RepetitionDuration (New-TimeSpan -Minutes ([int]($Hours * 60)))).Repetition   # -Hours 는 정수만 받아 8.25 가 8 로 잘린다
   $set = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
     -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 10)
   Register-ScheduledTask -TaskName $TaskName -Action $act -Trigger $trg -Settings $set -Force | Out-Null
