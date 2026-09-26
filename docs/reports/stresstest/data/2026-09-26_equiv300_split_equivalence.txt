@@ -1,6 +1,6 @@
 order equivalence
-  baseline : latency_trace_Eboth.csv (14023 orders)
-  compared : latency_trace_Esplit.csv (14455 orders)
+  baseline : latency_trace_equiv300_one.csv (14023 orders)
+  compared : latency_trace_equiv300_split.csv (14455 orders)
 
 check                                baseline     compared
 ------------------------------------------------------------

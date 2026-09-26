@@ -1,0 +1,13 @@
+round,segment,label,inside_pop_to_done,count,p50_us,p90_us,p99_us,max_us
+peak30k_one,tick_to_signal_us,tick recv -> strategy decision,0,63372,37,383,1601,8810
+peak30k_one,signal_to_pop_us,strategy decision -> order thread pop,0,63372,385808,634393,772195,834883
+peak30k_one,gate_us,order gate check,1,63372,10,77,120,4141
+peak30k_one,history_guard_us,order history lock + duplicate guard,1,63372,78,242,434,35469
+peak30k_one,history_lock_wait_us,  of which: waiting for the lock,1,63372,51,208,368,35469
+peak30k_one,journal_us,ledger write-ahead (disk),1,63178,0,1,2,845
+peak30k_one,bucket_wait_us,broker rate limit queueing,1,63178,0,0,0,0
+peak30k_one,transport_us,order send -> broker response (round trip),1,63178,2,11,17,213
+peak30k_one,record_us,"after send: accept, publish, history, ledger csv",1,63372,307,639,1170,19404
+peak30k_one,open_orders_us,  of which: pending-order file rewrite,1,63372,0,1,4,2671
+peak30k_one,pop_to_done_us,pop -> router return (holds the six above),0,63372,401,947,1661,35503
+peak30k_one,total_us,tick recv -> router return (whole chain),0,63372,386460,635092,773189,836112

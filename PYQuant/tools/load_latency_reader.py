@@ -1,7 +1,7 @@
 """부하시험 구간 지연 판독기 — `logs/latency_trace.csv` 를 구간별 분위수 표로 펴고 두 회차를 견준다.
 
     py -m tools.load_latency_reader --round N --trace <경로>/latency_trace_N.csv
-    py -m tools.load_latency_reader --round N --trace <N>.csv --baseline-round Jprime --baseline <J프라임>.csv
+    py -m tools.load_latency_reader --round peak30k_split --trace <셋으로 가른 판>.csv --baseline-round peak30k_one --baseline <한 프로세스 판>.csv
 
 무엇을 재나. 주문 하나가 지나는 길을 **시세 수신 → 전략 판단 → 주문 전송 → 응답** 으로 갈라서 잰다.
 엔진이 신호마다 구간 시각을 트레이스 한 줄로 남기고 있어(Quant/src/core/LatencyTrace.cpp 의 csv_header),

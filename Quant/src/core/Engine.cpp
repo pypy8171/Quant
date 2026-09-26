@@ -201,7 +201,7 @@ void Engine::setup_zmq_bridge()
 
             if (command == "STATUS")
             {
-                // 버린 건수 넷과 체결 겹수 하나를 여기에도 싫는다 — HEALTH 로도 나가지만 그쪽은 발행 큐를 타고, 그 큐에서 HEALTH 는
+                // 버린 건수 넷과 체결 겹수 하나를 여기에도 싣는다 — HEALTH 로도 나가지만 그쪽은 발행 큐를 타고, 그 큐에서 HEALTH 는
                 //  FILL·ORDER·SIGNAL 보다 작은 한도를 쓴다(ZmqBridge::enqueue). 큐가 차면 버린 건수를 알려 줄
                 //  메시지가 가장 먼저 버려져, 정작 버리는 중일 때만 값이 사라진다. REP 는 그 큐를 안 거친다. [why D-125]
                 return "{\"running\":true"

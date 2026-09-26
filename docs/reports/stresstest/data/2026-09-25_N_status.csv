@@ -1,9 +1,0 @@
-round,role,recorder,elapsed_seconds,data_events,signal_count,order_count,drop_total,drop_socket_full,drop_socket_error,drop_send_queue_full,drop_trade_ring_full,available_gb
-N,order,on,0.0,0,0,0,0,0,0,0,0,12.91
-N,order,on,10.0,0,0,1,0,0,0,0,0,11.09
-N,order,on,20.0,0,0,12379,0,0,0,0,0,11.02
-N,order,on,30.0,0,0,26656,0,0,0,0,0,11.05
-N,order,on,40.0,0,0,40499,0,0,0,0,0,11.01
-N,order,on,50.0,0,0,53555,0,0,0,0,0,11.0
-N,order,on,60.0,0,0,65104,0,0,0,0,0,10.99
-N,order,on,70.0,0,0,75881,0,0,0,0,0,11.1
