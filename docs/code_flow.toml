@@ -16,8 +16,14 @@
 title = "실시간 매매 코드 흐름 (CODE_FLOW)"
 
 intro = """
-TRADE 모드에서 틱 하나가 들어와 주문이 나가고 체결이 원장에 닿기까지를 **읽는 순서대로** 나열한 문서다.
+TRADE 모드에서 종목을 고르고, 체결 한 건(`TradeData`)이 들어와 주문이 나가고, 체결이 원장에 닿기까지를 **읽는 순서대로** 나열한 문서다.
 단계마다 심볼 링크(`파일#L줄`)·시그니처·볼 것 한 줄·덮는 테스트가 있다. 링크는 VS Code 미리보기·GitHub에서 그 줄로 열린다.
+
+실행 파일은 `quant_trader` 하나다. `--role feed`·`--role strategy`·`--role order`로 띄우면 시세·전략·주문 세 프로세스가
+공유메모리 구역 `quant.engine.{paper|live}.{계좌}`로 이어지고(D-114), 인자가 없으면(`both`) 한 프로세스가 같은 배치를 힙에 깔고
+같은 통로 코드를 쓴다. 절 제목의 [시세]·[전략]·[주문]은 그 걸음이 도는 프로세스다.
+유니버스(전 종목 목록·시세·순위)와 국면 판정도 엔진 안으로 옮겼다 — 목록과 시세는 네이버에서 받고(`MarketBoard`),
+국면은 `RegimeFeed`가 계산하지만 판단에 읽는 파일은 아직 파이썬이 쓰는 `regime.json`이다(C++ 결과는 `regime_cpp.json`에 병행 기록).
 
 스레드 모델·설계 원칙은 [CLAUDE.md](../CLAUDE.md)의 "설계 목표와 원칙"·"아키텍처" 절이 정본이고, 모듈 간 include 관계는
 [CODE_GRAPH.md](CODE_GRAPH.md), 바꾼 이유는 [DECISIONS.md](DECISIONS.md)다. 이 문서는 그 셋을 대신하지 않고 **입구**만 맡는다.
@@ -25,107 +31,264 @@ TRADE 모드에서 틱 하나가 들어와 주문이 나가고 체결이 원장�
 
 diagram = """
 flowchart LR
-  subgraph recv[1. 수신 — 소켓 스레드 N]
-    WS[KisWebSocket::recv_loop] --> DEC[kis_websocket::decode_*] --> CB[Engine WS 콜백]
+  subgraph feedp[시세 프로세스 --role feed]
+    WS[KisWebSocket::recv_loop ×N] --> DEC[kis_websocket::decode_*] --> PF[Engine::push_feed_trade]
+    DEC --> FN[parse_fill_notification]
+    PF -.-> DB[DbManager::on_trade → COPY ticks]
   end
-  subgraph mx[SPSC 링 행렬]
-    CB --> TD[pipeline_.trade_matrix / order_book_matrix (행=수신 스레드, 열=샤드)]
-    DP[DataPoller REST 대체 틱] --> TD
+  subgraph shm[공유메모리 구역]
+    MF[MarketFeedChannel]
+    RQ[요청 링 pipeline_.requests]
+    RS[응답 링 order_responses]
+    FC[FillChannel]
+    LS[LedgerSnapshot]
+    CT[제어 링 ControlPlane]
   end
-  subgraph shard[2. 샤드 스레드 M]
-    TD --> ST[strategy::Shard::step] --> RT[strategy::Router::for_each] --> S[StrategyBase::on_trade_batch]
-    S --> EM[strategy::Emitted]
+  subgraph stratp[전략 프로세스 --role strategy]
+    MB[MarketBoard 네이버 목록·시세] --> SC[universe::scan_devscale] --> WL[send_watch_request]
+    FL[feed_lane_thread_fn] --> FO[fan_out_trade] --> SH[shard_thread_fn → 전략] --> SO[shard_out MpscQueue]
+    SO --> SD[SignalDispatcher → to_request]
   end
-  EM --> SO[pipeline_.shard_out MpscQueue]
-  subgraph disp[3. 디스패치 스레드]
-    SO --> SD[SignalDispatcher::from_strategy] --> OQ[pipeline_.order_queue SPSC]
+  subgraph ordp[주문 프로세스 --role order]
+    OT[order_thread_fn] --> OR[OrderRouter::new_route] --> OG[OrderGate::check] --> KIS[KisClient::submit_order_acknowledgement]
+    FT[fill_thread_fn] --> OF[OrderRouter::on_fill] --> PL[PositionLedger::on_fill_confirmed] --> PB[OrderGate::publish_ledger]
   end
-  subgraph ord[4. 주문 스레드]
-    OQ --> PC[OrderRateLimiter] --> OR[OrderRouter::new_route] --> OG[OrderGate::check] --> KIS[KisClient::submit_order_acknowledgement]
-  end
-  subgraph fill[5. 체결 스레드]
-    FN[parse_fill_notification] --> FQ[pipeline_.fill_queue SPSC] --> OF[OrderRouter::on_fill] --> OGF[PositionLedger::on_fill_confirmed]
-  end
-  KIS -. ODNO .-> OR
-  WS -. H0STCNI9 .-> FN
+  PF --> MF --> FL
+  SD --> RQ --> OT
+  OT --> RS --> SD
+  FN --> FC --> FT
+  PB --> LS -.-> SH
+  WL --> CT -.-> WS
 """
 
 # ───────────────────────────────────────────────────────────────────────────────
 
 [[stage]]
 id = "boot"
-name = "0. 기동 — config에서 스레드가 서기까지"
-summary = "config를 `AppConfig`로 읽고 `Engine::configure`가 세터에 옮기고 전략을 만든 뒤, `Engine::start()`가 행렬·샤드·원장·소켓 콜백·스레드 다섯을 세운다. 이 절만 읽으면 누가 무엇을 소유하는지 보인다."
+name = "0. 기동 — 세 프로세스가 서고 공유메모리에 붙기까지"
+summary = "감시견이 같은 exe를 `--role`만 달리해 띄운다. 구역을 만드는 쪽은 주문이라 주문을 먼저 띄우고, 전략·시세는 30초까지 붙기를 다시 시도한다. `Engine::start()`와 `spawn_threads()`가 `runs_order_side`·`runs_strategy_side`·`runs_feed_side`로 역할마다 부품과 스레드를 고른다."
 review = [
-  "스레드 소유권 — 각 큐의 생산자·소비자가 하나씩인지(`RingBuffer`는 SPSC, 생산자 둘이면 `MpscQueue`, 원칙 5)",
+  "스레드 소유권 — 각 큐·링의 생산자·소비자가 하나씩인지(`RingBuffer`는 SPSC, 생산자 둘이면 `MpscQueue`, 원칙 5). 링의 끝점은 역할마다 `SharedLayout::endpoint_for`가 정한다",
   "config 키가 `parse_config`에서 검증되고 `Engine::configure`가 세터로 옮기는지 — 빠진 키의 기본값이 실계좌에 안전한 쪽인지",
   "기동 순서 — 원장 시드(`bootstrap`)가 소켓 콜백 설치보다 앞인지(체결이 먼저 오면 원장이 비어 있다)",
+  "남은 구역 물려받기 — 주인·참가자가 모두 죽었을 때만 물려받는지(PID와 기동 시각을 같이 본다)",
 ]
+
+  [[stage.step]]
+  sym = "Start-TraderProcess"
+  file = "scripts/auto_trade_day.ps1"
+  match = "^function Start-TraderProcess"
+  what = "감시견이 `quant_trader.exe <config> --role <역할>`로 띄운다. `-Roles order,strategy,feed`면 셋, 기본은 `both` 하나. 하나가 죽으면 정상 종료면 20초 기다리고, 아니면 나머지를 바로 내린다"
 
   [[stage.step]]
   sym = "main"
   file = "Quant/src/main.cpp"
-  what = "진입. 번호 주석이 초기화 순서다 — 콘솔·로거 → 인자 → `parse_config` → 로그 임계값 → 크래시 핸들러 → `run_trade`"
+  what = "진입. 번호 주석이 초기화 순서다 — 콘솔·로거(역할별 로그 파일) → 인자 → `parse_config` → 로그 임계값 → 크래시 핸들러 → `run_trade`"
+
+  [[stage.step]]
+  sym = "parse_command_line"
+  file = "Quant/src/core/CommandLine.cpp"
+  what = "`--role X`를 `ProcessRole`(Both·Order·Strategy·Feed)로. 이후 모든 역할 분기는 `CommandLine.h`의 `runs_*_side` 세 함수로 본다"
+  test = "test_command_line"
 
   [[stage.step]]
   sym = "parse_config"
   file = "Quant/src/core/AppConfig.cpp"
-  what = "json → `AppConfig`. 키 누락·값 오류는 여기서 멈춘다(네트워크 전). 모드 오버라이드(인자)도 여기서 반영"
+  what = "json → `AppConfig`. 키 누락·값 오류는 여기서 멈춘다(네트워크 전). `database`·`regime_feed` 블록도 여기서 읽는다(없으면 꺼짐)"
+  test = "test_app_config"
 
   [[stage.step]]
   sym = "run_trade"
   file = "Quant/src/main.cpp"
-  what = "`Engine engine(...)` → `engine.configure(app)` → `load_strategies` → `engine.start()` → `is_running` 대기 → `engine.stop()`. join은 여기 한 곳"
+  what = "`set_role` → `configure` → (전략 쪽만) `load_strategies` → `start` → (전략 쪽·설정 있을 때만) RegimeFeed 스레드 → `is_running` 대기 → `stop`"
 
   [[stage.step]]
   sym = "Engine::configure"
   file = "Quant/src/core/EngineConfigure.cpp"
-  what = "AppConfig 값을 엔진 세터로 — 채널(ZMQ·운영단말)·국면별 전략 집합·시세 전용 KIS·리스크(게이트 한도·매매 창) 네 묶음"
+  what = "AppConfig 값을 엔진 세터로 — 채널(ZMQ·운영단말)·국면별 전략 집합·시세 전용 KIS·리스크. 끝에서 `bind_layout`으로 역할에 맞는 공유 배치를 다시 깐다"
 
   [[stage.step]]
-  sym = "load_strategies"
-  file = "Quant/src/strategy/StrategyFactory.cpp"
-  what = "config `strategies[]`를 전략 객체로. 새 전략을 붙이는 자리(docs/ENGINE_ARCHITECTURE.md '전략 추가하기')"
+  sym = "Engine::bind_layout_on_region"
+  file = "Quant/src/core/EngineLayout.cpp"
+  what = "주문은 구역을 만들고 이전 판을 물려받았는지 적는다. 전략·시세는 30초까지 붙기를 다시 시도하고 상대의 `boot_generation`을 기억한다(재기동 감지용). `both`는 `bind_layout_on_heap`"
 
   [[stage.step]]
-  sym = "Engine::add_strategy"
-  file = "Quant/src/core/EngineStrategyThread.cpp"
-  what = "전략 등록. 심볼 해석기(`set_symbol_resolver` → `SymbolTable::intern`)가 여기서 주입된다"
+  sym = "ipc::SharedRegion::create"
+  file = "Quant/src/ipc/SharedRegion.cpp"
+  what = "이름 있는 공유메모리 생성. 같은 이름이 남아 있으면 주인·참가자 생사를 보고 둘 다 죽었을 때만 물려받고 세대 번호를 올린다. 붙는 쪽은 `attach`"
+  test = "test_shared_region"
+
+  [[stage.step]]
+  sym = "ipc::SharedLayout::bind"
+  file = "Quant/src/ipc/SharedLayout.cpp"
+  what = "구역 안 배치 순서 — 요청 → 응답 → 제어 → 시세 제어 → 체결 → 하트비트 → 국면 → 시세 채널 → 종목 사전 → 전략 사전 → 원장 스냅숏"
+  test = "test_shared_layout"
+
+  [[stage.step]]
+  sym = "Engine::adopt_shared_dictionaries"
+  file = "Quant/src/core/EngineLayout.cpp"
+  what = "종목·전략 사전의 역할 — 주문은 새 번호를 직접 찍고, 시세는 찾아보기만 하고(없는 종목 틱은 버림), 전략은 주문에 등록을 요청한다"
 
   [[stage.step]]
   sym = "Engine::start"
   file = "Quant/src/core/Engine.cpp"
-  what = "도우미 호출 목록이 기동 순서다 — `setup_shards`(행렬 `reshape`, 행=수신 스레드+폴러, 열=샤드) → ZMQ → 모의 체결기 → 라우터·대조기·폴러 → `try_bootstrap_ledger`(원장 시드) → `start_strategies` → 구독 목록 → `connect_feed` → `spawn_threads`"
-
-  [[stage.step]]
-  sym = "Engine::connect_feed (WS 콜백 설치)"
-  file = "Quant/src/core/EngineFeed.cpp"
-  match = "set_lane_callbacks\\("
-  what = "소켓 수신 스레드 i의 호가·체결 콜백. 종목 id로 열을 고르고(`consumer_of`) `pipeline_.trade_matrix`·`order_book_matrix`의 자기 행에 `push_to` — 가득 차면 버리고 센다(블로킹 금지)"
+  what = "도우미 호출 목록이 기동 순서다 — `setup_shards`(전략 쪽만) → [시세] `DbManager` → ZMQ·인증·폴러 → [주문] 모의 체결기·`OrderRouter`·대조기·`try_bootstrap_ledger` → [전략] `start_strategies`·`collect_watch_specifications` → [시세] `connect_feed` → `spawn_threads`"
 
   [[stage.step]]
   sym = "Engine::spawn_threads"
   file = "Quant/src/core/Engine.cpp"
   match = "data_thread_\\s*=\\s*std::jthread"
-  what = "data·strategy·order·fill·control 다섯 jthread + 샤드 M. stop_token이 첫 인자라 람다로 감싼다"
+  what = "역할별 스레드 — 공통 data·control, [전략] 시세 줄 스레드(`feed_lane_thread_fn`)·샤드 M·strategy, [주문] order·fill. stop_token이 첫 인자라 람다로 감싼다"
 
   [[stage.step]]
   sym = "LedgerReconciler::bootstrap"
   file = "Quant/src/core/LedgerReconciler.cpp"
-  what = "기동 잔고 시드 — 브로커 잔고를 원장(`PositionLedger`) 포지션으로. 실패 재시도 횟수와 실패 시 기동 중단 여부"
+  what = "[주문] 기동 잔고 시드 — 브로커 잔고를 원장(`PositionLedger`) 포지션으로. 실패 재시도 횟수와 실패 시 기동 중단 여부"
   test = "test_ledger_reconciler"
 
 # ───────────────────────────────────────────────────────────────────────────────
 
 [[stage]]
+id = "universe"
+name = "1. 유니버스 — [전략] 볼 종목을 고르고 구독을 요청하기까지"
+summary = "예전에는 파이썬이 종목 목록과 시세 파일을 만들었다. 지금은 전략 프로세스의 `MarketBoard` 스레드가 네이버에서 전 종목 목록과 현재가·거래대금·시총을 받고, `scan_devscale`이 KIS 일봉으로 걸러 점수를 매긴다. 고른 종목은 전략 객체가 되고, 구독 요청은 제어 링으로 시세 프로세스에 간다."
+review = [
+  "시세판이 비었을 때(첫 5초·네이버 실패) 스캔이 파일판(`universe_scan.json`·`prices_live.json`)으로 넘어가는지",
+  "스캔이 REST를 많이 부르는 구간(일봉)이 장 전 `DailyWarm` 캐시로 빠지는지",
+  "보유 종목·청산 관리 종목이 스캔 신규 등록에서 빠지는지",
+]
+
+  [[stage.step]]
+  sym = "load_strategies"
+  file = "Quant/src/strategy/StrategyFactory.cpp"
+  what = "config `strategies[]`를 타입별 로더로 나눈다. 새 전략을 붙이는 자리(docs/ENGINE_ARCHITECTURE.md '전략 추가하기')"
+
+  [[stage.step]]
+  sym = "strategy_load::load_deviation_scale"
+  file = "Quant/src/strategy/DevScaleLoader.cpp"
+  what = "DEVIATION_SCALE 로더 — 보유 스냅숏 → 시세판 기동 → 초기 스캔 → 종목마다 전략 등록 → 재스캔 job 등록"
+
+  [[stage.step]]
+  sym = "start_scan_services"
+  file = "Quant/src/strategy/DevScaleLoader.cpp"
+  what = "`market_board:true`면 MarketBoard 스레드와 DailyWarm 스레드를 띄운다. false면 파이썬 `PYQuant/tools/universe_feed.py`가 쓰는 파일을 읽는다"
+
+  [[stage.step]]
+  sym = "universe::MarketBoard::run"
+  file = "Quant/src/universe/MarketBoard.cpp"
+  what = "KST 날짜가 바뀌면 목록을 새로 받고, 5초마다 시세 한 바퀴, 60초마다 재랭킹"
+  test = "test_market_board"
+
+  [[stage.step]]
+  sym = "universe::MarketBoard::refresh_listing"
+  file = "Quant/src/universe/MarketBoard.cpp"
+  what = "네이버 `marketValue/{KOSPI,KOSDAQ}`로 전 종목 목록(ETF·ETN 제외). 900종목씩 묶은 폴링 URL을 만든다. data.go.kr 목록을 대신한 자리"
+  test = "test_market_board"
+
+  [[stage.step]]
+  sym = "universe::MarketBoard::sweep"
+  file = "Quant/src/universe/MarketBoard.cpp"
+  what = "폴링 URL을 동시에 불러 현재가·누적 거래대금·시총 판(`BoardSnapshot`)을 만든다"
+  test = "test_market_board"
+
+  [[stage.step]]
+  sym = "universe::MarketBoard::rerank"
+  file = "Quant/src/universe/MarketBoard.cpp"
+  what = "거래대금이 잡힌 종목이 절반 미만이면 보류, 아니면 `rank_universe`(시장별 시총·거래대금 상위 N)로 순위를 매기고 `Quant/config/universe_scan.json`에도 쓴다"
+  test = "test_market_board"
+
+  [[stage.step]]
+  sym = "start_daily_warm"
+  file = "Quant/src/universe/UniverseFeatures.cpp"
+  what = "장 전에 시세판 목록을 기다렸다가 전 종목 일봉을 KIS에서 미리 받아 캐시에 둔다"
+
+  [[stage.step]]
+  sym = "universe::scan_devscale"
+  file = "Quant/src/universe/UniverseScanner.cpp"
+  what = "스캔 본체 — 시세 표 → 지수 게이트 → 후보 수집 → 일봉 필터 → 점수 → 자르기. 아래 걸음이 이 함수 안의 순서다"
+
+  [[stage.step]]
+  sym = "load_quote_table (시세판)"
+  file = "Quant/src/universe/UniverseQuotes.cpp"
+  match = "^void load_quote_table\\(const BoardSnapshot"
+  what = "MarketBoard 판을 시세 표(`QuoteTable`)로 붓는다. 판이 없으면 바로 위 오버로드가 파일판을 읽는다"
+
+  [[stage.step]]
+  sym = "build_market_gate"
+  file = "Quant/src/universe/UniverseRiskGate.cpp"
+  what = "KIS 지수 등락으로 시장별 risk-off. 둘 다 닫히면 빈 결과"
+
+  [[stage.step]]
+  sym = "detail::collect_candidates"
+  file = "Quant/src/universe/UniverseCandidates.cpp"
+  what = "후보 축 — 시세판 순위 → 거래대금 상위(REST 없음) → KIS 랭킹 → 업종 → 전 종목(`full_market`)"
+
+  [[stage.step]]
+  sym = "lookup_and_filter"
+  file = "Quant/src/universe/UniverseFeatures.cpp"
+  what = "캐시에 없는 일봉만 KIS에서 받고, 오늘 현재가를 넣은 정배열(`MaAlign`)·과확장·거래대금 필터"
+
+  [[stage.step]]
+  sym = "detail::score_cross_section"
+  file = "Quant/src/universe/UniverseScoring.cpp"
+  what = "추세·눌림·유동성·변동성 z점수 가중합"
+  test = "test_universe_scoring"
+
+  [[stage.step]]
+  sym = "detail::rank_and_truncate"
+  file = "Quant/src/universe/UniverseScoring.cpp"
+  what = "점수 순으로 `score_top_n`·`max_register`만큼 잘라 최종 유니버스(`ScanResult`)"
+  test = "test_universe_scoring"
+
+  [[stage.step]]
+  sym = "Engine::add_strategy"
+  file = "Quant/src/core/EngineStrategyThread.cpp"
+  what = "종목마다 전략 등록. 심볼 해석기가 여기서 주입된다"
+
+  [[stage.step]]
+  sym = "Engine::register_symbol"
+  file = "Quant/src/core/EngineSymbols.cpp"
+  what = "종목 이름 → 정수 id(원칙 6). 역할에 따라 공유 사전에 직접 찍기(주문)·요청(전략)·찾아보기(시세)"
+  test = "test_shared_symbol_dictionary"
+
+  [[stage.step]]
+  sym = "Engine::collect_watch_specifications"
+  file = "Quant/src/core/EngineFeed.cpp"
+  what = "전략들이 보는 종목(`WatchSpec`)을 모아 중복을 빼고 고정 종목을 앞에 둔다"
+
+  [[stage.step]]
+  sym = "Engine::send_watch_request"
+  file = "Quant/src/core/EngineFeed.cpp"
+  what = "구독·해지·우선순위 요청을 제어 링으로 시세 프로세스에 보낸다"
+
+# ───────────────────────────────────────────────────────────────────────────────
+
+[[stage]]
 id = "recv"
-name = "1. 수신 — 소켓 바이트에서 링 행렬까지"
-summary = "소켓 읽기 스레드는 얇다(원칙 3): 프레임 → 필드 분리 → 구조체 → `received_ns` 스탬프 → 행렬 push. 문자열은 여기서 끝나고 종목은 정수 id가 된다(원칙 6)."
+name = "2. 수신 — [시세] 소켓 바이트에서 공유 시세 채널까지"
+summary = "소켓 읽기 스레드는 얇다(원칙 3): 프레임 → 필드 분리 → 구조체 → `received_ns` 스탬프 → 시세 채널 push. 문자열은 여기서 끝나고 종목은 정수 id가 된다(원칙 6). 한 프로세스(`both`)면 채널 없이 바로 샤드로 간다."
 review = [
   "수신 스레드에 힙 할당·문자열 생성·락이 있는지 — 있으면 소비자로 옮길 후보",
   "`received_ns`가 디코드 직후 한 번만 찍히는지(호가·체결 같은 시계, D-071)",
   "가득 찬 링에 블로킹하지 않는지 — 버리고 세는지(`dropped` 카운터가 로그에 나오는지)",
+  "DB 적재(`DbManager::on_trade`)가 큐 push만 하고 소켓 스레드를 세우지 않는지",
 ]
+
+  [[stage.step]]
+  sym = "Engine::apply_feed_control_requests"
+  file = "Quant/src/core/EngineFeed.cpp"
+  what = "control 스레드가 5초마다 제어 링에서 전략 쪽 구독 요청을 꺼내 대기열에 올린다"
+
+  [[stage.step]]
+  sym = "Engine::drain_pending_subscriptions"
+  file = "Quant/src/core/EngineFeed.cpp"
+  what = "해지 먼저, 이어서 `subscribe_incremental`로 소켓에 추가 구독. 소켓 칸을 넘는 종목은 REST 폴러로 돌린다"
+
+  [[stage.step]]
+  sym = "Engine::connect_feed (WS 콜백 설치)"
+  file = "Quant/src/core/EngineFeed.cpp"
+  match = "set_lane_callbacks\\("
+  what = "소켓 i의 호가·체결 콜백. 종목 id 확인 → ZMQ 발행 → DB 적재 → 시세 역할이면 `push_feed_trade`, 한 프로세스면 `fan_out_trade`"
 
   [[stage.step]]
   sym = "KisWebSocket::recv_loop"
@@ -146,7 +309,7 @@ review = [
   [[stage.step]]
   sym = "KisWebSocket::parse_kr_trade"
   file = "Quant/src/api/KisWebSocketParse.cpp"
-  what = "`decode_kr_trade` → `trade.symbol_id`(SymbolTable) → `received_ns` 스탬프 → `on_trade_` 콜백. 호가는 `parse_orderbook`이 같은 모양"
+  what = "`decode_kr_trade` → `trade.symbol_id` → `received_ns` 스탬프 → `on_trade_` 콜백. 호가는 `parse_orderbook`이 같은 모양"
 
   [[stage.step]]
   sym = "kis_websocket::decode_kr_trade"
@@ -161,21 +324,39 @@ review = [
   test = "test_ws_decode"
 
   [[stage.step]]
-  sym = "shard::Matrix::push_to"
-  file = "Quant/include/core/ShardMatrix.h"
-  what = "행(생산자)×열(소비자) SPSC 셀에 push. `consumer_of(sym)`이 종목 해시로 열을 고른다(원칙 2)"
-  test = "test_shard_matrix"
-
-  [[stage.step]]
   sym = "feed::FeedMux"
   file = "Quant/include/core/FeedMux.h"
-  what = "소켓 여럿을 한 `IFeedSource`로. 직접 호출 모드면 소켓 i 스레드가 행 i로 직접 push(mux 스레드 없음). 체결통보는 맡은 소켓 하나만(`owns_fill_notice`)"
+  what = "소켓 여럿을 한 `IFeedSource`로. 소켓 i 스레드가 줄 i로 직접 넣는다(mux 스레드 없음). 체결통보는 맡은 소켓 하나만(`owns_fill_notice`)"
   test = "test_feed_mux"
+
+  [[stage.step]]
+  sym = "Engine::push_feed_trade"
+  file = "Quant/src/core/EngineFeed.cpp"
+  what = "시세 역할의 출구 — 소켓 줄 번호에 맞는 시세 채널 링에 넣는다. 호가는 `push_feed_order_book`"
+
+  [[stage.step]]
+  sym = "ipc::MarketFeedChannel::push_trade"
+  file = "Quant/src/ipc/MarketFeedChannel.cpp"
+  what = "줄(소켓 N + REST 1)마다 SPSC 링 하나. 가득 차면 버리고 센다"
+  test = "test_market_feed_channel"
+
+  [[stage.step]]
+  sym = "db::DbManager::on_trade"
+  file = "Quant/src/ipc/DbManager.cpp"
+  what = "`database.enabled`일 때만. `symbol_id % 워커 수`로 워커 큐에 넣는다. 운영 config는 아직 끔 — DB는 파이썬 리코더가 채운다"
+  test = "test_db_manager"
+
+  [[stage.step]]
+  sym = "tick_loop"
+  file = "Quant/src/ipc/DbManager.cpp"
+  match = "^void tick_loop\\(.*index\\)\\s*$"
+  what = "적재 워커 — `batch_rows`가 차거나 `flush_ms`가 지나면 묶어서 `COPY ticks(ts,ticker,price,volume,direction,market)`. 끊기면 한 워커만 다시 붙어 본다"
+  test = "test_db_manager"
 
   [[stage.step]]
   sym = "Engine::data_thread_fn"
   file = "Quant/src/core/EngineDataThread.cpp"
-  what = "REST 축 — 봉 폴링·`poll_regime_file`(국면)·잔고 대조·유니버스 재스캔·하루 경계(`new_trading_day`·`reset_daily`). 폴러의 대체 틱은 `pipeline_.trade_matrix`의 자기 행(`data_row`)으로 간다"
+  what = "REST 축 — 봉 폴링·[전략] `poll_regime_file`·`maybe_rescan_universe`·잔고 대조·하루 경계(`new_trading_day`·`reset_daily`). 폴러 대체 틱은 시세 채널의 마지막 줄로 간다"
 
   [[stage.step]]
   sym = "DataPoller::poll_universe"
@@ -193,14 +374,37 @@ review = [
 
 [[stage]]
 id = "shard"
-name = "2. 샤드 — 틱이 전략을 만나 신호가 되기까지"
-summary = "샤드 m은 자기 열만 비운다. 틱의 종목 id로 그 종목을 보는 전략만 방문하고(`Router`), `NONE`이 아닌 신호를 봉투에 싸서 `pipeline_.shard_out`에 넣는다. 전략 코드 리뷰는 이 절에서 시작한다."
+name = "3. 샤드 — [전략] 시세 채널에서 전략 신호까지"
+summary = "시세 줄마다 스레드 하나가 채널을 비우고, 종목 id로 그 종목을 보는 샤드의 행렬 칸에 넣는다. 샤드 m은 자기 열만 비우고 그 종목을 보는 전략만 방문한다(`Router`). `NONE`이 아닌 신호는 봉투에 싸서 `pipeline_.shard_out`에 넣는다. 전략 코드 리뷰는 이 절에서 시작한다."
 review = [
   "전략이 문자열로 종목을 비교하는 곳이 있는지 — `same_symbol`/`trade.symbol_id` 정수 비교여야 한다(원칙 6)",
   "전략 `on_*`이 블로킹 I/O(REST)를 직접 부르는지 — DeviationScale은 프리페치 스레드로 뺐다",
   "`reference_price`를 시장가 신호에 찍는지 — 없으면 명목 백스톱이 우회된다(Types.h 주석)",
   "전략 객체를 만지는 곳이 자기 샤드 스레드뿐인지 — 종목 틱은 `RouteTable` 마스크로 그 샤드에 온다(D-110)",
+  "보유·매도 가능 수량을 주문 프로세스의 원장이 아니라 원장 스냅숏에서 읽는지 — 읽는 동안 바뀌면 다시 읽는지",
 ]
+
+  [[stage.step]]
+  sym = "Engine::feed_lane_thread_fn"
+  file = "Quant/src/core/EngineFeed.cpp"
+  what = "시세 줄 하나 = 스레드 하나. `pop_trade`·`pop_order_book` → `fan_out_*`. 프로세스를 넘는 깨우기가 없어 쉴 때는 200us 회전 뒤 500us 잔다"
+
+  [[stage.step]]
+  sym = "ipc::MarketFeedChannel::pop_trade"
+  file = "Quant/src/ipc/MarketFeedChannel.cpp"
+  what = "꺼낸 레코드를 `is_plausible`로 검사한다 — 다른 프로세스가 쓴 바이트라 값 범위를 믿지 않는다"
+  test = "test_market_feed_channel"
+
+  [[stage.step]]
+  sym = "Engine::fan_out_trade"
+  file = "Quant/src/core/EngineFeed.cpp"
+  what = "경로표(`routes.mask`)로 그 종목을 맡은 샤드를 골라 `trade_matrix`의 칸에 넣고 샤드를 깨운다. 가득 차면 버리고 센다"
+
+  [[stage.step]]
+  sym = "shard::Matrix::push_to"
+  file = "Quant/include/core/ShardMatrix.h"
+  what = "행(생산자)×열(소비자) SPSC 셀에 push. `consumer_of(sym)`이 종목 해시로 열을 고른다(원칙 2)"
+  test = "test_shard_matrix"
 
   [[stage.step]]
   sym = "Engine::shard_thread_fn"
@@ -256,33 +460,45 @@ review = [
   file = "Quant/include/strategy/DeviationScaleStrategy.h"
   what = "청산 신호 조립 — 시장가면 `reference_price` 스탬프, 매도 가능 수량은 원장 접근자(`sellable_quantity`, 동기 잔고조회 금지)"
 
+  [[stage.step]]
+  sym = "Engine::ledger_sellable"
+  file = "Quant/src/core/Engine.cpp"
+  what = "전략이 보는 보유·매도 가능 수량의 출처 — 주문 프로세스가 발행한 원장 스냅숏"
+
+  [[stage.step]]
+  sym = "ipc::LedgerSnapshot::begin_optimistic_read"
+  file = "Quant/src/ipc/LedgerSnapshot.cpp"
+  what = "쓰는 쪽을 막지 않고 읽은 뒤 세대 번호로 그 사이에 바뀌었는지 확인한다(바뀌었으면 다시 읽음)"
+  test = "test_ledger_snapshot"
+
 # ───────────────────────────────────────────────────────────────────────────────
 
 [[stage]]
 id = "dispatch"
-name = "3. 디스패치 — 신호가 주문 큐에 들어가기 전 판단"
-summary = "디스패치 스레드는 `pipeline_.shard_out`의 단일 소비자이자 `pipeline_.order_queue`의 단일 생산자다. 순번 stamp·비활성 차단·청산 관리 종목 차단·교체 진입·강제청산 재발주·한도 초과 정리를 한 객체(`SignalDispatcher`)가 맡고, 싱크는 큐 push와 ZMQ 신호 발행을 같이 한다."
+name = "4. 디스패치 — [전략] 신호가 요청 링에 들어가기 전 판단"
+summary = "디스패치 스레드(`strategy_thread_fn`)는 `pipeline_.shard_out`의 단일 소비자이자 요청 링(`pipeline_.requests`)의 단일 생산자다. 순번 stamp·비활성 차단·청산 관리 종목 차단·교체 진입·강제청산 재발주·한도 초과 정리를 `SignalDispatcher`가 맡고, 싱크가 신호를 고정 크기 요청으로 바꿔 링에 넣는다. 주문 결과는 응답 링으로 돌아온다."
 review = [
-  "`pipeline_.order_queue.push`가 이 스레드에서만 일어나는지(SPSC 불변식) — 수동 주문(`ops_.manual_inbox`)도 여기서 합류하는지",
-  "큐가 차면 기다리지 않고 버리고 세는지(`order_dropped`, D-073)",
+  "요청 링 push가 이 스레드에서만 일어나는지(SPSC 불변식)",
+  "링이 차면 기다리지 않고 버리고 세는지(`order_dropped`, D-073)",
   "교체 진입(displace) — 최약체 매도가 나간 뒤에만 매수가 풀리는지(`flush_held`)",
+  "응답이 늦은 요청(`oldest_overdue`)과 주문 프로세스 박동 끊김을 따로 세는지",
 ]
 
   [[stage.step]]
   sym = "Engine::strategy_thread_fn"
   file = "Quant/src/core/EngineStrategyThread.cpp"
-  what = "루프 한 바퀴: `flush_held` → 강제청산(2초 재발주) → `trim_excess_once`(기동 20초 뒤 1회) → `pipeline_.shard_out` 비우기(`from_strategy`) → 잠(상한 10ms). 국면 파일은 데이터 스레드가 읽는다(6절)"
+  what = "루프 한 바퀴: 박동 → 응답 링 비우기 → 주문 쪽 박동 감시 → 제어 전달(`relay`) → 늦은 응답 → 강제청산·보호주문 → `pipeline_.shard_out` 비우기(`from_strategy`) → 잠"
 
   [[stage.step]]
   sym = "dispatch::SignalDispatcher::from_strategy"
   file = "Quant/src/core/SignalDispatcher.cpp"
-  what = "비활성 전략의 신규 매수·청산 관리(청산 관리) 종목의 신규 매수 차단 → `submit`. 판정 함수는 `set_exit_managed_check`으로 엔진이 준다"
+  what = "비활성 전략의 신규 매수·청산 관리 종목의 신규 매수 차단 → `submit`. 판정 함수는 `set_exit_managed_check`으로 엔진이 준다"
   test = "test_signal_dispatcher"
 
   [[stage.step]]
   sym = "dispatch::SignalDispatcher::submit"
   file = "Quant/src/core/SignalDispatcher.cpp"
-  what = "`seq` stamp(D-038) → 슬롯이 찼으면 교체 계획(최약체 매도 뒤 매수 보류) → 싱크(= `order_queue_` push)"
+  what = "`seq` stamp(D-038) → 슬롯이 찼으면 교체 계획(최약체 매도 뒤 매수 보류) → 싱크"
   test = "test_signal_dispatcher"
 
   [[stage.step]]
@@ -291,28 +507,35 @@ review = [
   what = "보유 전량 시장가 매도를 2초 간격 재발주. `reference_price`가 여기서 찍히는지 본다"
   test = "test_signal_dispatcher"
 
+  [[stage.step]]
+  sym = "ipc::to_request"
+  file = "Quant/src/ipc/OrderChannel.cpp"
+  what = "`OrderSignal` → 고정 크기 `OrderRequest`(문자열 필드는 잘리면 센다). 보낸 순번은 `PendingRequests`가 응답과 짝짓는다"
+  test = "test_order_channel"
+
 # ───────────────────────────────────────────────────────────────────────────────
 
 [[stage]]
 id = "order"
-name = "4. 주문 — 큐에서 KIS까지, 거부와 재시도"
-summary = "주문 스레드가 유일한 시퀀서다(원칙 4). 조절기(`OrderRateLimiter`)가 간격·재시도를 정하고, 라우터가 게이트 검사 뒤 KIS에 보내고 ODNO를 기억하며, 구간 지연을 CSV에 남긴다."
+name = "5. 주문 — [주문] 요청 링에서 KIS까지, 거부와 재시도"
+summary = "주문 스레드가 유일한 시퀀서다(원칙 4). 요청 링에서 꺼내 값을 검사하고, 조절기(`OrderRateLimiter`)가 간격·재시도를 정하고, 라우터가 게이트 검사 뒤 KIS에 보내고 ODNO를 기억한다. 결과는 응답 링으로 전략 쪽에 돌려준다."
 review = [
   "게이트 거부 사유 문장이 `GateReasons.h` 한 곳에서 오는지(D-067) — 조절기가 문장으로 분류하므로 흩어지면 깨진다",
   "청산 SELL의 재시도가 BUY와 다르게 분류되는지(유량 한도는 action 불문, 40240000 제외)",
   "`on_intent`가 KIS 전송 **앞**에 불려 원장에 적히고 선점되는지(D-113) — 못 적으면 주문이 나가면 안 된다",
   "시장가 명목 검사가 `reference_price`로 되는지(`price`=0)",
+  "다른 프로세스가 쓴 요청을 `is_plausible`로 거르고 같은 순번을 두 번 내지 않는지",
 ]
 
   [[stage.step]]
   sym = "Engine::order_thread_fn"
   file = "Quant/src/core/EngineOrderThread.cpp"
-  what = "`take_due_retry` 우선 → 수동주문(`take_manual_order`) → 교체 보류분(`DisplacementDesk::take_ready`) → 큐 pop(`is_plausible`로 값 검사, 같은 순번은 버림, 1초 넘게 기다린 신규 매수는 `is_stale_entry`로 버림) → `wait_before_send` → `router->submit` → 성공이면 `note_sent`, 거부면 `on_rejected` → `LatencyTrace::record`. 비면 재시도 만기까지 `wait_until`"
+  what = "`take_due_retry` 우선 → 수동주문 → 교체 보류분 → 요청 링 pop(`is_plausible`·중복 거름·`to_signal`·오래된 신규 매수 버림) → `wait_before_send` → `router->submit` → 응답 링에 답 → `publish_ledger`. 갈라 띄우면 2ms 폴링"
 
   [[stage.step]]
   sym = "Engine::take_manual_order"
   file = "Quant/src/core/EngineOpsServer.cpp"
-  what = "운영단말 수동 주문(`ops_.manual_inbox`)을 이 스레드가 꺼낸다 — 전략이 멎어도 사람이 손으로 낼 수 있게(D-114). 순번 0이라 전략 쪽에 돌려줄 답이 없고, 결과는 단말에 `ORDER_RESULT_NTF`로 간다"
+  what = "운영단말 수동 주문(`ops_.manual_inbox`)을 이 스레드가 꺼낸다 — 전략이 멎어도 사람이 손으로 낼 수 있게(D-114). 결과는 단말에 `ORDER_RESULT_NTF`로 간다"
   test = "test_engine"
 
   [[stage.step]]
@@ -369,6 +592,12 @@ review = [
   what = "현금 주문 REST. tr_id(실/모의)·`EXCG_ID_DVSN_CD`(KRX/NXT/SOR, D-096)·`authentication_headers`·응답에서 ODNO. 여기서만 KIS에 주문이 닿는다"
 
   [[stage.step]]
+  sym = "ipc::make_response"
+  file = "Quant/src/ipc/OrderChannel.cpp"
+  what = "결과(접수·거부·ODNO)를 응답 레코드로. 전략 쪽 `strategy_thread_fn`이 받아 전략에 되돌린다"
+  test = "test_order_channel"
+
+  [[stage.step]]
   sym = "trace::LatencyTrace::record"
   file = "Quant/include/core/LatencyTrace.h"
   what = "틱 수신→신호→pop→라우터 반환 네 시각을 `logs/latency_trace.csv` 한 줄로"
@@ -378,18 +607,18 @@ review = [
 
 [[stage]]
 id = "fill"
-name = "5. 체결 — 체결통보가 원장에 닿기까지"
-summary = "체결통보(H0STCNI0/H0STCNI9)는 수신 스레드가 복호화·디코드만 하고 `pipeline_.fill_queue`에 push한다. 체결 스레드가 라우터의 `on_fill`로 원장(`PositionLedger`)을 갱신하고 운영단말에 방송한다."
+name = "6. 체결 — [시세→주문] 체결통보가 원장에 닿기까지"
+summary = "체결통보(H0STCNI0/H0STCNI9)는 WS로 오므로 시세 프로세스가 복호화·디코드만 하고 공유 체결 채널에 넣는다. 원장을 쥔 주문 프로세스의 체결 스레드가 꺼내 라우터의 `on_fill`로 원장(`PositionLedger`)을 갱신하고, 원장 스냅숏을 발행해 전략 쪽이 읽게 한다. 한 프로세스면 채널 대신 `pipeline_.fill_queue`를 쓴다."
 review = [
   "ODNO가 라우터 기억(`history_`)에 없는 체결(재기동 뒤 미체결)도 원장·포지션에 반영되는지(미연결 체결 경로)",
   "부분 체결이 여러 번 와도 `reserved_`가 정확히 남은 수량만큼 풀리는지",
-  "체결 처리 중 수신 스레드가 서지 않는지 — 수신은 push만(D-056)",
+  "체결 처리 중 수신 스레드가 서지 않는지 — 수신은 push만(D-056). 채널이 차면 넘친 통보를 쌓아 두었다 다시 보내는지",
 ]
 
   [[stage.step]]
   sym = "KisWebSocket::parse_fill_notification"
   file = "Quant/src/api/KisWebSocketParse.cpp"
-  what = "AES 복호화 → `decode_fill` → `on_fill_` 콜백(Engine이 `pipeline_.fill_queue.push`)"
+  what = "AES 복호화 → `decode_fill` → `on_fill_` 콜백"
 
   [[stage.step]]
   sym = "kis_websocket::decode_fill"
@@ -398,9 +627,20 @@ review = [
   test = "test_ws_decode"
 
   [[stage.step]]
+  sym = "Engine::push_fill_notice"
+  file = "Quant/src/core/EngineFeed.cpp"
+  what = "시세 역할이면 체결 채널로, 아니면 프로세스 안 `fill_queue`로. 채널이 차면 넘침 칸에 쌓고 control 스레드가 5초마다 다시 보낸다"
+
+  [[stage.step]]
+  sym = "ipc::FillChannel::push"
+  file = "Quant/src/ipc/FillChannel.cpp"
+  what = "고정 크기 `FillNotice` 링. 받는 쪽은 `pop` → `is_plausible` → `to_fill`"
+  test = "test_fill_channel"
+
+  [[stage.step]]
   sym = "Engine::fill_thread_fn"
   file = "Quant/src/core/EngineFillThread.cpp"
-  what = "`pipeline_.fill_queue` pop → `on_fill` → `ledger_->note_fill`(대조 5초 유예, D-074) → 운영단말 `broadcast`(FILL). 비면 `WakeGate`"
+  what = "주문 역할이면 체결 채널에서(100ms 폴링), 아니면 `fill_queue`에서 꺼낸다 → `on_fill` → `ledger_->note_fill`(대조 5초 유예, D-074) → 운영단말 `broadcast`(FILL) → 원장 발행"
 
   [[stage.step]]
   sym = "OrderRouter::on_fill"
@@ -414,28 +654,63 @@ review = [
   what = "포지션·평단·실현손익 갱신, `reserved_` 해제. `FillResult`가 실현 PnL을 돌려준다"
   test = "test_position_ledger"
 
+  [[stage.step]]
+  sym = "OrderGate::publish_ledger"
+  file = "Quant/src/risk/OrderGate.cpp"
+  what = "보유·매도 가능 수량·진입 정지·배율을 원장 스냅숏에 쓴다(세대 번호를 올리며). 체결 직후·주문 직후·쉴 때 100ms마다"
+  test = "test_ledger_snapshot"
+
 # ───────────────────────────────────────────────────────────────────────────────
 
 [[stage]]
 id = "control"
-name = "6. 제어·주기 — 파이프라인 밖에서 돌아가는 것"
-summary = "국면(전략 집합 선택)·잔고 대조·토큰 갱신·큐 고수위·WS 끊김 복구는 파이프라인 스레드에 걸리지 않게 데이터·제어 스레드가 돈다."
+name = "7. 제어·주기 — 파이프라인 밖에서 돌아가는 것"
+summary = "프로세스 사이 제어 명령·박동 감시, 국면(전략 집합 선택)·유니버스 재스캔·잔고 대조·토큰 갱신·WS 끊김 복구는 파이프라인 스레드에 걸리지 않게 데이터·제어 스레드가 돈다."
 review = [
   "제어 작업이 파이프라인 락을 잡는지 — 잡으면 최악 지연이 여기서 난다",
   "전략 집합 선택·비율·정지·청산이 전부 `regime.json` 라벨에서 나오는지 — 코스피 200MA 축은 지웠다(D-085)",
   "대조가 체결 직후 5초를 미루되 30초마다 한 번은 도는지(`defer_after_fill`)",
+  "상대 프로세스가 죽거나 새로 떴을 때(세대 번호 변화) 붙은 쪽이 따라 내려가는지",
 ]
 
   [[stage.step]]
   sym = "Engine::control_thread_fn"
   file = "Quant/src/core/EngineControlThread.cpp"
-  what = "큐 고수위 1분 로그 → 토큰 선갱신(5분, 만료 30분 전) → 손익 갱신 감시(끊기면 `set_kill_switch` 보수정지) → WS stale·재연결·REST 폴백(`feed::Supervisor` 판정)"
+  what = "5초 주기 — 주문 쪽 재기동·종료 사유 감지(붙은 쪽은 따라 종료) → 큐 고수위 로그 → 토큰 선갱신 → 장 마감 판정 → [시세] 박동·구독 요청 적용·소켓 재배분·재접속"
+
+  [[stage.step]]
+  sym = "ControlPlane::apply"
+  file = "Quant/src/core/ControlPlane.cpp"
+  what = "[주문] 제어 링의 명령 적용 — 종목·전략 등록, 스위치(킬·정지·배율), 보호주문, 슬롯 예외. 보내는 쪽은 `send`, 전략 스레드가 `relay`로 주문·시세 링을 고른다"
+  test = "test_control_plane"
+
+  [[stage.step]]
+  sym = "ipc::HeartbeatMonitor::observe"
+  file = "Quant/src/ipc/Heartbeat.cpp"
+  what = "상대의 마지막 박동으로 늦음·멈춤·죽음 판정. 주문이 전략·시세를, 전략이 주문을 본다. 시세가 죽으면 `activate_rest_fallback`"
+  test = "test_heartbeat"
+
+  [[stage.step]]
+  sym = "Engine::activate_rest_fallback"
+  file = "Quant/src/core/EngineControlThread.cpp"
+  what = "WS가 stale이거나 시세 프로세스가 죽으면 REST 현재가 폴링으로 대체 틱(`received_ns`=0). 복귀는 `deactivate_rest_fallback`"
 
   [[stage.step]]
   sym = "Engine::poll_regime_file"
   file = "Quant/src/core/EngineRegime.cpp"
-  what = "데이터 스레드가 부른다. `regime.json` 축 — `entry_halt`(신규매수 차단)·`entry_scale`(매수비율)·`force_liquidate`, 그리고 라벨 전이 때 `apply_regime_selection`(전략 집합 선택, D-084). 상태기계는 `RegimeFileJudge.h`"
+  what = "[전략] 데이터 스레드가 부른다. `regime.json` 축 — `entry_halt`(신규매수 차단)·`entry_scale`(매수비율)·`force_liquidate`, 그리고 라벨 전이 때 `apply_regime_selection`(전략 집합 선택, D-084). 상태기계는 `RegimeFileJudge.h`"
   test = "test_regime_file_judge"
+
+  [[stage.step]]
+  sym = "Engine::apply_regime_selection"
+  file = "Quant/src/core/EngineRegime.cpp"
+  what = "국면 → `regime_strategies` 집합으로 전략 활성/비활성. 청산은 하지 않는다"
+
+  [[stage.step]]
+  sym = "regime_feed::RegimeFeed::run"
+  file = "Quant/src/regime/RegimeFeed.cpp"
+  what = "[전략] 엔진 안 국면 판정 스레드. `interval_sec`마다 `cycle` — 네이버 지수·야후·FRED를 받아 `build_regime`. 결과는 `regime_cpp.json`에 써서 파이썬 판정과 대조만 한다"
+  test = "test_regime_feed"
 
   [[stage.step]]
   sym = "OrderGate::set_manual_halt"
@@ -444,33 +719,29 @@ review = [
   test = "test_order_gate"
 
   [[stage.step]]
-  sym = "Engine::apply_regime_selection"
-  file = "Quant/src/core/EngineRegime.cpp"
-  what = "국면 → `regime_strategies` 집합으로 전략 활성/비활성. 청산은 하지 않는다"
-
-  [[stage.step]]
   sym = "Engine::maybe_rescan_universe"
   file = "Quant/src/core/EngineUniverse.cpp"
-  what = "유니버스 재스캔 — 빠진 보유 종목은 40초에 신규매수 차단, 600초에 전략 해제(`UniverseExit.h`, D-077). 청산 관리 보유(`exit_managed_tickers`)는 스캔 신규매수에서 뺀다"
-  test = "test_signal_dispatcher"
+  what = "[전략] 유니버스 재스캔 — 빠진 보유 종목은 40초에 신규매수 차단, 600초에 전략 해제(`UniverseExit.h`, D-077). 청산 관리 보유(`exit_managed_tickers`)는 스캔 신규매수에서 뺀다"
+  test = "test_universe_rescan"
+
+  [[stage.step]]
+  sym = "UniverseRescan::run_job"
+  file = "Quant/src/core/UniverseRescan.cpp"
+  what = "job 주기가 되면 1절의 스캔을 다시 돌려 신규 등록·점수 교체·이탈 차단/해제를 판정한다"
+  test = "test_universe_rescan"
 
   [[stage.step]]
   sym = "LedgerReconciler::reconcile"
   file = "Quant/src/core/LedgerReconciler.cpp"
-  what = "브로커 잔고 ↔ 원장. 어긋난 종목만 `RECONCILE` 행(`ReconcilePlan.h` 순수 함수). 잔고조회 서킷브레이커"
+  what = "[주문] 브로커 잔고 ↔ 원장. 어긋난 종목만 `RECONCILE` 행(`ReconcilePlan.h` 순수 함수). 잔고조회 서킷브레이커"
   test = "test_ledger_reconciler"
-
-  [[stage.step]]
-  sym = "Engine::activate_rest_fallback"
-  file = "Quant/src/core/EngineControlThread.cpp"
-  what = "WS가 stale이면 REST 현재가 폴링으로 대체 틱(`received_ns`=0). 복귀는 `deactivate_rest_fallback`"
 
 # ───────────────────────────────────────────────────────────────────────────────
 
 [[stage]]
 id = "shutdown"
-name = "7. 종료 — 큐를 비우고 스레드를 내린다"
-summary = "SIGINT·운영단말 종료 → `request_shutdown` → `stop`. 체결 큐는 비울 때까지 돌고 로거는 `flush`한다."
+name = "8. 종료 — 큐를 비우고 스레드를 내린다"
+summary = "SIGINT·운영단말 종료 → `request_shutdown` → `stop`. 체결 큐는 비울 때까지 돌고 로거는 `flush`한다. 종료 사유는 구역에 남아 붙은 프로세스가 따라 내려간다."
 
   [[stage.step]]
   sym = "Engine::request_shutdown"
@@ -480,7 +751,13 @@ summary = "SIGINT·운영단말 종료 → `request_shutdown` → `stop`. 체결
   [[stage.step]]
   sym = "Engine::stop"
   file = "Quant/src/core/Engine.cpp"
-  what = "stop_token 요청 → join 순서(control → order → 샤드 → strategy → data → WS 끊기 → fill 마지막, 큐를 비우고 끝난다) → ZMQ·운영단말 서버 정지 → 전략 `on_stop` → 통계 출력. 미체결 예약주문 기억은 여기서 사라진다(재기동 규칙, CLAUDE.md '장중 운영')"
+  what = "stop_token 요청 → join 순서(control → order → 샤드 → strategy → data → WS 끊기 → fill 마지막, 큐를 비우고 끝난다) → ZMQ·운영단말·DB 정지 → 전략 `on_stop` → 통계 출력. 미체결 예약주문 기억은 여기서 사라진다(재기동 규칙, CLAUDE.md '장중 운영')"
+
+  [[stage.step]]
+  sym = "ipc::SharedRegion::mark_clean_shutdown"
+  file = "Quant/src/ipc/SharedRegion.cpp"
+  what = "종료 사유를 구역에 적는다 — 주인은 머리 칸, 붙은 쪽은 자기 역할 칸. 처음 적은 사유만 남는다(CAS)"
+  test = "test_shared_region"
 
 # ───────────────────────────────────────────────────────────────────────────────
 
@@ -498,11 +775,11 @@ summary = "리플레이 소스와 모의 체결기가 소켓·KIS 자리에 들�
   [[stage.step]]
   sym = "feed::PaperExecutor"
   file = "Quant/include/core/PaperExecutor.h"
-  what = "`IOrderExecutor` 모의 체결기 — 주문 즉시 체결통보를 만들어 같은 `pipeline_.fill_queue` 경로로 넣는다"
+  what = "`IOrderExecutor` 모의 체결기 — 주문 즉시 체결통보를 만들어 같은 체결 경로(`push_fill_notice`)로 넣는다"
   test = "test_paper_executor"
 
   [[stage.step]]
   sym = "sync::WakeGate"
   file = "Quant/include/core/WakeGate.h"
-  what = "소비자 잠·깨우기 한 조각. 전략·주문·체결·샤드 유휴가 전부 이걸 쓴다"
+  what = "소비자 잠·깨우기 한 조각. 한 프로세스 안에서만 깨울 수 있어, 갈라 띄우면 주문·체결·시세 줄 스레드는 폴링으로 바뀐다"
   test = "test_wake_gate"
