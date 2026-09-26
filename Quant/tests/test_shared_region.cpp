@@ -247,6 +247,9 @@ int main()
         CHECK(forged != nullptr);
         forged->creator_start_time = forged->creator_start_time + 1;
 
+        // 짝도 죽은 모양으로 둔다 — 짝이 살아 있으면 물려받지 않는다(13번).
+        forged->attached[static_cast<size_t>(ipc::SharedAttachRole::kStrategy)].start_time += 1;
+
         if (ipc::current_process_identity().start_time == 0)
         {
             // 기동 시각을 못 읽는 자리에서는 번호로만 가린다 — 그때는 이 흉내가 성립하지 않아 건너뛴다.
@@ -316,6 +319,40 @@ int main()
         CHECK(owner.participant_shutdown_reason(ipc::SharedAttachRole::kFeed) == ipc::SharedShutdownReason::kNone);
         CHECK(owner.participant_shutdown_reason(ipc::SharedAttachRole::kStrategy) ==
               ipc::SharedShutdownReason::kSessionEnd);
+    }
+
+    // 13. 주인은 죽었는데 짝이 살아 있으면 물려받지 않는다 — 판을 0으로 밀면 살아 있는 짝의 보내는 커서와
+    //  새 커서가 어긋나 링이 멈춘다. 짝이 내려간 뒤에는 물려받는다.
+    {
+        const std::string name = unique_name("live_peer");
+        ipc::SharedRegion dead_owner;
+        CHECK(dead_owner.create(name, kRegionBytes, kLayoutVersion));
+
+        ipc::SharedRegion feed_side;
+        CHECK(feed_side.attach(name, kRegionBytes, kLayoutVersion, ipc::SharedAttachRole::kFeed));
+
+        auto* forged = const_cast<ipc::SharedRegionHeader*>(feed_side.header());
+        forged->creator_start_time = forged->creator_start_time + 1;
+
+        if (ipc::current_process_identity().start_time == 0)
+        {
+            std::cout << "test_shared_region: 기동 시각을 못 읽어 13번을 건너뛴다\n";
+        }
+        else
+        {
+            const uint64_t generation_before = feed_side.boot_generation();
+            ipc::SharedRegion taker;
+            CHECK(!taker.create(name, kRegionBytes, kLayoutVersion));
+            CHECK(taker.last_error().find("짝이 아직 떠 있다") != std::string::npos);
+            CHECK(taker.last_error().find("feed") != std::string::npos);
+            CHECK(feed_side.boot_generation() == generation_before); // 판은 그대로다
+
+            // 짝이 죽은 모양이 되면 물려받는다.
+            forged->attached[static_cast<size_t>(ipc::SharedAttachRole::kFeed)].start_time += 1;
+            ipc::SharedRegion retaker;
+            CHECK(retaker.create(name, kRegionBytes, kLayoutVersion));
+            CHECK(retaker.boot_generation() == generation_before + 1);
+        }
     }
 
     std::cout << "test_shared_region OK (" << g_checks << " checks)\n";

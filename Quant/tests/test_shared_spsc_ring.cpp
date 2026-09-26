@@ -372,6 +372,46 @@ int main()
         CHECK(control->published_tail.load(std::memory_order_acquire) == 4);
     }
 
+    // 12. 주인이 구역을 다시 놓으면(0으로 밀면) 살아 있던 옛 끝은 보내지도 꺼내지도 않고 센다.
+    //  옛 보내는 쪽이 제 자리 N에 계속 적으면 받는 쪽은 0번 칸을 기다리고 줄이 영영 멈춘다.
+    //  새로 붙은 끝은 0부터 정상으로 흐른다.
+    {
+        Ring owner;
+        CHECK(owner.create(g_storage, storage_bytes, kCapacity));
+        Ring old_producer;
+        CHECK(old_producer.attach(g_storage, storage_bytes, kCapacity, ipc::RingEndpoint::kProducer));
+        Ring old_consumer;
+        CHECK(old_consumer.attach(g_storage, storage_bytes, kCapacity, ipc::RingEndpoint::kConsumer));
+
+        Counted taken;
+
+        for (uint64_t value = 1; value <= 3; ++value)
+        {
+            CHECK(old_producer.push(Counted{value, 0, 0}));
+            CHECK(old_consumer.pop(taken));
+        }
+
+        // 주인 재기동 — 같은 자리에 큐를 새로 놓는다.
+        Ring new_owner;
+        CHECK(new_owner.create(g_storage, storage_bytes, kCapacity));
+
+        CHECK(!old_producer.push(Counted{4, 0, 0}));
+        CHECK(old_producer.peer_counter_rejected() == 1);
+        CHECK(new_owner.sent() == 0); // 옛 끝이 공유 순번을 앞으로 밀지 않았다
+
+        Ring new_producer;
+        CHECK(new_producer.attach(g_storage, storage_bytes, kCapacity, ipc::RingEndpoint::kProducer));
+        CHECK(new_producer.push(Counted{10, 0, 0}));
+
+        CHECK(!old_consumer.pop(taken)); // 옛 받는 끝은 3을 기다리던 자리라 꺼내지 않는다
+        CHECK(old_consumer.peer_counter_rejected() == 1);
+
+        Ring new_consumer;
+        CHECK(new_consumer.attach(g_storage, storage_bytes, kCapacity, ipc::RingEndpoint::kConsumer));
+        CHECK(new_consumer.pop(taken));
+        CHECK(taken.value == 10);
+    }
+
     std::cout << "test_shared_spsc_ring OK (" << g_checks << " checks)\n";
     return 0;
 }

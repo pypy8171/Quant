@@ -40,9 +40,30 @@ void Engine::fill_thread_fn(std::stop_token stop_token)
         return (!from_channel || layout_.fills().readable() == 0) && (!from_queue || pipeline_.fill_queue.empty());
     };
 
+    // 정지 뒤 비우기에는 시한을 둔다 — 공유 구역이 다시 놓여 통로 순번이 어긋나면 readable()은 0이 아닌데
+    //  pop()은 계속 실패해, 시한이 없으면 종료가 영영 안 끝난다.
+    constexpr auto                                       kStopDrainLimit = 2s;
+    std::optional<std::chrono::steady_clock::time_point> drain_started;
+
     // 정지 요청 뒤에도 큐를 비운다 — stop()이 WS를 끊은 다음 join하므로 남은 통보가 여기서 빠진다.
     while (!stop_token.stop_requested() || !fill_queue_empty())
     {
+        if (stop_token.stop_requested())
+        {
+            const auto now = std::chrono::steady_clock::now();
+
+            if (!drain_started)
+            {
+                drain_started = now;
+            }
+            else if (now - *drain_started > kStopDrainLimit)
+            {
+                LOG_WARN("[FillThread] 정지 뒤 비우기 2초 초과 — 남은 체결통보를 두고 내린다 (통로 readable=" +
+                         std::to_string(from_channel ? layout_.fills().readable() : 0) + ")");
+                break;
+            }
+        }
+
         std::optional<FillNotification> option;
 
         if (from_channel)

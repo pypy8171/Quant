@@ -39,6 +39,27 @@ ProcessIdentity creator_of(const SharedRegionHeader& header)
     return identity;
 }
 
+// 머리의 짝 자리 가운데 아직 사는 프로세스가 있으면 그 역할을 out에 적고 참이다. 주인이 죽었어도 짝이 살아
+//  보내는 커서를 쥐고 있으면, 판을 0으로 민 뒤 그 커서와 새 커서가 어긋나 링이 영영 멈춘다.
+//  header는 떠 온 사본이라 원자 읽기가 필요 없다.
+bool live_participant_of(const SharedRegionHeader& header, SharedAttachRole& out)
+{
+    for (size_t index = 0; index < kSharedAttachRoleCount; ++index)
+    {
+        ProcessIdentity identity;
+        identity.process_id = header.attached[index].process_id;
+        identity.start_time = header.attached[index].start_time;
+
+        if (identity.process_id != 0 && process_is_alive(identity))
+        {
+            out = static_cast<SharedAttachRole>(index);
+            return true;
+        }
+    }
+
+    return false;
+}
+
 // 머리가 성한 구역만 쓴다 — 이름이 남과 부딪혔거나, 판이 바뀐 채 남아 있는 것을 여기서 거른다.
 bool header_matches(const SharedRegionHeader& header, size_t bytes, uint32_t layout_version)
 {
@@ -186,6 +207,7 @@ bool SharedRegion::create(std::string_view name, size_t bytes, uint32_t layout_v
     // 윈도우 이름 있는 쪽지는 **마지막 핸들이 닫힐 때** 사라진다. 그래서 "이미 있다"는 두 가지다 —
     //  ① 엔진이 정말 둘 떠 있거나, ② 주인은 죽었는데 짝이 핸들을 쥐고 있어 죽기 직전 값 그대로 남은 것이거나.
     //  둘을 안 가르면 ②에서 재기동이 통째로 막히고, 안 가른 채 그냥 쓰면 옛 큐 자리에 붙는다. 주인에게 묻는다.
+    //  ②라도 핸들을 쥔 짝이 아직 살아 있으면 물려받지 않는다 — 감시견이 짝을 거두면 이름이 사라져 새로 만든다.
     //  [why D-114]
     if (GetLastError() == ERROR_ALREADY_EXISTS)
     {
@@ -202,6 +224,17 @@ bool SharedRegion::create(std::string_view name, size_t bytes, uint32_t layout_v
         {
             CloseHandle(handle);
             last_error_ = "같은 이름의 공유 구역을 이미 누가 쥐고 있다 — 엔진이 둘 떠 있는지 본다";
+            close();
+            return false;
+        }
+
+        // 주인은 죽었어도 짝이 살아 있으면 물려받지 않는다 — 감시견이 짝을 거둔 뒤 다시 띄운다.
+        SharedAttachRole live_role = SharedAttachRole::kStrategy;
+
+        if (live_participant_of(existing, live_role))
+        {
+            CloseHandle(handle);
+            last_error_ = "짝이 아직 떠 있다 — role=" + std::string(role_name(live_role)) + ", 짝을 내린 뒤 다시 띄운다";
             close();
             return false;
         }
@@ -235,6 +268,17 @@ bool SharedRegion::create(std::string_view name, size_t bytes, uint32_t layout_v
         {
             last_error_ = "같은 이름의 공유 구역을 이미 누가 쥐고 있다 — 엔진이 둘 떠 있는지 본다";
             owner_      = false; // 내가 만든 판이 아니다 — 닫으면서 남의 이름을 지우면 안 된다
+            close();
+            return false;
+        }
+
+        // 윈도우 갈래와 같다 — 짝이 살아 있으면 이름을 치우지 않는다. 치우면 짝은 버려진 매핑을 계속 본다.
+        SharedAttachRole live_role = SharedAttachRole::kStrategy;
+
+        if (readable && live_participant_of(existing, live_role))
+        {
+            last_error_ = "짝이 아직 떠 있다 — role=" + std::string(role_name(live_role)) + ", 짝을 내린 뒤 다시 띄운다";
+            owner_      = false;
             close();
             return false;
         }

@@ -173,6 +173,15 @@ public:
             return false;
         }
 
+        // [inv] published_head 를 적는 것은 이 끝뿐이다. 내 자리와 다르면 주인이 구역을 새로 놓아 0으로 민 것이다 —
+        //  그대로 보내면 받는 쪽은 0번 칸을 기다리고 나는 N번 칸에 적어 줄이 영영 멈춘다. 보내지 않고 센다.
+        //  내가 적은 캐시라인이라 relaxed 읽기 한 번이다.
+        if (control_->published_head.load(std::memory_order_relaxed) != next_to_send_)
+        {
+            ++peer_counter_rejected_;
+            return false;
+        }
+
         // 내 자리는 내 프로세스 안 값이다. 건너편이 적어 둔 칸은 "얼마나 읽었나"를 볼 때만 쓴다.
         const uint64_t peer_tail = control_->published_tail.load(std::memory_order_acquire);
         const uint64_t used      = next_to_send_ - peer_tail;
@@ -220,6 +229,14 @@ public:
 
         if (stamp != next_to_receive_ + 1)
         {
+            // [inv] published_tail 을 적는 것도 이 끝뿐이다 — 내 자리와 다르면 구역이 다시 놓인 것이라 꺼내지 않고 센다.
+            //  다시 놓인 줄에서 받는 끝은 늘 "빈 칸"으로만 보이므로 이 갈래에서만 본다(꺼내는 길에는 읽기를 안 더한다).
+            if (control_->published_tail.load(std::memory_order_relaxed) != next_to_receive_)
+            {
+                ++peer_counter_rejected_;
+                return false;
+            }
+
             // 도장이 제 차례보다 뒤면 아직 안 쓰인 칸이다 — 빈 큐다.
             //  앞서 있으면 순번이 건너뛴 것이다. 세어 두고 그 자리로 옮겨 다음 부름에서 읽는다
             //  — 여기서 굳으면 요청이 영영 안 나간다(A등급). 건너뛴 사실은 수로 남아 건강 판정에 실린다.
@@ -305,7 +322,8 @@ public:
         return control_ == nullptr ? 0 : control_->published_tail.load(std::memory_order_acquire);
     }
 
-    // 건너편이 적어 둔 순번이 말이 안 돼 보내기를 미룬 횟수. 0이 아니면 건너편 프로세스를 의심한다.
+    // 건너편이 적어 둔 순번이 말이 안 돼 보내기를 미룬 횟수. 구역이 다시 놓여 제 순번이 어긋난 횟수도 센다.
+    //  0이 아니면 건너편 프로세스를 의심한다.
     [[nodiscard]] uint64_t peer_counter_rejected() const noexcept
     {
         return peer_counter_rejected_;

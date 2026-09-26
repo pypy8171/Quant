@@ -460,7 +460,7 @@
 - [OrderRouter.cpp](../Quant/src/ipc/OrderRouter.cpp) — 주문 라우터 구현 — 제출·순번·거부코드 처리
 - [ProcessIdentity.cpp](../Quant/src/ipc/ProcessIdentity.cpp) — ProcessIdentity.h 구현 — 윈도우는 프로세스 손잡이·만든 시각, 리눅스는 /proc/<번호>/stat 으로 생존을 묻는다(D-114 단계 4-b)
 - [SharedLayout.cpp](../Quant/src/ipc/SharedLayout.cpp) — SharedLayout.h 구현 — 자리 셈·놓기·붙기와, 양쪽 설정이 다르면 붙기를 거절하는 머리 대조(D-114 단계 4)
-- [SharedRegion.cpp](../Quant/src/ipc/SharedRegion.cpp) — SharedRegion.h 구현 — 윈도우·리눅스 공유메모리 만들기·붙기·치우기, 살아 있는 주인이면 실패하고 주인 없는 옆 판은 물려받는다(D-114 단계 4·4-b)
+- [SharedRegion.cpp](../Quant/src/ipc/SharedRegion.cpp) — SharedRegion.h 구현 — 윈도우·리눅스 공유메모리 만들기·붙기·치우기, 살아 있는 주인이면 실패하고 주인 없는 옆 판은 물려받는다(짝이 살아 있으면 물려받지 않는다, D-114 단계 4·4-b)
 - [SharedStrategyDictionary.cpp](../Quant/src/ipc/SharedStrategyDictionary.cpp) — SharedStrategyDictionary.h 구현 — 자리 셈·놓기·붙기, 칸을 넘는 이름은 잘라 넣지 않고 거절한다(D-114 단계 4)
 - [SharedSymbolDictionary.cpp](../Quant/src/ipc/SharedSymbolDictionary.cpp) — SharedSymbolDictionary.h 구현 — 자리 셈·놓기·붙기와 넣는 동안만 잡는 자물쇠(D-114 단계 4)
 - [SharedWriteLock.cpp](../Quant/src/ipc/SharedWriteLock.cpp) — SharedWriteLock.h 구현 — 돌다가 양보하는 자물쇠(D-114 단계 4)
