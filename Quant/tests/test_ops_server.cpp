@@ -278,6 +278,51 @@ static void t_bad_json(OpsServer&)
     assert(client.recv(frame) == 0);
 }
 
+// 형식이 틀린 본문 — 빈 본문·배열·필드 타입 틀림 — 은 그 연결만 끊고 서버는 산다. [why 전수조사 B2b-1]
+static void t_malformed_body(OpsServer&)
+{
+    const char* const bad_hellos[] = {"[1,2]", "7", "{\"token\":7}"};
+
+    for (const char* body : bad_hellos)
+    {
+        Client client;
+        assert(client.open());
+        client.send(OpsMsg::HELLO_REQ, body);
+        Frame frame;
+        assert(client.recv(frame) == 1 && frame.type == static_cast<uint8_t>(OpsMsg::ERROR_NTF));
+        assert(client.recv(frame) == 0);
+    }
+
+    // 빈 본문 HELLO 는 토큰 없음으로 읽혀 거절된다(예외 아님)
+    {
+        Client client;
+        assert(client.open());
+        client.send(OpsMsg::HELLO_REQ, "");
+        Frame frame;
+        assert(client.recv(frame) == 1 && frame.type == static_cast<uint8_t>(OpsMsg::ERROR_NTF));
+        assert(has(frame.body, "token"));
+        assert(client.recv(frame) == 0);
+    }
+
+    // 인증 뒤 주문 수량을 문자열로 보내도 끊기기만 한다
+    {
+        Client client;
+        assert(client.open());
+        client.send(OpsMsg::HELLO_REQ, "{\"token\":\"secret\",\"client\":\"t\"}");
+        Frame frame;
+        assert(client.expect(OpsMsg::HELLO_ACK, frame));
+        client.send(OpsMsg::ORDER_REQ, "{\"cid\":\"c7\",\"ticker\":\"005930\",\"side\":\"SELL\",\"qty\":\"10\"}");
+        assert(client.expect(OpsMsg::ERROR_NTF, frame) && has(frame.body, "형식"));
+    }
+
+    // 서버는 여전히 받는다
+    Client client;
+    assert(client.open());
+    client.send(OpsMsg::HELLO_REQ, "{\"token\":\"secret\",\"client\":\"t\"}");
+    Frame frame;
+    assert(client.expect(OpsMsg::HELLO_ACK, frame));
+}
+
 // 토큰 없는 서버: 누구나 붙되 주문·KILL은 거부
 static void t_readonly_without_token()
 {
@@ -350,6 +395,7 @@ int main()
         t_hello_first(ops_server);
         t_bad_token(ops_server);
         t_bad_json(ops_server);
+        t_malformed_body(ops_server);
         t_happy_path(ops_server, forward_key);
         ops_server.stop();
         assert(!ops_server.running());
@@ -359,6 +405,6 @@ int main()
     t_remote_bind_needs_token();
     t_second_bind_refused();
     Logger::instance().flush();
-    std::cout << "test_ops_server: 7/7 PASS\n";
+    std::cout << "test_ops_server: 8/8 PASS\n";
     return 0;
 }

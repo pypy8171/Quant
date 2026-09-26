@@ -438,7 +438,25 @@ void OpsServer::on_readable(Client& client)
 
     while (client.reader.next(frame))
     {
-        if (!on_frame(client, frame))
+        // 이 스레드 밖으로 예외가 새면 주문 프로세스가 통째로 죽는다 — 프레임 하나의 잘못은 그 연결만 끊는다.
+        //  본문 필드 형식이 틀린 것(예: "qty":"10")은 인증 전에도 올 수 있다. [why 전수조사 B2b-1]
+        bool keep = false;
+
+        try
+        {
+            keep = on_frame(client, frame);
+        }
+        catch (const json::exception& exception)
+        {
+            LOG_WARN("[Ops] 본문 필드 형식 오류 — 끊음 " + client.name + " " + exception.what());
+            send(client, ops::OpsMsg::ERROR_NTF, error_body("본문 필드 형식 오류"));
+        }
+        catch (const std::exception& exception)
+        {
+            LOG_ERROR("[Ops] 프레임 처리 중 예외 — 끊음 " + client.name + " " + exception.what());
+        }
+
+        if (!keep)
         {
             flush(client); // 거부 사유를 보내고 끊는다
             ops_close(client.descriptor);
@@ -459,15 +477,16 @@ bool OpsServer::on_frame(Client& client, const ops::Frame& frame)
 {
     using ops::OpsMsg;
     const auto type = static_cast<OpsMsg>(frame.type);
-    json body;
+    // [inv] 아래 value() 는 객체에서만 쓸 수 있다 — 빈 본문은 빈 객체로 읽고, 객체가 아닌 본문(배열·숫자)은 끊는다.
+    json body = json::object();
 
     if (!frame.body.empty())
     {
         body = json::parse(frame.body, nullptr, false);
 
-        if (body.is_discarded())
+        if (body.is_discarded() || !body.is_object())
         {
-            send(client, OpsMsg::ERROR_NTF, error_body("본문 JSON 파싱 실패"));
+            send(client, OpsMsg::ERROR_NTF, error_body("본문은 JSON 객체여야 한다"));
             return false;
         }
     }
@@ -609,8 +628,7 @@ bool OpsServer::on_frame(Client& client, const ops::Frame& frame)
             }
 
             // 부른 쪽 이름이 없으면 연결 이름으로 둔다 — 종료 사유 한 줄에 누가 내렸는지가 남아야 한다.
-            const auto  body = json::parse(frame.body, nullptr, false);
-            std::string who  = body.is_object() ? body.value("who", std::string()) : std::string();
+            std::string who = body.value("who", std::string());
 
             if (who.empty())
             {

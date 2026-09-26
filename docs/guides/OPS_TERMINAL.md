@@ -90,6 +90,7 @@ Windows에서는 `SO_EXCLUSIVEADDRUSE`로 잡으므로 엔진이 이미 하나 �
 규칙
 
 - HELLO_REQ가 첫 프레임이 아니면 ERROR_NTF 뒤 끊는다. 토큰이 틀리면 같다.
+- 본문이 JSON 객체가 아니거나(배열·숫자) 필드 형식이 틀리면(예: `"qty":"10"`) ERROR_NTF 뒤 그 연결만 끊는다. 인증 전에도 같고, 엔진은 내려가지 않는다.
 - `auth=false`(서버에 토큰이 없거나 HELLO_REQ에 토큰을 안 냈을 때)면 ORDER_REQ·KILL_REQ·HALT_REQ·SHUTDOWN_REQ는 거부 응답만 온다.
 - STATUS_ACK의 `strategies`는 전략을 올린 프로세스에서는 전략 수고, 갈라 띄워 주문만 맡은 프로세스에서는
   공유 이름표의 등록 수다 — 고정 이름 몇이 더해져 전략 수와 딱 맞지는 않고, "전략이 올라왔나"를 보는 칸이다(D-114).
