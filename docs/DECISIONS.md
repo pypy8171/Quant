@@ -7162,9 +7162,15 @@ Yahoo 차트·FRED CSV를 받아 파이썬과 같은 식으로 `regime.json`·�
 비우고 KIS 랭킹 축 가격만 쓴다(`clear_quote_table`). 파일 폴백은 아무도 갱신하지 않는 파일을 읽어 정배열·이격 판정을 전일
 종가에 묶었으므로 비우는 편이 낫다. `universe_feed.py`는 손 실행과 `pit_universe_backfill.py`용으로 남긴다.
 
+**7단계 — 국면 판정 전환**(09-27): 하루 대조를 기다리지 않고 바꿨다. 5단계 실측에서 파일이 글자까지 같았고, 두 피드가
+regime.json 하나를 번갈아 쓰면 어느 쪽 값인지 가릴 수 없어서다. 두 config의 `regime_feed.out`을 `regime_file`과 같게 하고
+`PYQuant/tools/macro_regime_feed.py`, 감시견의 파이썬 국면 창과 `-NoRegimeFeed`, 대조 판정 행을 지웠다. 감시견은 두 경로가
+다르면 경고만 내고, `scripts/check_runtime_health.py`는 정규장 국면 이력이 15분 넘게 끊겼는지 본다. 임계의 정본은
+`Quant/include/regime/RegimeFeed.h`(config `regime_feed`가 덮어씀)이고 `regime_feed_once`는 손으로 한 번 돌려 보는 도구로 남긴다.
+
 **연결**: D-028 · D-142 · D-146 · `Quant/include/universe/MarketBoard.h` · `Quant/src/universe/UniverseCandidates.cpp`
 `take_board_axis` · `scripts/auto_trade_day.ps1` `BoardInEngine`·`regimeInEngine` · `Quant/include/regime/RegimeFeed.h` ·
-`Quant/tools/regime_feed_once.cpp`(한 사이클 대조 도구).
+`Quant/tools/regime_feed_once.cpp`(한 사이클 도구).
 
 ---
 

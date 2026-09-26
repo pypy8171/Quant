@@ -11,11 +11,11 @@
 | **네이버 증권** (비공식, 키 없음) | ① 전 종목 장중 시세 — 현재가·누적거래량·누적거래대금 ② 테마(인포스탁 분류) 목록·구성 종목 | ① `market_map`의 2,683종목을 900개씩 요청 3개(병렬)로 5초마다 — 한 요청 1,000종목까지 받고 1,500부터 HTTP 400(09-26 실측, D-142) ② 하루 1회 | ① 엔진 안 시세판 `Quant/src/universe/MarketBoard.cpp`(메모리로 스캐너에 넘김, 파일 없음, D-147) ② `PYQuant/tools/fetch_naver_themes.py`·`PYQuant/naver/theme.py` → `PYQuant/data/themes/latest.json` |
 | **KIS REST** | 순위 3축(시총 `FHPST01720000`·거래대금 `FHPST01710000`·업종별 등락률 `FHPST01700000`, 축마다 30행 상한), 종목 일봉·분봉·현재가, 지수 일봉·현재값, 잔고·미체결·주문 | 순위는 기동·재스캔마다, 일봉은 종목·일 1회 캐시(`align_lookup_max` 800), 현재가 폴링은 WS에서 밀린 종목만 | `Quant/src/api/KisUniverse.cpp`(순위·업종), `KisMarket.cpp`(봉·현재가), `KisIndex.cpp`(지수), `KisAccount.cpp`·`KisOrder.cpp`. 폴링은 `Quant/include/core/DataPoller.h` |
 | **KIS WebSocket** | 실시간 체결(`H0STCNT0`, 통합 `H0UNCNT0`)·호가(`H0STASP0`, 통합 `H0UNASP0`)·체결통보 | 세션당 구독 40건(`kMaxWsSubs`, 문서상 41). 오늘: 구독 대상 57종목 중 체결통보 1 + 시세 39, 나머지 18종목은 REST 폴링으로 대체 | `Quant/src/api/WebSocketClient.cpp`. 소켓을 더 달면(`feed_keys`) `FeedMux`가 상한을 소켓 수만큼 늘린다 |
-| **Yahoo chart** (무료, FDR 폴백) | 매크로 국면 입력 — 코스피·코스닥·나스닥 선물·S&P 선물·VIX·10년물·USD/KRW·WTI 현재가(표), FRED 30Y·2Y·하이일드(참고) | 3분마다 갱신, `regime.json` 파일 전달 | `PYQuant/tools/macro_regime_feed.py` → `Quant/config/regime.json`(엔진 `entry_scale` 매수 비율·`entry_halt`·`force_liquidate`) |
+| **Yahoo chart·네이버 지수·FRED** (무료, 키 없음) | 매크로 국면 입력 — 코스피·코스닥(네이버 실시간 지수 먼저)·나스닥 선물·S&P 선물·VIX·10년물·USD/KRW·WTI 현재가(표), FRED 30Y·2Y·하이일드(참고, 30분에 한 번) | 3분마다 판정해 `regime.json`에 씀 | 엔진 안 국면 스레드 `Quant/src/regime/RegimeFeed.cpp`(config `regime_feed`, D-147) → `Quant/config/regime.json`(엔진 `entry_scale` 매수 비율·`entry_halt`·`force_liquidate`) |
 
 ## 기억과 다른 점
 
-- **yfinance는 "제거"가 아니라 "라이브 경로에서 빠짐"이다.** 이 환경에서 야후 크럼 SSL이 막혀 yfinance 라이브러리는 전 심볼 실패라, `macro_regime_feed.py`는 Yahoo chart API를 직접 부르고 실패하면 FDR로 넘어간다(D-081).
+- **yfinance는 "제거"가 아니라 "라이브 경로에서 빠짐"이다.** 이 환경에서 야후 크럼 SSL이 막혀 yfinance 라이브러리는 전 심볼 실패라, 국면 판정(`Quant/src/regime/RegimeFeed.cpp`)은 Yahoo chart API를 직접 부른다(D-081·D-147). 옛 파이썬 피드에 있던 FDR 폴백은 옮기지 않았다.
   파일은 남아 있다 — `PYQuant/data/yfinance_source.py`(백테스트 `PYQuant/main.py`가 import), `PYQuant/data/index_source.py`(백테스트 `PYQuant/backtest/engine.py`의 지수 국면).
   백테스트 어댑터는 FDR로 옮기지 않았다(메모리 `project_yfinance_dead_fdr`). 라이브 매매에는 yfinance 호출이 없다.
 - **네이버 2,700종목**은 맞다(오늘 2,683). 다만 "섹터군별 종목"은 네이버가 아니라 **KIS 업종별 등락률 순위**(`sector_codes` 28업종, 축당 30행)가 준다. 네이버가 주는 분류는 **테마**(인포스탁)이고 유니버스 후보 축이 아니라 조회·리포트용이다.

@@ -47,7 +47,6 @@ $Roles = @(
   @{ role = "trader";    match = "quant_trader.exe" },
   @{ role = "watchdog";  match = "auto_trade_day.ps1" },
   @{ role = "guard";     match = "auto_trade_guard.ps1" },
-  @{ role = "regime_feed";   match = "macro_regime_feed.py" },
   @{ role = "dashboard"; match = "dashboard_server.py" },
   @{ role = "notify";    match = "notify_trades.py" },
   @{ role = "recorder";  match = "main.py record" }   # ZMQ 틱 기록기(auto_trade_day가 띄움)

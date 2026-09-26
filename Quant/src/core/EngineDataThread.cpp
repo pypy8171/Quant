@@ -431,10 +431,9 @@ void Engine::data_thread_fn(std::stop_token stop_token)
                 }
 
                 // ── 매크로 지표 모니터(관측용) ─────────────────────────────────────
-                //  환율·미국지수·미국채10Y금리는 도메스틱 KIS 밖 → 보조 프로세스(PYQuant/tools/macro_regime_feed.py)가
+                //  환율·미국지수·미국채10Y금리는 도메스틱 KIS 밖 → 국면 판정 피드(regime/RegimeFeed.h)가
                 //  regime.json components에 8개(KOSPI·KOSDAQ·NQ_F·ES_F·TNX10·VIX·USDKRW·WTI)를 쓰고, 여기서는
-                //  그중 해외 5개(USDKRW·NQ_F·TNX10·ES_F·VIX)를 로깅한다. 값은 Yahoo 장중 현재가가 먼저이고
-                //  받지 못하면 FDR 일봉(전일 종가끼리)으로 채운다 — 그 경우 장중 내내 값이 고정된다. [why D-033·D-081]
+                //  그중 해외 5개(USDKRW·NQ_F·TNX10·ES_F·VIX)를 로깅한다. 값의 원천은 regime/RegimeFeed.h 머리말. [why D-033·D-081·D-147]
                 //  regime.json 미존재(보조 프로세스 미실행) 시 조용히 스킵. entry_halt 게이트와 독립.
                 {
                     static int macro_tick = 0;
@@ -505,8 +504,8 @@ void Engine::data_thread_fn(std::stop_token stop_token)
                         }
                         else if (macro_tick == 0)
                         {
-                            LOG_INFO("[매크로] regime.json 없음 — 매크로 표시엔 보조 프로세스"
-                                     "(macro_regime_feed.py) 실행 필요");
+                            LOG_INFO("[매크로] regime.json 없음 — config regime_feed.out 이 regime_file 과 같은지 본다"
+                                     "(국면 판정 피드가 쓴다)");
                         }
                     }
 

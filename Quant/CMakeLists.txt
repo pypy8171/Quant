@@ -1065,7 +1065,7 @@ else()
     target_link_libraries(manual_order PRIVATE nlohmann_json::nlohmann_json winhttp bcrypt)
 endif()
 
-# ─── 도구: 국면 판정 한 사이클 — 파이썬 macro_regime_feed.py --once와 같은 시각에 돌려 대조 (D-147) ──
+# ─── 도구: 국면 판정 한 사이클 — 엔진 없이 regime.json 을 한 번 써 본다 (D-147) ──
 add_executable(regime_feed_once tools/regime_feed_once.cpp)
 target_link_libraries(regime_feed_once PRIVATE quant_engine)
 

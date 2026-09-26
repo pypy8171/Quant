@@ -101,7 +101,7 @@
 | **rest_price_feed** | WS 대신 REST 현재가 폴링을 체결 하트비트로 사용 | true면 reconcile 필수 |
 | **is_paper** | 모의(true, openapivts:29443) / 실계좌(false) 스위치 | 시세·주문 도메인 분기 |
 | **fetch_interval_sec** | 데이터 폴링 주기(초) | 장외 시간은 스킵 |
-| **regime / regime.json** | 매크로 보조 프로세스(`macro_regime_feed.py`)가 쓰는 위험국면 파일 전달 | risk_score를 매수 비율 `entry_scale`(0~1)로 옮겨 전략이 명목에 곱하고, 정지선 이하면 entry_halt. 코스피·코스닥·해외·유가 등락표 + 장초 대비 방향표(D-083). 라벨→전략 집합은 `regime_strategies` 항목 |
+| **regime / regime.json** | 엔진 안 국면 스레드(`Quant/src/regime/RegimeFeed.cpp`, config `regime_feed`)가 3분마다 쓰는 위험국면 파일 | risk_score를 매수 비율 `entry_scale`(0~1)로 옮겨 전략이 명목에 곱하고, 정지선 이하면 entry_halt. 코스피·코스닥·해외·유가 등락표 + 장초 대비 방향표(D-083). 라벨→전략 집합은 `regime_strategies` 항목 |
 | **regime_strategies** | `regime.json` 라벨(RISK_ON/NEUTRAL/RISK_OFF)별 전략 집합을 고르는 config 맵 | 라벨이 바뀐 회차에만 `Engine::apply_regime_selection`이 전략 `active_`를 켜고 끈다(신규 진입만). 코스피 200MA로 따로 판정하던 축은 지웠다(D-084·D-085) | `Quant/src/core/EngineConfigure.cpp` |
 | **dedup** (dedup_window_sec) | 동일 전략+종목 중복주문 제거 창 | 1초 내 중복 거부 |
 

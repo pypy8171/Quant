@@ -1,5 +1,5 @@
 // 국면 판정 피드 구현 — 지표 받기·점수·파일 쓰기. 왜 있는지는 regime/RegimeFeed.h 머리말.
-//  판정식·임계·문구는 PYQuant/tools/macro_regime_feed.py(09-26 기준)를 그대로 옮겼다. 임계는 전부 검증 전
+//  판정식·임계·문구는 파이썬 macro_regime_feed.py(09-26 기준, 09-27 삭제)를 그대로 옮겼다. 임계는 전부 검증 전
 //  잠정값이다(D-033·D-083) — 바꿀 때는 파일 문서의 thresholds와 대시보드 표시가 같이 바뀐다.
 #include "regime/RegimeFeed.h"
 

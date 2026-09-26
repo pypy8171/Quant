@@ -31,7 +31,7 @@ inline constexpr double kRegimeScaleFull = 1.0;
 
 namespace regime_file
 {
-// [wire] regime.json 본문 — PYQuant/tools/macro_regime_feed.py가 임시 파일 뒤 이름 바꾸기로 쓴다.
+// [wire] regime.json 본문 — 국면 판정 피드(regime/RegimeFeed.h)가 임시 파일 뒤 이름 바꾸기로 쓴다.
 struct Snapshot
 {
     bool        valid           = false; // false면 보조 프로세스가 데이터 부족으로 판정 보류 → 게이트 불변

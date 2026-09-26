@@ -1,5 +1,5 @@
 // 국면 판정 피드(regime/RegimeFeed.h)의 순수 함수 검사 — 응답 읽기·방향표·매수 비율·장초 기준점·regime.json 문서.
-//  네트워크는 쓰지 않는다. 기대값은 파이썬 원본(PYQuant/tools/macro_regime_feed.py)이 같은 입력에서 낸 값이다. [why D-147]
+//  네트워크는 쓰지 않는다. 기대값은 파이썬 원본(macro_regime_feed.py, 09-27 삭제)이 같은 입력에서 낸 값이다. [why D-147]
 #include "regime/RegimeFeed.h"
 
 #include <cassert>

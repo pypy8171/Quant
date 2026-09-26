@@ -16,7 +16,7 @@
 |---|---|---|
 | **바로 쓸 수 있는 것** | 계열 A(01·02·03·06 스터디)의 `equity/trades/holdings` **3-파일 CSV는 표준화**됨 → 곡선·체결 즉시 소비 | `logs/trades_YYYYMMDD.csv`가 **완전 구조화**(`ts_kst,event,order_id,odno,strategy,ticker,side,type,order_qty,order_price,fill_qty,fill_price,status,reason,entry_reason,realized_pnl,seq,strategy_realized_pnl`) |
 | **없는 것(진짜 병목)** | **요약지표(Sharpe/MDD/승률/turnover)가 파일로 export 안 됨** — 콘솔 출력 + 손으로 쓴 md에만. 계열 B(위기 07/08/09)는 스키마 제각각, 08은 데이터파일 자체가 없음 | **포지션 평단·스코어가 파일에 없음** — 인메모리 또는 ZMQ에만(실현손익은 CSV `realized_pnl`, entry_halt·계좌 요약은 운영단말 `STATUS`가 1초마다 준다, D-095). `quant_trader.log`는 자유형식 텍스트라 파싱 부적합 |
-| **함정** | `PYQuant/bt_*.json`은 확장자만 json, **실내용은 CSV** | `regime.json`은 엔진 **출력이 아니라 입력**(외부 보조 프로세스 `macro_regime_feed.py`가 씀). ZMQ 브리지는 vcpkg ZeroMQ로 **켜져 있고** 체결 기록기(`PYQuant/main.py record`)가 TimescaleDB에 적재한다(D-090) |
+| **함정** | `PYQuant/bt_*.json`은 확장자만 json, **실내용은 CSV** | `regime.json`은 엔진 안 국면 스레드(`Quant/src/regime/RegimeFeed.cpp`)가 쓰고 같은 엔진이 다시 읽는 **파일**이다 — 대시보드도 이 파일을 읽는다(ZMQ로 오지 않는다, D-147). ZMQ 브리지는 vcpkg ZeroMQ로 **켜져 있고** 체결 기록기(`PYQuant/main.py record`)가 TimescaleDB에 적재한다(D-090) |
 
 따라서 **정규화 계약(스키마)을 먼저 정하고**, 대시보드는 그 계약만 읽는다.
 

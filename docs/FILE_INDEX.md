@@ -8,12 +8,12 @@
 
 - [(루트)](#루트) — 11개
 - [.vscode](#vscode) — 4개
-- [PYQuant](#pyquant) — 105개
-- [Quant](#quant) — 340개
+- [PYQuant](#pyquant) — 104개
+- [Quant](#quant) — 343개
 - [docs](#docs) — 132개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 245개
-- [scripts](#scripts) — 49개
+- [scripts](#scripts) — 48개
 - [strategies](#strategies) — 34개
 - [tools](#tools) — 3개
 
@@ -196,7 +196,6 @@
 - [load_latency_reader.py](../PYQuant/tools/load_latency_reader.py) — 부하시험 구간 지연 판독기 — `latency_trace.csv` 를 시세 수신 → 전략 판단 → 주문 전송 → 응답 열두 칸으로 펴 분위수 표를 내고, 회차 둘을 칸별로 견줘 분리가 어느 칸에 얼마를 얹었는지를 한 줄로 낸다
 - [log_report.py](../PYQuant/tools/log_report.py) — quant_trader 로그 운용 리포트 생성기
 - [macro_ingest.py](../PYQuant/tools/macro_ingest.py) — FRED(ALFRED 판본, A)·ECOS(B)·관세청 10일 잠정치(B) 거시 시계열을 시점 고정 스키마로 PYQuant/data/macro/<source>_<series>.parquet에 append-only 적재
-- [macro_regime_feed.py](../PYQuant/tools/macro_regime_feed.py) — 매크로 지표 기반 국면 게이트 발행기
 - [minute_backfill.py](../PYQuant/tools/minute_backfill.py) — 거래일별 1분봉 백필 도구
 - [minute_backfill_pairs.py](../PYQuant/tools/minute_backfill_pairs.py) — 리플레이용 1분봉 백필 — (종목, 날짜) 짝 목록(json)을 받아 없는 날만 KIS에서 받아 parquet에 붙인다
 - [naver_bars_backfill.py](../PYQuant/tools/naver_bars_backfill.py) — 네이버 siseJson 일봉 1990~ 전량 백필 → bars_all_pit_v2.parquet(v1 스키마 + 외인보유율), 끝에 005930 종가 v1 일치 검사
@@ -396,8 +395,8 @@
 - [EngineDataThread.cpp](../Quant/src/core/EngineDataThread.cpp) — 데이터 수집 스레드 — 장 시작 감지·잔고 대조·일봉·지수·수급 조회를 한 사이클씩 돈다(`data_thread_fn`)
 - [EngineFeed.cpp](../Quant/src/core/EngineFeed.cpp) — 시세 입력 — WebSocket 구독 목록 만들기·소켓 연결(`connect_feed`)·받은 체결과 호가를 전략 샤드 큐나 시세 통로로 보내기·구독 칸 재배정(`rebalance_websocket_slots`)과 시세 쪽 제어 요청 적용(`apply_feed_control_requests`)·전략 쪽 시세 줄 스레드(`feed_lane_thread_fn`)
 - [EngineFillThread.cpp](../Quant/src/core/EngineFillThread.cpp) — 체결 쪽 — 체결통보를 원장에 반영하는 스레드(`fill_thread_fn`)
-- [EngineLedgerThread.cpp](../Quant/src/core/EngineLedgerThread.cpp) — 주문 쪽 — 읽는 쪽에 주는 장부 사본을 100ms 간격으로 내는 스레드(`ledger_thread_fn`)
 - [EngineLayout.cpp](../Quant/src/core/EngineLayout.cpp) — `Engine::bind_layout` 등 — 자리표(큐·장부 사본·박동)를 힙이나 공유 쪽지에 깔고 종목·전략 이름표를 그 위 한 벌로 바꾼다
+- [EngineLedgerThread.cpp](../Quant/src/core/EngineLedgerThread.cpp) — 주문 쪽 — 읽는 쪽에 주는 장부 사본을 100ms 간격으로 내는 스레드(`ledger_thread_fn`)
 - [EngineOpsServer.cpp](../Quant/src/core/EngineOpsServer.cpp) — 운영단말 서버 — 단말의 조회·수동 주문을 받아 주문 스레드가 꺼낼 자리에 넣는다(`start_ops_server`·`accept_manual_order`·`take_manual_order`)
 - [EngineOrderThread.cpp](../Quant/src/core/EngineOrderThread.cpp) — 주문 쪽 — 주문 실행 스레드(`order_thread_fn`), 보호 주문 표 한 주기, 전략 생존 추적
 - [EngineRegime.cpp](../Quant/src/core/EngineRegime.cpp) — 국면 선택 — regime.json 을 읽어 지금 국면을 정하고 그 국면 전략만 켠다(`poll_regime_file`·`apply_regime_selection`)
@@ -414,6 +413,7 @@
 - [MarketSession.cpp](../Quant/src/core/MarketSession.cpp) — MarketSession.h 구현 — KRX 정규장 세션 시각 판정
 - [OrderRateLimiter.cpp](../Quant/src/core/OrderRateLimiter.cpp) — 발주 조절기 구현 — 재시도 분류(D-065)
 - [PaperExecutor.cpp](../Quant/src/core/PaperExecutor.cpp) — PaperExecutor.h 구현 — 리플레이용 모의 체결기(D-071)
+- [PrefetchPool.cpp](../Quant/src/core/PrefetchPool.cpp) — PrefetchPool.h 구현 — 고정 스레드를 띄우는 부분(D-118)
 - [ReconcilePlan.cpp](../Quant/src/core/ReconcilePlan.cpp) — ReconcilePlan.h 구현 — 잔고 대조 차이 계산 순수 함수(D-038)
 - [RegimeFileJudge.cpp](../Quant/src/core/RegimeFileJudge.cpp) — RegimeFileJudge.h 구현 — 매크로 국면 파일 → 진입정지·강제청산 상태기계(D-060)
 - [ReplaySource.cpp](../Quant/src/core/ReplaySource.cpp) — ReplaySource.h 구현 — 캡처 파일 리플레이 피드 소스(D-071)
@@ -428,7 +428,6 @@
 - [Types.cpp](../Quant/src/core/Types.cpp) — Types.h 구현 — 숫자 문자열 → 정수, 주문번호 채번, Regime·StrategyType·Mode 문자열 변환
 - [UniverseExit.cpp](../Quant/src/core/UniverseExit.cpp) — UniverseExit.h 구현 — 유니버스 이탈·복귀 판정 순수 함수(D-077)
 - [UniverseRescan.cpp](../Quant/src/core/UniverseRescan.cpp) — UniverseRescan.h 구현 — 유니버스 재스캔 장부(D-077·D-087)
-- [PrefetchPool.cpp](../Quant/src/core/PrefetchPool.cpp) — PrefetchPool.h 구현 — 고정 스레드를 띄우는 부분(D-118)
 - [WakeGate.cpp](../Quant/src/core/WakeGate.cpp) — WakeGate.h 구현 — 생산자가 소비자를 깨우는 대기 조각(D-071)
 - [WebSocketSlotPlan.cpp](../Quant/src/core/WebSocketSlotPlan.cpp) — WebSocketSlotPlan.h 구현 — 구독 칸 교체 계획(D-132)
 
@@ -526,8 +525,8 @@
 - [bench_gate_contention.cpp](../Quant/tests/bench_gate_contention.cpp) — OrderGate 락 경합 벤치(읽기 지연 분포)
 - [bench_intake.cpp](../Quant/tests/bench_intake.cpp) — 멀티생산자 주문 인테이크 큐 부하 벤치(MPSC 대 Mutex)
 - [bench_latency_path.cpp](../Quant/tests/bench_latency_path.cpp) — 지연에 민감한 경로 리팩터 전후 비교 벤치(D-071)
-- [bench_market_firehose.cpp](../Quant/tests/bench_market_firehose.cpp) — 전종목 규모 시세 파이프라인 부하테스트(E2E 지연·처리량)
 - [bench_ledger_publish.cpp](../Quant/tests/bench_ledger_publish.cpp) — 장부 사본 한 판 비용을 보유 종목 수별로 잰다(41~2,700종목)
+- [bench_market_firehose.cpp](../Quant/tests/bench_market_firehose.cpp) — 전종목 규모 시세 파이프라인 부하테스트(E2E 지연·처리량)
 - [bench_order_gate_position.cpp](../Quant/tests/bench_order_gate_position.cpp) — OrderGate 원장 조회 벤치: 키가 (계좌, 종목) 문자열일 때와 정수 id일 때의 position() 비용(D-105 결정 3)
 - [bench_order_path_keys.cpp](../Quant/tests/bench_order_path_keys.cpp) — 주문 경로 키 벤치: 중복 신호 키·우선순위 표·서브원장·체결 키를 문자열과 정수로 잰다(D-112)
 - [bench_peer_failure.cpp](../Quant/tests/bench_peer_failure.cpp) — 프로세스 경계 고장 실측 벤치: 공유메모리 한 방향 지연, crash·exit·hang 감지 지연, append+flush 비용(D-071 큐 34)

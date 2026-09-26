@@ -169,8 +169,8 @@ Windows에는 리눅스의 프로세스 그룹 cascade가 없다. 부모가 죽�
 
 반대 방향, 즉 부속 창 안의 파이썬만 죽는 경우도 잡는다. 창은 `-NoExit`로 띄우므로 안의 스크립트가
 끝나도 빈 창은 남고, 창 목록만 보면 살아 있는 것처럼 보인다. 워치독은 트레이더를 기다리는 동안
-60초마다 `python`/`py` 프로세스의 명령줄을 훑어 등록된 스크립트 이름(`macro_regime_feed.py`,
-`dashboard_server.py`, `notify_trades.py`, `main.py record`, `main.py procwatch`, `ledger_recorder.py`)이 있는지 확인하고, 없으면 남은 창을 내리고 같은 명령으로
+60초마다 `python`/`py` 프로세스의 명령줄을 훑어 등록된 스크립트 이름(`dashboard_server.py`,
+`notify_trades.py`, `main.py record`, `main.py procwatch`, `ledger_recorder.py`)이 있는지 확인하고, 없으면 남은 창을 내리고 같은 명령으로
 다시 띄운다. 기동 직후 45초는 아직 파이썬이 뜨는 중일 수 있어 건너뛴다. 알림 보조 프로세스가 조용히
 사라진 것을 사람이 화면을 봐야 아는 상태를 없애기 위한 것이다.
 
@@ -232,7 +232,7 @@ powershell -ExecutionPolicy Bypass -File scripts\quant_procs.ps1 -KillAll # 전�
 
 | 루프 | 주체 | 주기 | 하는 일 |
 |---|---|---|---|
-| 매크로 국면 파일 전달 | `PYQuant/tools/macro_regime_feed.py` | 상시 | `regime.json` 갱신 → 엔진이 매수 비율 `entry_scale`·`entry_halt`(신규 매수만 차단)·`force_liquidate`를 옮기고 라벨로 전략 집합을 고른다(D-083·D-084). 엔진 안 국면 스레드(`Quant/src/regime/RegimeFeed.cpp`, config `regime_feed`)가 같은 판정을 `regime_cpp.json`에 따로 써 하루 병행 대조 중이고, 엔진 판단에는 아직 `regime.json`만 쓴다 |
+| 매크로 국면 판정(엔진 안) | 국면 스레드 `Quant/src/regime/RegimeFeed.cpp`(config `regime_feed`) | 3분(`interval_sec`) | `Quant/config/regime.json` 갱신(이력 `logs/regime_history.jsonl`, 장초 기준점 `logs/regime_open_ref.json`) → 엔진이 매수 비율 `entry_scale`·`entry_halt`(신규 매수만 차단)·`force_liquidate`를 옮기고 라벨로 전략 집합을 고른다(D-083·D-084). 이 일을 하던 파이썬 보조 프로세스는 09-27에 걷었다(D-147). 감시견은 `regime_feed.out`이 `regime_file`과 다르면 경고한다 |
 | 제어 스레드 | `Engine::control_thread_fn` | 상시 | 5초 주기: 시세 끊김이면 재연결, 안 되면 REST 대체, 그것도 안 되면 kill switch. 토큰 선갱신·큐 고수위 기록·마감 자기 종료 판정(잔고 대조·손익 갱신 감시는 데이터 스레드) |
 | 증분 로그 감시 | `scripts/parse_quant_log.py --watch` | 15~20분 | 유의미한 창일 때만 출력. 조용하면 토큰 0 |
 | 실행 건전성 점검 | `scripts/check_runtime_health.py` | 세션 종료마다(감시견)·마감 뒤 하루 전체 | 유령주문·조기 사망·재기동 투매·회전·초당한도·WS 폴백·주문 접수 지연·잔고 조회 지연·전략 박동(끊김·여유)·주문 통로 무결·시세 통로(못 넘긴 시세·값이 이상해 버린 시세)를 PASS/WARN/FAIL로 판정. 같은 표를 `market_close_autodoc.py`가 매매일지 4절에 싣는다 — 고친 뒤 "다음 날 확인할 것"은 사람이 아니라 여기 행으로 만든다 |

@@ -1508,71 +1508,42 @@ def journal_mirror_row(date: str) -> tuple:
     return (name, True, "FAIL", "저널/ledger_events/fills 순 " + "; ".join(details))
 
 
-def regime_port_row(date: str) -> tuple:
-    """엔진 안 국면 판정 피드(Quant/src/regime/RegimeFeed.cpp)가 파이썬 피드와 같은 판정을 냈는지 하루치를 맞춰 본다.
+def regime_feed_row(date: str) -> tuple:
+    """엔진 안 국면 판정 피드(Quant/src/regime/RegimeFeed.cpp)가 정규장 동안 끊기지 않고 이력을 남겼는지 본다.
 
-    두 피드는 같은 시각에 돌지 않아 받은 시세가 조금 다르다 — 그래서 C++ 이력 한 줄마다 120초 안의 가장 가까운
-    파이썬 줄을 짝지어, 국면 이름이 같고 점수 차가 1 이하인 짝이 95% 이상이면 통과로 본다. 전환 뒤(파이썬 피드를
-    끈 날)는 파이썬 이력이 없어 판정하지 않는다. [why D-147]
+    09-27부터 regime.json 을 쓰는 곳은 이 피드 하나다(파이썬 피드는 걷었다). 180초마다 한 줄이 쌓이므로 09:00~15:30 사이
+    이력이 없거나 두 줄 사이가 15분을 넘으면 그동안 국면 게이트가 마지막 값으로 굳어 있었다는 뜻이다. [why D-147]
     """
-    name = "국면 판정 이식 대조"
+    name = "국면 판정 피드 이력"
+    path = REPO / "logs" / "regime_history.jsonl"
+    stamps = []
 
-    def load(path: Path) -> list:
-        rows = []
-
-        if not path.exists():
-            return rows
-
+    if path.exists():
         with path.open(encoding="utf-8") as file:
             for line in file:
+                if date not in line[:60]:
+                    continue
+
                 try:
                     row = json.loads(line)
                 except ValueError:
                     continue
 
-                if str(row.get("ts", "")).startswith(date):
-                    row["_at"] = dt.datetime.fromisoformat(row["ts"]).timestamp()
-                    rows.append(row)
+                stamp_text = str(row.get("ts", ""))
 
-        return rows
+                if stamp_text.startswith(date) and "09:00" <= stamp_text[11:16] <= "15:30":
+                    stamps.append(dt.datetime.fromisoformat(stamp_text).timestamp())
 
-    cpp_rows = load(REPO / "logs" / "regime_history_cpp.jsonl")
-    python_rows = load(REPO / "logs" / "regime_history.jsonl")
+    if not stamps:
+        return (name, False, "FAIL", f"{date} 정규장 국면 이력(logs/regime_history.jsonl)이 한 줄도 없다"
+                                    " — config regime_feed 설정과 엔진 로그의 RegimeFeed 줄을 본다")
 
-    if not cpp_rows:
-        return (name, True, "WARN", f"{date} C++ 피드 이력(logs/regime_history_cpp.jsonl)이 없다 — 판정 안 함")
+    stamps.sort()
+    widest = max((later - earlier for earlier, later in zip(stamps, stamps[1:])), default=0)
+    detail = f"정규장 {len(stamps)}줄, 가장 긴 공백 {widest / 60:.1f}분"
 
-    if not python_rows:
-        return (name, True, "WARN", f"{date} 파이썬 피드 이력이 없다(전환 뒤) — C++ {len(cpp_rows)}줄, 판정 안 함")
-
-    paired = 0
-    label_same = 0
-    score_close = 0
-    worst = None
-
-    for row in cpp_rows:
-        nearest = min(python_rows, key=lambda other: abs(other["_at"] - row["_at"]))
-
-        if abs(nearest["_at"] - row["_at"]) > 120:
-            continue
-
-        paired += 1
-        label_same += row.get("regime") == nearest.get("regime")
-        gap = abs((row.get("risk_score") or 0) - (nearest.get("risk_score") or 0))
-        score_close += gap <= 1
-
-        if worst is None or gap > worst[0]:
-            worst = (gap, row["ts"][11:19], row.get("risk_score"), nearest.get("risk_score"))
-
-    if paired == 0:
-        return (name, True, "WARN", f"C++ {len(cpp_rows)}줄·파이썬 {len(python_rows)}줄인데 120초 안 짝이 없다 — 판정 안 함")
-
-    detail = (f"짝 {paired}쌍 — 국면 같음 {label_same}쌍, 점수 차 1 이하 {score_close}쌍"
-              f" (가장 큰 차 {worst[0]}: {worst[1]} C++ {worst[2]} / 파이썬 {worst[3]})")
-    ok = label_same >= paired * 0.95 and score_close >= paired * 0.95
-
-    if not ok:
-        return (name, False, "WARN", detail + " — 계산이 갈라졌다. 두 이력의 같은 시각 pct·vote를 대조한다")
+    if widest > 15 * 60:
+        return (name, False, "WARN", detail + " — 15분을 넘게 국면 판정이 멈췄다")
 
     return (name, True, "WARN", detail)
 
@@ -1587,7 +1558,7 @@ def global_rows(date: str) -> list:
         *resource_sampling_rows(date),
         *feed_ledger_rows(date),
         journal_mirror_row(date),
-        regime_port_row(date),
+        regime_feed_row(date),
         queue_latency_row(date),
         role_publish_row(date),
         order_latency_breakdown_row(date),

@@ -2225,7 +2225,6 @@
       "PYQuant/tools/load_latency_reader.py",
       "PYQuant/tools/log_report.py",
       "PYQuant/tools/macro_ingest.py",
-      "PYQuant/tools/macro_regime_feed.py",
       "PYQuant/tools/minute_backfill.py",
       "PYQuant/tools/minute_backfill_pairs.py",
       "PYQuant/tools/naver_bars_backfill.py",
@@ -3027,11 +3026,9 @@
   "boundary_files": {
     "regime.json": {
       "writers": [
-        "PYQuant/tools/macro_regime_feed.py",
         "Quant/src/core/EngineRegime.cpp"
       ],
       "readers": [
-        "PYQuant/tools/macro_regime_feed.py",
         "Quant/src/core/AppConfig.cpp",
         "Quant/src/core/EngineDataThread.cpp",
         "Quant/src/core/EngineRegime.cpp",
@@ -3040,7 +3037,6 @@
         "scripts/notify_trades.py"
       ],
       "mentions": [
-        "PYQuant/tools/macro_regime_feed.py",
         "Quant/include/core/AppConfig.h",
         "Quant/include/core/Engine.h",
         "Quant/include/core/RegimeFileJudge.h",

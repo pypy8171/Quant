@@ -2,7 +2,7 @@
 
 클라우드 루틴 `장전 시황 브리핑 routine`(평일 08:30 KST 기동, 링크는 `_private/LINKS.md`)에 올라가 있는 프롬프트의
 정본이다. 루틴은 저장소를 못 읽으므로(깃허브 미연결) 프롬프트 안에 국면 모델을 같이 적는다 — 그 부분은 아래
-`gen:regime-model` 블록이고, `PYQuant/tools/macro_regime_feed.py`의 지표·임계가 바뀌면 `py ../quant-devtools/gen_facts.py --apply`가
+`gen:regime-model` 블록이고, `Quant/src/regime/RegimeFeed.cpp`의 지표·임계가 바뀌면 `py ../quant-devtools/gen_facts.py --apply`가
 다시 채운다.
 
 **올리는 절차.** 이 파일의 `<!-- prompt-start -->`~`<!-- prompt-end -->` 사이가 프롬프트 본문이다.

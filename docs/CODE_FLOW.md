@@ -11,7 +11,7 @@ TRADE 모드에서 종목을 고르고, 체결 한 건(`TradeData`)이 들어와
 공유메모리 구역 `quant.engine.{paper|live}.{계좌}`로 이어지고(D-114), 인자가 없으면(`both`) 한 프로세스가 같은 배치를 힙에 깔고
 같은 통로 코드를 쓴다. 절 제목의 [시세]·[전략]·[주문]은 그 걸음이 도는 프로세스다.
 유니버스(전 종목 목록·시세·순위)와 국면 판정도 엔진 안으로 옮겼다 — 목록과 시세는 네이버에서 받고(`MarketBoard`),
-국면은 `RegimeFeed`가 계산하지만 판단에 읽는 파일은 아직 파이썬이 쓰는 `regime.json`이다(C++ 결과는 `regime_cpp.json`에 병행 기록).
+국면은 `RegimeFeed`가 계산해 `regime.json`에 쓰고 데이터 스레드가 그 파일을 읽어 적용한다(D-147).
 
 스레드 모델·설계 원칙은 [CLAUDE.md](../CLAUDE.md)의 "설계 목표와 원칙"·"아키텍처" 절이 정본이고, 모듈 간 include 관계는
 [CODE_GRAPH.md](CODE_GRAPH.md), 바꾼 이유는 [DECISIONS.md](DECISIONS.md)다. 이 문서는 그 셋을 대신하지 않고 **입구**만 맡는다.
@@ -345,7 +345,7 @@ flowchart LR
    `Quant/src/core/EngineRegime.cpp:184` · `void Engine::poll_regime_file()` · 시험 [test_regime_file_judge](../Quant/tests/test_regime_file_judge.cpp)
 97. [`Engine::apply_regime_selection`](../Quant/src/core/EngineRegime.cpp#L28) — 국면 → `regime_strategies` 집합으로 전략 활성/비활성. 청산은 하지 않는다  
    `Quant/src/core/EngineRegime.cpp:28` · `void Engine::apply_regime_selection(Regime regime, bool force_log)`
-98. [`regime_feed::RegimeFeed::run`](../Quant/src/regime/RegimeFeed.cpp#L1050) — [전략] 엔진 안 국면 판정 스레드. `interval_sec`마다 `cycle` — 네이버 지수·야후·FRED를 받아 `build_regime`. 결과는 `regime_cpp.json`에 써서 파이썬 판정과 대조만 한다  
+98. [`regime_feed::RegimeFeed::run`](../Quant/src/regime/RegimeFeed.cpp#L1050) — [전략] 엔진 안 국면 판정 스레드. `interval_sec`마다 `cycle` — 네이버 지수·야후·FRED를 받아 `build_regime`. 결과는 `regime_feed.out`(`regime.json`)에 쓰고, 같은 파일을 다른 프로세스가 주기 안에 썼으면 그 회차는 쉰다  
    `Quant/src/regime/RegimeFeed.cpp:1050` · `void RegimeFeed::run()` · 시험 [test_regime_feed](../Quant/tests/test_regime_feed.cpp)
 99. [`OrderGate::set_manual_halt`](../Quant/include/risk/OrderGate.h#L217) — 운영단말 HALT_REQ의 수동 정지 — 신규 매수·전략 매도를 따로 끈다. 국면의 `entry_halt_`와는 다른 플래그고 `is_entry_halted`에서만 OR로 합친다(D-091)  
    `Quant/include/risk/OrderGate.h:217` · `void set_manual_halt(OrderSide side, bool on);` · 시험 [test_order_gate](../Quant/tests/test_order_gate.cpp)

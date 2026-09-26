@@ -173,7 +173,7 @@ static regime_file::Observation observe_regime_file(const std::string& path, int
 }
 
 // ─── 매크로 레짐 파일 폴링 → entry_halt 요청 (data_thread 전용) ─────────────
-//  PYQuant/tools/macro_regime_feed.py가 원자적으로 쓰는 regime.json을 매 사이클 읽어,
+//  국면 판정 피드(regime/RegimeFeed.h)가 원자적으로 쓰는 regime.json을 매 사이클 읽어,
 //  entry_halt(신규 진입만 차단, 청산은 통과)를 국면에 맞춰 켜고 끈다. OrderGate는 주문 쪽 것이라
 //  직접 고치지 않고 request_entry_halt()·request_entry_scale()로 제어 요청을 보낸다. [why D-114]
 //  신규진입 정지를 내는 곳은 이 함수뿐이라 소유권 단순. 파일 없음/손상/

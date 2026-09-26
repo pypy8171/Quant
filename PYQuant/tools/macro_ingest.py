@@ -24,7 +24,7 @@ FRED (등급 A — ALFRED 판본 이력. T10Y2Y·VIXCLS의 ALFRED 이전 구간�
   그 값이 처음 공개된 날이다 → published_at. 값 "."은 결측(휴장)이라 버린다.
   응답 키(2026-09-19 CPIAUCSL 실호출): count, offset, limit, observations[{realtime_start, realtime_end, date, value}].
   같은 관측치가 판본마다 한 행씩 온다(CPIAUCSL 2024-01-01 → 2024-02-13·2025-02-12·2026-02-13 세 판본).
-  기존 PYQuant/tools/macro_regime_feed.py는 FinanceDataReader의 FRED 경유(판본 없음·키 없음)라 겹치지 않는다.
+  장중 국면 판정(Quant/src/regime/RegimeFeed.cpp)은 FRED 공개 CSV(판본 없음·키 없음)를 참고용으로만 받아 겹치지 않는다.
 
 ECOS 한국은행 (등급 B — 판본 없음, 월간 발표일은 공표일정을 안 받아 NaT)
   https://ecos.bok.or.kr/api/StatisticSearch/{key}/json/kr/{start_row}/{end_row}/{stat}/{cycle}/{start}/{end}/{item}

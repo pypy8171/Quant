@@ -414,7 +414,7 @@ public:
     QueueStatistics queue_statistics() const;
 
     // ── 매크로 레짐 브리지 ──────────────────────────────────────────────────
-    // 매크로 레짐 보조 프로세스 브리지(2026-08-09 회의 Task 3). Python macro_regime_feed.py가
+    // 매크로 레짐 브리지(2026-08-09 회의 Task 3). 국면 판정 피드(regime/RegimeFeed.h)가
     // 원자적으로 쓰는 regime.json 경로를 지정하면, data_thread가 매 사이클 그 파일을 읽어
     // 시장이 위험하면 OrderGate 의 "신규매수 정지" 스위치(entry_halt)를 켜고, 풀리면 끈다
     // (매수만 막고 청산·매도는 그대로 통과). path 빈 문자열이면 기능 미가동(기본).

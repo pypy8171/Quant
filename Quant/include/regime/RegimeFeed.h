@@ -1,6 +1,6 @@
 #pragma once
 // 국면 판정 피드 — 해외·국내 지표 8개의 등락으로 점수를 내 regime.json을 쓰는 엔진 안 스레드.
-//  예전에는 파이썬 보조 프로세스(PYQuant/tools/macro_regime_feed.py)가 같은 파일을 썼다. 판정식·임계·파일 모양은
+//  예전에는 파이썬 보조 프로세스(macro_regime_feed.py, 09-27 삭제)가 같은 파일을 썼다. 판정식·임계·파일 모양은
 //  그대로 옮겼고, 읽는 쪽(core/EngineRegime.cpp·대시보드·알림)은 바뀌지 않는다. 파이썬에만 있던 FinanceDataReader
 //  폴백은 뺐다 — 참고 지표 셋은 같은 원천(FRED CSV)을 직접 받는다. [why D-147]
 //
@@ -103,7 +103,7 @@ public:
     void start(const FeedConfig& config);
     void stop();
 
-    // 한 사이클만 돌고 끝낸다(tools/regime_feed_once.cpp, 파이썬 --once와 대조용). 다른 쓰는 쪽 확인은 건너뛴다.
+    // 한 사이클만 돌고 끝낸다(tools/regime_feed_once.cpp, 손으로 한 번 돌려 보는 용도). 다른 쓰는 쪽 확인은 건너뛴다.
     void run_once(const FeedConfig& config);
 
 private:

@@ -21,7 +21,7 @@ $env:PYTHONUTF8 = "1"
 
 ## 1. 자동매매 하루 루프 (한 창으로 끝내기)
 
-<!-- sync: scripts/auto_trade_day.ps1@990024a scripts/auto_trade_guard.ps1@db8a573 -->
+<!-- sync: scripts/auto_trade_day.ps1@d36e255 scripts/auto_trade_guard.ps1@db8a573 -->
 
 감시견 하나가 국면 보조 프로세스·대시보드·알림·트레이더를 순서대로 띄우고, 장 마감까지 트레이더가 멈추면 다시
 띄운다. 유니버스 재랭킹과 전 종목 시세는 엔진 안 시세판이 받으므로 따로 창이 없다 — config에 `"market_board": true`가 없으면 감시견이 경고만 남긴다(D-147). config의 `regime_feed.out`이 `regime_file`과 같으면 국면 판정도 엔진이 써서 파이썬 국면 피드 창을 띄우지 않는다(다르면 대조 기간이라 둘 다 돈다). 감시자 예약작업은 07:30부터 돈다 — 엔진이 08:00 NXT 개장 전에 전 종목 일봉을 미리 받아 두게(config `daily_warm_until_hhmm`, D-147). 띄우기 전에 그날 장이 열리는지 KIS에 물어(`scripts/check_market_open.py`) 휴장일이면 아무것도 안 띄우고 끝낸다 —
@@ -57,7 +57,7 @@ powershell -ExecutionPolicy Bypass -File scripts\auto_trade_day.ps1
 | `-Config Quant\config\config.json` | 실계좌 config로 (기본은 모의 `Quant\config\config_dev_paper.json`) |
 | `-Until 15:35` | 이 시각 이후로는 재기동하지 않는다 (기본 15:35) |
 | `-DryRun` | 무엇을 띄울지만 출력하고 실제로 띄우지 않는다 |
-| `-NoRegimeFeed` / `-NoDashboard` / `-NoNotify` / `-NoMarketClose` | 해당 단계 건너뛰기 |
+| `-NoDashboard` / `-NoNotify` / `-NoMarketClose` | 해당 단계 건너뛰기 |
 | `-NoTrader` | 트레이더를 띄우지 않는다 — 리눅스(WSL)가 띄우는 날. 부속 창·유니버스·마감 정리는 그대로. 아래 1.1절 |
 
 진행 상태는 `_private\_auto_trade_day.json`(`phase`·`sessions`·`history`), 실행 로그는 `logs\auto_trade_day_YYYYMMDD.log`.
@@ -113,22 +113,14 @@ wsl -e docker ps -a --filter name=quant-tsdb
 
 클로드가 감시·수정·마감 문서까지 맡게 하려면 터미널에서 `/auto-trade-day`. 마감 뒤 순서는 [AUTOMATION.md](AUTOMATION.md) 하루 흐름.
 
-## 2. 장중 매매를 창 4개로 손으로 띄우기
+## 2. 장중 매매를 창 3개로 손으로 띄우기
 
-<!-- sync: PYQuant/tools/macro_regime_feed.py@48f9fb3 scripts/notify_trades.py@41177d1 -->
+<!-- sync: scripts/notify_trades.py@41177d1 -->
 
 1절 감시견이 도는 날에는 쓰지 않는다(트레이더가 둘이 된다). 대상은 DevScale 모의계좌 `Quant\config\config_dev_paper.json` —
 `Quant\config\config.json`은 실계좌라 장중 시험에 쓰지 않는다. 각 창은 별도 프로세스이고 닫으면 그 부분만 멈춘다.
 
-창 1 — 매크로 국면 보조 프로세스(제일 먼저, 장 끝까지 유지). 멈추면 `regime.json`이 낡아(기본 600초) 국면 게이트가 마지막 값으로 굳는다 — 새 정지·해제·매수 비율이 반영되지 않는다.
-
-```powershell
-cd {ROOT}
-$env:PYTHONUTF8 = "1"
-.\PYQuant\.venv-win\Scripts\python.exe PYQuant\tools\macro_regime_feed.py --interval 180 --out Quant\config\regime.json
-```
-
-창 2 — 트레이더 엔진(09:00 직전). 유니버스(`universe_scan.json`)와 전 종목 시세는 엔진 안 시세판이 받으므로 따로 띄울 창이 없다(D-147). 항상 저장소 루트에서 띄운다 — `build_win\` 안에서 띄우면 config 상대경로가 어긋나
+창 1 — 트레이더 엔진(09:00 직전). 유니버스(`universe_scan.json`)와 전 종목 시세는 엔진 안 시세판이, 국면 판정(`regime.json`)은 엔진 안 국면 스레드(config `regime_feed`)가 맡으므로 따로 띄울 창이 없다(D-147). 항상 저장소 루트에서 띄운다 — `build_win\` 안에서 띄우면 config 상대경로가 어긋나
 유니버스가 1종목으로 무너진다. 마감 청산까지 완주시킨다(장중 Ctrl+C 금지).
 
 ```powershell
@@ -136,7 +128,7 @@ cd {ROOT}
 .\Quant\build_win\quant_trader.exe Quant\config\config_dev_paper.json
 ```
 
-창 3 — 대시보드(3절), 창 4 — 매매 알림(체결은 즉시, 평단·손익 표는 30분마다. 닫아도 매매에는 영향 없음).
+창 2 — 대시보드(3절), 창 3 — 매매 알림(체결은 즉시, 평단·손익 표는 30분마다. 닫아도 매매에는 영향 없음).
 
 ```powershell
 cd {ROOT}

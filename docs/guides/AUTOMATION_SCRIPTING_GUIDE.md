@@ -423,7 +423,7 @@ while (-not $p.HasExited) {
 ```powershell
 Get-Process quant_trader -ErrorAction SilentlyContinue                 # 이름으로. exe 하나짜리는 이걸로 충분
 $procs = @(Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='py.exe'")
-$procs | Where-Object { $_.CommandLine -like "*macro_regime_feed.py*" }  # 명령줄로 역할 판정
+$procs | Where-Object { $_.CommandLine -like "*notify_trades.py*" }  # 명령줄로 역할 판정
 ```
 
 `powershell.exe`·`python.exe`는 여러 개 떠 있어 이름으로는 구분이 안 된다. `Win32_Process`는 `CommandLine`·`ParentProcessId`·
@@ -537,7 +537,7 @@ $task.Actions[0].Arguments -match '-Until\s+(\S+)'                     # 등록�
 # 2부 — Python
 
 파이썬 스크립트는 두 부류다. **마감 뒤 결정론 경로**(`market_close_autodoc`·`gen_facts`·`maintain`·`check_*`: 입력 파일을 읽어 문서·JSON을 만들고
-종료코드를 낸다)와 **장중 상주 프로세스**(`dashboard_server`·`notify_trades`·`macro_regime_feed`: PowerShell 부속 창 안에서 하루 종일 돈다).
+종료코드를 낸다)와 **장중 상주 프로세스**(`dashboard_server`·`notify_trades`·`ledger_recorder`: PowerShell 부속 창 안에서 하루 종일 돈다).
 둘 다 표준 라이브러리만으로 짜는 것이 원칙이고(`requests` 하나 예외), 파이썬은 반드시 `py` 런처로 부른다(`python`은 스토어 스텁).
 
 ## 9. 뼈대 — 모든 파이썬 스크립트가 같은 머리를 가진다

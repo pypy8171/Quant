@@ -21,7 +21,6 @@
 param(
   [string]$Config = "Quant\config\config_dev_paper.json",
   [string]$Until = "15:35",          # 이 시각을 넘으면 재기동하지 않는다. 모의는 15:30이 매매 끝. 실계좌 전환 때 20:05(애프터마켓 20:00 + 여유, D-097·T-18)
-  [switch]$NoRegimeFeed,
   [switch]$NoDashboard,
   [switch]$NoNotify,                 # 체결·포지션 메신저 알림 창을 띄우지 않는다
   [switch]$NoRecorder,               # ZMQ 체결·주문을 TimescaleDB에 적재하는 창을 띄우지 않는다
@@ -492,16 +491,17 @@ Save-Status "starting" @{ paper = $paper; head = $head; dirty = $dirty }
 if (-not $DryRun) { [void](Run-Native "py scripts\gen_tuning_sheet.py --config $Config") }
 
 # ─────────────── 부속 창 ───────────────
-# 엔진 안 국면 판정 피드(regime_feed.out)가 엔진이 읽는 파일(regime_file)을 직접 쓰면 파이썬 피드는 띄우지 않는다.
-#  비교 기간에는 regime_feed.out 이 다른 파일(regime_cpp.json)이라 둘 다 돈다. [why D-147]
+# 국면 판정은 엔진 안 피드가 regime_feed.out 에 쓰고 엔진은 regime_file 을 읽는다. 둘이 다르면 아무도 regime_file 을
+#  갱신하지 않아 국면 게이트가 마지막 값으로 굳으므로 경고한다(파이썬 피드는 09-27에 걷었다). [why D-147]
 $regimeInEngine = $false
 try {
   $regimeConfig = Get-Content $Config -Raw -Encoding UTF8 | ConvertFrom-Json
   $feedOut = [string]$regimeConfig.regime_feed.out
   $regimeInEngine = [bool]$feedOut -and ($feedOut.Replace('/', '\') -eq ([string]$regimeConfig.regime_file).Replace('/', '\'))
 } catch { }
-if ($regimeInEngine) { Say "  국면 판정은 엔진이 쓴다(regime_feed.out = regime_file) — 파이썬 피드 창을 띄우지 않는다" }
-if (-not $NoRegimeFeed -and -not $regimeInEngine) { Start-Window "quant-regime"   "& '$py' PYQuant\tools\macro_regime_feed.py --interval 180 --out Quant\config\regime.json" "macro_regime_feed.py" }
+if (-not $regimeInEngine) {
+  Say "config regime_feed.out 이 regime_file 과 다르다 — regime.json 을 쓰는 곳이 없어 국면 판정이 멈춘다(D-147)." "WARN"
+}
 if (-not $script:BoardInEngine) {
   Say "config에 market_board가 꺼져 있다 — 전 종목 시세 없이 KIS 랭킹 축만으로 유니버스를 고른다(D-147)." "WARN"
 }

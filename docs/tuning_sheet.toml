@@ -21,9 +21,9 @@ keys = ["mode", "log_level", "fetch_interval_sec", "bootstrap_ledger_from_balanc
 note = "트레이더 프로세스 전체에 걸리는 값. fetch_interval_sec 는 REST 폴러(DataPoller) 주기."
 
 [[config_group]]
-name = "국면(regime) — 매크로 보조 프로세스"
-keys = ["regime_file", "regime_stale_sec", "regime_strategies.*"]
-note = "PYQuant/tools/macro_regime_feed.py 가 regime.json 을 쓰고 엔진 데이터 스레드가 매 주기 읽어(poll_regime_file) 전략 on/off 를 정한다."
+name = "국면(regime) — 엔진 안 국면 판정 피드"
+keys = ["regime_file", "regime_stale_sec", "regime_strategies.*", "regime_feed.*"]
+note = "엔진 안 국면 판정 피드(Quant/src/regime/RegimeFeed.cpp)가 regime_feed.out 에 regime.json 을 쓰고, 엔진 데이터 스레드가 regime_file 을 매 주기 읽어(poll_regime_file) 전략 on/off 를 정한다. 두 경로가 같아야 한다(D-147)."
 
 [[config_group]]
 name = "유니버스 스캔 — KIS 랭킹 · data.go.kr · 업종"
@@ -458,45 +458,48 @@ unit = "행"
 group = "data.go.kr 유니버스 피드(손 실행·PIT 백필) — universe_feed.py"
 meaning = "스냅샷이 이보다 적으면 부분 응답으로 보고 버린다"
 
-# --- 국면 보조 프로세스 (config 묶음에 합류) ---
+# --- 국면 판정 피드 (config 묶음에 합류) ---
 [[code_value]]
 id = "regime_feed_interval_sec"
-file = "PYQuant/tools/macro_regime_feed.py"
-regex = '"--interval", type=float, default=([\d.]+)'
+file = "Quant/include/regime/RegimeFeed.h"
+regex = '^\s+int\s+interval_sec = (\d+);'
 unit = "초"
-group = "국면(regime) — 매크로 보조 프로세스"
-meaning = "regime.json 발행 주기 기본(감시견은 --interval 180 을 넘긴다)"
+group = "국면(regime) — 엔진 안 국면 판정 피드"
+meaning = "regime.json 발행 주기 기본"
+config_key = "interval_sec"
 
 [[code_value]]
 id = "regime_feed_stale_after_sec"
-file = "PYQuant/tools/macro_regime_feed.py"
-regex = '"stale_after_sec": (\d+),'
+file = "Quant/src/regime/RegimeFeed.cpp"
+regex = '^constexpr int kStaleAfterSec\s+= (\d+);'
 unit = "초"
-group = "국면(regime) — 매크로 보조 프로세스"
+group = "국면(regime) — 엔진 안 국면 판정 피드"
 meaning = "파일 안에 적는 신뢰 시한 힌트"
 
 [[code_value]]
 id = "regime_halt_score"
-file = "PYQuant/tools/macro_regime_feed.py"
-regex = '^HALT_SCORE = (-?\d+)'
+file = "Quant/include/regime/RegimeFeed.h"
+regex = '^\s+int halt_score\s+= (-?\d+);'
 unit = "점"
-group = "국면(regime) — 매크로 보조 프로세스"
-meaning = "이 점수 이하면 신규 진입 정지(env QUANT_HALT_SCORE)"
+group = "국면(regime) — 엔진 안 국면 판정 피드"
+meaning = "이 점수 이하면 신규 진입 정지"
+config_key = "halt_score"
 
 [[code_value]]
 id = "regime_liq_score"
-file = "PYQuant/tools/macro_regime_feed.py"
-regex = '^LIQ_SCORE\s+= (-?\d+)'
+file = "Quant/include/regime/RegimeFeed.h"
+regex = '^\s+int liquidate_score = (-?\d+);'
 unit = "점"
-group = "국면(regime) — 매크로 보조 프로세스"
-meaning = "이 점수 이하면 강제청산(env QUANT_LIQ_SCORE)"
+group = "국면(regime) — 엔진 안 국면 판정 피드"
+meaning = "이 점수 이하면 강제청산"
+config_key = "liquidate_score"
 
 [[code_value]]
 id = "regime_default_stale_sec"
 file = "Quant/include/core/RegimeFileJudge.h"
 regex = 'kDefaultRegimeStaleSec = (\d+);'
 unit = "초"
-group = "국면(regime) — 매크로 보조 프로세스"
+group = "국면(regime) — 엔진 안 국면 판정 피드"
 meaning = "regime.json 이 이보다 오래되면 불신"
 config_key = "regime_stale_sec"
 
@@ -918,14 +921,6 @@ group = "감시견·예약작업 — scripts/auto_trade_day.ps1 · market_close_
 meaning = "이 시각 뒤엔 트레이더를 다시 띄우지 않는다(스크립트 기본, 실제는 market_close_timetable 이 넘김)"
 
 [[code_value]]
-id = "watchdog_regime_interval_arg"
-file = "scripts/auto_trade_day.ps1"
-regex = 'macro_regime_feed\.py --interval (\d+)'
-unit = "초"
-group = "감시견·예약작업 — scripts/auto_trade_day.ps1 · market_close_timetable.ps1"
-meaning = "국면 보조 프로세스에 넘기는 발행 주기(실제 적용값)"
-
-[[code_value]]
 id = "watchdog_notify_interval_arg"
 file = "scripts/auto_trade_day.ps1"
 regex = 'notify_trades\.py --config \$Config --interval (\d+)'
@@ -1102,9 +1097,9 @@ used_for = "⑧ 주문"
 
 [[cycle]]
 step = "⑦ 국면(매크로)"
-source = "PYQuant/tools/macro_regime_feed.py — 지수·환율·미국 선물 등 점수화"
+source = "Quant/src/regime/RegimeFeed.cpp(엔진 안 스레드) — 지수·환율·미국 선물 등 점수화"
 what = "`Quant/config/regime.json` (점수 ≤ {regime_halt_score} 진입 정지, ≤ {regime_liq_score} 청산)"
-every = "{watchdog_regime_interval_arg} (엔진은 파일이 {regime_stale_sec} 넘으면 불신)"
+every = "{regime_feed_interval_sec} (엔진은 파일이 {regime_stale_sec} 넘으면 불신)"
 used_for = "⑧ 신규 진입 허용 여부"
 
 [[cycle]]
