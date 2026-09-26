@@ -209,7 +209,7 @@ flowchart LR
 | 원장 저널 `ledger_YYYYMMDD.bin` | 주문 의도·접수·거부·체결·취소·조정·시드·현금·당일손익 | 바이너리 — 192바이트 고정 레코드, 순번·CRC32 ([LedgerJournal.h](../Quant/include/risk/LedgerJournal.h)) | `ledger_journal_dir` | [PYQuant/tools/ledger_recorder.py](../PYQuant/tools/ledger_recorder.py)가 파일 꼬리를 따라 읽어 `ledger_events`, 거기서 `fills`·`orders`·`positions`로 옮긴다 |
 | 시세 캡처 `ticks_<기동시각>.bin` | 체결·호가·일봉·그날 유니버스 | 바이너리 — QTCAP v2 ([TickCapture.h](../Quant/include/core/TickCapture.h)) | `capture_dir` | 안 간다. 리플레이 백테스트 입력이다 |
 | ZMQ 발행 | 체결틱·신호·주문·체결·엔진 상태 | 토픽 한 프레임 + JSON 한 프레임 ([ZmqBridge.cpp](../Quant/src/ipc/ZmqBridge.cpp)) | `zmq_pub_port` 블록 (ZeroMQ가 링크돼 있으면 늘 켜짐) | [PYQuant/main.py](../PYQuant/main.py) `record`가 구독해 체결틱·신호·엔진 상태만 넣는다. 주문·체결은 저널 쪽이 넣는다(D-113) |
-| 엔진 DB 적재 | 체결틱 | libpq COPY 글자 — 파이썬 적재기와 같은 `ticks` 표·열, `ts`는 큐에 넣은 벽시계 ms([DbManager.cpp](../Quant/src/ipc/DbManager.cpp)) | `database.enabled` (기본 꺼짐, 비밀번호는 환경변수 `TSDB_PASSWORD`) | 엔진이 바로 넣는다. 켠 날에는 `record`를 `--record-ticks` 없이 띄운다 — 둘 다 넣으면 같은 체결이 두 번 들어간다(D-148) |
+| 엔진 DB 적재 | 체결틱 | libpq COPY 글자 — 파이썬 적재기와 같은 `ticks` 표·열, `ts`는 큐에 넣은 벽시계 ms([DbManager.cpp](../Quant/src/ipc/DbManager.cpp)) | `database.enabled` (기본 꺼짐, 비밀번호는 환경변수 `TSDB_PASSWORD`) | 엔진이 바로 넣는다. 운영 설정(`config_dev_paper`·`config_live`)은 09-26부터 켬. 켠 설정이면 감시견이 `record`를 `--record-ticks` 없이 띄운다 — 둘 다 넣으면 같은 체결이 두 번 들어간다(D-148) |
 
 읽을 때 헷갈리기 쉬운 세 가지.
 

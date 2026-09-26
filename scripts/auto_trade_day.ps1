@@ -604,7 +604,13 @@ if (-not $NoRecorder) {
   $recorderPortArgs = ""
   if ($recorderFeedPort)     { $recorderPortArgs += " --feed-port $recorderFeedPort" }
   if ($recorderStrategyPort) { $recorderPortArgs += " --strategy-port $recorderStrategyPort" }
-  Start-Window "quant-recorder"  "& '$py' PYQuant\main.py record --host localhost --port $recorderPort$recorderPortArgs --record-ticks $recorderArgs" "main.py record"
+  # config 의 database.enabled 가 켜져 있으면 엔진이 체결을 ticks 에 바로 넣는다(D-148). 리코더까지 넣으면
+  #  같은 체결이 두 번 들어가므로 그날은 --record-ticks 를 뺀다(신호·상태 적재는 그대로).
+  $engineWritesTicks = $false
+  try { $engineWritesTicks = [bool](Get-Content $Config -Raw -Encoding UTF8 | ConvertFrom-Json).database.enabled } catch { }
+  $recordTicksArg = if ($engineWritesTicks) { "" } else { " --record-ticks" }
+  if ($engineWritesTicks) { Say "  체결 시세는 엔진이 DB에 넣는다(database.enabled) — 리코더는 --record-ticks 없이 띄운다" }
+  Start-Window "quant-recorder"  "& '$py' PYQuant\main.py record --host localhost --port $recorderPort$recorderPortArgs$recordTicksArg $recorderArgs" "main.py record"
   # 엔진 자원(CPU·메모리·스레드별 CPU·perf 함수 핫스팟) → 그라파나 ops. -NoTrader 날은 엔진이 WSL(Ubuntu-24.04)에
   # 있어 /proc를 그 배포판에서 읽고, Windows exe 날은 psutil로 본다.
   $procwatchArgs = if ($NoTrader) { "--wsl-distro Ubuntu-24.04" } else { "" }
