@@ -144,16 +144,23 @@ class LinuxProcSampler:
 
 
 # ── Windows(psutil) 표본 ──────────────────────────────────────────────────────
-def find_process(process_name: str):
-    """이름이 일치하는 프로세스 1개를 찾는다. 여러 개면 먼저 찾은 것(재기동 중 중복 기동은
-    감시견이 막는 영역이라 여기서는 판단하지 않는다)."""
+def find_processes(process_name: str) -> list:
+    """이름이 일치하는 프로세스를 전부 찾는다.
+
+    하나만 돌려주면 역할을 나눠 띄운 판(시세·전략·주문 세 프로세스가 다 quant_trader.exe)에서 먼저
+    찾은 하나만 재게 되고, 그 숫자를 한 프로세스 판과 나란히 놓으면 "나눴더니 CPU가 줄었다"는
+    거짓 결론이 나온다 — 셋 중 하나만 본 것이다(2026-09-26 부하시험 준비 중 발견). proc_stats 에
+    pid 칸이 있으니 여럿을 그대로 넣고, 보는 쪽에서 합치거나 나눠 본다."""
+    found = []
+
     for process in psutil.process_iter(["pid", "name"]):
         try:
             if process.info["name"] and process.info["name"].lower() == process_name.lower():
-                return process
+                found.append(process)
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
-    return None
+
+    return found
 
 
 MISSING_REPEAT_SEC = 300.0
@@ -184,37 +191,53 @@ def _run_psutil(db, process_name: str, interval: float):
     core_count = psutil.cpu_count(logical=True)
     missing_since = 0.0
     last_missing_warning = 0.0
+    primed = set()   # cpu_percent()를 한 번 불러 기준점을 잡아 둔 pid
 
     while True:
-        process = find_process(process_name)
-        if process is None:
+        processes = find_processes(process_name)
+
+        if not processes:
             missing_since, last_missing_warning = warn_missing(
                 process_name, missing_since, last_missing_warning)
             time.sleep(interval)
             continue
 
         missing_since = 0.0
-        try:
-            cpu_percent = process.cpu_percent(interval=interval)  # 이 구간 동안 대기하며 측정
-            memory_mb = process.memory_info().rss / (1024 * 1024)
-            thread_count = process.num_threads()
-            db.insert_proc_stat({
-                "process_name": process_name,
-                "pid": process.pid,
-                "cpu_percent": cpu_percent,
-                "memory_mb": memory_mb,
-                "thread_count": thread_count,
-                "core_count": core_count,
-            })
-            logger.info(f"pid={process.pid} cpu={cpu_percent:.1f}% mem={memory_mb:.0f}MB "
-                        f"threads={thread_count}")
-        except (psutil.NoSuchProcess, psutil.AccessDenied) as error:
-            logger.warning(f"표본 수집 중 프로세스 사라짐(name={process_name}): {error}")
-            time.sleep(interval)
-        except Exception as error:
-            # [inv] 리눅스 경로와 같은 약속 — 어떤 예외로도 이 루프를 나가지 않는다.
-            logger.warning(f"표본 수집 실패 — 이어서 간다: {error}")
-            time.sleep(interval)
+
+        # 재는 방식: cpu_percent()에 간격을 주면 그 시간만큼 멈춰 서므로 프로세스가 셋이면 한 바퀴가
+        #  세 배로 늘어난다. 대신 기준점만 잡아 두고 한 번만 자고 일어나 셋을 읽는다 — 세 값이 같은
+        #  구간을 가리켜야 역할끼리 더한 값이 말이 된다.
+        for process in processes:
+            if process.pid not in primed:
+                try:
+                    process.cpu_percent()
+                    primed.add(process.pid)
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+
+        time.sleep(interval)
+        primed &= {process.pid for process in processes}
+
+        for process in processes:
+            try:
+                cpu_percent = process.cpu_percent()   # 위에서 잡은 기준점 이후 구간
+                memory_mb = process.memory_info().rss / (1024 * 1024)
+                thread_count = process.num_threads()
+                db.insert_proc_stat({
+                    "process_name": process_name,
+                    "pid": process.pid,
+                    "cpu_percent": cpu_percent,
+                    "memory_mb": memory_mb,
+                    "thread_count": thread_count,
+                    "core_count": core_count,
+                })
+                logger.info(f"pid={process.pid} cpu={cpu_percent:.1f}% mem={memory_mb:.0f}MB "
+                            f"threads={thread_count}")
+            except (psutil.NoSuchProcess, psutil.AccessDenied) as error:
+                logger.warning(f"표본 수집 중 프로세스 사라짐(name={process_name}): {error}")
+            except Exception as error:
+                # [inv] 리눅스 경로와 같은 약속 — 어떤 예외로도 이 루프를 나가지 않는다.
+                logger.warning(f"표본 수집 실패 — 이어서 간다: {error}")
 
 
 def _run_linux(db, process_name: str, interval: float, wsl_distro: str, perf_interval: float, perf_seconds: float,

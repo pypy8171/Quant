@@ -64,6 +64,9 @@ MUST_BE_ZERO = (
     "feed_channel_discarded",
     "fill_channel_overflow",
     "fill_channel_discarded",
+    # DB 적재 — 서버가 거절한 행과, 끝 신호 뒤 답 전에 끊겨 다시 안 넣은 행. 둘 다 0 이어야 한다.
+    "db_failed",
+    "db_ambiguous",
 )
 
 # 0 이 아닐 수 있지만 both 판과 견줘야 하는 칸. 늘었으면 분리가 가져온 값이다.
@@ -78,6 +81,11 @@ COMPARE_WITH_BOTH = (
     "fill_channel_sent",
     "fill_channel_received",
     "beat_gap_max",
+    # DB 적재 — 엔진이 직접 넣는 판에서만 0 이 아니다(파이썬 적재기 판은 칸 자체가 없다).
+    #  받은 것과 넣은 것의 차이가 큐가 차서 버린 행이다.
+    "db_offered",
+    "db_written",
+    "db_dropped",
 )
 
 # 이중 발주 판정. 이 칸이 0 이 아니면 같은 주문이 두 번 만들어졌다는 뜻이라 따로 크게 알린다.

@@ -23,7 +23,7 @@ import random
 import struct
 import sys
 import time
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -122,12 +122,36 @@ def _zipf_weights(count: int, skew: float) -> numpy.ndarray:
     return ranks ** (-skew)
 
 
-def _market_cap_weights(count: int, skew: float) -> numpy.ndarray:
+def _market_cap_weights(count: int, skew: float, top_weights: Sequence[float] = ()) -> numpy.ndarray:
     """시가총액 분포 대용. 실제 시총을 받아 오지 않고 순위-크기 법칙으로 대신한다 —
-    부하시험에 필요한 것은 '대형주 몇 종목에 거래대금이 쏠린다'는 모양뿐이라 그렇다."""
-    weights = _zipf_weights(count, skew)
+    부하시험에 필요한 것은 '대형주 몇 종목에 거래대금이 쏠린다'는 모양뿐이라 그렇다.
 
-    return weights / weights.sum()
+    top_weights 를 주면 앞쪽 그 개수만큼은 그 값을 그대로 쓰고, 남은 몫만 순위로 나눈다.
+    실제로 본 동시호가 대금이 있는 종목은 그 값이 순위법칙보다 맞기 때문이다 — 하이닉스는
+    시총 순위가 2위인데 동시호가 대금은 전체의 20%로 순위법칙이 주는 5.9%의 세 배가 넘는다
+    (09-26 관측). 시총 자체를 못 쓰는 이유는 universe_scan.json 에 시총 항목이 없고, 2,700 중
+    2,433개가 자리를 채우려고 만들어낸 코드라 실제 시총이 존재하지 않아서다.
+
+    [inv] top_weights 합은 1 미만이어야 한다 — 남은 몫이 없으면 나머지 종목이 전부 0이 된다.
+    """
+    anchored = numpy.asarray(top_weights, dtype=numpy.float64)
+
+    if anchored.size == 0:
+        weights = _zipf_weights(count, skew)
+
+        return weights / weights.sum()
+
+    if anchored.size >= count:
+        raise ValueError(f"박을 비중이 종목 수보다 많다: {anchored.size} >= {count}")
+
+    remaining = 1.0 - float(anchored.sum())
+
+    if remaining <= 0.0:
+        raise ValueError(f"박은 비중 합이 1 이상이다: {anchored.sum():.4f}")
+
+    tail = _zipf_weights(count - anchored.size, skew)
+
+    return numpy.concatenate([anchored, tail / tail.sum() * remaining])
 
 
 def _load_known_prices() -> dict[str, int]:
@@ -180,7 +204,12 @@ def load_universe_file(path: Path) -> list[str]:
     return [str(ticker) for ticker in written["tickers"]]
 
 
-def build_universe(symbol_count: int, skew: float, universe_file: Path | None = None) -> Universe:
+def build_universe(
+    symbol_count: int,
+    skew: float,
+    universe_file: Path | None = None,
+    top_weights: Sequence[float] = (),
+) -> Universe:
     """종목 목록·기준가·가중치를 만든다. 모자란 종목은 합성 코드(9로 시작)로 채운다."""
     known_prices = _load_known_prices()
 
@@ -205,7 +234,11 @@ def build_universe(symbol_count: int, skew: float, universe_file: Path | None = 
         known = known_prices.get(ticker)
         prices[rank] = round_to_tick(known) if known else _synthetic_price_for_rank(rank, symbol_count)
 
-    return Universe(tickers=tickers, reference_prices=prices, weights=_market_cap_weights(symbol_count, skew))
+    return Universe(
+        tickers=tickers,
+        reference_prices=prices,
+        weights=_market_cap_weights(symbol_count, skew, top_weights),
+    )
 
 
 # ── 주문 미리 만들기 ────────────────────────────────────────────────────────
@@ -219,6 +252,47 @@ def _order_quantities(universe: Universe, total_value_krw: float, orders_per_sym
     quantities = numpy.maximum(1, numpy.round(per_order_value / universe.reference_prices))
 
     return quantities.astype(numpy.int32)
+
+
+def _value_based_order_counts(
+    universe: Universe, total_value_krw: float, shares_per_order: int
+) -> tuple[numpy.ndarray, numpy.ndarray]:
+    """종목별 주문 수와 한 건의 수량. 수량을 고정하고 건수를 거래대금에서 뽑는다.
+
+    [formula] 건수 = max(1, 종목거래대금 / (기준가 × 건당주수)),  수량 = 건당주수(전 종목 같은 값)
+
+    전 종목에 같은 건수를 주면(기존 길) 대금이 맞지 않는다. 소형주는 건당 목표금액이 주가보다 작아
+    max(1, ...)에 걸려 1주로 올라가고, 그 1주가 건수만큼 곱해진다 — 2,700위 종목이 노린 0.06억 대신
+    8.3억을 내고, 전체로는 1.36조를 노린 판이 22.98조가 됐다(09-26 실측, 16.9배). 건수를 대금에서
+    뽑으면 올림이 건당 한 주 안쪽에만 생겨 총 대금 오차가 0.0%다.
+    """
+    quantities = numpy.full(len(universe), max(1, shares_per_order), dtype=numpy.int32)
+    symbol_values = universe.weights * total_value_krw
+    value_per_order = universe.reference_prices.astype(numpy.float64) * quantities
+    counts = numpy.maximum(1, numpy.round(symbol_values / value_per_order))
+
+    return counts.astype(numpy.int64), quantities
+
+
+def _chunk_symbol_ranges(order_counts: numpy.ndarray, records_per_chunk: int) -> Iterator[tuple[int, int]]:
+    """묶음 경계를 종목 경계로 자른다. 한 종목이 혼자 한도를 넘으면 그 종목만으로 한 묶음이다.
+
+    [inv] 한 종목의 주문은 반드시 한 묶음 안에 다 들어간다 — 주문번호를 종목 경계에서 뽑는 것도,
+      받는 쪽 수신 스레드가 섞이지 않는 것도 이 덕이다.
+    """
+    symbol_count = len(order_counts)
+    first_symbol = 0
+
+    while first_symbol < symbol_count:
+        chunk_total = int(order_counts[first_symbol])
+        last_symbol = first_symbol + 1
+
+        while last_symbol < symbol_count and chunk_total + int(order_counts[last_symbol]) <= records_per_chunk:
+            chunk_total += int(order_counts[last_symbol])
+            last_symbol += 1
+
+        yield first_symbol, last_symbol
+        first_symbol = last_symbol
 
 
 def build_configure_records(universe: Universe) -> numpy.ndarray:
@@ -242,16 +316,16 @@ def build_auction_records(universe: Universe) -> numpy.ndarray:
 
 def iterate_accumulate_records(
     universe: Universe,
-    orders_per_symbol: int,
+    order_counts: numpy.ndarray,
     quantities: numpy.ndarray,
     generator: numpy.random.Generator,
     records_per_chunk: int = _ACCUMULATE_CHUNK_RECORDS,
 ) -> Iterator[numpy.ndarray]:
-    """1단계에 쏟을 주문을 종목 묶음 단위로 만들어 내놓는다. 종목당 orders_per_symbol 건,
+    """1단계에 쏟을 주문을 종목 묶음 단위로 만들어 내놓는다. 건수는 종목마다 다르고(order_counts),
     주문번호는 전역에서 겹치지 않는다.
 
     [inv] 묶음 경계는 종목 경계다 — 한 종목의 주문은 반드시 한 묶음 안에 다 들어간다. 주문번호를
-      종목 순번에서 바로 뽑을 수 있는 것도, 받는 쪽 수신 스레드가 섞이지 않는 것도 이 덕이다.
+      종목 경계에서 바로 뽑을 수 있는 것도, 받는 쪽 수신 스레드가 섞이지 않는 것도 이 덕이다.
 
     전부를 한 배열로 들면 주문 한 건에 100바이트 넘게 든다 — 32바이트짜리 전문 말고도 값을 고르는
     float64 배열 여섯 개를 같이 들어서다. 묶음으로 내놓으면 그 100바이트가 묶음 크기에만 걸린다.
@@ -259,27 +333,27 @@ def iterate_accumulate_records(
     값은 기준가 둘레 ±30% 안에서 고른다 — 매수는 기준가 위로도 걸리게, 매도는 아래로도 걸리게 해서
     단일가에서 실제로 맞는 물량이 생기도록.
     """
-    symbol_count = len(universe)
-    symbols_per_chunk = max(1, records_per_chunk // max(orders_per_symbol, 1))
+    # 종목 앞까지 쌓인 건수 — 주문번호를 여기서 바로 뽑는다.
+    order_id_offsets = numpy.concatenate([[0], numpy.cumsum(order_counts)])
 
-    for first_symbol in range(0, symbol_count, symbols_per_chunk):
-        last_symbol = min(first_symbol + symbols_per_chunk, symbol_count)
-        total = (last_symbol - first_symbol) * orders_per_symbol
+    for first_symbol, last_symbol in _chunk_symbol_ranges(order_counts, records_per_chunk):
+        repeats = order_counts[first_symbol:last_symbol]
+        total = int(repeats.sum())
         records = numpy.zeros(total, dtype=_WIRE_DTYPE)
 
-        # 주문번호: 종목 순번 × 종목당 건수 + 1.. — 종목 간에도, 묶음 간에도 안 겹친다.
-        first_order_id = first_symbol * orders_per_symbol + 1
+        # 주문번호: 앞 종목들의 건수 합 + 1.. — 종목 간에도, 묶음 간에도 안 겹친다.
+        first_order_id = int(order_id_offsets[first_symbol]) + 1
         records["order_id"] = numpy.arange(first_order_id, first_order_id + total, dtype=numpy.uint64)
         records["symbol_index"] = numpy.repeat(
-            numpy.arange(first_symbol, last_symbol, dtype=numpy.uint32), orders_per_symbol
+            numpy.arange(first_symbol, last_symbol, dtype=numpy.uint32), repeats
         )
-        records["quantity"] = numpy.repeat(quantities[first_symbol:last_symbol], orders_per_symbol)
+        records["quantity"] = numpy.repeat(quantities[first_symbol:last_symbol], repeats)
         records["side"] = generator.integers(0, 2, size=total, dtype=numpy.uint8)
         records["command"] = _COMMAND_ACCUMULATE
 
         # 값: 기준가 × (1 + 정규난수). 매수는 위로, 매도는 아래로 조금 치우치게 해서 교차가 생기게 한다.
         reference = numpy.repeat(
-            universe.reference_prices[first_symbol:last_symbol].astype(numpy.float64), orders_per_symbol
+            universe.reference_prices[first_symbol:last_symbol].astype(numpy.float64), repeats
         )
         drift = numpy.where(records["side"] == _SIDE_BUY, 0.004, -0.004)
         noise = generator.normal(0.0, 0.010, size=total)
@@ -308,7 +382,7 @@ def _round_array_to_tick(prices: numpy.ndarray) -> numpy.ndarray:
 def build_continuous_records(
     universe: Universe,
     quantities: numpy.ndarray,
-    orders_per_symbol: int,
+    order_counts: numpy.ndarray,
     limit_orders_per_second: int,
     generator: numpy.random.Generator,
 ) -> list[numpy.ndarray]:
@@ -319,7 +393,7 @@ def build_continuous_records(
       어림값 = 종목당 주문수 × 주문수량 × 0.5(양쪽 중 작은 쪽이 맞는다).
     """
     symbol_count = len(universe)
-    estimated_auction_quantity = (quantities.astype(numpy.int64) * orders_per_symbol) // 2
+    estimated_auction_quantity = (quantities.astype(numpy.int64) * order_counts) // 2
     market_quantity_per_second = numpy.maximum(1, estimated_auction_quantity // _SECONDS_PER_PHASE)
 
     # 값은 기준가에서 출발해 초마다 랜덤워크한다. 한 걸음은 그 종목 호가단위의 몇 칸.
@@ -329,7 +403,7 @@ def build_continuous_records(
     lower_bound = (universe.reference_prices * (1.0 - _PRICE_LIMIT_RATIO)).astype(numpy.int64)
     upper_bound = (universe.reference_prices * (1.0 + _PRICE_LIMIT_RATIO)).astype(numpy.int64)
 
-    next_order_id = symbol_count * orders_per_symbol + 1
+    next_order_id = int(order_counts.sum()) + 1
     per_second: list[numpy.ndarray] = []
 
     for _ in range(_SECONDS_PER_PHASE):
@@ -478,7 +552,23 @@ def parse_arguments(argument_list: list[str] | None = None) -> argparse.Namespac
         default=None,
         help="받는 쪽이 기동 때 적은 종목 순번표(load_test.universe_out). 주면 --symbols 보다 이것이 이긴다",
     )
-    parser.add_argument("--orders-per-symbol", type=int, default=10000, help="1단계 종목당 주문 수")
+    parser.add_argument(
+        "--orders-per-symbol", type=int, default=10000, help="1단계 종목당 주문 수(uniform 일 때만)"
+    )
+    parser.add_argument(
+        "--order-count-mode",
+        choices=("uniform", "value"),
+        default="uniform",
+        help="1단계 건수를 정하는 길. uniform 은 전 종목 같은 건수, value 는 종목 거래대금에서 뽑는다",
+    )
+    parser.add_argument(
+        "--shares-per-order", type=int, default=1, help="value 일 때 주문 한 건의 주식 수"
+    )
+    parser.add_argument(
+        "--top-weights",
+        default="",
+        help="상위 종목 비중을 쉼표로 직접 박는다(예 0.25,0.20). 나머지는 순위-크기 법칙으로 나눈다",
+    )
     parser.add_argument("--lanes", type=int, default=1, help="받는 쪽 수신 스레드 수")
     parser.add_argument(
         "--accumulate-chunk-records",
@@ -519,14 +609,24 @@ def main(argument_list: list[str] | None = None) -> int:
 
         return 2
 
-    universe = build_universe(arguments.symbols, arguments.skew, universe_file)
-    quantities = _order_quantities(universe, arguments.total_value_krw, arguments.orders_per_symbol)
-    planned_value = float((quantities.astype(numpy.float64) * universe.reference_prices).sum()) * (
-        arguments.orders_per_symbol
+    top_weights = [float(piece) for piece in arguments.top_weights.split(",") if piece.strip()]
+    universe = build_universe(arguments.symbols, arguments.skew, universe_file, top_weights)
+
+    if arguments.order_count_mode == "value":
+        order_counts, quantities = _value_based_order_counts(
+            universe, arguments.total_value_krw, arguments.shares_per_order
+        )
+    else:
+        quantities = _order_quantities(universe, arguments.total_value_krw, arguments.orders_per_symbol)
+        order_counts = numpy.full(len(universe), arguments.orders_per_symbol, dtype=numpy.int64)
+
+    planned_value = float(
+        (quantities.astype(numpy.float64) * universe.reference_prices * order_counts).sum()
     )
     print(
-        f"  종목 {len(universe):,}개  1단계 주문 {len(universe) * arguments.orders_per_symbol:,}건"
+        f"  종목 {len(universe):,}개  1단계 주문 {int(order_counts.sum()):,}건"
         f"  거래대금 {planned_value / 1e8:,.0f}억원"
+        f"  (건수 {arguments.order_count_mode}, 종목당 {int(order_counts.min()):,}~{int(order_counts.max()):,}건)"
     )
 
     print("주문을 미리 만든다...")
@@ -537,7 +637,7 @@ def main(argument_list: list[str] | None = None) -> int:
         build_continuous_records(
             universe,
             quantities,
-            arguments.orders_per_symbol,
+            order_counts,
             arguments.limit_orders_per_second,
             numpy_generator,
         )
@@ -571,14 +671,14 @@ def main(argument_list: list[str] | None = None) -> int:
         send_one_per_symbol(senders, configure_records, arguments.lanes)
 
         if arguments.phase in ("all", "auction"):
-            planned = len(universe) * arguments.orders_per_symbol
+            planned = int(order_counts.sum())
             print(f"1단계: 동시호가 적재 — {planned:,}건을 쉬지 않고 쏟는다")
             started = time.perf_counter()
             sent = 0
 
             for chunk in iterate_accumulate_records(
                 universe,
-                arguments.orders_per_symbol,
+                order_counts,
                 quantities,
                 numpy_generator,
                 arguments.accumulate_chunk_records,
