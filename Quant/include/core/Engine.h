@@ -249,6 +249,7 @@ public:
     // 폭주할 때의 우회책이다. true면 DataThread가 REST get_current_price(현재가 조회)를 주기적으로
     // 폴링해 그 값을 TradeData(체결 틱)처럼 trade_matrix의 데이터 스레드 행에 넣고, WS 연결은 생략한다. ITB 전략이
     // 이 틱으로 구동된다(ITB = IntradayBreakoutStrategy, 장중 돌파 전략).
+    // 근거: rt=9 ALREADY IN USE는 실측 — Quant/logs/archive/quant_trader_2026-08-06.log.
     void set_rest_price_feed(bool rest_price_feed)
     {
         feed_.rest_price_feed = rest_price_feed;
@@ -353,6 +354,7 @@ public:
 
     // 시세 전용 클라이언트 설정(실전 도메인). KIS 모의(openapivts)는 시세 REST가 HTTP 500이라
     // 시세는 실전 키+실전 도메인으로 조회하고 주문만 모의로 낸다. rest_price_feed 폴링이 사용.
+    // 근거: 모의 시세 500은 api/KisEndpoints.h 머리 주석 참고(실측).
     void set_quote_kis_config(const KisConfig& quote_kis_config)
     {
         feed_.quote_kis_config = quote_kis_config;

@@ -245,6 +245,7 @@ bool Engine::authenticate_feed(bool offline)
     //  실패해도 feed_.kis(모의)로 폴백하되, 모의 시세는 500이라 사실상 틱이 안 나옴을 경고.
     //  WS 모드에서도 만들어 둔다: WS가 죽어 폴링으로 낮출 때 쓸 시세 소스가 그때 가서는 없으면
     //  폴백이 무의미해진다(모의 도메인으로 폴링하면 500만 쌓인다).
+    //  근거: 실측 — Quant/logs/archive/quant_trader_2026-08-06.log 509행(openapivts 시세 HTTP 500), docs/DECISIONS.md D-097(2026-09-23).
     if (feed_.has_quote_kis)
     {
         feed_.quote_kis = std::make_unique<KisClient>(feed_.quote_kis_config);

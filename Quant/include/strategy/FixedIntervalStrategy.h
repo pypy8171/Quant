@@ -58,6 +58,7 @@ private:
 
     bool is_in_session(int32_t hhmmss) const
     {
+        // 출처: 유가증권시장 업무규정 제4조제3항(정규시장 09:00~15:30), 2026-09-27 확인. 애프터마켓은 이 창 밖이다.
         return krx::in_session(hhmmss / 100); // 09:00~15:30 정규장 창(core/MarketSession.h)
     }
 };

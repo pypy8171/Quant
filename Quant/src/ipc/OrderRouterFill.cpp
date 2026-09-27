@@ -108,6 +108,8 @@ void OrderRouter::on_fill(const FillNotification& fill_notification)
     // H0STCNI0 전문에 체결고유번호가 없어 kis_order_no+체결시각+수량+단가를 조합 키로 사용.
     // ODNO는 영업일 단위 재사용되고 fill_time은 HHMMSS(날짜 없음)라, 거래일(수신일)을
     // prefix로 붙여, 서로 다른 날의 동일키 충돌로 실체결을 오인해 drop하는 일을 막는다 (V-4).
+    // 근거: 체결고유번호가 없다는 것은 공식 샘플 ccnl_notice 26칸 대조(D-121). KIS가 재전송한다는 것과 ODNO가
+    //  영업일마다 다시 쓰인다는 것은 샘플·실측 기록이 없는 대비용 가정이다(D-131).
     const uint64_t order_number = digits_to_number(fill_notification.kis_order_no); // 전문 문자열이 정수가 되는 자리
     const FillKey  fill_key{trade_date_number(std::chrono::system_clock::to_time_t(fill_notification.timestamp)), order_number,
                            static_cast<uint32_t>(digits_to_number(fill_notification.fill_time)), fill_notification.filled_quantity,
@@ -281,6 +283,8 @@ ManagedOrder* OrderRouter::find_linked_order_locked(const FillNotification& fill
     //  정정 응답을 못 받으면(전송 실패·타임아웃) 이력에는 옛 ODNO가 남는다. 그 뒤 체결통보는 새 ODNO로
     //  오므로 위 색인이 비고, 전략 귀속을 잃은 채 미매핑 경로로 떨어진다. 전문 [3]OODER_NO가 그 옛 ODNO라
     //  여기서 되찾는다. 원장에 쓰는 번호는 통보가 준 실제 ODNO 그대로다(바꾸지 않는다).
+    // 근거: [3]OODER_NO=원주문번호는 공식 샘플 ccnl_notice 열 순서(2026-09-27 MCP 확인). 정정이 새 ODNO를 준다는 것은
+    //  샘플 order_rvsecncl에 응답 칸 설명이 없어 확인하지 못했다.
     const uint64_t original_order_number = digits_to_number(fill_notification.original_order_no);
 
     if (original_order_number == 0 || original_order_number == order_number)
@@ -323,6 +327,7 @@ void OrderRouter::apply_unlinked_fill(std::unique_lock<std::mutex>& lock, const 
 
     // [inv] 주문 단위 키 = 체결 건별 칸(시각·수량·단가)을 0으로 둔 FillKey. ODNO는 영업일마다 재사용되므로
     //  거래일을 같이 담는다(체결 건별 키와 같은 이유, V-4).
+    // 근거 없음(2026-09-27): ODNO 영업일 재사용은 샘플·실측 기록에 없다. 거래일을 붙이는 것은 대비용이다.
     const FillKey  unlinked_order_key{fill_key.trade_date, fill_key.order_number, 0, 0, 0};
     UnlinkedOrder& unlinked_order    = unlinked_orders_[unlinked_order_key];
     int            unlinked_quantity = fill_notification.filled_quantity;
@@ -529,6 +534,7 @@ void OrderRouter::fill_recovery_loop(std::stop_token stop_token)
 {
     // KIS가 재구독 뒤 밀린 통보를 다시 보내면 그것이 먼저 들어오게 기다린다. 그러면 조회 차이는 0이고,
     //  늦게 오는 통보는 되찾은 몫이 막는다.
+    // 근거 없음(2026-09-27): 재구독 뒤 밀린 통보를 다시 보내는지는 샘플·실측 기록에 없다 — 보낼 때를 대비한 대기다(D-149).
     constexpr auto kSettleDelay = std::chrono::seconds(3);
 
     thread_name::set_current("FillRecovery");

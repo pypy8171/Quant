@@ -10,8 +10,13 @@ inline constexpr const char* kTransport = "E_TRANSPORT";
 // KIS가 rt_cd≠0으로 거부했는데 msg_cd가 비어 있을 때.
 inline constexpr const char* kUnknown = "E_UNKNOWN";
 // 초당 거래건수 초과 — KIS가 '접수 전' 단계에서 거부한다(중복주문 위험 없음).
+//  근거: 실측 — 응답 본문 {"rt_cd":"1","msg1":"초당 거래건수를 초과하였습니다.","msg_cd":"EGW00201"}
+//  (logs/quant_trader.log 2026-08-10), D-026·D-055·D-138. '접수 전'은 응답에 ODNO가 없다는 데서 추론한 것이고,
+//  KIS 공식 샘플·문서에서 그렇게 적은 곳은 찾지 못했다(2026-09-27).
 inline constexpr const char* kRateLimit = "EGW00201";
 // 주문가능수량 없음("잔고내역이 없습니다") — 보유분이 예약매도·미결제로 묶여 매도 불가.
+//  근거: 실측 — D-046(모의 응답 "모의투자 잔고내역이 없습니다")·D-055·DAILY_LOG.md 2026-08-12. 원인 풀이(예약매도에 묶임)는
+//  이 사례들에서 얻은 것이고 공식 샘플에는 오류코드 목록이 없다. 실계좌 응답 문구는 기록을 찾지 못했다(2026-09-27).
 inline constexpr const char* kNoSellableQty = "40240000";
 // 자체 코드 — 원장 저널에 INTENT를 못 적어 KIS로 보내지 않았다. 적히지 않은 주문은 나가지 않는다. [why D-113]
 inline constexpr const char* kLedgerWriteFailed = "E_LEDGER";

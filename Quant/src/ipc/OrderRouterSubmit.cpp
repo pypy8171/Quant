@@ -12,6 +12,7 @@
 
 // ─── 거부 사유에 KIS 오류코드 꼬리표 부착 ───────────────────────────────
 //  order_thread가 EGW00201(초당 거래건수 초과)을 문자열로 판별해 적응적 재시도를 걸 수 있게,
+//  (근거: EGW00201 뜻은 실측 응답 msg1 "초당 거래건수를 초과하였습니다." — logs/quant_trader.log 2026-08-10, D-065)
 //  응답의 err_code를 " [코드]" 형태로 reject_reason 끝에 붙인다. 코드 없으면 빈 문자열.
 std::string OrderRouter::kis_error_suffix(const OrderAck& acknowledgement)
 {
@@ -1042,6 +1043,8 @@ ManagedOrder OrderRouter::cancel_route(const OrderSignal& signal)
 
 // ─── 정정 라우팅 (action=REPLACE) ─────────────────────────────────────────
 //  KIS 정정 1콜 = cancel-replace. 성공 시 새 ODNO 발급.
+//  근거 없음(2026-09-27): 공식 샘플 order_rvsecncl은 정정을 '단가·주문구분 변경, 수량은 원주문 이하'로만 적고 응답 컬럼
+//  설명이 없다(2026-09-27 MCP 확인). 'cancel-replace'와 '새 ODNO 발급'을 적은 샘플·실측 기록은 찾지 못했다.
 //  reserved 조정: new_quantity는 전송 전 INTENT에서 선점하고, 접수되면 원주문 미체결 잔량을 해제한다(같은 side). 원주문은 CANCELLED,
 //  정정 결과를 새 ManagedOrder(ACCEPTED)로 추적(새 ODNO/새 client_order_id).
 //  ⚠ 첫 컷 한계: 부분체결 상태 정정은 수량 정합이 복잡 → MM은 REPLACE 미사용(CANCEL+NEW 사용).

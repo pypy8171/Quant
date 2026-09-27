@@ -29,6 +29,8 @@ static int64_t recv_now_ns()
 // ─── 체결통보 복호화 (KIS H0STCNI: base64 → AES-256-CBC) ────────────────────
 // 시세 채널은 평문이나 체결통보는 암호화 전송. key/iv는 구독 응답 body.output에서 획득.
 // AES 본체는 플랫폼별(websocket_platform::aes_cbc_decrypt).
+// [wire] 출처: AES256 key/iv를 구독 응답 body.output에서 받는 것은 KIS 공식 샘플 ccnl_notice(실시간-005), 2026-09-27 MCP 확인.
+//  base64·CBC는 샘플에 없고 모의계좌 실측으로 맞췄다(DAILY_LOG.md 2026-06-08).
 namespace
 {
 
@@ -107,6 +109,8 @@ void KisWebSocket::handle_control_frame(const std::string& message)
         std::string transaction_id = document["header"].value("tr_id", "");
 
         // PINGPONG: KIS가 주기적으로 보내는 연결 유지 신호(heartbeat). 받은 그대로 되돌려준다.
+        // 근거 없음(2026-09-27): 받은 그대로 되돌리는 규칙은 확인한 공식 샘플(실시간 시세·체결통보 함수)에 없고,
+        //  공통 모듈 kis_auth.py 본문은 MCP로 읽지 못했다. 실측 기록도 찾지 못했다.
         if (transaction_id == "PINGPONG")
         {
             send_text(message);
@@ -121,6 +125,7 @@ void KisWebSocket::handle_control_frame(const std::string& message)
             LOG_INFO("[WS] " + transaction_id + "(" + ticker + ") rt=" + rt + " " + msg1);
 
             // 체결통보 구독 응답: AES key/initialization_vector 확보 → 이후 암호화 프레임 복호화에 사용
+            // [wire] 출처: 공식 샘플 ccnl_notice 응답 설명(body.output.key = AES256 Key, body.output.iv = AES256 IV), 2026-09-27 MCP 확인.
             if ((transaction_id == "H0STCNI0" || transaction_id == "H0STCNI9") &&
                 document["body"].contains("output"))
             {
@@ -131,6 +136,7 @@ void KisWebSocket::handle_control_frame(const std::string& message)
                 // AES-256-CBC: key는 정확히 32바이트, iv는 16바이트여야 함.
                 // 길이가 다르면(서버 포맷 변경 등) 앞 N바이트만 써서 잘못된 키로
                 // 복호→쓰레기 평문이 원장에 들어가므로 등호 검증 후 거부 (C-2)
+                // 근거: 32·16바이트는 AES-256 규격 값이다(키 256비트, 블록 128비트). 샘플은 "AES256 KEY·IV"라고만 적는다(2026-09-27 MCP 확인).
                 if (key.size() == 32 && value.size() == 16)
                 {
                     aes_key_ = std::move(key);
@@ -168,6 +174,7 @@ void KisWebSocket::handle_data_frame(const std::string& message)
 {
     // 데이터 메시지: TYPE|TR_ID|COUNT|DATA (^-구분 필드). parts_·fields_는 message를 가리키는 뷰라
     //  message보다 오래 살지 않는다 — 콜백은 이 함수 안에서 끝난다.
+    // [wire] 출처: 공식 샘플 ccnl_notice 설명 "암호화 유무 | TR_ID | 데이터 건수 | 응답 데이터(^ 구분)", 2026-09-27 MCP 확인.
     kis_websocket::split_fields(message, '|', parts_);
 
     if (parts_.size() < 4)
@@ -179,7 +186,10 @@ void KisWebSocket::handle_data_frame(const std::string& message)
     std::string_view data = parts_[3];
     std::string plain; // 암호화 프레임의 복호문. data가 이쪽을 가리키게 되므로 같은 범위에 둔다
 
-    // 암호화 프레임(체결통보 H0STCNI): parts[0]=="1" → base64 + AES-256-CBC 복호화
+    // [wire] 암호화 프레임(체결통보 H0STCNI0/9): parts[0]=="1" → base64 + AES-256-CBC 복호화.
+    //  "1=암호화"·key/iv(구독 응답 body.output)는 KIS 공식 샘플 ccnl_notice(실시간-005, 2026-09-27 MCP 확인).
+    //  base64·CBC는 샘플에 적혀 있지 않아 모의계좌 실측으로 맞췄다 — 암호문은 이진이라 텍스트 프레임에 실으려면
+    //  글자로 싸야 하고(base64), IV 16바이트·복호 평문 26칸 일치가 CBC를 뒷받침한다.
     if (parts_[0] == "1")
     {
         if (aes_key_.empty() || aes_iv_.empty())
@@ -212,6 +222,7 @@ void KisWebSocket::handle_data_frame(const std::string& message)
 
     // [wire] parts[2] = 이 프레임에 실린 레코드 수(COUNT). 1이면 기존 단건 경로 그대로. 못 읽으면 1.
     //  COUNT>1인데 자르지 못하면(폭이 안 맞음) 첫 레코드만 처리하던 종전 동작을 유지하고 한 번만 경고한다.
+    //  출처: 공식 샘플 ccnl_notice 설명의 셋째 값 "데이터 건수(예: 001)", 2026-09-27 MCP 확인.
     int rec_count = 1;
 
     if (!kis_websocket::detail::to_int(parts_[2], rec_count))
@@ -364,7 +375,9 @@ void KisWebSocket::parse_kr_trade(kis_websocket::Fields fields)
     }
 }
 
-// fields[0]을 그대로 ticker로 쓴다(거래소 접두어를 떼는 변환은 없다). 방향 필드 f[20]은 실데이터 미검증(보류 목록).
+// fields[0]을 그대로 ticker로 쓴다(거래소 접두어를 떼는 변환은 없다). 공식 샘플 delayed_ccnl(실시간-007) 열 순서로는
+//  f[20]이 TAMT(거래대금)이고 방향 칸은 없다 — 디코더의 칸 번호가 샘플과 다르다(Quant/include/api/KisWsDecode.h 참고,
+//  2026-09-27 샘플 대조로 고침).
 void KisWebSocket::parse_us_trade(kis_websocket::Fields fields)
 {
     static bool first_us_logged = false;
@@ -391,6 +404,8 @@ void KisWebSocket::parse_fill_notification(kis_websocket::Fields fields)
     if (fields.size() < kis_websocket::kMinFieldsFill)
     {
         // 1~2필드: KIS 서버 제어 메시지(acknowledgement/heartbeat) — 정상 동작이라 조용히 넘긴다
+        // 근거 없음(2026-09-27): 공식 샘플은 제어 메시지를 JSON으로만 설명한다(handle_control_frame 경로).
+        //  ^ 구분 1~2칸짜리 체결통보 레코드는 샘플에도 실측 기록에도 없다.
         if (fields.size() > 2)
         {
             LOG_WARN("[WS] H0STCNI 필드 부족: " + std::to_string(fields.size()));
@@ -421,6 +436,7 @@ void KisWebSocket::parse_fill_notification(kis_websocket::Fields fields)
         return;
 
     default: // kSkip: 접수/정정/취소/거부 통보(CNTG_YN=1), kShort는 위에서 걸렀다
+    // [wire] 출처: 공식 샘플 ccnl_notice — CNTG_YN(14번째 값) 2=체결 통보, 1=주문·정정·취소·거부 접수 통보, 2026-09-27 MCP 확인.
         return;
     }
 

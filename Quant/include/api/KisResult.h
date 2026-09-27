@@ -9,6 +9,7 @@
 #include <utility>
 
 // [wire] code는 KIS msg_cd(EGW00201=초당 한도 등)이고, 전송·파싱 실패는 각각 "transport"·"parse"로 둔다.
+//  근거: EGW00201 뜻은 실측 응답 msg1 "초당 거래건수를 초과하였습니다."(logs/quant_trader.log 2026-08-10, D-059).
 struct KisError
 {
     std::string code;

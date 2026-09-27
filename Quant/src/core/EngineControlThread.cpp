@@ -76,6 +76,7 @@ bool Engine::activate_rest_fallback(const std::string& reason)
     // 폴링이 쓸 시세 소스. 모의 도메인은 시세 REST가 HTTP 500이라 실전 시세 클라이언트가
     //  없고 주문계좌마저 모의면 낮춰봐야 틱이 안 나온다. 그때는 거짓 안심을 주지 않는다.
     //  브로커 없는 기동(피드 주입)도 같다 — 낮출 REST가 없다.
+    //  근거: 모의 시세 500은 api/KisEndpoints.h 머리 주석 참고(실측).
     if (!feed_.kis || (!feed_.quote_kis && kis_config_.is_paper))
     {
         return false;

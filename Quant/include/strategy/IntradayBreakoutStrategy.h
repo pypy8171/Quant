@@ -15,6 +15,7 @@
 //  입력은 오직 WS/REST 체결 틱(on_trade) — 깨진 REST 일봉 경로(G1/G2)를 우회한다.
 //
 //  [입력]  국내 실시간 체결 채널(H0STCNT0) 틱을 on_trade(TradeData)로 받는다. trade.price=현재가, trade.hhmmss=HHMMSS 정수.
+//          [wire] H0STCNT0 = 국내주식 실시간체결가(KRX), 공식 샘플 ccnl_krx(실시간-003), 2026-09-27 MCP 확인.
 //  [진입]  1분 버킷 종가가 최근 N분 채널 고점을 상향 돌파 + 당일 기준점 대비 +epsilon 위
 //          → 시장가 신규 매수. 버킷 마감 시에만 평가(틱 노이즈/휩쏘 억제).
 //          수량은 notional_per_position>0이면 floor(명목/현재가), 아니면 entry_quantity 고정.

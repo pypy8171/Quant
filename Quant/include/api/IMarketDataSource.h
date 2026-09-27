@@ -7,6 +7,7 @@
 #include <vector>
 
 // 지수 현재값 (코스피 "0001", 코스닥 "1001", KOSPI200 "2001")
+// [wire] 출처: KIS 공식 샘플 inquire_index_price(FHPUP02100000) FID_INPUT_ISCD 파라미터 설명, 2026-09-27 MCP 확인.
 struct IndexPrice
 {
     std::string ticker;
@@ -14,6 +15,7 @@ struct IndexPrice
     double      change      = 0.0;
     double      change_rate = 0.0;
     int         sign        = 3; // 1=상한 2=상승 3=보합 4=하한 5=하락
+    // 근거 없음(2026-09-27): 위 sign 값 1~5의 뜻은 공식 샘플에서 찾지 못했고 실측 기록도 찾지 못했다.
 };
 
 // 봉 목록은 전부 최신→과거(result[0]=최신)다. 조회 실패는 예외가 아니라 빈 목록·0 가격으로 온다.
@@ -34,6 +36,7 @@ public:
     virtual IndexPrice get_index_price(const std::string& ticker) = 0;
 
     // 해외 일봉. exchange: "NAS"(NASDAQ), "NYS"(NYSE)
+    // [wire] 출처: KIS 공식 샘플 dailyprice(HHDFS76240000) EXCD 파라미터 설명(NYS 뉴욕, NAS 나스닥), 2026-09-27 MCP 확인.
     virtual std::vector<MarketData> get_us_daily_ohlcv(const std::string& ticker, int count,
                                                        const std::string& exchange = "NAS") = 0;
 };

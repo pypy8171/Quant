@@ -153,6 +153,7 @@ void Engine::start_strategies()
     // 전략의 feed_.kis는 차트(일봉·분봉)·랭킹 등 "읽기 전용 시세 조회"에만 쓰인다(실제 주문 발주는 OrderThread가 담당).
     // 분봉 TR(inquire-time-itemchartprice)은 모의 도메인에서 HTTP 500 → 시세 전용 실전 클라이언트가
     //  있으면 그걸로 조회(regime_·스캐너와 동일 패턴). 없으면 모의로 폴백.
+    //  근거: 모의 도메인 시세 500은 실측(Quant/logs/archive/quant_trader_2026-08-06.log 509행는 일봉·지수 일봉). 분봉 TR만 따로 모의에서 잰 기록은 찾지 못했다.
     for (auto& strategy : strategy_.list)
     {
         strategy->set_kis(feed_.quote_kis ? feed_.quote_kis.get() : feed_.kis.get());

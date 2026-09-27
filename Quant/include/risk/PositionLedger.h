@@ -327,6 +327,10 @@ public:
         int    net_quantity      = 0;   // 체결 후 순 보유수량
         double commission   = 0.0; // 수수료 (0.015%)
         double tax          = 0.0; // 거래세 (매도 0.20%)
+        //  출처: 수수료 0.015%는 KIS 공시 온라인 수수료 KRX 0.0140527%·NXT 0.0130527%(유관기관 제비용 포함,
+        //  securities.koreainvestment.com 수수료안내 TF04ae010000)를 올려 잡은 값. 거래세 0.20%는 2026-01-01 양도분부터
+        //  코스피 거래세 0.05%+농어촌특별세 0.15%, 코스닥 0.20%(증권거래세법 시행령 개정, 헤럴드경제 biz.heraldcorp.com/article/10627001).
+        //  둘 다 2026-09-27 확인.
         double realized_pnl = 0.0; // 이번 체결 실현손익 (SELL만 양수)
         // SELL인데 원장이 평단을 모를 때 true. 그 경우 realized_pnl은 0으로 두고 daily_pnl에도
         //  더하지 않는다 — (price-0)*quantity가 이익으로 잡히면 일일 손실컷이 무력화된다(C-1).

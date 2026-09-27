@@ -45,6 +45,8 @@ void Engine::data_thread_fn(std::stop_token stop_token)
         // 장 시작 감지 → 일별 카운터 리셋 + 국면 판정
         //  "어느 시장이든 닫힘→열림" 전이라 KR 09:00과 US 22:30(KST) 두 번 발화한다. 22:30 리셋은
         //  그날 KR 손익 기록을 지우지만 그 시각 KR 주문은 나가지 않는다(W-9, 시장별 분리는 보류).
+        //  근거: KR 09:00은 제도 자료(KRX 정규장 09:00~15:30), US 22:30은 NYSE 정규장 ET 09:30의 서머타임(EDT) 환산이다.
+        //  겨울(EST)에는 23:30이 맞는데 core/KstTime.h 상수는 서머타임을 반영하지 않는다 — 그 파일 주석 참고.
         if (market_now && !was_market_open)
         {
             // 하루치를 새로 여는 것은 주문 쪽 제 주기다 — 게이트·원장·라우터가 거기 있다. [why D-114]
@@ -131,6 +133,8 @@ void Engine::data_thread_fn(std::stop_token stop_token)
         if (!market_now)
         {
             // 개장은 모두 정각 분(09:00·16:00·22:30)에 온다. 60초씩 자면 개장 전이를 최대 60초 늦게 잡아 개장 직후
+            //  근거: 09:00은 KRX 정규장, 16:00은 애프터마켓 시작(docs/DECISIONS.md D-097), 22:30은 서머타임 기준 미국 개장
+            //  (겨울에는 23:30, core/KstTime.h 주석 참고). 어느 쪽이든 정각 분이라 아래 대기 계산은 그대로 맞다.
             //  주문의 선점·초당 주문 창이 늦은 리셋에 지워진다(전수조사 A-4) — 다음 정각 분 직후까지만 잔다.
             // 정지 요청이면 바로 깬다 — 장 외 종료가 대기를 다 채우지 않는다.
             const int seconds_into_minute = ::kst::sec_of_day(std::time(nullptr)) % 60;
@@ -260,9 +264,10 @@ void Engine::data_thread_fn(std::stop_token stop_token)
 
                 // ── 당일 외국인·기관 추정 순매수 "관측 적재"(게이트 아님) ──────────────
                 //  data-sourcer 판정: FHPTJ04400000는 추정/가집계 → 부호·상대크기만 신뢰.
+                //  [wire] 출처: KIS 공식 샘플 foreign_institution_total(가집계, 장중 정해진 시각에 입력), 2026-09-27 MCP 확인.
                 //  게이트로 승격 전, 매 사이클 스냅샷을 로그로 남겨 장중추정 vs 장후확정을
                 //  나중에 대조한다(지금 안 남기면 영구 소실). 레이트 절약 위해 10사이클마다만(아래 kEstFlowLogEveryNTicks).
-                //  ⚠️ 스키마 미확정 — 첫 성공 응답의 원문 로그로 필드명 확정할 것.
+                //  스키마는 위 샘플로 확인했다(2026-09-27 샘플 대조로 고침 — 전에는 미확정이라 적혀 있었다).
                 {
                     static int est_flow_tick = 0;
                     // 수급추정(EstInvestorFlow) 로그 주기. 폴 간격(fetch_interval_sec_)이
@@ -349,6 +354,7 @@ void Engine::data_thread_fn(std::stop_token stop_token)
                 //  업종 지수 등락률을 강→약으로 로깅해 "오늘 어느 섹터가 주도하나"를 눈으로 본다.
                 //  실전 시세키로 조회하고 10사이클마다 한 번 돈다.
                 //  get_index_price(업종코드): inquire-index-price(FID_MRKT_DIV=U) → 등락률.
+                //  [wire] 출처: KIS 공식 샘플 inquire_index_price(FHPUP02100000, 시장 U), 2026-09-27 MCP 확인.
                 {
                     static int sector_tick = 0;
                     KisClient* sqc = feed_.quote_kis ? feed_.quote_kis.get() : feed_.kis.get();
@@ -518,6 +524,7 @@ void Engine::data_thread_fn(std::stop_token stop_token)
             else if (strategy_side)
             {
                 // 차트(일봉) TR은 모의 도메인에서 HTTP 500을 돌려준다. 주문 클라이언트로 부르면
+                //  근거: 실측 — Quant/logs/archive/quant_trader_2026-08-06.log 509행~557행(openapivts inquire-daily-itemchartprice HTTP 500).
                 //  종목 수×사이클마다 500이 쌓여 로그가 그걸로 덮인다(3회 재시도까지 붙는다).
                 //  위 rest 분기와 같이 시세 클라이언트로 부른다.
                 KisClient* quote_client = feed_.quote_kis ? feed_.quote_kis.get() : feed_.kis.get();

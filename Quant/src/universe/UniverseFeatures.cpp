@@ -216,6 +216,7 @@ namespace
 {
 constexpr int kDailyLookupSleepMs      = 150; // 실계좌 — 키 한도 초당 20건
 constexpr int kDailyLookupSleepPaperMs = 600; // 모의계좌 — 키 한도 초당 2건
+// 근거: 두 한도는 api/KisRateBucket.h bucket_published_limit 주석 참고.
 constexpr int kWarmBoardWaitSec        = 120; // 초, 장 전 데우기가 시세판 목록·첫 판을 기다리는 상한
 constexpr int kWarmProgressEvery       = 250; // 종목, 장 전 데우기 진행 로그 간격
 

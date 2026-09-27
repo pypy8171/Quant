@@ -23,6 +23,8 @@ struct KisConfig
     std::string account_no;
     std::string account_type; // "01"
     std::string hts_id;       // H0STCNI0/9 체결통보 구독 키(HTS ID). 비어 있으면 구독을 건너뛴다 — account_no로 대체하지 않는다
+    // [wire] 출처: KIS 공식 샘플 ccnl_notice(실전 H0STCNI0, 모의 H0STCNI9), 2026-09-27 MCP 확인. 구독 키가 HTS ID라는 것은
+    //  샘플 설명에 없고(종목코드 예시만 있다) docs/DECISIONS.md D-122에 적힌 운영 기록이 근거다.
     bool is_paper = false;
     // 일봉 캐시 유효시간(초). 0이면 캐시 끔. 일봉을 매 사이클 다시 받아야 하는 전략
     //  (MA_CROSS처럼 on_data로 도는 것)을 쓸 때는 짧게 두거나 0으로 끈다.
@@ -34,10 +36,13 @@ struct KisConfig
 };
 
 // 주문 전문의 EXCG_ID_DVSN_CD. 모의투자는 KRX만 받는다(NXT·SOR을 보내면 거부).
+// 근거: 필드 이름은 KIS 공식 샘플 order_cash 파라미터 설명(2026-09-27 MCP 확인). 모의가 KRX만 받는 것은 샘플에 없고 docs/DECISIONS.md D-096.
 const char* kis_order_exchange(const KisConfig& config) noexcept;
 
 // 실시간 체결·호가를 KRX+NXT 통합 채널(H0UNCNT0/H0UNASP0)로 받나. 필드 배열은 KRX 채널과 같아
 //  파서는 하나다(체결 46필드 동일, 호가는 뒤에 중간가 6필드가 붙을 뿐). 모의 도메인은 KRX 채널만 준다.
+// [wire] 출처: KIS 공식 샘플 ccnl_total·ccnl_krx(둘 다 46필드), asking_price_total(65필드, 끝의 KMID_*·NMID_* 6개)·
+//  asking_price_krx(59필드), 2026-09-27 MCP 확인. 통합 채널 샘플에는 모의 갈래가 없다(모의 KRX 전용은 D-096).
 inline bool kis_unified_feed(const KisConfig& config) noexcept
 {
     return !config.is_paper && config.exchange != "KRX";
@@ -103,14 +108,17 @@ public:
     //   지표·기준점·게이트 용도는 전부 기본값(false)을 쓴다. 오늘 시세 자체가 필요한
     //   경우(파이프라인에 당일 봉을 흘리는 데이터 스레드)에만 include_today=true.
     //   100봉을 넘는 count는 날짜창을 뒤로 넘겨 이어 받는다(ceil(count/100)콜).
+    // [wire] 출처: KIS 공식 샘플 inquire_daily_itemchartprice(FHKST03010100) 설명 "최대 100건", 2026-09-27 MCP 확인.
     std::vector<MarketData> get_daily_ohlcv(const std::string& ticker, int count,
                                             bool include_today = false) override;
     // 당일 분봉 → interval_min 집계봉(기본 3분봉). FHKST03010200 역페이지네이션 후 1분봉 집계.
     //   반환: 최신→과거(result[0]=최신), 최대 count봉. interval_min=1이면 1분봉 그대로.
+    // [wire] 출처: KIS 공식 샘플 inquire_time_itemchartprice(FHKST03010200) 설명 "한 번의 호출에 최대 30건, 당일 분봉만", 2026-09-27 MCP 확인.
     std::vector<MarketData> get_minute_ohlcv(const std::string& ticker, int count, int interval_min = 3) override;
     double get_current_price(const std::string& ticker) override;
     // 관심종목(멀티종목) 시세조회로 최대 kMultiPriceMax 종목의 현재가를 한 번에 받는다(FHKST11300006).
     //  반환은 tickers와 같은 순서, 응답에 없는 종목은 0. 넘치면 "argument" 실패. 한도 버킷은 한 건으로 센다. [why D-150]
+    //  출처: KIS 공식 샘플 intstock_multprice(FHKST11300006) 최대 30종목, 2026-09-27 MCP 확인.
     [[nodiscard]] KisResult<std::vector<double>> get_current_prices(const std::vector<std::string>& tickers);
     static constexpr size_t kMultiPriceMax = 30; // [wire] 한 번에 넣을 수 있는 종목 수(FID_INPUT_ISCD_1..30)
     Fundamentals get_fundamentals(const std::string& ticker);
@@ -130,8 +138,11 @@ public:
     }
 
     // 미체결(정정취소 가능) 예약주문 조회 — 실전 inquire-psbl-rvsecncl(TTTC0084R), 모의는 VTTC0081R(inquire-daily-ccld)
+    // [wire] 출처: KIS 공식 샘플 inquire_psbl_rvsecncl은 TTTC0084R 하나뿐이고 모의 TR이 없다, 2026-09-27 MCP 확인.
     [[nodiscard]] KisResult<std::vector<OpenOrder>> get_open_orders() override;
     // 오늘 체결이 있는 주문의 누적 체결 — inquire-daily-ccld(실전 TTTC0081R / 모의 VTTC0081R), 체결분만(CCLD_DVSN=01)
+    // [wire] 출처: KIS 공식 샘플 inquire_daily_ccld(TTTC0081R/VTTC0081R, CCLD_DVSN 01=체결), 2026-09-27 MCP 확인.
+    //  샘플 설명상 한 번에 실전 100건·모의 15건이라 연속조회가 필요하다(KisAccount.cpp가 ctx_area로 넘긴다).
     [[nodiscard]] KisResult<std::vector<DailyOrderFill>> get_daily_order_fills() override;
     [[nodiscard]] std::uint64_t rate_limit_wait_ns_this_thread() const noexcept override
     {
@@ -139,6 +150,8 @@ public:
     }
 
     // 잔고 — inquire-balance(모의 VTTC8434R / 실전 TTTC8434R). 연속조회로 보유 전 페이지를 합친다.
+    // [wire] 출처: KIS 공식 샘플 inquire_balance(TTTC8434R/VTTC8434R, 한 번에 실전 50건·모의 20건), 2026-09-27 MCP 확인.
+    //  모의 20건 한 장은 _private/_intraday_issues/2026-09-09.md 13:44 항목에서도 실측했다.
     //  실패(전송·파싱·rt_cd≠0, 어느 페이지든)는 fail 봉투로 돌려주고 부분 목록은 내지 않는다 — 호출자가 잔고에
     //  없는 원장 보유를 걷어내므로 반쪽 목록은 빈 목록보다 위험하다. [why D-059]
     [[nodiscard]] KisResult<AccountBalance> get_balance();
@@ -156,6 +169,8 @@ public:
     //   (futs_prpr 현재가, futs_prdy_vrss/ctrt, prdy_vrss_sign, futs_oprc/hgpr/lwpr, acml_vol,
     //   hts_otst_stpl_qty 미결제 + delta/gama/theta/vega/rho 그릭스·basis·futs_last_tr_date 만기),
     //   output2/3=기초지수(종합·KOSPI200). 첫 호출 1회 raw를 로그로 남긴다(스키마 변동 대비).
+    // [wire] 출처: KIS 공식 샘플 inquire_price(국내선물옵션, FHMIF10000000, F=지수선물 O=지수옵션), 2026-09-27 MCP 확인.
+    //  샘플은 모의에도 같은 TR을 쓴다고 적는다. 모의 도메인 HTTP 500은 실측(Quant/logs/archive/quant_trader_2026-08-06.log 509행, 시세 REST 전반).
     struct FuturePrice
     {
         std::string issue_code;
@@ -163,6 +178,7 @@ public:
         double change = 0.0;       // 전일 대비
         double change_rate = 0.0;  // 전일 대비율(%)
         int sign = 3;              // 1=상한 2=상승 3=보합 4=하한 5=하락
+        // 근거: api/IMarketDataSource.h IndexPrice::sign 주석 참고(값 1~5의 공식 출처를 찾지 못했다).
         double open = 0.0;
         double high = 0.0;
         double low = 0.0;
@@ -176,6 +192,7 @@ public:
     //   market_cls = FID_COND_MRKT_CLS_CODE("MKI"=KOSPI200 지수선물 등). 만기 오름차순 계약 목록 — 첫 행이
     //   최근월물이고 그 issue_code를 inquire-price의 FID_INPUT_ISCD로 넣는다. 실전 도메인 전용. 첫 호출 1회 raw를
     //   로그로 남긴다(스키마 변동 대비).
+    // [wire] 출처: KIS 공식 샘플 display_board_futures(FHPIF05030200, 시장 F, 화면 20503, MKI), 2026-09-27 MCP 확인.
     [[nodiscard]] KisResult<std::vector<FutureContract>> get_future_board(const std::string& market_cls = "MKI",
                                                                          const std::string& market_div = "F");
 
@@ -202,12 +219,14 @@ public:
     static constexpr int kRankingPriceSplit = 60000;
 
     // 거래대금 상위 순위 — volume-rank API (transaction_id FHPST01710000).
-    //  blng_cls = FID_BLNG_CLS_CODE 정렬축: "0"=거래량 "1"=거래증가율 "3"=거래금액(기본). 축마다
+    //  blng_cls = FID_BLNG_CLS_CODE 정렬축: "0"=평균거래량 "1"=거래증가율 "3"=거래금액순(기본). 축마다
+    //  (2026-09-27 샘플 대조로 고침 — KIS 공식 샘플 volume_rank: 0 평균거래량, 1 거래증가율, 2 평균거래회전율, 3 거래금액순, 4 평균거래금액회전율)
     //  다른 30행이 오므로 여러 축을 union하면 유니버스를 넓힐 수 있다.
     //  거래대금축("3")일 때만 acml_tr_pbmn 내림차순 재정렬, 그 외엔 API 순위 순서 유지.
     //  count가 30을 넘으면 거래대금축에 한해 가격 구간을 갈라 두 페이지를 합친다 — 다른 축은
     //  trade_value가 비어 있어 두 페이지를 다시 줄 세울 수 없으므로 30행에서 끊는다.
     //  ETF·ETN은 API단에서 뺀다(FID_TRGT_EXLS_CLS_CODE 7·8번째 자리).
+    // [wire] 출처: KIS 공식 샘플 volume_rank(FHPST01710000) 파라미터 설명, 2026-09-27 MCP 확인. 30행 상한은 위 kRankingRowLimit 주석(실측).
     std::vector<RankingStock> fetch_value_ranking(int count = 30, const std::string& market_div = "J",
                                                   const std::string& blng_cls = "3");
 
@@ -217,8 +236,9 @@ public:
     // 당일 장중 외국인·기관 "추정(가집계)" 순매수 — 시장 랭킹 배치 1콜.
     //  endpoint: /uapi/domestic-stock/v1/quotations/foreign-institution-total, transaction_id FHPTJ04400000.
     //  per-ticker가 아니라 "지금 담는/던지는 상위 종목" 리스트 → top-30과 교집합해 lookup.
-    //  ⚠️ 추정치(확정 아님) — 부호·상대크기만 신뢰. 실전 도메인 전용(모의 HTTP500 추정).
-    //  ⚠️ FID 파라미터/필드명은 실전키로 1콜 찍어 확정 필요(스키마 변동 잦음).
+    //  ⚠️ 추정치(확정 아님) — 장중 정해진 시각에 입력되는 가집계라 부호·상대크기만 신뢰. 실전 도메인 전용(모의 시세 REST가 HTTP 500인 것은
+    //  Quant/logs/archive/quant_trader_2026-08-06.log 509행 실측). FID 파라미터(시장 V, 화면 16449)·필드명은 KIS 공식 샘플 foreign_institution_total로
+    //  2026-09-27 MCP 확인했다(2026-09-27 샘플 대조로 고침 — 전에는 미확정이라 적혀 있었다).
     struct EstInvestorFlow
     {
         std::string ticker;             // mksc_shrn_iscd
@@ -229,6 +249,7 @@ public:
     };
     // market: "0000"=전체 "0001"=코스피 "1001"=코스닥. sort: "0"=순매수상위 "1"=순매도상위.
     // etc_cls: "0"=전체 "1"=외국인 "2"=기관계 (필드가 한 행에 동거 안 하면 분리 조회).
+    // [wire] 출처: KIS 공식 샘플 foreign_institution_total 파라미터 설명(정렬 0 순매수상위/1 순매도상위, 구분 0 전체/1 외국인/2 기관계/3 기타), 2026-09-27 MCP 확인.
     std::vector<EstInvestorFlow> fetch_est_investor_ranking(const std::string& market = "0000",
                                                             const std::string& sort = "0",
                                                             const std::string& etc_cls = "0");
@@ -244,6 +265,7 @@ public:
 
     // ── 해외 (US) ──────────────────────────────────────────────────────────
     // exchange: "NAS"(NASDAQ), "NYS"(NYSE)
+    // 근거: api/IMarketDataSource.h get_us_daily_ohlcv 주석 참고.
     std::vector<MarketData> get_us_daily_ohlcv(const std::string& ticker, int count,
                                                const std::string& exchange = "NAS") override;
     Fundamentals get_us_fundamentals(const std::string& ticker, const std::string& exchange = "NAS");

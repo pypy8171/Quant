@@ -129,6 +129,7 @@ MarketGate build_market_gate(KisClient& kis, const DevScanCfg& config)
     const auto kospi = kis.get_index_price("0001");
     market_gate.kospi_observation = kospi.price > 0.0;
     market_gate.kospi_change = kospi.change_rate / 100.0;   // [wire] KIS는 % 단위
+    // 근거: UniverseItb.cpp 지수 등락률 주석 참고(단위의 공식 출처는 찾지 못했다).
 
     if (config.kosdaq_enabled)
     {

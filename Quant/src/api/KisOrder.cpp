@@ -84,6 +84,8 @@ static const char* kis_order_division(OrderType type, MarketSession session)
 //  krx::round_to_tick은 BUY=내림·SELL=올림(스프레드 보존)이라, 여기처럼 체결을 당기려는 자리에서는
 //  반대쪽 side를 넘긴다.
 //  현재가를 못 구하면 0 — 호출부가 주문을 접는다(가격 0인 지정가는 KIS가 거부한다).
+//  근거 없음(2026-09-27): "가격 0 지정가 거부"는 공식 샘플 order_cash에 없고 실측 기록도 찾지 못했다. 샘플은
+//  "ORD_UNPR가 없는 주문은 상한가로 주문금액을 잡는다"고만 적는다.
 static constexpr double kOffHoursPriceStepPct = 0.01;
 
 static int offhours_limit_price(double current_price, OrderSide side)
@@ -137,6 +139,8 @@ static bool kis_parse_order_response(const std::string& response, json& document
 // ─── MM-1: 신규 주문 + KRX 조직번호 캡처 ──────────────────────────────────
 //  응답에서 ODNO에 더해 KRX_FWDG_ORD_ORGNO를
 //  추출해 반환한다(정정/취소 시 원주문 조직번호로 재입력해야 함).
+//  [wire] 출처: KIS 공식 샘플 order_cash(TR TTTC0011U 매도·TTTC0012U 매수, 모의 VTTC…; 응답 KRX_FWDG_ORD_ORGNO·ODNO),
+//  order_rvsecncl(KRX_FWDG_ORD_ORGNO 필수), 2026-09-27 MCP 확인.
 //  HTTP 플랫폼 분기(WinHTTP/libcurl)는 http_post 내부에 이미 캡슐화됨.
 OrderAck KisClient::submit_order_acknowledgement(const OrderSignal& signal)
 {
@@ -174,10 +178,14 @@ OrderAck KisClient::submit_order_acknowledgement(const OrderSignal& signal)
         if (session == MarketSession::ClosingAuction)
         {
             order_price = 0; // 장후 종가매매(06)는 종가로 체결된다 — 단가를 실으면 거부된다
+            // 근거: 주문구분 06·단가 0은 D-097(2026-09-23 실측 절에서 06이 남아 있음을 확인). "단가를 실으면 거부"는
+            //  공식 샘플에 없고 거부를 본 실측 기록도 찾지 못했다(2026-09-27).
         }
         else if (session == MarketSession::AfterMarket && signal.type == OrderType::MARKET)
         {
             // 애프터마켓 접속매매는 지정가(41)만 받는다. 현재가는 REST로 한 번 묻는다 —
+            //  근거: 실측 — D-097 "2026-09-23 실측"(03은 APBK1943, SOR 00은 APBK3009로 거부, 41+KRX로 접수).
+            //  공식 샘플 order_cash에는 ORD_DVSN 코드 목록이 없다(2026-09-27 MCP 확인).
             //  청산·정정은 드물어 이 왕복이 hot path가 아니다.
             order_price = offhours_limit_price(get_current_price(signal.ticker), signal.side);
 
@@ -191,6 +199,8 @@ OrderAck KisClient::submit_order_acknowledgement(const OrderSignal& signal)
         }
 
         const char* order_exchange = kis_session_exchange(config_, session);
+        // ORD_DVSN 근거: 00 지정가·01 시장가는 공식 샘플 inquire_psbl_order 설명, 06 장후 종가·41 애프터마켓 지정가는
+        //  D-097 실측(샘플에 없음). 2026-09-27 MCP 확인.
 
         body = {{"CANO", config_.account_no}, {"ACNT_PRDT_CD", config_.account_type},
                 {"PDNO", signal.ticker},
@@ -246,6 +256,8 @@ OrderAck KisClient::submit_order_acknowledgement(const OrderSignal& signal)
 // ─── MM-1: 정정/취소 (국내 order-rvsecncl) ─────────────────────────────────
 //  RVSE_CNCL_DVSN_CD: "02"=취소, "01"=정정. 성공 시 응답 ODNO(취소/정정 접수번호) 반환.
 //  KRX_FWDG_ORD_ORGNO(원주문 조직번호)와 ORGN_ODNO(원주문번호)가 필수 입력.
+//  [wire] 출처: KIS 공식 샘플 order_rvsecncl(TTTC0013U/VTTC0013U, 01 정정·02 취소, QTY_ALL_ORD_YN Y 전량·N 일부,
+//  모든 입력 필수), 2026-09-27 MCP 확인.
 //  주의: 국내 현금 주문 전용. 해외(overseas) 정정/취소는 별도 tr_id/URL — 미구현(TODO).
 OrderAck KisClient::cancel_order(const std::string& ticker, const std::string& orig_odno,
                                  const std::string& krx_forwarding_org_no, int quantity, bool all_remaining)
@@ -337,6 +349,8 @@ OrderAck KisClient::revise_order(const std::string& ticker, const std::string& o
                  // QTY_ALL_ORD_YN="Y"는 KIS가 잔량 전체를 정정하게 하므로, 위 ORD_QTY(부분 정정
                  // 수량)는 실제로 반영되지 않는다. 현재 호출부는 단가 정정만 쓰므로 무해하나,
                  // 부분수량 정정이 필요해지면 "N"으로 바꾸고 ORD_QTY를 살려야 한다(보류 목록).
+                 // [wire] 샘플 order_rvsecncl은 QTY_ALL_ORD_YN을 "잔량전부주문여부 Y:전량, N:일부"로만 적는다. Y일 때
+                 //  ORD_QTY가 무시된다는 설명은 샘플에 없다 — 근거 없음(2026-09-27).
                  {"QTY_ALL_ORD_YN", "Y"},                         // 잔량 전체 정정
                  {"EXCG_ID_DVSN_CD", kis_session_exchange(config_, session)}}; // 원주문과 같은 거래소 [why D-096]
 

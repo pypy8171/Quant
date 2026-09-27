@@ -3,6 +3,8 @@
 #include <cmath>
 
 // KRX 호가단위 (2023 통합) — 코스피/코스닥 일반주식 동일 구간.
+//  2023-01-25 시행 호가가격단위 개편에서 유가증권·코스닥 구간이 하나로 맞춰졌다(대신증권 제도개편 안내
+//  money2.daishin.com/html/Notice/2023/n_07.html, 2026-09-27 확인). 조문은 아래 kTickBands 주석.
 // 여러 전략(MarketMaking·DeviationScale 등)이 같은 표를 복사해 쓰던 것을 한 곳으로 모은다.
 namespace krx
 {

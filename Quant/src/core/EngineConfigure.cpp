@@ -145,6 +145,7 @@ void configure_regime_strategies(Engine& engine, const AppConfig& app)
 
 // 시세 전용(실전 도메인) 키: 모의(openapivts)는 시세 REST가 HTTP 500이므로 시세만 실전으로 조회.
 //  스캔 유니버스 분기(universe_from_scan)도 이 실전 키로 거래대금 랭킹/지수를 조회한다(StrategyLoadCtx).
+//  근거: 모의 시세 500은 api/KisEndpoints.h 머리 주석 참고(실측).
 void configure_quote_kis(Engine& engine, const AppConfig& app)
 {
     if (!app.quote_kis)

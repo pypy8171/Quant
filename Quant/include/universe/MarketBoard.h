@@ -26,6 +26,7 @@ namespace universe
 {
 
 // 상장 종목 한 줄 — 네이버 시총순 목록에서 온다. 개별주(stockEndType "stock")만 담는다.
+// [wire] 근거: 2026-09-27 실측 응답(m.stock.naver.com/api/stocks/marketValue/KOSPI, 공식 문서 없음) — stocks[].stockEndType "stock".
 struct ListedStock
 {
     std::string code;   // 여섯 자리(0096B0처럼 영문이 섞인 새 코드 포함)
@@ -70,9 +71,12 @@ struct RankedUniverse
 // 순수 함수 — 테스트가 부를 수 있게 공개한다.
 
 // 네이버 시총순 목록 한 쪽. 개별주만 돌려주고, 목록 전체 종목 수를 total_count에 적는다(실패면 -1).
+// [wire] 근거: 2026-09-27 실측 응답에 최상위 "totalCount":2484(KOSPI)가 있었다. 공식 문서 없음.
 std::vector<ListedStock> parse_listing_page(std::string_view body, const std::string& market, int& total_count);
 
 // 네이버 시세 폴링 응답. 가격이 0 이하인 종목은 뺀다. 표시용 필드("5조 5,043억")가 아니라 Raw 필드를 읽는다.
+// [wire] 근거: 2026-09-27 실측 응답(polling.finance.naver.com, 공식 문서 없음) — accumulatedTradingValue "5조 5,043억"과
+//  accumulatedTradingValueRaw "5504265000000"이 같이 온다.
 std::vector<BoardQuote> parse_polling(std::string_view body);
 
 // 시장별로 거래대금 ≥ min_turnover 이고 시총 > 0 인 종목 중 시총 상위 n_market_value ∪ 거래대금 상위 n_turnover.

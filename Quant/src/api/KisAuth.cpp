@@ -166,6 +166,7 @@ bool KisClient::issue_token(std::chrono::seconds reuse_margin)
         std::string token = document["access_token"].get<std::string>();
 
         // 만료 시각 저장 (KIS 응답 필드: access_token_token_expired)
+        // [wire] 출처: KIS 공식 샘플 auth_token 응답 필드 설명(access_token_token_expired = 접근토큰 유효기간 일시표시), 2026-09-27 MCP 확인.
         std::string expires = document.value("access_token_token_expired", "");
         std::chrono::system_clock::time_point expires_at;
 
@@ -190,6 +191,7 @@ bool KisClient::issue_token(std::chrono::seconds reuse_margin)
             else
             {
                 // 파싱 실패 시 24시간 후로 설정
+                // 근거: 토큰 유효기간 24시간은 docs/DECISIONS.md D-073. 공식 샘플은 expires_in(초) 필드만 두고 값은 적지 않았다.
                 expires_at = std::chrono::system_clock::now() + std::chrono::hours(24);
             }
         }
@@ -216,6 +218,8 @@ bool KisClient::issue_token(std::chrono::seconds reuse_margin)
         ::chmod(temporary_path.c_str(), S_IRUSR | S_IWUSR); // 0600 — 공유 볼륨 평문 토큰 보호 (W-4)
         // rename은 원자적이나 durability는 보장 안 함 — 크래시 시 0바이트 캐시→재발급(403).
         // tmp를 fsync해 데이터를 디스크에 내린 뒤 rename (V-2).
+        // 근거: 재발급이 1분 1회 제한에 걸리는 것은 docs/DECISIONS.md D-122(09-18 08:30 기동 반복), 중복 발급 403은
+        //  DAILY_LOG.md 2026-06-08 항목. 두 제한 모두 공식 샘플에는 없다(2026-09-27 MCP).
         {
             int descriptor = ::open(temporary_path.c_str(), O_RDONLY);
 

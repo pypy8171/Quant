@@ -53,6 +53,8 @@ bool websocket_tcp_connect(const std::string& host, int port, int& out_descripto
 {
     // AF_INET(IPv4) 강제: AF_UNSPEC면 getaddrinfo가 IPv6를 먼저 줄 수 있고,
     // Docker에서 IPv6 connect는 성공하나 KIS WS가 IPv6 핸드셰이크에 무응답 → recv 실패.
+    // 근거 없음(2026-09-27): 커밋 c892568(2026-06-05)이 AF_INET을 강제했지만, 같은 커밋은 당시 즉시 종료의 원인을
+    // KIS 모의 WS 쪽 일시 차단으로 적었다. IPv6 무응답을 따로 잰 기록은 없다.
     struct addrinfo hints{}, *result = nullptr;
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
@@ -186,6 +188,8 @@ void websocket_send_text_linux(int descriptor, const std::string& data)
     // 마스킹 키. RFC 6455는 프레임마다 새 난수 마스크를 요구하지만, 여기선 고정 키를 쓴다.
     // WS 마스킹은 보안이 아니라 프록시 캐시 오염 방지용 XOR 난독화라 KIS 서버는 값을 검증하지
     // 않아 실동작에 무해하다. 규격 엄밀성을 맞추려면 프레임별 난수로 바꿔야 한다(보류 목록).
+    // 근거: 실측(간접) — 2026-06-08 Docker(이 Linux 경로)에서 모의 WS 시세·체결통보가 정상 동작했다(DAILY_LOG.md).
+    // 서버가 마스크 값을 검사하는지는 알 수 없다.
     const uint8_t mask_key[4] = {0x37, 0x1A, 0xC5, 0x4F};
     frame.insert(frame.end(), mask_key, mask_key + 4);
 
@@ -205,6 +209,7 @@ void websocket_send_text_linux(int descriptor, const std::string& data)
 bool websocket_recv_frame_linux(int descriptor, std::string& out, std::string& error)
 {
     // 손상된 길이 필드 하나로 거대 할당이 일어나지 않게 상한을 둔다. KIS 실시간 프레임은 KB 단위다.
+    // 근거: 공식 샘플 열 수(호가 59칸·체결 46칸)로 본 추정이다. 실제 최대 프레임 크기를 잰 기록은 없다.
     constexpr uint64_t kMaxMessageBytes = uint64_t(1) << 20;
     std::string& message = out;
     message.clear();
@@ -459,6 +464,7 @@ std::string websocket_platform::http_post_json(const std::string& url, const std
 }
 
 // ─── 체결통보 복호화: OpenSSL EVP — AES-256-CBC, PKCS7 패딩 제거(DecryptFinal) ──
+// 근거: 샘플은 AES256만 적는다. CBC·PKCS7은 모의 실측(DAILY_LOG.md 2026-06-08).
 std::string websocket_platform::aes_cbc_decrypt(const std::string& cipher, const std::string& key, const std::string& initialization_vector)
 {
     if (cipher.empty() || cipher.size() % 16 != 0 || key.size() != 32 || initialization_vector.size() != 16)

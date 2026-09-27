@@ -11,6 +11,7 @@
 // MarketMakingStrategy (MM-1) — 미니 시장조성기
 //
 //  매 호가(H0STASP0) 틱에서 mid_price = (best_bid + best_ask)/2 를 계산하고,
+//  [wire] H0STASP0 = 국내주식 실시간호가(KRX), 공식 샘플 asking_price_krx(실시간-004), 2026-09-27 MCP 확인.
 //  mid_price ± half_spread_ticks 위치에 양방향 지정가(매수/매도)를 건다.
 //  시장이 requote_move_ticks 이상 이동하면 기존 견적을 취소(CANCEL)하고 재호가(NEW).
 //
@@ -50,6 +51,7 @@ public:
     std::string describe() const override;
 
     // 호가 필수 → trade_only=false (H0STASP0 구독). MM은 반드시 호가를 받아야 한다.
+    // [wire] H0STASP0 = 국내주식 실시간호가(KRX), 공식 샘플 asking_price_krx, 2026-09-27 MCP 확인.
     std::vector<WatchSpec> get_watch_specifications() const override
     {
         return {{ticker_, Market::KR, "", /*trade_only=*/false}};

@@ -176,12 +176,15 @@ std::vector<KisClient::RankingStock> KisClient::fetch_kr_ranking_page(const std:
             return etf_filter::is_etf_like(name, ETF_PREFIXES, ETF_TOKENS);
         };
         // KOSPI 보통주 티커는 반드시 6자리 숫자
+        // 근거 없음(2026-09-27): 공식 샘플은 종목코드 6자리 예시만 들고 숫자 전용이라고 하지 않는다. 신규 상장에는 알파벳이
+        //  섞인 코드가 있다(docs/DECISIONS.md D-105의 0N123A 예시) — 이 필터는 그런 종목을 떨어뜨린다.
         auto is_normal_ticker = [](const std::string& ticker)
         {
             return symbol::is_korean_ticker(ticker);
         };
 
         // API 응답 키: "output2"가 있으면 그것을, 없으면 "output"
+        // [wire] KIS 공식 샘플 market_cap은 output 키를 읽는다(2026-09-27 MCP 확인). output2는 방어용이다.
         auto& array = document.contains("output2") ? document["output2"] : document["output"];
         int drop_etf = 0, drop_ticker = 0; // 진단: raw 행이 어디서 새는지 계측
 
@@ -306,7 +309,8 @@ std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking_page(const s
     //  (KIS 공식 샘플 volume_rank.py로 2026-09-23 확인). 7·8번째를 켜서 ETF·ETN을 API단에서 뺀다 —
     //  안 빼면 30행 중 18행이 ETF라 개별주가 12행밖에 안 남았다(2026-09-23 장중 실측).
     //  아래 이름 필터는 그대로 둔다 — 마스크가 놓치는 ELW·신형 상품명을 받는 두 번째 그물이다.
-    // FID_BLNG_CLS_CODE 정렬축: 0=거래량 1=거래증가율 3=거래금액(기본) — 호출자가 지정.
+    // FID_BLNG_CLS_CODE 정렬축: 0=평균거래량 1=거래증가율 3=거래금액순(기본) — 호출자가 지정.
+    //  (2026-09-27 샘플 대조로 고침 — KIS 공식 샘플 volume_rank 파라미터 설명, 0은 평균거래량이다)
     // FID_INPUT_PRICE_1/2는 가격 구간. 둘 다 비면 전체 가격이다.
     std::string url = base_url() + "/uapi/domestic-stock/v1/quotations/volume-rank" +
                       "?FID_COND_MRKT_DIV_CODE=" + market_div + "&FID_COND_SCR_DIV_CODE=20171" +
@@ -382,6 +386,7 @@ std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking_page(const s
         };
 
         // volume-rank 응답 배열 키: "output" (표준). output2도 방어적으로 수용.
+        // [wire] 출처: KIS 공식 샘플 volume_rank(output 키), 2026-09-27 MCP 확인.
         auto& array = document.contains("output") ? document["output"] : document["output2"];
         int drop_etf = 0, drop_ticker = 0; // 진단: raw 행이 어디서 새는지 계측
 
@@ -389,6 +394,7 @@ std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking_page(const s
         {
             std::string name = item.value("hts_kor_isnm", "");
             // 티커 키가 mksc_shrn_iscd 또는 stck_shrn_iscd 둘 다 관측됨 → 양쪽 시도
+            // 근거 없음(2026-09-27): stck_shrn_iscd가 온 로그 기록을 찾지 못했다. 공식 샘플 volume_rank 응답은 mksc_shrn_iscd다.
             std::string ticker = item.value("mksc_shrn_iscd", "");
 
             if (ticker.empty())
@@ -494,13 +500,15 @@ std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking(int count, c
 // ═══════════════════════════════════════════════════════════════════════════
 //  당일 장중 외국인·기관 "추정(가집계)" 순매수 랭킹 — 배치 1콜
 //  tr_id: FHPTJ04400000 (foreign-institution-total). 실전 도메인 전용.
-//  ⚠️ 파라미터/필드명 미확정 — 첫 성공 응답 1회를 원문 로깅해 스키마 확정할 것.
+//  [wire] 출처: KIS 공식 샘플 foreign_institution_total(FHPTJ04400000, 시장 V, 화면 16449), 2026-09-27 MCP 확인.
+//  파라미터·필드명은 위 샘플과 맞다(2026-09-27 샘플 대조로 고침 — 전에는 미확정이라 적혀 있었다).
 // ═══════════════════════════════════════════════════════════════════════════
 std::vector<KisClient::EstInvestorFlow> KisClient::fetch_est_investor_ranking(
     const std::string& market, const std::string& sort, const std::string& etc_cls)
 {
     // FID_COND_MRKT_DIV_CODE=V(장중 추정), SCR_DIV=16449, ISCD=market, DIV_CLS=0(수량),
     // RANK_SORT=sort(0 순매수상위/1 순매도상위), ETC_CLS=etc_cls(0 전체/1 외국인/2 기관)
+    // 근거: api/KisClient.h fetch_est_investor_ranking 주석 참고(공식 샘플 대조).
     std::string url = base_url() + "/uapi/domestic-stock/v1/quotations/foreign-institution-total" +
                       "?FID_COND_MRKT_DIV_CODE=V" + "&FID_COND_SCR_DIV_CODE=16449" +
                       "&FID_INPUT_ISCD=" + market + "&FID_DIV_CLS_CODE=0" +
@@ -621,6 +629,7 @@ std::vector<std::string> KisClient::fetch_universe_by_pbr(double max_pbr, const 
     const std::string input_iscd = (market_div == "W") ? "1001" : "0001";
 
     // 재무 기준은 직전 결산. 결산 공시가 3월 말까지 나오므로 1~3월에는 한 해 더 앞 결산을 쓴다.
+    // 근거: 제도 자료 — 사업보고서는 사업연도 경과 후 90일 이내 제출(자본시장법 제159조), 12월 결산이면 3월 말이다.
     const std::chrono::year_month_day today{std::chrono::floor<std::chrono::days>(std::chrono::system_clock::now())};
     const int fiscal_year = static_cast<int>(today.year()) - (static_cast<unsigned>(today.month()) <= 3 ? 2 : 1);
 
@@ -698,7 +707,8 @@ std::vector<std::string> KisClient::fetch_universe_by_pbr(double max_pbr, const 
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  미국 Universe — 내장 73종목(NASDAQ 30·NYSE 43)에 PBR 필터만 건다(하락 필터는 없다)
-//  PBR은 KIS 해외주식 API에서 미제공 시 스킵 (pbr_max=0 → PBR 조건 무시)
+//  PBR이 0으로 오면 조건을 건너뛴다 (pbr_max=0 → PBR 조건 무시). KIS 해외주식 현재가상세는 pbrx 필드로 PBR을 준다
+//  (2026-09-27 샘플 대조로 고침 — 공식 샘플 price_detail, MCP 확인. get_us_fundamentals가 그 필드를 읽는지는 KisMarket.cpp 주석 참고).
 // ═══════════════════════════════════════════════════════════════════════════
 std::vector<std::string> KisClient::fetch_us_universe_by_pbr(double max_pbr, const std::string& exchange)
 {
@@ -717,7 +727,7 @@ std::vector<std::string> KisClient::fetch_us_universe_by_pbr(double max_pbr, con
         {
             auto us_fundamentals = get_us_fundamentals(ticker, exchange);
 
-            // KIS가 pbr 미제공(0.0)이면 PBR 조건 무시, per로 대리 (per=0이면 pass)
+            // pbr이 0.0으로 오면 PBR 조건 무시 (2026-09-27 샘플 대조로 고침 — KIS가 미제공하는 게 아니라 필드 이름이 pbrx다)
             if (us_fundamentals.pbr > 0.0 && us_fundamentals.pbr > max_pbr)
             {
                 continue;

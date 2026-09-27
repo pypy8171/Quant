@@ -286,6 +286,7 @@ void LedgerReconciler::capture_baseline(double total_evaluation, std::optional<d
 //  rest_price_feed_ 모드는 체결콜백(OrderRouter::on_fill)이 미등록이라 positions_/daily_pnl_이
 //  갱신되지 않는다(치명). 매 사이클 잔고를 재조회해 1) output1 보유분으로 positions_/average_prices_
 //  재동기, 2) output2 총평가금(tot_evlu_amt)의 당일 기준선 대비 델타를 daily_pnl_로 세팅한다.
+//  [wire] 출처: KIS 공식 샘플 inquire_balance(TTTC8434R/VTTC8434R) — output1 종목별 보유, output2 tot_evlu_amt, 2026-09-27 MCP 확인.
 //  절대 평가손익(evlu_pfls)이 아니라 "당일 기준선 델타"를 쓴다 — 이미 -30% 물린 미실현손실을
 //  daily_pnl로 넣으면 개장 즉시 모든 신규매수가 막힌다.
 bool LedgerReconciler::defer_after_fill(std::time_t now_utc)

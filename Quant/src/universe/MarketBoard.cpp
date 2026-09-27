@@ -29,6 +29,8 @@ constexpr int              kListingPageSize = 100;
 constexpr int              kListingMaxPages = 60; // 코스피 25쪽·코스닥 19쪽(09-26). 응답이 어긋나도 끝없이 돌지 않게
 
 // 웹페이지가 보내는 것과 같은 헤더. 없으면 폴링 주소가 빈 본문으로 200을 준다.
+//  [wire] 2026-09-27 실측에서는 헤더 없이도 같은 본문(3종목 7,275바이트)이 왔다(2026-09-27 확인으로 고침 — 빈 본문은 재현되지 않음).
+//  응답이 다시 바뀔 수 있어 헤더는 그대로 보낸다. 공식 문서 없음.
 const std::vector<std::string>& naver_headers()
 {
     static const std::vector<std::string> headers{"User-Agent: Mozilla/5.0", "Referer: https://finance.naver.com/"};
@@ -36,6 +38,8 @@ const std::vector<std::string>& naver_headers()
 }
 
 // Raw 필드는 "5504265000000"처럼 숫자만 든 문자열이다. 숫자로 오는 경우도 받아 둔다. 못 읽으면 0.
+// [wire] 근거: 2026-09-27 실측 응답(polling.finance.naver.com, 공식 문서 없음) — "closePriceRaw":"286500",
+//  "accumulatedTradingValueRaw":"5504265000000" 처럼 모두 따옴표 친 문자열로 왔다.
 double raw_number(const nlohmann::json& row, const char* key)
 {
     const auto found = row.find(key);
@@ -145,6 +149,8 @@ std::vector<BoardQuote> parse_polling(std::string_view body)
 
         // 맨 위 칸만 읽는다. 같은 이름의 Raw 필드가 시간외(overMarketPriceInfo)·통합(integratedPriceInfo)
         //  안에도 있어 본문을 문자열로 훑으면 그쪽 값을 잡는다.
+        //  [wire] 근거: 2026-09-27 실측 응답 2종목에서 accumulatedTradingVolumeRaw·accumulatedTradingValueRaw가 종목마다 세 번
+        //  (맨 위·overMarketPriceInfo·integratedPriceInfo) 나왔다. 공식 문서 없음.
         BoardQuote quote;
         quote.code  = text_field(row, "itemCode");
         quote.price = raw_number(row, "closePriceRaw");

@@ -78,6 +78,7 @@ bool to_double(std::string_view text, double& out) noexcept
 #else
     // strtod는 앞 공백을 건너뛰고 로케일을 보며 널 종료를 요구한다 — KIS 전문은 ASCII 숫자만 오므로
     //  스택 버퍼에 옮겨 끝 포인터만 확인한다. 32자를 넘는 숫자 필드는 없다.
+    // 근거 없음(2026-09-27): 샘플은 칸 폭과 문자 종류를 적지 않는다. 32자 이상이면 false로 떨어져 값이 틀어지지는 않는다.
     char buffer[32];
     const size_t length = static_cast<size_t>(other_end - begin);
 

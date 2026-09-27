@@ -34,6 +34,8 @@ void ValueContraryStrategy::on_start()
     if (market_ == Market::KR)
     {
         // KOSPI(J) + KOSDAQ(W) 합산
+        // J·W는 KIS 시장 코드가 아니라 fetch_universe_by_pbr 안에서 FID_INPUT_ISCD 0001·1001로 바뀌는 우리 표기다
+        //  (2026-09-27 샘플 대조로 고침 — KIS 공식 샘플 volume_rank에서 J는 KRX, W는 ELW다. KisUniverse.cpp 주석 참고).
         auto kospi = kis_->fetch_universe_by_pbr(pbr_max_ > 0 ? pbr_max_ : 999.0, "J");
         auto kosdaq = kis_->fetch_universe_by_pbr(pbr_max_ > 0 ? pbr_max_ : 999.0, "W");
         universe = std::move(kospi);
@@ -61,6 +63,7 @@ void ValueContraryStrategy::on_start()
         }
 
         // KIS 초당 거래건수 제한 — 매 호출 후 대기
+        // 근거: api/KisRateBucket.h bucket_published_limit 주석 참고.
         std::this_thread::sleep_for(std::chrono::milliseconds(kValueContraryRestIntervalMs));
 
         // 오늘 미완성 bar 제거 (pre-market or 장 개시 전: volume=0)
@@ -214,6 +217,7 @@ bool ValueContraryStrategy::in_session(Market market, int hhmm)
     if (market == Market::KR)
     {
         return krx::in_session(hhmm); // 09:00~15:30 정규장(core/MarketSession.h)
+        // 근거: 제도 자료 — KRX 정규장 09:00~15:30.
     }
 
     // 미국 정규장(서머타임 기준) KST 22:30~05:00. 표준시 전환은 반영하지 않는다

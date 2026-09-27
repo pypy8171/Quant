@@ -75,10 +75,13 @@ Holding decode_holding(const nlohmann::json& node);
 
 // 잔고 응답 한 페이지 → out에 누적. output1 행은 pdno가 비거나 수량 0 이하면 버린다(잔고는 매도 완료 종목을
 //  0주로 며칠 남긴다). 요약(output2)은 first_page일 때만 읽는다 — 배열로도 객체로도 온다.
+//  [wire] 출처: KIS 공식 샘플 inquire_balance — "당일 전량매도한 잔고도 보유수량 0으로 보일 수 있고 D-2일 이후
+//  사라진다", 2026-09-27 MCP 확인. output2가 배열·객체 둘로 온다는 것은 샘플에 없다(근거 없음).
 void decode_balance_page(const nlohmann::json& document, AccountBalance& out, bool first_page);
 
 // 선물 전광판 응답 → 계약 목록. 행 배열은 output1·output2·output 중 처음 비어 있지 않은 것이다
-//  (실키 응답이 어느 키로 오는지 문서가 못 박지 않아 셋을 본다). 코드가 빈 행은 버린다.
+//  (공식 샘플 display_board_futures(FHPIF05030200)는 행을 output에서 읽는다. 나머지 두 키는 실키 응답을 확인하지
+//  못해 남긴 방어다 — 2026-09-27 샘플 대조로 고침). 코드가 빈 행은 버린다.
 std::vector<FutureContract> decode_future_board(const nlohmann::json& document);
 
 // 미체결 조회 한 쪽. rows는 종목이 있고 잔여가 0보다 큰 행만 담는다(모의는 취소된 행도 뺀다).
@@ -90,9 +93,13 @@ struct OpenOrderPage
 };
 
 // 미체결 조회 응답 본문 한 쪽 → OpenOrderPage. 본문이 비면 "transport", JSON이 아니면 "parse", rt_cd가 "0"이
-//  아니면 msg_cd·msg1을 실패로 돌려준다 — 초당 한도(EGW00201) 응답은 rt_cd "1"에 빈 output1로 오고, 그것을
+//  아니면 msg_cd·msg1을 실패로 돌려준다 — 초당 한도(EGW00201) 응답은 rt_cd "1"에 output 없이 오고, 그것을
 //  "미체결 없음"으로 읽으면 재기동 대조가 살아 있는 주문의 선점을 푼다. [why 전수조사 B1-2]
+//  근거: 실측 — logs/quant_trader.log 2026-08-10 12:51 거래대금 랭킹 응답 {"rt_cd":"1","msg1":"초당 거래건수를
+//  초과하였습니다.","msg_cd":"EGW00201"}에 output 키가 없다. 옛 문구 "빈 output1"을 2026-09-27 로그 대조로 고쳤다
+//  (미체결 조회 자체의 한도 응답 본문은 로그에서 찾지 못했다).
 //  [wire] 모의(VTTC0081R)는 output1·rmn_qty(잔여)·cncl_yn, 실거래(TTTC0084R)는 output·psbl_qty(취소가능).
+//  출처: 공식 샘플 inquire_daily_ccld(output1, rmn_qty·cncl_yn)·inquire_psbl_rvsecncl(output, psbl_qty), 2026-09-27 MCP 확인.
 KisResult<OpenOrderPage> decode_open_order_page(std::string_view response, bool paper);
 
 // 일별주문체결조회 한 쪽. rows는 주문번호가 있고 누적 체결이 0보다 큰 행만 담는다(취소 행은 체결 0이라 빠진다).

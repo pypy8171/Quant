@@ -269,7 +269,10 @@ void decode_balance_page(const nlohmann::json& document, AccountBalance& out, bo
         out.total_evaluation_amount = option_number(*row, "nass_amt"); // 순자산 폴백
     }
 
-    // 주문가능현금 — 가수도정산금(미체결·미결제로 묶인 몫이 빠진 실질 상한)을 우선, 없으면 예수금.
+    // 주문가능현금 — 가수도정산금액을 우선, 없으면 예수금총금액(dnca_tot_amt).
+    // [wire] 출처: KIS 공식 샘플 inquire_balance 응답 컬럼 prvs_rcdl_excc_amt="가수도정산금액", 2026-09-27 MCP 확인.
+    //  옛 주석의 "미체결·미결제로 묶인 몫이 빠진 실질 상한"은 샘플에 없는 해석이라 뺐다 — 미체결 매수 주문 몫이
+    //  빠지는지는 샘플도 실측 기록도 없다(2026-09-27 샘플 대조로 고침).
     out.available_cash = option_number(*row, "prvs_rcdl_excc_amt");
 
     if (!out.available_cash)

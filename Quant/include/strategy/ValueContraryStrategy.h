@@ -53,6 +53,7 @@ public:
 
     // 그 시장의 정규장 안인가(KST hhmm). KR 09:00~15:30, US 22:30~05:00(서머타임 기준). 로더가 청산 시각을 이것으로
     //  걸러낸다 — 틱 처리가 세션 밖에서 바로 돌아가므로 세션 밖 청산 시각에는 청산 분기가 닿지 않는다.
+    //  출처: KR은 유가증권시장 업무규정 제4조제3항, US는 NYSE ET 09:30~16:00(겨울 EST에는 KST 23:30~06:00), 2026-09-27 확인.
     static bool in_session(Market market, int hhmm);
 
     std::string describe() const override;

@@ -115,8 +115,10 @@ private:
     // message[0]=='{' 로 두 경로를 가르는 얇은 디스패처. 실제 처리는 아래 두 함수.
     void parse_message(const std::string& message);
     // 제어 프레임: PINGPONG 에코, 구독 응답 JSON(체결통보 AES key/iv 확보 포함).
+    // 근거: key/iv는 공식 샘플 ccnl_notice(2026-09-27 MCP 확인). PINGPONG 에코는 샘플·실측 기록 모두 찾지 못했다.
     void handle_control_frame(const std::string& message);
     // 데이터 프레임: TYPE|TR_ID|COUNT|DATA 분해, 필요 시 base64+AES 복호화, 레코드 디스패치.
+    // [wire] 출처: 프레임 형식은 공식 샘플 ccnl_notice 설명(2026-09-27 MCP 확인), base64·AES-CBC는 모의 실측(DAILY_LOG.md 2026-06-08).
     void handle_data_frame(const std::string& message);
     // 레코드 한 건을 transaction_id에 맞는 파서로 보낸다(단건·다건 프레임이 공유).
     void dispatch_record(std::string_view transaction_id, kis_websocket::Fields fields);
@@ -136,9 +138,11 @@ private:
     void parse_fill_notification(kis_websocket::Fields fields);
 
     // 체결통보(H0STCNI) 복호화 — base64는 여기, AES-256-CBC는 플랫폼별(websocket_platform::aes_cbc_decrypt)
+    // 근거: 암호화 여부는 공식 샘플 ccnl_notice, base64·CBC 방식은 모의 실측(DAILY_LOG.md 2026-06-08).
     static std::string base64_decode(std::string_view in);
 
     KisConfig config_;
+    // approval_key_ 출처: 공식 샘플 auth_ws_token(POST /oauth2/Approval 응답의 approval_key), 2026-09-27 MCP 확인.
     std::string approval_key_; // KIS 실시간 WS 접속 승인키 (REST로 발급, 세션 내 재사용)
     std::string aes_key_; // 체결통보 복호화 키 (구독 응답에서 획득)
     std::string aes_iv_;  // 체결통보 복호화 IV

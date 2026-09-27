@@ -53,7 +53,8 @@ public:
         return false;
     }
 
-    // 호가 이벤트 (국내 전용 — H0STASP0)
+    // 호가 이벤트 (국내 전용 — H0STASP0, 통합 구독이면 H0UNASP0)
+    // [wire] 출처: KIS 공식 샘플 asking_price_krx·asking_price_total, 2026-09-27 MCP 확인(2026-09-27 샘플 대조로 H0UNASP0 보탬).
     virtual std::optional<OrderSignal> on_order_book(const OrderBook&)
     {
         return std::nullopt;
@@ -66,7 +67,8 @@ public:
     {
     }
 
-    // 체결 이벤트 (미국 — HDFSCNT0, 국내 — H0STCNT0)
+    // 체결 이벤트 (미국 — HDFSCNT0, 국내 — H0STCNT0, 통합 구독이면 H0UNCNT0)
+    // [wire] 출처: KIS 공식 샘플 ccnl_krx·ccnl_total, 2026-09-27 MCP 확인(2026-09-27 샘플 대조로 H0UNCNT0 보탬). HDFSCNT0은 WebSocketClient 주석 참고.
     virtual std::optional<OrderSignal> on_trade(const TradeData&)
     {
         return std::nullopt;
@@ -314,6 +316,7 @@ protected:
     prefetch::Pool* prefetch_pool_ = nullptr; // non-owning; Engine 소유(미주입이면 프리페치 없음)
     KisClient* account_kis_ = nullptr; // non-owning; 계좌 조회용(미주입 시 kis_ 사용)
     std::function<int(const std::string&, const std::string&)> position_provider_; // 결제완료 확정 포지션(D2=결제일 T+2)
+    // 근거: 제도 자료 — 국내 주식은 매매일 다음 둘째 영업일(T+2)에 결제한다(한국거래소 업무규정).
     std::function<int(const std::string&, symbol::SymbolId)> position_provider_by_id_; // 같은 원장, 종목 정수 id로 [why D-105]
     std::function<bool()> entry_halt_provider_; // 신규매수 차단 여부(OrderGate). 미주입=false
     std::function<double()> entry_scale_provider_; // 매수 명목 비율(OrderGate). 미주입=1.0

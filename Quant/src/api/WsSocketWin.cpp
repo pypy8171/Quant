@@ -151,6 +151,7 @@ public:
             }
 
             // FRAGMENT는 모으고 MESSAGE에서 완성한다. 바이너리 타입은 KIS가 쓰지 않는다 — 버린다.
+            // 근거 없음(2026-09-27): 샘플은 응답을 JSON과 | 구분 문자열로만 설명하고, 바이너리 프레임이 없다고 적지는 않는다.
             if (bufType == WINHTTP_WEB_SOCKET_UTF8_FRAGMENT_BUFFER_TYPE)
             {
                 out.append(reinterpret_cast<const char*>(buffer_.data()), bytesRead);
@@ -173,6 +174,7 @@ public:
         }
 
         // close 프레임 없이 핸들만 닫으면 KIS가 세션을 붙잡아 다음 접속이 rt=9로 거부된다.
+        // 근거: 실측 — rt=9 로그(Quant/logs/archive/quant_trader_2026-08-06.log), 커밋 e441845(2026-08-07).
         WinHttpWebSocketClose(handle, WINHTTP_WEB_SOCKET_SUCCESS_CLOSE_STATUS, nullptr, 0);
         WinHttpCloseHandle(handle);
     }
@@ -317,6 +319,7 @@ struct AesDecryptState
 
 // ─── 체결통보 복호화: BCrypt(CNG) — AES-256-CBC, PKCS7 패딩 제거 ───────────
 // Windows: BCrypt(CNG) — AES-256-CBC, PKCS7 패딩 제거
+// 근거: 샘플은 AES256만 적는다. CBC·PKCS7은 모의 실측(DAILY_LOG.md 2026-06-08).
 std::string websocket_platform::aes_cbc_decrypt(const std::string& cipher, const std::string& key, const std::string& initialization_vector)
 {
     if (cipher.empty() || cipher.size() % 16 != 0 || key.size() != 32 || initialization_vector.size() != 16)

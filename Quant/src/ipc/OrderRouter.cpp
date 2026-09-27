@@ -37,6 +37,7 @@ OrderRouter::InFlightMark::~InFlightMark()
 //  history_는 프로세스 메모리라 재기동으로 사라진다. 그래서 살아있는 주문을 파일에
 //  남겨 두고 다음 기동이 그것을 취소한다 — 기동 취소는 이 파일을 먼저 읽고, 빠진 주문은
 //  브로커 미체결 조회로 채운다(모의투자도 VTTC0081R로 답한다). 매 상태변화마다 통째로 덮어쓰되, 쓰기는 전담 스레드가 한다.
+//  [wire] 출처: VTTC0081R은 KIS 공식 샘플 inquire_daily_ccld의 모의 TR(2026-09-27 MCP 확인), 모의에서 쓰는 이유는 D-101.
 //  주문 스레드에서 바로 쓰던 때는 건당 1,589us로 record_us의 절반을 먹었다 — 살아있는 주문이 수십 건이라
 //  비용이 무시할 만하다고 본 것은 라이브 기준이었고, 951줄이 쌓이면 그렇지 않았다(2026-09-23 회차 E). [why D-123]
 std::string OrderRouter::snapshot_open_orders_locked() const

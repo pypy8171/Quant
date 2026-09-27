@@ -19,6 +19,8 @@ inline constexpr int kKrAfterMarketCloseMinute = 20 * 60;      // 20:00 애프�
 inline constexpr int kKrRegularSessionMinutes  = kKrRegularCloseMinute - kKrMarketOpenMinute; // 390
 inline constexpr int kUsMarketOpenMinute       = 22 * 60 + 30; // 22:30 KST = ET 09:30
 inline constexpr int kUsMarketCloseMinute      = 5 * 60;       // 익일 05:00 KST = ET 16:00
+// 출처: NYSE 정규장 ET 09:30~16:00(nyse.com/markets/hours-calendars), 2026-09-27 확인. 위 두 값은 미국 서머타임(EDT, UTC−4,
+//  3월 둘째 일요일~11월 첫째 일요일) 기준이다. 겨울(EST, UTC−5)에는 KST 23:30~익일 06:00이 맞고, 이 상수는 서머타임을 반영하지 않는다.
 
 inline int minute_of_day(const struct tm& time_parts)
 {
@@ -79,6 +81,7 @@ int sec_of_day(std::time_t now_utc);
 bool kr_market_open(std::time_t now_utc);
 
 // 미국 정규장이 열려 있는가 — ET 09:30~16:00 = KST 22:30~익일 05:00. 월~금 밤에 연 장이 화~토 새벽까지 이어진다.
+//  KST 환산은 서머타임(EDT) 기준이다. 겨울(EST, 11월 첫째 일요일~3월 둘째 일요일)에는 KST 23:30~06:00이라 한 시간씩 어긋난다(2026-09-27 확인).
 bool us_market_open(std::time_t now_utc);
 
 // 한국장이나 미국장 중 하나라도 열려 있는가.

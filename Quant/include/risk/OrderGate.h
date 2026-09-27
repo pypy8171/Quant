@@ -102,6 +102,9 @@ public:
         // ── 교체 진입(displacement) — 슬롯이 꽉 찼는데 더 높은 점수가 오면 최약체를 비운다 ──
         //  교체는 공짜가 아니다. 왕복 비용 0.23%(수수료 0.03% + 세금 0.20%)에 피교체 종목의
         //  분할 매수가 리셋되므로, 아래 넷으로 회전을 묶는다. [why D-019]
+        //  [formula] 0.23% = 수수료 0.015%×2(매수·매도) + 매도 거래세 0.20%. 출처: KIS 온라인 수수료 0.0140527%(올려 잡음,
+        //  securities.koreainvestment.com 수수료안내), 2026년 거래세 코스피 0.05%+농특세 0.15%·코스닥 0.20%(biz.heraldcorp.com/article/10627001),
+        //  2026-09-27 확인.
         bool   displace_enabled       = false;
         double displace_min_z_gap     = 0.5;  // σ, 신규가 최약체보다 이만큼 높아야 교체
         int    displace_min_hold_sec  = 900;  // 초, 방금 산 종목은 안 뺀다

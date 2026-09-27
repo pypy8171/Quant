@@ -62,9 +62,14 @@ using Changes = std::map<std::string, Change>;
 // ── 순수 함수(네트워크·파일 없음, tests/test_regime_feed.cpp) ──
 
 // 네이버 실시간 지수 응답 → itemCode별 결과. 장이 안 열렸으면 percent 0·previous_pct에 오늘 표시 등락.
+// [wire] 근거: 2026-09-27 실측 응답(polling.finance.naver.com/api/realtime/domestic/index/KOSPI,KOSDAQ, 공식 문서 없음) —
+//  datas[]마다 itemCode·closePriceRaw "7080.92"·fluctuationsRatioRaw "0.90"·marketStatus "CLOSE".
 std::map<std::string, Change> parse_naver_index(std::string_view body);
 
 // Yahoo 차트 응답의 현재가·전일 종가 → 등락. 오늘 정규장이 아직 안 열렸으면 percent 0·previous_pct에 받은 값.
+// [wire] 근거: 2026-09-27 실측 응답(query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?range=1d&interval=5m, 공식 문서 없음) —
+//  chart.result[0].meta에 regularMarketPrice·previousClose·chartPreviousClose, currentTradingPeriod.regular.start/end(유닉스 초).
+//  일봉(range=10d&interval=1d)은 indicators.quote[0].close 배열.
 Change parse_yahoo_chart(std::string_view body, std::time_t now_utc);
 
 // Yahoo 일봉 응답 → 가장 최근 완결 세션의 종가 등락(그 앞 세션 대비). 못 구하면 비움.

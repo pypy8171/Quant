@@ -64,6 +64,7 @@ KisClient::InvestorTrend KisClient::get_investor_trend(const std::string& ticker
 }
 
 // ─── 지수 현재값 (코스피 "0001", 코스닥 "1001", KOSPI200 "2001") ────────────
+// [wire] 출처: KIS 공식 샘플 inquire_index_price(FHPUP02100000, 시장 U) FID_INPUT_ISCD 파라미터 설명, 2026-09-27 MCP 확인.
 KisClient::IndexPrice KisClient::get_index_price(const std::string& ticker)
 {
     ensure_authenticated();

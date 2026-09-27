@@ -20,8 +20,11 @@ RetryPlan classify(const OrderSignal& signal, int attempts, int max_retries, Ord
     // 유량 한도 거부 — KIS가 '접수 전' 거부라 중복주문 위험 없음(빈-ODNO 모호성 없음). 모든 action(취소·정정·
     //  매수·매도)을 deduplicate 창 밖으로 재예약해 유실 없이 자가치유한다. 예전엔 취소·매수가 드롭돼 미연결 주문이 남고,
     //  다음 사이클에 다시 처리되다 또 한도초과가 나는 악순환이었다. 간격은 짧게 두고, 한도에 부딪힐 때만 물러난다.
+    //  근거: EGW00201 응답에 ODNO가 없다는 실측(logs/quant_trader.log 2026-08-10, D-026·D-055)에서 추론한 것이다.
+    //  '접수 전'이라고 적은 KIS 공식 샘플·문서는 찾지 못했다(2026-09-27).
     // [wire] KIS 서버 거부는 EGW00201, OrderGate 자체 거부는 gate_reason::kRateLimit 머리의 문장이라 둘을 같이 받는다.
     //  앞엣것만 보던 동안 게이트 분당한도에 걸린 BUY가 조용히 드롭됐다.
+    //  출처: EGW00201은 실측 응답 msg1 "초당 거래건수를 초과하였습니다."(logs/quant_trader.log 2026-08-10), D-065.
     if (reject_reason.find(kis_error::kRateLimit) != std::string::npos || gate_reason::is_rate_limit(reject_reason))
     {
         // 분당 한도는 창이 비기까지 최대 60초 — 짧게 되쏘면 재시도 3회가 몇 초 안에 소진돼 같은 드롭이 된다.

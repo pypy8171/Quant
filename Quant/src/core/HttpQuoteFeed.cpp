@@ -19,12 +19,16 @@ namespace
 constexpr std::string_view kEndpoint = "https://polling.finance.naver.com/api/realtime/domestic/stock/";
 
 // 응답 한 종목이 시작하는 표지. 이 뒤로 다음 표지 전까지가 한 종목의 구간이다.
+// [wire] 근거: 2026-09-27 실측 응답(polling.finance.naver.com, 공식 문서 없음) — {"datas":[{"itemCode":"005930",
+//  "closePrice":"286,500","accumulatedTradingVolume":"19,385,053","localTradedAt":"2026-09-23T20:00:00+09:00",...}]}.
+//  같은 이름의 localTradedAt·accumulatedTradingVolume이 종목 안 overMarketPriceInfo 칸에도 다시 나온다.
 constexpr std::string_view kCodeKey   = "\"itemCode\":\"";
 constexpr std::string_view kPriceKey  = "\"closePrice\":\"";
 constexpr std::string_view kVolumeKey = "\"accumulatedTradingVolume\":\"";
 constexpr std::string_view kTimeKey   = "\"localTradedAt\":\"";
 
 // "276,500" 처럼 쉼표가 끼어 있는 숫자를 읽는다. 닫는 따옴표에서 멈춘다.
+// [wire] 근거: 2026-09-27 실측 응답에서 closePrice·accumulatedTradingVolume은 쉼표 낀 문자열이었다(공식 문서 없음).
 int64_t read_grouped_number(std::string_view segment, size_t from)
 {
     int64_t value = 0;

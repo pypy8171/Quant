@@ -11,6 +11,7 @@ std::vector<MarketData> KisClient::get_daily_ohlcv(const std::string& ticker, in
 // 일봉·주봉 공통. FHKST03010100은 날짜창 하나에 최대 100행을 돌려주므로 100을 넘는 요청은
 //  가장 오래된 행의 전날을 새 종료일로 두고 뒤로 넘긴다(역페이지네이션). 페이지가 비거나
 //  같은 날짜에서 멈추면 더 없는 것으로 보고 끝낸다.
+// [wire] 출처: KIS 공식 샘플 inquire_daily_itemchartprice(FHKST03010100) 설명 "최대 100건", 2026-09-27 MCP 확인.
 std::vector<MarketData> KisClient::get_chart_ohlcv(const std::string& ticker, int count, bool include_current,
                                                    char period)
 {
@@ -55,6 +56,8 @@ std::vector<MarketData> KisClient::get_chart_ohlcv(const std::string& ticker, in
 
     // G1 수정: 날짜 하드코딩(19000101~99991231)은 모의서버 500 → 유한창(오늘−N일 ~ 오늘, KST).
     //  조회창의 초는 KST 자리값을 UTC로 읽은 값(parse_dt와 같은 눈금)이라 옮기지 않고 날짜로 찍는다.
+    // 근거: 모의 서버 500은 실측 — Quant/logs/archive/quant_trader_2026-08-06.log 509행~557행(openapivts 일봉·지수 일봉 HTTP 500). 날짜 하드코딩이
+    //  원인이었는지는 따로 가른 기록을 찾지 못했다.
     auto format_date   = [](time_t time_value) -> std::string
     {
         return kst::format_ymd(kst::utc_date(time_value));
@@ -241,6 +244,7 @@ std::vector<MarketData> KisClient::get_minute_ohlcv(const std::string& ticker, i
     std::vector<std::string> headers = authentication_headers("FHKST03010200");
 
     // 필요한 1분봉 수 = count*interval_min. 1콜당 ~30봉 → 여유롭게 페이지 상한.
+    // [wire] 출처: KIS 공식 샘플 inquire_time_itemchartprice(FHKST03010200) 설명 "한 번의 호출에 최대 30건", 2026-09-27 MCP 확인.
     const int need_1min  = count * interval_min;
     const int kMaxPages  = (std::min)(20, need_1min / 25 + 3); // (): windows.h min 매크로 회피
 
@@ -411,6 +415,7 @@ Fundamentals KisClient::get_fundamentals(const std::string& ticker)
 // ═══════════════════════════════════════════════════════════════════════════
 //  해외 주식 일봉 조회
 //  tr_id: HHDFS76240000
+//  [wire] 출처: KIS 공식 샘플 dailyprice(해외주식 기간별시세, HHDFS76240000, 실전·모의 공통), 2026-09-27 MCP 확인.
 // ═══════════════════════════════════════════════════════════════════════════
 std::vector<MarketData> KisClient::get_us_daily_ohlcv(const std::string& ticker, int count, const std::string& exchange)
 {
@@ -445,6 +450,7 @@ std::vector<MarketData> KisClient::get_us_daily_ohlcv(const std::string& ticker,
             market_data.ticker = ticker;
             market_data.market = Market::US;
             // KIS 해외 일봉 필드: clos/open/high/low/tvol
+            // [wire] 출처: KIS 공식 샘플 chk_dailyprice COLUMN_MAPPING(output2의 clos·open·high·low·tvol), 2026-09-27 MCP 확인.
             auto parse_d = [](const json& node, const char* key) -> double
             {
                 const auto found = node.find(key);
@@ -507,8 +513,9 @@ std::vector<MarketData> KisClient::get_us_daily_ohlcv(const std::string& ticker,
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  해외 주식 펀더멘털 (PER / 현재가)
-//  tr_id: HHDFS00000300
-//  NOTE: KIS 해외주식 API는 pbr 미제공 → per 필드 활용
+//  tr_id: 이 URL(price-detail, 해외주식 현재가상세)의 공식 TR은 HHDFS76200200이다. HHDFS00000300은 현재체결가(price) TR이다
+//  (2026-09-27 샘플 대조로 고침 — KIS 공식 샘플 price_detail·price, MCP 확인. 아래 코드는 HHDFS00000300을 보낸다).
+//  NOTE: 현재가상세 응답에는 PER·PBR이 perx·pbrx 필드로 있다(2026-09-27 샘플 대조로 고침 — 전에는 pbr 미제공이라 적혀 있었다).
 // ═══════════════════════════════════════════════════════════════════════════
 Fundamentals KisClient::get_us_fundamentals(const std::string& ticker, const std::string& exchange)
 {
@@ -530,7 +537,7 @@ Fundamentals KisClient::get_us_fundamentals(const std::string& ticker, const std
     try
     {
         auto document = json::parse(response);
-        // KIS 해외주식 현재가상세는 output1 키 사용
+        // 공식 샘플 price_detail은 output 키를 읽는다(2026-09-27 샘플 대조로 고침 — 전에는 output1이라 적혀 있었다). 둘 다 받아 둔다.
         const char* out_key = document.contains("output1") ? "output1" : document.contains("output") ? "output" : nullptr;
 
         if (!out_key)

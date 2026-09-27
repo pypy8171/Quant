@@ -31,7 +31,7 @@ public:
     std::vector<WatchSpec> get_watch_specifications() const override
     {
         // MACross는 REST 폴링(get_daily_ohlcv)으로만 동작 — WS 호가/체결 불필요.
-        // trade_only=true → H0STCNT0만 구독(호가 제외)해 구독 한도(≈41건) 절약.
+        // trade_only=true → H0STCNT0만 구독(호가 제외)해 구독 한도(≈41건, D-152 실측) 절약.
         return {{ticker_, Market::KR, "", true}};
     }
 

@@ -15,6 +15,8 @@ struct BucketPlan
 };
 
 // 공표 한도. 실전 초당 20건, 모의 초당 2건.
+// 근거: 공식 샘플에는 한도 숫자가 없다(2026-09-27 MCP). 실전 20건은 docs/DECISIONS.md D-138, 모의 2건은 D-074와
+//  _private/_intraday_issues/2026-09-09.md의 EGW00201(초당 거래건수 초과) 기록.
 constexpr double bucket_published_limit(bool is_paper)
 {
     return is_paper ? 2.0 : 20.0;

@@ -1122,10 +1122,11 @@ quant::moving_average::SimpleMovingAverages DeviationScaleStrategy::daily_simple
 
 void DeviationScaleStrategy::prefetch_once()
 {
-    // 장 밖에서는 받아봐야 같은 응답이다. KIS 분봉은 기준시각을 15:30으로 클램프하므로
-    //  (KisClient.cpp) 장 마감 후엔 종일 같은 봉을 다시 받고, 그 호출이 초당 한도를
+    // 장 밖에서는 받아봐야 같은 응답이다. 우리 분봉 조회(KisMarket.cpp get_minute_ohlcv)가 장 밖 기준시각을 15:30으로 바꾸므로
+    //  (2026-09-27 대조로 고침 — KIS가 아니라 우리 코드가 바꾼다) 장 마감 후엔 종일 같은 봉을 다시 받고, 그 호출이 초당 한도를
     //  차지해 다른 조회를 500으로 밀어낸다. 발주는 어차피 장중에만 나가므로 건너뛴다.
     //  창은 08:50~15:35로 장 마감 청산(15:15)까지 덮는다.
+    //  근거: 한도 초과가 500으로 오는 것은 실측 — DAILY_LOG.md 2026-09-04 항목(분봉 호출량이 실전 한도의 70%).
     const int hhmm = kst_hhmm();
     const int wday = kst_tm().tm_wday;
     const bool in_session =

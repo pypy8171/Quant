@@ -26,6 +26,7 @@ struct WatchSpec
     Market market = Market::KR;
     std::string exchange;      // US only: "NAS", "NYS"
     bool trade_only = false;   // true: H0STCNT0만 구독 (호가 제외, 구독 한도 절약)
+    // trade_only 근거: 구독 한도 41건은 D-152 실측(2026-09-27).
 };
 
 // 같은 종목 구독인가 — 시장·거래소·종목으로 본다. 체결만(trade_only)인지는 칸 수만 바꾸므로 보지 않는다.
@@ -150,6 +151,7 @@ struct OrderSignal
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 실시간 호가 (KIS WebSocket H0STASP0) — 국내 전용
+// [wire] 출처: 공식 샘플 asking_price_krx(국내주식 실시간호가 KRX, 실시간-004), 2026-09-27 MCP 확인.
 // ─────────────────────────────────────────────────────────────────────────────
 struct OrderBookLevel
 {
@@ -172,6 +174,7 @@ struct OrderBook
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 실시간 체결 (H0STCNT0 국내 / HDFSCNT0 해외)
+// [wire] 출처: 공식 샘플 ccnl_krx(실시간-003)·delayed_ccnl(해외주식 실시간지연체결가, 실시간-007), 2026-09-27 MCP 확인.
 // ─────────────────────────────────────────────────────────────────────────────
 struct TradeData
 {
@@ -197,6 +200,7 @@ static_assert(std::is_trivially_copyable_v<TradeData> && std::is_trivially_copya
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 체결통보 (H0STCNI0 실거래 / H0STCNI9 모의투자)
+// [wire] 출처: 공식 샘플 ccnl_notice(실시간-005) — 실전 H0STCNI0, 모의 H0STCNI9, 2026-09-27 MCP 확인.
 // 체결 통로에 실리는 것의 종류. 체결 말고도 "체결통보 구독이 새로 붙었다"를 같은 통로로 보낸다 — 주문 쪽이
 //  그 신호를 받아 끊긴 사이 놓친 체결을 조회로 되찾는다. 통로를 따로 두면 체결과 신호의 순서가 어긋난다. [why D-149]
 enum class FillKind : uint8_t
@@ -243,6 +247,7 @@ enum class OrderStatus
 
 // 자릿수 문자열 → 정수. KIS 주문번호(ODNO "0000014893")·체결시각("110707")처럼 전문이 자릿수로 주는 값을
 //  받는 자리에서 한 번 바꾼다. 빈 문자열이나 숫자 아닌 글자가 섞이면 0.
+//  근거: ODNO 자릿수 형식은 실측(D-121의 2026-09-07 ODNO 0000014893), 체결시각은 공식 샘플 ccnl_notice의 STCK_CNTG_HOUR.
 uint64_t digits_to_number(std::string_view digits) noexcept;
 
 // 주문 번호 발급 — 프로세스 안에서 단조 증가. 전략·수동주문이 신호를 만들 때 한 번 부른다. [why D-112]

@@ -84,6 +84,7 @@ struct AppConfig
     std::map<Regime, std::vector<std::string>> regime_strategies;
 
     // ── TRADE: 시세 전용(실전 도메인) 키. 모의 시세 REST가 HTTP 500이라 시세만 실전으로 ──
+    // 근거: api/KisEndpoints.h 머리 주석 참고(실측).
     std::optional<KisConfig> quote_kis;
 
     // ── TRADE: 위험 한도·주문 호출 간격. risk 노드가 없어도 매매 창은 채운다 ──

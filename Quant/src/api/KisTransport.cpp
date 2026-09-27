@@ -39,6 +39,7 @@ struct HeaderOverlay
     //  (oauth2 발급 요청은 nullptr). [inv] 전송이 끝날 때까지 살아 있는 문자열(http_get/http_post의 지역 변수)
     const std::string* bearer_line = nullptr;
     bool ensure_json_content_type = false; // Content-Type 줄이 없으면 하나 덧붙인다(KIS는 GET에도 요구)
+    // 근거 없음(2026-09-27): 공식 샘플의 공통 요청 함수(kis_auth.py)를 MCP로 읽지 못했고 GET에 Content-Type이 없어 거부된 실측 기록도 찾지 못했다.
 };
 
 // 헤더 벡터에 오버레이를 입혀 보낼 줄을 차례로 emit(const std::string&)에 넘긴다. 문자열을 새로 만들지 않는다.
@@ -74,6 +75,8 @@ static void emit_header_lines(const std::vector<std::string>& headers, const Hea
 //  장애와 구분이 안 된다 — 바디의 코드로 가른다. 한도 초과에 즉시 재시도하면 호출량을 1→3배로
 //  늘려 초과를 더 키운다(양의 되먹임). 그래서 전송 계층은 한도 초과를 되보내지 않고, KisClient::http_get이
 //  버킷을 비운 뒤 버킷이 계산한 만큼 기다려 한 번만 되보낸다(CODE_REVIEW W-3).
+// 근거: 실측 — 초당 한도 초과가 HTTP 500으로 온 기록은 _private/_intraday_issues/2026-09-21.md 09:25 항목과 DAILY_LOG.md
+//  2026-09-04 항목(분봉 500의 원인이 호출량). EGW00201 문구는 docs/DECISIONS.md D-138 앞뒤 기록. 공식 샘플에는 없다.
 static bool is_rate_limited(const std::string& body)
 {
     return body.find("EGW00201") != std::string::npos ||
@@ -333,6 +336,7 @@ static std::string winhttp_request_once(const std::string& method, const std::st
 // 재시도 래퍼. ⚠ 조회(GET) 요청(여러 번 보내도 서버 상태 불변이라 재시도 안전)만 재시도한다 — (a) 전송 계층 실패(12152 등, 제한 시간 초과 12002는 제외), (b) 5xx 서버 일시장애.
 //  KIS 시세/일봉 TR은 부하 시 간헐 HTTP 500을 뱉는데(전송은 정상, transport_ok=true), 이때 일봉이 <60봉으로
 //  잘려 스캔 후보가 통째로 탈락한다 → 조회(GET)에 한해 5xx도 재시도해 후보 유실을 막는다.
+//  근거: 실측 — DAILY_LOG.md 2026-08-12 항목(실도메인 GET 5xx 재시도로 데이터 부족 6→1~2).
 //  주문 등 POST는 재시도하지 않는다 — 빈 응답(12152)이 "미접수"라는 보장이 없어(서버엔 접수됐을 수 있음)
 //  블라인드 재시도는 이중주문 위험. POST 실패는 호출자가 잔고 대조로 확정해야 한다.
 static std::string winhttp_request(const std::string& method, const std::string& url,
@@ -570,6 +574,8 @@ static std::string curl_request(const std::string& method, const std::string& ur
 //  EGW00201을 돌려주는데, 어느 쪽이든 그 호출은 버려지고 재시도가 붙어 호출량이 더 는다.
 //  버킷은 인스턴스(=app_key)마다 따로다 — 한도가 app_key 단위라 시세 클라이언트와 주문
 //  클라이언트의 예산은 서로 무관하다. 총 호출량을 줄이지는 못하고 순서만 고르게 만든다.
+// 근거: 한도가 app_key 단위라는 것은 docs/DECISIONS.md D-009·D-138. 실계좌는 주문 키가 곧 시세 키라 D-138부터
+//  같은 키 클라이언트끼리 버킷을 나눠 쓴다(KisClient::share_rate_bucket_with). 한도 숫자는 KisRateBucket.h 주석 참고.
 // ═══════════════════════════════════════════════════════════════════════════
 //  KIS 밖 주소 — 인증도 한도 버킷도 없는 GET
 // ═══════════════════════════════════════════════════════════════════════════
@@ -669,6 +675,7 @@ bool KisClient::share_rate_limit_with(const KisClient& other)
 std::string KisClient::http_get(const std::string& url, const std::vector<std::string>& headers)
 {
     // KIS API는 GET에도 Content-Type: application/json 요구 — 없으면 전송부가 덧붙인다
+    // 근거: 위 HeaderOverlay::ensure_json_content_type 주석 참고.
     HeaderOverlay overlay;
     overlay.ensure_json_content_type = true;
     std::string bearer_line;

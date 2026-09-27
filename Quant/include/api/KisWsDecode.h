@@ -76,11 +76,15 @@ constexpr size_t kMinFieldsOrderbook    = 38; // BIDP_RSQN5 = f[37]
 constexpr size_t kMinFieldsKrTrade      = 22; // 체결구분 = f[21]
 constexpr size_t kMinFieldsUsTrade      = 9;  // 체결량 = f[8]
 constexpr size_t kMinFieldsFill         = 14; // CNTG_YN = f[13] — 체결 한 건을 만드는 데 꼭 있어야 하는 폭
+// [wire] 출처: 38·22·14는 공식 샘플 asking_price_krx·ccnl_krx·ccnl_notice 열 순서와 맞다(2026-09-27 MCP 확인).
+//  kMinFieldsUsTrade의 "체결량 = f[8]"은 샘플과 다르다 — 공식 샘플 delayed_ccnl에서 f[8]은 HIGH(고가),
+//  체결량 EVOL은 f[18]이다(2026-09-27 샘플 대조로 고침).
 
 // 체결통보의 보조 필드 위치. 최소 폭에는 넣지 않는다 — 여기까지 없는 전문이 와도 체결 자체는 만들어야 한다.
 //  최소 폭을 올리면 그 전문이 통째로 버려지고, 그건 체결 누락이다(A등급).
 constexpr size_t kFillFieldOrderQuantity = 16; // ODER_QTY   주문수량
 constexpr size_t kFillFieldExchange      = 19; // ORD_EXG_GB 주문거래소 구분
+// [wire] 출처: 공식 샘플 ccnl_notice 열 순서(ODER_QTY 17번째, ORD_EXG_GB 20번째 값), 2026-09-27 MCP 확인.
 
 namespace detail
 {
@@ -138,15 +142,21 @@ bool fill_levels(Fields fields, size_t ask_price, size_t ask_quantity, size_t bi
 // ─── 국내 현물 호가 (H0STASP0) ───────────────────────────────────────────
 // [wire] [0]종목코드 [1]시각 [2]시간구분 [3-12]매도호가1-10 [13-22]매수호가1-10 [23-32]매도잔량1-10 [33-42]매수잔량1-10.
 //        전문은 10단계, 여기서는 앞 5단계만 쓴다(asks[i]=f[3+i]/f[23+i], bids[i]=f[13+i]/f[33+i]).
+//        출처: 공식 샘플 asking_price_krx(실시간-004) 열 순서, 2026-09-27 MCP 확인.
 Decode decode_orderbook(Fields fields, OrderBook& order_book);
 
 // ─── 국내 현물 체결 (H0STCNT0) ───────────────────────────────────────────
 // [wire] [0]종목코드 [1]체결시간 [2]현재가 [12]체결량 [13]누적거래량 [18]체결강도(CTTR)
 //        [21]체결구분(1=매수,5=매도). 13·18은 보조 필드라 숫자가 아니어도 실패로 치지 않는다(0).
+//        출처: 칸 위치는 공식 샘플 ccnl_krx(실시간-003) 열 순서(CNTG_VOL·ACML_VOL·CTTR·CCLD_DVSN), 2026-09-27 MCP 확인.
+//        코드값 1=매수·5=매도는 샘플에 없고 실측 기록도 찾지 못했다.
 Decode decode_kr_trade(Fields fields, TradeData& trade);
 
 // ─── 미국 체결 (HDFSCNT0) ────────────────────────────────────────────────
-// [wire] [0]종목코드 [1]체결시간(KST) [2]현재가 [8]체결량 [20]방향(미검증 — 20필드 이하면 0)
+// [wire] 공식 샘플 delayed_ccnl(실시간-007) 열 순서: [0]SYMB 종목코드 [1]ZDIV 소수점자리수 [2]TYMD 현지영업일자
+//        [3]XYMD 현지일자 [4]XHMS 현지시각 [5]KYMD 한국일자 [6]KHMS 한국시각 [7]OPEN [8]HIGH [9]LOW [10]LAST 현재가
+//        ... [18]EVOL 체결량 [19]TVOL 거래량 [20]TAMT 거래대금 ... [24]MTYP. 방향 칸은 없다.
+//        디코더는 [1]체결시간 [2]현재가 [8]체결량 [20]방향으로 읽어 샘플과 맞지 않는다(2026-09-27 샘플 대조로 고침).
 Decode decode_us_trade(Fields fields, TradeData& trade);
 
 // ─── 체결통보 (H0STCNI0 실거래 / H0STCNI9 모의) ──────────────────────────

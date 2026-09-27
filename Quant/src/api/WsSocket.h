@@ -21,6 +21,7 @@ public:
     virtual bool recv_message(std::string& out) = 0;
     // close 프레임을 먼저 보내고 닫는다. KIS가 이 approval_key 세션을 즉시 놓아야 다음 접속이
     // "ALREADY IN USE appkey"(rt=9)로 거부되지 않는다. 다른 스레드가 recv_message에 블로킹 중이면 깨운다.
+    // 근거: 실측 — rt=9 로그(Quant/logs/archive/quant_trader_2026-08-06.log), 커밋 e441845(2026-08-07).
     // 두 번 불러도 된다.
     virtual void close() = 0;
     virtual bool is_open() const = 0;
@@ -33,5 +34,6 @@ std::unique_ptr<WsSocket> make_socket();
 // approval key 발급용 최소 HTTP POST(JSON body). 응답 body, 실패면 빈 문자열.
 std::string http_post_json(const std::string& url, const std::string& body);
 // 체결통보(H0STCNI) AES-256-CBC 복호화, PKCS7 패딩 제거. Windows는 BCrypt(CNG), Linux는 OpenSSL EVP. 실패면 빈 문자열.
+// 근거: 샘플은 AES256만 적는다. CBC·PKCS7은 모의 실측(DAILY_LOG.md 2026-06-08) — 패딩 검사를 통과해 26칸 평문이 나온다.
 std::string aes_cbc_decrypt(const std::string& cipher, const std::string& key, const std::string& initialization_vector);
 } // namespace websocket_platform

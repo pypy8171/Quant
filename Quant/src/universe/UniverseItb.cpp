@@ -41,6 +41,8 @@ std::vector<ItbCandidate> scan_itb(KisClient& scan_kis, const ItbScanCfg& config
     //  1회 호출이라 체류·재개가 작동할 일이 없고, 재스캔 잡이 붙는 날 그대로 살아난다. [why D-033]
     auto kospi = scan_kis.get_index_price("0001");
     double index_change = kospi.change_rate / 100.0; // KIS는 % 단위
+    // 근거: 샘플 inquire_index_price는 등락률 필드를 "전일 대비율"로만 적어 단위를 밝히지 않는다. % 단위는 운영 로그 값으로 본 것이다
+    //  (근거 기록을 따로 찾지 못했다, 2026-09-27).
 
     // [wire] 조회가 어긋나면 KisClient가 로그 없이 IndexPrice{}를 준다 — price>0이 관측
     //  성공의 유일한 표식이다. 0.0을 그대로 믿으면 게이트가 언제나 "통과"로 틀리는데,
@@ -108,6 +110,7 @@ std::vector<ItbCandidate> scan_itb(KisClient& scan_kis, const ItbScanCfg& config
         //  ⚠️ 기준점은 랭킹 스냅샷 현재가(r.price)가 아니라 실제 당일 시가여야 함.
         //  갭업일엔 스냅샷=장중 고점 근처라 기준점이 고점에 고정되어 돌파 진입이 영구 차단됨.
         //  inquire-price(FHKST01010100)의 stck_oprc로 진짜 시가를 조회, 0이면 r.price 폴백.
+        //  [wire] 출처: KIS 공식 샘플 inquire_price(FHKST01010100, 실전·모의 공통), 2026-09-27 MCP 확인.
         double day_open = scan_kis.get_fundamentals(ranked.ticker).open;
 
         if (day_open <= 0.0)

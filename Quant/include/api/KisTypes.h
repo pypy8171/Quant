@@ -7,6 +7,9 @@
 #include <vector>
 
 // 잔고 output1 한 행 = 보유 종목 하나.
+// [wire] 출처: 아래 필드 이름은 KIS 공식 샘플 inquire_balance 응답 컬럼(pdno·prdt_name·hldg_qty·pchs_avg_pric·
+//  evlu_pfls_amt·prpr·ord_psbl_qty, output2의 tot_evlu_amt·nass_amt·prvs_rcdl_excc_amt 가수도정산금액·dnca_tot_amt
+//  예수금총금액·bfdy_tot_asst_evlu_amt), 2026-09-27 MCP 확인.
 struct Holding
 {
     std::string ticker;               // [wire] pdno
@@ -30,6 +33,8 @@ struct AccountBalance
 };
 
 // 선물 전광판 한 행 = 거래 가능한 계약 하나. 만기 오름차순이라 첫 행이 최근월물.
+// [wire] 출처: KIS 공식 샘플 display_board_futures(futs_shrn_iscd 선물 단축 종목코드·hts_kor_isnm), 2026-09-27 MCP 확인.
+//  "만기 오름차순"은 샘플에 없다 — 근거 없음.
 struct FutureContract
 {
     std::string issue_code;  // [wire] futs_shrn_iscd — inquire-price의 FID_INPUT_ISCD로 넣는 코드

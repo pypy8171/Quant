@@ -11,6 +11,9 @@ using json = nlohmann::json;
 
 namespace
 {
+// [formula] 매도 한 번의 비용 = 거래세 0.20% + 수수료 0.015%. 매수 쪽 수수료는 들어 있지 않아 아래 줄 끝의 "왕복 어림"은 틀린 말이다(2026-09-27 확인, 코드 줄이라 그 주석은 두었다).
+//  출처: 2026년 거래세 코스피 0.05%+농특세 0.15%·코스닥 0.20%(biz.heraldcorp.com/article/10627001), KIS 온라인 수수료 0.0140527%를 올려 잡음
+//  (securities.koreainvestment.com 수수료안내), 2026-09-27 확인.
 constexpr double kSellCostRate = 0.00215; // 거래세 0.20% + 수수료 0.015%(왕복 어림). 실현손익 추정에만 쓴다
 
 std::optional<json> read_json_file(const std::filesystem::path& path)

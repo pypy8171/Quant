@@ -121,6 +121,8 @@ void KisWebSocket::recv_loop(std::stop_token stop_token)
         // 기존 소켓은 자기 전에 닫는다 — close 프레임이 먼저 가야 KIS가 이 approval_key 세션을
         // 놓고, 백오프로 자는 시간이 그 해제 대기가 된다. 핸들만 닫으면 세션이 남아
         // 다음 접속이 "ALREADY IN USE appkey"(rt=9)로 거부된다.
+        // 근거: 실측 — rt=9 "ALREADY IN USE appkey" 로그(Quant/logs/archive/quant_trader_2026-08-06.log, 19줄), close 프레임 수정은 커밋 e441845(2026-08-07).
+        //  close를 보내면 곧바로 풀린다는 것을 따로 잰 기록은 없다.
         {
             std::lock_guard<std::mutex> lock(send_mutex_);
 
@@ -146,6 +148,7 @@ void KisWebSocket::recv_loop(std::stop_token stop_token)
         // 아직 해제하지 않은 상태에서 새 키로 접속 → "ALREADY IN USE appkey"(rt=9)
         // 충돌이 반복돼 재연결 폭주가 된다. 최초 연결의 approval_key_를 유지하고,
         // 비어있을 때만(발급 실패 이력 등) 재발급한다.
+        // 근거: 실측 — 같은 rt=9 로그(2026-08-06). 새 키 발급이 충돌을 부른다는 것 자체를 잰 기록은 없다.
         if (approval_key_.empty() && !get_approval_key())
         {
             LOG_ERROR("[WS] approval key 발급 실패");
@@ -199,6 +202,7 @@ void KisWebSocket::disconnect()
         {
             // graceful close 프레임을 먼저 보내 KIS가 approval_key 세션을 즉시 해제하게 한다.
             // (생략 시 다음 실행이 "ALREADY IN USE appkey" rt=9로 거부됨) 블로킹 중인 수신도 여기서 깨어난다.
+            // 근거: 실측 — rt=9 로그(Quant/logs/archive/quant_trader_2026-08-06.log), 커밋 e441845(2026-08-07).
             socket_->close();
         }
     }
@@ -282,6 +286,7 @@ void KisWebSocket::send_subscribe(const std::string& transaction_id, const std::
 // specifications_ 전체를 순회해 채널을 구독한다. 최초 연결·재연결에서 공통으로 호출한다.
 // 재연결 시 trade_only를 준수해야 등록 한도(약 41)를 갉아먹지 않는다(호가 미필요 종목은
 // 체결만).
+// 근거: D-152 — 2026-09-27 실계좌 실측, 41건까지 SUBSCRIBE SUCCESS, 42번째 OPSP0008 MAX SUBSCRIBE OVER.
 void KisWebSocket::subscribe_specification(const WatchSpec& specification, std::string_view tr_type)
 {
     if (specification.market == Market::KR)
@@ -299,7 +304,8 @@ void KisWebSocket::subscribe_specification(const WatchSpec& specification, std::
     }
     else
     {
-        // 미국: HDFSCNT0, tr_key = "EXCH|SYMBOL"
+        // 미국: HDFSCNT0. 아래 코드는 tr_key를 "EXCH|SYMBOL"로 만든다. 공식 샘플 delayed_ccnl(실시간-007)의 예는
+        //  "DNASAAPL"(D + 거래소 + 종목, 구분자 없음)이라 형식이 다르다(2026-09-27 샘플 대조로 고침).
         std::string tr_key(specification.exchange.empty() ? std::string_view("NAS") : std::string_view(specification.exchange));
         tr_key += '|';
         tr_key += specification.ticker;

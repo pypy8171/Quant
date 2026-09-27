@@ -9,6 +9,7 @@
 // ─── 잔고 조회 (체결 확인용) — inquire-balance ────────────────────────────
 //  output1 = 보유종목 배열(pdno·hldg_qty·pchs_avg_pric), output2 = 계좌 요약. 필드 해석은
 //  kis_rest::decode_balance_page가 소유한다. (모의: VTTC8434R / 실거래: TTTC8434R)
+//  [wire] 출처: KIS 공식 샘플 inquire_balance(TR·output1/output2·응답 컬럼), 2026-09-27 MCP 확인.
 KisResult<AccountBalance> KisClient::get_balance()
 {
     std::string transaction_id = config_.is_paper ? "VTTC8434R" : "TTTC8434R";
@@ -90,6 +91,8 @@ KisResult<AccountBalance> KisClient::get_balance()
 //  취소→재매도로 자가정리하기 위한 조회. (실거래: TTTC0084R / 모의는 VTTC0081R(inquire-daily-ccld))
 //  주문번호는 odno(ODNO), 행 배열은 모의 output1·실전 output. 필드는 소문자: ord_gno_brno·pdno·prdt_name·psbl_qty·
 //  ord_unpr·sll_buy_dvsn_cd(01매도/02매수). 수량·단가는 문자열이라 파싱 가드.
+//  [wire] 출처: KIS 공식 샘플 inquire_psbl_rvsecncl(TR TTTC0084R만 있고 모의 TR 없음, 행은 output)과
+//  inquire_daily_ccld(모의 VTTC0081R, 행은 output1, 01 매도·02 매수), 2026-09-27 MCP 확인. 40240000은 실측 — D-046·D-055.
 //  잔고처럼 ctx_area(FK/NK)로 페이지네이션한다.
 // 오늘 KST 날짜 YYYYMMDD. 모의계좌 미체결 조회가 조회구간을 요구해서 쓴다. 로컬 시각을 쓰면 UTC로 도는
 //  리눅스 서버에서 09:00 전 조회가 전날 주문을 묻는다. [why 전수조사 B1-2]

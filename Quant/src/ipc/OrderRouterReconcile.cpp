@@ -291,6 +291,8 @@ void OrderRouter::reconcile_unknown_order_async(std::string ticker)
         thread_name::set_current("Reconcile");
 
         // KIS가 접수를 조회에 반영할 틈을 준다. 곧바로 물으면 방금 낸 주문이 안 보인다.
+        //  근거 없음(2026-09-27): 공식 샘플에 조회 반영 지연 설명이 없고, 곧바로 물어 안 보였던 실측 기록도 찾지 못했다.
+        //  3초는 커밋 198005a에서 정한 값이다.
         //  3초를 한 번에 자지 않고 잘게 나눠 멈춤 요청을 본다 — 소멸자가 이 스레드를 기다린다.
         constexpr int  kSettleSlices = 30;
         constexpr auto kSettleSlice  = std::chrono::milliseconds(100);
