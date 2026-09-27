@@ -41,6 +41,10 @@ public:
         int    block_after_sec = 0;
         int    return_confirm  = 2;
         bool   empty_scan_warned = false; // 빈 스캔 결과 WARN은 연속 구간당 한 번
+        // 시세판을 따라 도는가 — 켜면 주기가 안 됐어도 새 판(판 번호가 board_seen과 다름)이 오면 돈다.
+        //  interval_sec는 판이 끊겼을 때의 예비 주기로 남는다 [why D-153].
+        bool          follow_board = false;
+        std::uint64_t board_seen   = 0; // 마지막 스캔 때의 판 번호
         std::chrono::steady_clock::time_point last_run{};
         std::vector<symbol::SymbolId> last_scanned; // 마지막 스캔 결과(점수 순) — 구독 칸 우선순위가 순위로 읽는다 [why D-132]
         // 이 슬리브가 소유한 종목(차단·해제 대상) — 종목 id 인덱스. strategy가 nullptr이면 소유가 아니다.
@@ -85,8 +89,14 @@ public:
     // 주기가 가장 짧은 슬리브의 주기(초). ceiling보다 짧은 것이 없으면 ceiling.
     int shortest_interval_sec(int ceiling) const;
 
+    // 시세판을 따르는 슬리브가 있는가, 있다면 그중 가장 옛 판 번호(board_seen 최솟값). 없으면 false.
+    //  data_thread가 이 번호에서 판이 바뀌기를 기다렸다가 run을 부른다.
+    bool oldest_board_seen(std::uint64_t& seen) const;
+
     // 주기가 된 슬리브를 모두 돈다. 한 슬리브라도 스캔 함수를 불렀으면 true — 부른 쪽이 칸 우선순위를 다시 보낸다.
-    bool run(KisClient& scan_client, const ipc::LedgerSnapshot& snapshot, std::chrono::steady_clock::time_point now);
+    //  board_generation은 지금 시세판 판 번호(시세판이 없으면 0) — follow_board 슬리브는 번호가 바뀌면 주기와 무관하게 돈다.
+    bool run(KisClient& scan_client, const ipc::LedgerSnapshot& snapshot, std::chrono::steady_clock::time_point now,
+             std::uint64_t board_generation = 0);
 
     // 종목 id → 가장 앞선 스캔 순위(없으면 -1). 슬리브가 여럿이면 가장 앞선 순위를 쓴다.
     std::vector<int32_t> scan_rank(size_t extent) const;
@@ -97,7 +107,7 @@ private:
                       const std::function<std::string(const StrategyBase&)>& make_line);
     // 슬리브 하나. 주기가 안 됐거나 설정이 비었거나 스캔 함수가 던졌으면 false.
     bool run_job(Job& job, KisClient& scan_client, const ipc::LedgerSnapshot& snapshot,
-                 std::chrono::steady_clock::time_point now);
+                 std::chrono::steady_clock::time_point now, std::uint64_t board_generation);
 
     const symbol::SymbolTable& table_;
     RegisterStrategy           register_strategy_;

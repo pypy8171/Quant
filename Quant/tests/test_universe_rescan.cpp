@@ -75,7 +75,8 @@ struct Harness
         rescan->reset_registered();
     }
 
-    void add_job(size_t max_registered, int block_after_sec, int drop_after_sec, int return_confirm = 2)
+    void add_job(size_t max_registered, int block_after_sec, int drop_after_sec, int return_confirm = 2,
+                 bool follow_board = false)
     {
         UniverseRescan::Job job;
         job.universe_fn     = [this](KisClient&)
@@ -91,6 +92,7 @@ struct Harness
         job.block_after_sec = block_after_sec;
         job.drop_after_sec  = drop_after_sec;
         job.return_confirm  = return_confirm;
+        job.follow_board    = follow_board;
         rescan->add_job(std::move(job));
     }
 
@@ -128,6 +130,39 @@ void check_register_and_interval(KisClient& client, const ipc::LedgerSnapshot& s
     assert(harness.rescan->is_registered(7));
     assert(harness.rescan->shortest_interval_sec(30) == 10);
     assert(harness.rescan->shortest_interval_sec(5) == 5);
+}
+
+// 시세판을 따르는 슬리브는 판 번호가 바뀌면 주기(10초) 안이어도 돌고, 같은 판이면 다시 돌지 않는다.
+//  따르지 않는 슬리브는 판 번호와 무관하게 주기만 본다 [why D-153].
+void check_board_driven(KisClient& client, const ipc::LedgerSnapshot& snapshot)
+{
+    Harness harness;
+    harness.add_job(0, 0, 0, 2, /*follow_board=*/true);
+    const auto start = Clock::now();
+    std::uint64_t seen = 99;
+
+    assert(harness.rescan->oldest_board_seen(seen) && seen == 0);
+
+    harness.next_scan = {3};
+    assert(harness.rescan->run(client, snapshot, start, 1));
+    assert(harness.rescan->oldest_board_seen(seen) && seen == 1);
+
+    harness.next_scan = {4};
+    assert(!harness.rescan->run(client, snapshot, start + std::chrono::seconds(5), 1));   // 같은 판
+    assert(!harness.rescan->is_registered(4));
+    assert(harness.rescan->run(client, snapshot, start + std::chrono::seconds(5), 2));    // 새 판
+    assert(harness.rescan->is_registered(4));
+
+    harness.next_scan = {6};
+    assert(harness.rescan->run(client, snapshot, start + std::chrono::seconds(15), 2));   // 판이 끊겨도 예비 주기
+    assert(harness.rescan->is_registered(6));
+
+    Harness plain;
+    plain.add_job(0, 0, 0);
+    plain.next_scan = {3};
+    assert(plain.rescan->run(client, snapshot, start, 1));
+    assert(!plain.rescan->run(client, snapshot, start + std::chrono::seconds(5), 2));
+    assert(!plain.rescan->oldest_board_seen(seen));
 }
 
 // 상한이 찼으면 오늘 스캔에 없는 미보유 종목 하나(부재가 같으면 id가 작은 쪽)가 자리를 내준다.
@@ -255,6 +290,7 @@ int main()
     const ipc::LedgerSnapshot& snapshot = *snapshot_holder;
 
     check_register_and_interval(client, snapshot);
+    check_board_driven(client, snapshot);
     check_cap_eviction(client, snapshot);
     check_empty_scan_ignored(client, snapshot);
     check_block_then_drop(client, snapshot);

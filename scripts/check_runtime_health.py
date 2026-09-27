@@ -1000,6 +1000,48 @@ THREAD_LABEL_RE = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+ \{([^}]
 UNNAMED_THREAD_RE = re.compile(r"^T\d+$")
 
 
+RESCAN_TIMING_RE = re.compile(r"유니버스 재스캔 계측: 경과=(\d+)ms 간격=(\d+)ms")
+RESCAN_BUDGET_MS = 5000   # 시세판 한 바퀴(5초) — 재스캔이 이보다 길면 새 판을 건너뛴다 [why D-153]
+
+
+def rescan_duration_row(date: str) -> tuple:
+    """재스캔 한 번이 시세판 주기(5초) 안에 끝나는지.
+
+    재스캔은 새 시세판이 올 때마다 돈다(D-153). 한 번이 5초를 넘으면 그동안 온 판은 건너뛰고,
+    후보 순위가 판보다 늦게 따라간다. 넘은 횟수와 가장 긴 경과를 적는다.
+    """
+    name = "재스캔 5초 안"
+    elapsed: list = []
+
+    for _account, engine_log in engine_logs():
+        try:
+            body = engine_log.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+
+        for line in body.splitlines():
+            if not line.startswith(date):
+                continue
+
+            match = RESCAN_TIMING_RE.search(line)
+
+            if match:
+                elapsed.append(int(match.group(1)))
+
+    if not elapsed:
+        return (name, True, "WARN", f"{date} 재스캔 계측 줄이 없다 — 판정 안 함")
+
+    over = [value for value in elapsed if value > RESCAN_BUDGET_MS]
+    ordered = sorted(elapsed)
+    p95 = ordered[min(len(ordered) - 1, int(len(ordered) * 0.95))]
+    summary = f"{len(elapsed)}회, 중앙값 {median(elapsed)}ms, 95% {p95}ms, 최대 {ordered[-1]}ms"
+
+    if over:
+        return (name, False, "WARN", f"{len(over)}회가 {RESCAN_BUDGET_MS}ms를 넘었다({summary}) — 그동안 온 판은 건너뛰었다")
+
+    return (name, True, "WARN", summary)
+
+
 def thread_label_row(date: str) -> tuple:
     """로그 줄마다 찍은 스레드 이름이 붙었는지, 이름 없이 번호(T12345)로 찍힌 스레드가 있는지.
 
@@ -1703,6 +1745,7 @@ def global_rows(date: str) -> list:
         missed_fill_recovery_row(date),
         pinned_capture_row(date),
         scan_registration_row(date),
+        rescan_duration_row(date),
         thread_label_row(date),
         job_attach_row(date),
         gross_exposure_config_row(),

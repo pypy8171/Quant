@@ -158,6 +158,7 @@ std::vector<BoardQuote> parse_polling(std::string_view body)
         quote.volume       = raw_number(row, "accumulatedTradingVolumeRaw");
         quote.value        = raw_number(row, "accumulatedTradingValueRaw");
         quote.market_value = raw_number(row, "marketValueFullRaw");
+        quote.change_percent = raw_number(row, "fluctuationsRatioRaw");
         quotes.push_back(std::move(quote));
     }
 
@@ -372,6 +373,15 @@ std::shared_ptr<const std::vector<ListedStock>> MarketBoard::listing() const
     return published_listing_;
 }
 
+bool MarketBoard::wait_new_board(std::uint64_t seen, std::chrono::milliseconds timeout, std::stop_token stop_token) const
+{
+    std::unique_lock<std::mutex> lock(mutex_);
+    return board_arrived_.wait_for(lock, stop_token, timeout, [this, seen]
+    {
+        return generation_.load(std::memory_order_acquire) != seen;
+    });
+}
+
 void MarketBoard::run()
 {
     thread_name::set_current("MarketBoard");
@@ -532,8 +542,13 @@ bool MarketBoard::sweep()
                  std::to_string(took_ms) + "ms)");
     }
 
-    std::lock_guard<std::mutex> lock(mutex_);
-    snapshot_ = std::move(board);
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        snapshot_ = std::move(board);
+        generation_.fetch_add(1, std::memory_order_acq_rel);
+    }
+
+    board_arrived_.notify_all();
     return true;
 }
 

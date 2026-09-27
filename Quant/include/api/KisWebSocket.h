@@ -106,8 +106,9 @@ private:
     void subscribe_specification(const WatchSpec& specification, std::string_view tr_type = kRegister);
     // specification 하나가 소비하는 구독 슬롯 수(호가+체결이면 2, trade_only면 1).
     static int specification_channel_count(const WatchSpec& specification);
-    // KIS 세션 구독 상한. 문서상 41건이며, 넘기면 이후 구독이 rt=1 MAX SUBSCRIBE OVER로 잘린다.
-    static constexpr int kMaxWsSubs = 40;
+    // KIS 세션 구독 상한(체결통보 칸 포함). 2026-09-27 실계좌 실측으로 41건까지 받고 42번째가 OPSP0008
+    // MAX SUBSCRIBE OVER로 잘렸다(scripts/kis_limit_check.py ws). 공식 kis_auth.py의 40은 샘플 쪽 제한이다(D-152).
+    static constexpr int kMaxWsSubs = 41;
     // 현재 세션이 사용 중인 구독 슬롯 수(subscribe_all이 리셋, 증분 구독이 증가).
     std::atomic<int> sub_used_{0};
     void recv_loop(std::stop_token stop_token);

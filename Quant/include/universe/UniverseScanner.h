@@ -46,7 +46,7 @@ std::vector<ItbCandidate> scan_itb(KisClient& kis, const ItbScanCfg& config);
 // ── DeviationScale 스캔 ─────────────────────────────────────────────────────
 struct DevScanCfg
 {
-    int    value_top_n     = 30;
+    int    value_top_n     = 30;     // 거래증가율(당일 누적 거래량 ÷ 전일 거래량) 상위 N을 후보로. 0=끄기 [why D-153]
     int    turnover_top_n  = 0;      // 시세 표 당일 거래대금 상위 N을 후보로. 0=끄기 [why D-146]
     double min_price       = 5000.0;
     double max_price       = 0.0; // 원, 0이면 상한 없음
@@ -55,7 +55,6 @@ struct DevScanCfg
     bool   require_aligned = true;
     int    align_lookup_max = 60;   // 재스캔당 일봉 REST 상한
     int    align_daily_n   = 70;   // 봉, 한 종목당 받는 일봉 길이
-    int    union_refresh_sec = 0;    // 초, 후보 합집합 재수집 주기. 0=매 재스캔 새로 수집 [why D-028]
     double max_deviation_percent     = 0.0;    // 이격 (price-SMA20)/SMA20 상한. 0=비활성 [why D-022]
     // 정배열 마지막 조건(SMA10>SMA20)의 허용오차. 0=엄격(기존). tol을 주면 SMA10이 SMA20보다
     //  tol만큼 아래인 종목까지 통과한다 — 경계에서 판정이 진동하는 것을 막을 때 쓴다.
@@ -70,9 +69,8 @@ struct DevScanCfg
     int    daily_warm_until_hhmm = 0;
     double min_turnover = 0.0;       // 원, 거래대금 하한. 0=비활성 [why D-029]
     bool   full_market = false;      // 후보 풀을 시세 파일의 전 종목으로 넓힌다 [why D-015]
-    std::vector<std::string> sector_codes;   // 업종 등락률 축. 비면 끄기 [why D-029]
-    int    sector_top_n      = 10;   // 업종당 상위 N행(등락률 내림차순)
-    double sector_min_change    = 0.0;  // %, 이 등락률 미만은 버린다
+    int    change_top_n       = 100;  // 등락률 상위 N을 후보로(시세판, 옛 업종 등락률 축 자리). 0=끄기 [why D-029·D-153]
+    double change_min_percent = 1.0;  // %, 이 등락률 미만은 등락률 축에 넣지 않는다
     // 횡단면 점수는 정배열 검사에 이미 쓴 일봉을 재활용하므로 추가 REST가 없다. [why D-018]
     int    score_top_n      = 0;   // 0=비활성(전체 등록), N=상위 N만
     double score_weight_trend    = 1.0; // (SMA5-SMA20)/SMA20 의 z에 곱한다(D-141부터 20일 기준)
@@ -109,6 +107,7 @@ struct MarketQuote
     double      value  = 0.0; // 원, 누적 거래대금
     double      volume = 0.0; // 주, 누적 거래량
     std::string name;
+    double      change_percent = 0.0; // %, 전일 종가 대비 등락률
 };
 
 using QuoteTable = std::vector<MarketQuote>;

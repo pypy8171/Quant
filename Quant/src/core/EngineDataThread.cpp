@@ -9,10 +9,12 @@
 #include "core/Engine.h"
 #include "core/KstTime.h"
 #include "core/LatencyTrace.h"
+#include "universe/MarketBoard.h"
 #include "utils/Logger.h"
 #include "utils/ThreadName.h"
 #include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <ctime>
 #include <filesystem>
@@ -603,6 +605,7 @@ void Engine::data_thread_fn(std::stop_token stop_token)
         //  아무리 줄여도 fetch_interval_sec_ 단위로 반올림된다(30초 사이클 + 20초 재스캔 = 30초).
         //  잔고 대조·REST 폴백 폴링은 KIS REST를 쓰므로 사이클 주기 그대로 두고,
         //  일봉 캐시와 시세 파일만 보는 재스캔만 앞당긴다.
+        //  시세판을 따르는 슬리브가 있으면 잠 대신 새 판을 기다린다 — 판이 오는 즉시(5초마다) 재스캔한다 [why D-153].
         {
             const int cycle = fetch_interval_sec_ > 0 ? fetch_interval_sec_ : 1;
             int slice = universe_rescan_.shortest_interval_sec(cycle);
@@ -612,20 +615,37 @@ void Engine::data_thread_fn(std::stop_token stop_token)
                 slice = 1;
             }
 
-            int slept = 0;
+            auto& board = universe::MarketBoard::instance();
+            const auto cycle_end = std::chrono::steady_clock::now() + std::chrono::seconds(cycle);
 
-            while (slept < cycle && !stop_token.stop_requested())
+            while (!stop_token.stop_requested())
             {
-                const int step = (slice < cycle - slept) ? slice : (cycle - slept);
+                const auto now = std::chrono::steady_clock::now();
 
-                if (!wake::sleep_unless_stopped(stop_token, std::chrono::seconds(step)))
+                if (now >= cycle_end)
                 {
                     break;
                 }
 
-                slept += step;
+                const auto step = std::min(std::chrono::duration_cast<std::chrono::milliseconds>(cycle_end - now),
+                                           std::chrono::milliseconds(slice * 1000));
+                std::uint64_t board_seen = 0;
 
-                if (strategy_side && slept < cycle)
+                if (strategy_side && board.running() && universe_rescan_.oldest_board_seen(board_seen))
+                {
+                    board.wait_new_board(board_seen, step, stop_token);
+                }
+                else if (!wake::sleep_unless_stopped(stop_token, step))
+                {
+                    break;
+                }
+
+                if (stop_token.stop_requested())
+                {
+                    break;
+                }
+
+                if (strategy_side && std::chrono::steady_clock::now() < cycle_end)
                 {
                     maybe_rescan_universe();   // 사이클 시작의 호출과 합쳐 재스캔 주기를 지킨다
                 }

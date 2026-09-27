@@ -214,9 +214,6 @@ public:
     // 전체 시장 PBR 기반 Universe 조회 (ticker만 반환)
     std::vector<std::string> fetch_universe_by_pbr(double max_pbr, const std::string& market_div = "J");
 
-    // 업종별 등락률 순위 — 업종 내 상승 종목 스캔
-    std::vector<RankingStock> fetch_sector_ranking(const std::string& sector_code, int count = 30);
-
     // 당일 장중 외국인·기관 "추정(가집계)" 순매수 — 시장 랭킹 배치 1콜.
     //  endpoint: /uapi/domestic-stock/v1/quotations/foreign-institution-total, transaction_id FHPTJ04400000.
     //  per-ticker가 아니라 "지금 담는/던지는 상위 종목" 리스트 → top-30과 교집합해 lookup.

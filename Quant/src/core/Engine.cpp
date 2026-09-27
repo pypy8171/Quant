@@ -1012,7 +1012,7 @@ void Engine::set_session_end(int close_min, int grace_sec)
 void Engine::set_universe_rescan(std::function<std::vector<symbol::SymbolId>(KisClient&)> universe_fn,
                                  std::function<std::unique_ptr<StrategyBase>(symbol::SymbolId)> factory,
                                  int interval_sec, size_t max_registered, int drop_after_sec, int block_after_sec,
-                                 int return_confirm)
+                                 int return_confirm, bool follow_board)
 {
     // 슬리브마다 한 번씩 부른다 — 덮어쓰지 않고 쌓는다. 예전에는 단일 슬롯이라
     //  두 번째 호출이 첫 번째를 조용히 지웠다(먼저 건 재스캔이 사라짐).
@@ -1024,6 +1024,7 @@ void Engine::set_universe_rescan(std::function<std::vector<symbol::SymbolId>(Kis
     rescan_job.drop_after_sec = drop_after_sec;
     rescan_job.block_after_sec = block_after_sec;
     rescan_job.return_confirm = return_confirm;
+    rescan_job.follow_board = follow_board;
     universe_rescan_.add_job(std::move(rescan_job));
 }
 

@@ -30,6 +30,7 @@ void clear_numbers(QuoteTable& quotes, const symbol::SymbolTable& symbols)
         market_quote.price  = 0.0;
         market_quote.value  = 0.0;
         market_quote.volume = 0.0;
+        market_quote.change_percent = 0.0;
     }
 }
 
@@ -79,6 +80,7 @@ void load_quote_table(const BoardSnapshot& board, QuoteTable& quotes, symbol::Sy
         market_quote.price  = quote.price;
         market_quote.value  = quote.value;
         market_quote.volume = quote.volume;
+        market_quote.change_percent = quote.change_percent;
 
         if (market_quote.name != quote.name)
         {

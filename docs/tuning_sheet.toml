@@ -26,10 +26,10 @@ keys = ["regime_file", "regime_stale_sec", "regime_strategies.*", "regime_feed.*
 note = "엔진 안 국면 판정 피드(Quant/src/regime/RegimeFeed.cpp)가 regime_feed.out 에 regime.json 을 쓰고, 엔진 데이터 스레드가 regime_file 을 매 주기 읽어(poll_regime_file) 전략 on/off 를 정한다. 두 경로가 같아야 한다(D-147)."
 
 [[config_group]]
-name = "유니버스 스캔 — KIS 랭킹 · data.go.kr · 업종"
-keys = ["universe_file", "universe_from_scan", "full_market", "turnover_top_n", "value_top_n", "sector_*", "max_universe", "score_top_n",
-        "min_price", "max_price", "min_turnover", "risk_off_index_pct*", "kosdaq_enabled", "union_refresh_sec", "market_board*"]
-note = "후보 합집합(data.go.kr 파일 ∪ 시세 거래대금 상위 ∪ KIS 거래대금 랭킹 ∪ 업종 등락 축, 시총 축은 D-146에서 뺌)을 union_refresh_sec 마다 다시 만든다."
+name = "유니버스 스캔 — 시세판 · data.go.kr"
+keys = ["universe_file", "universe_from_scan", "full_market", "turnover_top_n", "value_top_n", "change_*", "max_universe", "score_top_n",
+        "min_price", "max_price", "min_turnover", "risk_off_index_pct*", "kosdaq_enabled", "market_board*"]
+note = "후보 합집합(시세판 재랭킹 또는 data.go.kr 파일 ∪ 거래대금 상위 ∪ 거래증가율 상위 ∪ 등락률 상위)을 재스캔마다 시세판 표에서 다시 만든다. KIS 조회는 없다(D-153)."
 
 [[config_group]]
 name = "유니버스 판정 — 정배열·이격·리스캔"
@@ -65,12 +65,12 @@ note = "주문이 나가기 전 마지막 관문. 슬롯 수(max_concurrent_posi
 
 # 접미사로 단위를 못 정하는 키
 [[config_key]]
-key = "sector_min_chg"
+key = "change_min_pct"
 unit = "%"
 
 [[config_key]]
-key = "sector_top_n"
-unit = "개/업종"
+key = "change_top_n"
+unit = "개"
 
 [[config_key]]
 key = "max_dev_pct"
@@ -302,22 +302,6 @@ regex = 'kDailyLookupSleepPaperMs\s*=\s*(600);'
 unit = "ms"
 group = "KIS REST — 일봉·분봉·랭킹 조회"
 meaning = "같은 간격의 모의계좌 값 — 모의는 키 한도가 초당 2건이라 150ms면 버킷이 계속 밀린다(09-22 초당 한도 재시도 37건)"
-
-[[code_value]]
-id = "scanner_sector_call_sleep_ms"
-file = "Quant/src/universe/UniverseCandidates.cpp"
-regex = 'constexpr int kSectorCallIntervalMs = (\d+);'
-unit = "ms"
-group = "KIS REST — 일봉·분봉·랭킹 조회"
-meaning = "업종 랭킹 26콜 사이 쉼(union_refresh_sec 마다)"
-
-[[code_value]]
-id = "kis_ranking_rows_fixed"
-file = "Quant/include/api/KisClient.h"
-regex = 'fetch_sector_ranking\(const std::string& sector_code, int count = (\d+)\);'
-unit = "행/축"
-group = "KIS REST — 일봉·분봉·랭킹 조회"
-meaning = "KIS 랭킹 TR 은 요청값과 무관하게 축당 30행 고정(연속조회 없음) — 넓은 풀은 data.go.kr 축이 맡는다"
 
 [[code_value]]
 id = "scanner_prices_stale_warn_sec"
@@ -795,13 +779,22 @@ meaning = "차단 해제에 필요한 연속 present 스캔 수(D-077)"
 config_key = "rescan_return_confirm"
 
 [[code_value]]
-id = "default_union_refresh_sec"
+id = "default_change_top_n"
 file = "Quant/include/universe/UniverseScanner.h"
-regex = 'int\s+union_refresh_sec\s*=\s*(\d+);'
-unit = "초"
+regex = 'int\s+change_top_n\s*=\s*(\d+);'
+unit = "개"
 group = "config 기본값 — 지금 config 에 없으면 이 값이 적용된다"
-meaning = "후보 합집합 갱신 주기 기본(0=매 스캔)"
-config_key = "union_refresh_sec"
+meaning = "등락률 상위 축 종목 수(0=축 끔, D-153)"
+config_key = "change_top_n"
+
+[[code_value]]
+id = "default_change_min_pct"
+file = "Quant/include/universe/UniverseScanner.h"
+regex = 'double\s+change_min_percent\s*=\s*([\d.]+);'
+unit = "%"
+group = "config 기본값 — 지금 config 에 없으면 이 값이 적용된다"
+meaning = "등락률 상위 축에 넣는 최소 등락률(D-153)"
+config_key = "change_min_pct"
 
 [[code_value]]
 id = "default_max_universe"
@@ -1078,9 +1071,9 @@ used_for = "④ 이격(max_dev_pct)·가격 필터(min_price {min_price}원)·�
 
 [[cycle]]
 step = "③ 후보 합집합"
-source = "시세 표 거래대금 상위 {turnover_top_n}(재스캔마다, 조회 없음) + KIS 랭킹 REST — 거래대금·거래증가율 상위(요청 {value_top_n}, 서버가 축당 {kis_ranking_rows_fixed}행 고정) + 업종 등락 상위 축(업종별 {sector_top_n}종목, 26콜 × {scanner_sector_call_sleep_ms} 간격) + ① 파일"
-what = "이 세 축을 합친 후보 목록"
-every = "{union_refresh_sec}"
+source = "시세판 표만 본다(조회 없음) — 거래대금 상위 {turnover_top_n} + 거래증가율(당일 거래량 ÷ 일봉 캐시의 전일 거래량) 상위 {value_top_n} + 등락률 {default_change_min_pct} 이상 상위 {default_change_top_n} + ① 파일"
+what = "이 축들을 합친 후보 목록"
+every = "재스캔마다(새 시세판마다, D-153)"
 used_for = "④ 가 판정할 종목 풀(슬리브별 최대 {align_lookup_max}종목)"
 
 [[cycle]]

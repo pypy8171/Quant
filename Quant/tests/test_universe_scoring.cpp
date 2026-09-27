@@ -1,6 +1,7 @@
 // 유니버스 횡단면 점수(universe::detail::score_cross_section) 단위 테스트. 입력만 보는 순수 함수라 z-score 정규화·
 //  ±2 절단·눌림 부호 반전·거래대금 결측 중앙값 대체·가중합을 손으로 계산한 값에 고정해 둔다. 관련 결정: D-018.
-//  후보 수집의 거래대금 상위 축(take_turnover_top)도 시세 표만 보는 함수라 여기서 고정한다. 관련 결정: D-146.
+//  후보 수집의 거래대금·거래증가율·등락률 상위 축(take_turnover_top·take_volume_surge·take_change_top)도 시세 표와
+//  일봉 캐시만 보는 함수라 여기서 고정한다. 관련 결정: D-146·D-153.
 #include "../src/universe/detail/Pipeline.h"
 
 #include <cassert>
@@ -15,6 +16,8 @@ using universe::detail::Features;
 using universe::detail::score_cross_section;
 using universe::detail::CandidateSet;
 using universe::detail::take_turnover_top;
+using universe::detail::take_volume_surge;
+using universe::detail::take_change_top;
 
 bool near(double actual, double expected)
 {
@@ -135,6 +138,68 @@ void check_turnover_top()
     assert(off.symbols.empty());
 }
 
+// 거래증가율 상위 축: 당일 거래량 ÷ 일봉 캐시의 전일 거래량 순. 전일 거래량이 없거나 다른 날짜 캐시면 순위에 없다.
+void check_volume_surge()
+{
+    symbol::SymbolTable symbols(16);
+    const symbol::SymbolId double_up = symbols.intern("000011");
+    const symbol::SymbolId triple_up = symbols.intern("000012");
+    const symbol::SymbolId no_daily  = symbols.intern("000013");
+    const symbol::SymbolId stale     = symbols.intern("000014");
+    universe::QuoteTable quotes(symbols.capacity());
+    quotes[double_up] = {10000.0, 5e9, 200000.0, "두배전자"};
+    quotes[triple_up] = {10000.0, 5e9, 300000.0, "세배화학"};
+    quotes[no_daily]  = {10000.0, 5e9, 900000.0, "일봉없음"};   // 캐시에 없음 — 순위에 없다
+    quotes[stale]     = {10000.0, 5e9, 900000.0, "어제캐시"};   // 다른 날짜 캐시 — 순위에 없다
+
+    const std::string today = "20260928";
+    universe::detail::DailyLookup lookup;
+    lookup.date_yyyymmdd = today;
+    lookup.volume = 100000.0;
+    universe::detail::g_lookup_cache.put(double_up, lookup);
+    universe::detail::g_lookup_cache.put(triple_up, lookup);
+    lookup.date_yyyymmdd = "20260925";
+    universe::detail::g_lookup_cache.put(stale, lookup);
+
+    DevScanCfg config;
+    config.value_top_n = 5;
+    CandidateSet candidates(symbols.capacity());
+    take_volume_surge(config, quotes, today, candidates, symbols);
+    assert((candidates.symbols == std::vector<symbol::SymbolId>{triple_up, double_up}));
+
+    config.value_top_n = 1;
+    CandidateSet top_one(symbols.capacity());
+    take_volume_surge(config, quotes, today, top_one, symbols);
+    assert((top_one.symbols == std::vector<symbol::SymbolId>{triple_up}));
+}
+
+// 등락률 상위 축: change_min_percent 미만은 빼고 등락률이 큰 순으로 N종목.
+void check_change_top()
+{
+    symbol::SymbolTable symbols(16);
+    const symbol::SymbolId strong  = symbols.intern("000021");
+    const symbol::SymbolId medium  = symbols.intern("000022");
+    const symbol::SymbolId weak    = symbols.intern("000023");
+    const symbol::SymbolId falling = symbols.intern("000024");
+    universe::QuoteTable quotes(symbols.capacity());
+    quotes[strong]  = {10000.0, 5e9, 0.0, "강한종목", 12.5};
+    quotes[medium]  = {10000.0, 5e9, 0.0, "보통종목", 3.0};
+    quotes[weak]    = {10000.0, 5e9, 0.0, "약한종목", 0.5};    // 1% 미만
+    quotes[falling] = {10000.0, 5e9, 0.0, "내린종목", -4.0};
+
+    DevScanCfg config;
+    config.change_top_n       = 10;
+    config.change_min_percent = 1.0;
+    CandidateSet candidates(symbols.capacity());
+    take_change_top(config, quotes, candidates, symbols);
+    assert((candidates.symbols == std::vector<symbol::SymbolId>{strong, medium}));
+
+    config.change_top_n = 0;
+    CandidateSet off(symbols.capacity());
+    take_change_top(config, quotes, off, symbols);
+    assert(off.symbols.empty());
+}
+
 int main()
 {
     check_degenerate();
@@ -142,6 +207,8 @@ int main()
     check_clip();
     check_liquidity();
     check_turnover_top();
+    check_volume_surge();
+    check_change_top();
     std::cout << "test_universe_scoring: all passed" << std::endl;
     return 0;
 }

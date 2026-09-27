@@ -515,7 +515,7 @@ public:
         std::function<std::vector<symbol::SymbolId>(KisClient&)> universe_fn,
         std::function<std::unique_ptr<StrategyBase>(symbol::SymbolId)> factory,
         int interval_sec, size_t max_registered = 0, int drop_after_sec = 0,
-        int block_after_sec = 0, int return_confirm = 2);
+        int block_after_sec = 0, int return_confirm = 2, bool follow_board = false);
 
     // 기동 때 add_strategy로 넣은 유니버스 종목을 마지막 set_universe_rescan 슬리브의 소유로 잡는다.
     //  재스캔이 등록한 종목만 소유로 두면 기동 종목은 하루 종일 차단·해제 밖이라 순위에서 밀려도 남는다.

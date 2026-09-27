@@ -68,9 +68,9 @@ void DailyLookupCache::load_today(const std::string& date_yyyymmdd, symbol::Symb
 
         for (auto iterator = document.begin(); iterator != document.end(); ++iterator)
         {
-            // 9칸이 지금 형식(D-141에서 60일선 칸을, 재조회 경로를 걷으며 조회 시각 칸을, 읽는 곳이 없던 저항·거래량
-            //  네 칸을 뺐다). 다른 칸수는 옛 파일 — 건너뛰면 캐시 미스와 같아서 그 종목만 다시 받는다.
-            if (!iterator.value().is_array() || iterator.value().size() != 9)
+            // 10칸이 지금 형식(D-141에서 60일선 칸을, 재조회 경로를 걷으며 조회 시각 칸을 뺐고, D-153에서 전일 거래량을
+            //  넣었다). 다른 칸수는 옛 파일 — 건너뛰면 캐시 미스와 같아서 그 종목만 다시 받는다.
+            if (!iterator.value().is_array() || iterator.value().size() != kColumns)
             {
                 continue;
             }
@@ -94,6 +94,7 @@ void DailyLookupCache::load_today(const std::string& date_yyyymmdd, symbol::Symb
             daily_lookup.r10     = value[6].get<double>();
             daily_lookup.r20     = value[7].get<double>();
             daily_lookup.atr_percent = value[8].get<double>();
+            daily_lookup.volume  = value[9].get<double>();
 
             by_symbol_[symbol] = std::move(daily_lookup);
             ++count;
@@ -113,8 +114,8 @@ void DailyLookupCache::load_today(const std::string& date_yyyymmdd, symbol::Symb
 
 void DailyLookupCache::save_today(const std::string& date_yyyymmdd, const symbol::SymbolTable& symbols) const
 {
-    // [wire] 값 순서: bars, average_5, average_10, average_20, close, r5, r10, r20, atr_percent
-    //  — 9칸 고정(읽는 쪽이 칸수로 형식을 가린다)
+    // [wire] 값 순서: bars, average_5, average_10, average_20, close, r5, r10, r20, atr_percent, volume
+    //  — kColumns칸 고정(읽는 쪽이 칸수로 형식을 가린다)
     nlohmann::json document = nlohmann::json::object();
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -130,7 +131,7 @@ void DailyLookupCache::save_today(const std::string& date_yyyymmdd, const symbol
 
             document[symbols.name(symbol).string()] = nlohmann::json::array({daily_lookup.bars, daily_lookup.average_5, daily_lookup.average_10, daily_lookup.average_20,
                                                  daily_lookup.close, daily_lookup.r5, daily_lookup.r10, daily_lookup.r20,
-                                                 daily_lookup.atr_percent});
+                                                 daily_lookup.atr_percent, daily_lookup.volume});
         }
     }
 
@@ -182,6 +183,18 @@ void DailyLookupCache::put(symbol::SymbolId symbol, const DailyLookup& daily_loo
     std::lock_guard<std::mutex> lock(mutex_);
     reserve_locked(static_cast<size_t>(symbol) + 1);
     by_symbol_[symbol] = daily_lookup;
+}
+
+double DailyLookupCache::previous_volume(symbol::SymbolId symbol, const std::string& date_yyyymmdd) const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    if (symbol >= by_symbol_.size() || by_symbol_[symbol].date_yyyymmdd != date_yyyymmdd)
+    {
+        return 0.0;
+    }
+
+    return by_symbol_[symbol].volume;
 }
 
 std::string DailyLookupCache::cache_path(const std::string& date_yyyymmdd)
@@ -236,6 +249,7 @@ DailyLookup fetch_daily_lookup(KisClient& kis, const DevScanCfg& config, const s
     daily_lookup.r5 = daily_ohlcv[4].close; daily_lookup.r10 = daily_ohlcv[9].close;
     daily_lookup.r20 = daily_ohlcv[19].close;
     daily_lookup.close = daily_ohlcv[0].close;
+    daily_lookup.volume = static_cast<double>(daily_ohlcv[0].volume);
     // [formula] ATR(14) — True Range = max(고−저, |고−전일종가|, |저−전일종가|)의 14봉 평균.
     //  d[0]이 최신이므로 d[i+1]이 i의 전일. 종가로 나눠 종목 간 비교 가능한 비율로 만든다.
     double true_range_sum = 0.0;
@@ -356,7 +370,7 @@ private:
         return ready();
     }
 
-    // 오늘 캐시 파일에 이미 있는 티커(장 전 재기동). 캐시 파일과 같은 13칸 형식만 센다.
+    // 오늘 캐시 파일에 이미 있는 티커(장 전 재기동). 캐시 파일과 같은 칸수 형식만 센다.
     static std::unordered_set<std::string> cached_tickers(const std::string& date_yyyymmdd)
     {
         std::unordered_set<std::string> cached;
@@ -376,7 +390,7 @@ private:
 
         for (auto iterator = document.begin(); iterator != document.end(); ++iterator)
         {
-            if (iterator.value().is_array() && iterator.value().size() == 13)
+            if (iterator.value().is_array() && iterator.value().size() == DailyLookupCache::kColumns)
             {
                 cached.insert(iterator.key());
             }

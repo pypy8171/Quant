@@ -44,6 +44,11 @@
     },
     {
       "from": "core",
+      "to": "universe",
+      "weight": 2
+    },
+    {
+      "from": "core",
       "to": "utils",
       "weight": 41
     },
@@ -618,6 +623,7 @@
       "core/Engine.h",
       "core/KstTime.h",
       "core/LatencyTrace.h",
+      "universe/MarketBoard.h",
       "utils/Logger.h",
       "utils/ThreadName.h"
     ],
@@ -676,6 +682,7 @@
     "core/EngineUniverse.cpp": [
       "core/Engine.h",
       "core/KstTime.h",
+      "universe/MarketBoard.h",
       "utils/Logger.h"
     ],
     "core/FeedMux.cpp": [
@@ -1985,6 +1992,8 @@
       "universe/UniverseScoring.cpp"
     ],
     "universe/MarketBoard.h": [
+      "core/EngineDataThread.cpp",
+      "core/EngineUniverse.cpp",
       "strategy/DevScaleLoader.cpp",
       "universe/MarketBoard.cpp",
       "universe/UniverseCandidates.cpp",
@@ -2187,6 +2196,10 @@
       "in_degree": 8
     },
     {
+      "header": "universe/MarketBoard.h",
+      "in_degree": 8
+    },
+    {
       "header": "utils/EtfFilter.h",
       "in_degree": 8
     },
@@ -2204,10 +2217,6 @@
     },
     {
       "header": "ipc/SharedSpscRing.h",
-      "in_degree": 6
-    },
-    {
-      "header": "universe/MarketBoard.h",
       "in_degree": 6
     }
   ],
@@ -2321,6 +2330,7 @@
       "scripts/exit_ev_dashboard.py",
       "scripts/extract_swap_what_if.py",
       "scripts/gen_tuning_sheet.py",
+      "scripts/kis_limit_check.py",
       "scripts/log_patterns.py",
       "scripts/make_load_test_config.py",
       "scripts/market_close_autodoc.py",
@@ -3239,11 +3249,16 @@
       ]
     },
     "kis_token_*.json": {
-      "writers": [],
-      "readers": [],
+      "writers": [
+        "scripts/kis_limit_check.py"
+      ],
+      "readers": [
+        "scripts/kis_limit_check.py"
+      ],
       "mentions": [
         "PYQuant/kis/client.py",
-        "Quant/src/api/KisAuth.cpp"
+        "Quant/src/api/KisAuth.cpp",
+        "scripts/kis_limit_check.py"
       ]
     }
   }

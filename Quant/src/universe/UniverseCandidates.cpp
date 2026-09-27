@@ -1,6 +1,5 @@
-// 후보 합집합 수집 — KIS 랭킹·업종 순위·유니버스 파일·전 종목 확장 축을 한 집합으로 모은다. 스캔에서 KIS REST를
-//  쓰는 단계는 이것 하나라 KIS 축만 union_refresh_sec 동안 재사용하고, 유니버스 파일은 다시 쓰일 때마다 읽는다.
-//  스캔 스레드 전용. [why D-028]
+// 후보 합집합 수집 — 시세판 재랭킹(없으면 유니버스 파일)·거래대금·거래증가율·등락률 상위·전 종목 확장 축을 한 집합으로
+//  모은다. 전부 시세판 표와 일봉 캐시만 보므로 KIS 조회가 없다(D-153). 스캔 스레드 전용. [why D-028]
 
 #include "detail/Pipeline.h"
 #include "utils/JsonNode.h"
@@ -13,6 +12,7 @@
 #include <algorithm>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <chrono>
 #include <cmath>
 #include <ctime>
@@ -22,29 +22,19 @@
 #include <nlohmann/json.hpp>
 #include <string>
 #include <string_view>
-#include <thread>
 #include <vector>
 
 namespace universe::detail
 {
 namespace
 {
-// 업종 등락률 순위를 한 콜씩 낼 때 사이에 두는 시간. 26개 업종이면 6.5초가 된다. 업종 축은 후보 합집합
-//  갱신 주기(union_refresh_sec)마다 돌아 그에 비하면 작다. 값을 줄이면 같은 시세 키를 쓰는 대시보드 조회와 겹쳐
-//  초당 한도에 걸린다(09-23: 100ms 일 때 이 축에서만 되보냄 452건, 전날 0건).
-constexpr int kSectorCallIntervalMs = 250;
-
-// 캐시는 둘로 나눈다. KIS 축(랭킹 2개·업종 23콜, 약 6.5초)은 union_refresh_sec마다 새로 받고, 유니버스 파일 축은
-//  파일이 다시 쓰일 때마다(감시견이 1분마다, D-142) 읽는다. 둘을 한 캐시에 묶으면 파일의 1분 재랭킹이
-//  KIS 주기(120초)만큼 늦게 들어온다.
-CandidateSet g_kis_axes_cache;
+// 파일 축 캐시 — 시세판 결과나 유니버스 파일이 바뀌지 않았으면 지난번 사본을 쓴다.
 CandidateSet g_file_axis_cache;
 std::filesystem::file_time_type g_file_axis_written{};
 std::shared_ptr<const RankedUniverse> g_board_axis_source; // g_file_axis_cache가 시세판의 어느 결과로 만든 것인가
 std::mutex   g_candidate_mutex;
 
 // ETF/ETN·리츠 배제(개별주만). ETF는 브랜드 접두사(경계검사)∪상품 토큰, 리츠는 접미사·정확일치다.
-//  KIS 축은 KisClient에서 이미 걸러지지만 유니버스 파일 축과 한 규칙으로 이중 차단한다.
 //  리츠를 따로 보는 이유는 배당·NAV로 움직여 일봉 프리필터를 그대로 통과하기 때문이다(334890 유입).
 bool excluded_by_name(const std::string& name, int& etf_drop, int& reit_drop)
 {
@@ -72,41 +62,87 @@ bool excluded_by_name(const std::string& name, int& etf_drop, int& reit_drop)
     return false;
 }
 
-// 랭킹 응답을 후보 집합에 붓는다. 스냅샷가는 중복분에도 반영한다 — 표의 현재가를 최신으로 둔다.
-void take_ranking(const std::vector<KisClient::RankingStock>& rank, const DevScanCfg& config, QuoteTable& quotes,
-                  CandidateSet& candidates, symbol::SymbolTable& symbols)
+// 시세 표에서 metric이 큰 순으로 count종목을 candidates에 붓는다. metric이 값을 안 주면 그 종목은 순위에 없다.
+//  가격·거래대금 하한·상장 여부·ETF·리츠 필터를 같이 건다. 값이 같으면 티커 순으로 자른다 — 같은 시세면 같은 집합이
+//  나오게. 순위에 오른 종목 수를 돌려준다(로그용).
+template <typename Metric>
+std::size_t take_top_by(const DevScanCfg& config, const QuoteTable& quotes, int count, CandidateSet& candidates,
+                        const symbol::SymbolTable& symbols, Metric metric)
 {
-    for (const auto& ranked : rank)
+    struct Ranked
     {
-        if (ranked.price < config.min_price)
+        double           value;
+        symbol::Ticker   ticker;
+        symbol::SymbolId symbol;
+    };
+
+    std::vector<Ranked> ranked;
+
+    for (std::size_t index = 0; index < quotes.size(); ++index)
+    {
+        const symbol::SymbolId symbol = static_cast<symbol::SymbolId>(index);
+        const MarketQuote& quote = quotes[index];
+
+        if (quote.price <= 0.0 || quote.value <= 0.0 || quote.name.empty())
         {
             continue;
         }
 
-        if (config.max_price > 0.0 && ranked.price > config.max_price)
+        if (candidates.have_market_map &&
+            (index >= candidates.market.size() || candidates.market[index] == Market::Unlisted))
         {
             continue;
         }
 
-        if (excluded_by_name(ranked.name, candidates.etf_drop, candidates.reit_drop))
+        if (quote.price < config.min_price || (config.max_price > 0.0 && quote.price > config.max_price))
         {
             continue;
         }
 
-        const symbol::SymbolId symbol = symbols.intern(ranked.ticker); // REST 응답의 문자열 티커 — 여기서 id가 된다
-
-        if (symbol == symbol::kNone)
+        if (quote.value < config.min_turnover)
         {
             continue;
         }
 
-        if (ranked.price > 0.0)
-        {
-            quotes[symbol].price = ranked.price;
-        }
+        const std::optional<double> value = metric(symbol, quote);
 
-        candidates.add(symbol, ranked.name);
+        if (value)
+        {
+            ranked.push_back({*value, symbols.name(symbol), symbol});
+        }
     }
+
+    std::sort(ranked.begin(), ranked.end(), [](const Ranked& left, const Ranked& right)
+    {
+        if (left.value != right.value)
+        {
+            return left.value > right.value;
+        }
+
+        return left.ticker.view() < right.ticker.view();
+    });
+
+    int taken = 0;
+
+    for (const Ranked& entry : ranked)
+    {
+        if (taken >= count)
+        {
+            break;
+        }
+
+        const std::string& name = quotes[entry.symbol].name;
+
+        if (excluded_by_name(name, candidates.etf_drop, candidates.reit_drop))
+        {
+            continue;
+        }
+
+        ++taken;
+        candidates.add(entry.symbol, name);
+    }
+
+    return ranked.size();
 }
 
 // 유니버스 한 줄을 후보에 붓는다 — 파일 축과 시세판 축이 같은 규칙(ETF·리츠 이름 필터·가격 구간)을 쓴다.
@@ -147,9 +183,9 @@ int add_universe_entry(const DevScanCfg& config, const std::string& ticker, std:
 }
 
 // 유니버스 파일 축 — 거래대금 상위 종목 파일(시총 축은 D-146부터 0). `market_board`면 엔진 안 시세판이 네이버 시세로
-//  1분마다 쓰고(D-147), 끄면 universe_feed.py가 쓴다. KIS 30행캡·ETF 잠식을 우회한 개별주 깊은 집합이라
-//  후보 집합 맨 앞에 넣어 일봉 조회 우선순위를 준다. 파일이 없으면 조용히 스킵한다(하위호환).
-//  전종목 코드→시장 사전(market_map)을 top-N보다 먼저 적재해, KIS 랭킹축 티커의 시장도
+//  1분마다 쓰고(D-147), 끄면 universe_feed.py가 쓴다. 개별주 깊은 집합이라 후보 집합 맨 앞에 넣어 일봉 조회
+//  우선순위를 준다. 파일이 없으면 경고하고 건너뛴다.
+//  전종목 코드→시장 사전(market_map)을 top-N보다 먼저 적재해, 뒤 축(거래대금·거래증가율·등락률) 종목의 시장도
 //  해석되게 한다 — 없으면 kosdaq_enabled 게이트가 그쪽으로 샌다.
 void take_universe_file(const DevScanCfg& config, CandidateSet& candidates, symbol::SymbolTable& symbols)
 {
@@ -163,7 +199,7 @@ void take_universe_file(const DevScanCfg& config, CandidateSet& candidates, symb
     if (!file)
     {
         LOG_WARN("[Main] DEVSCALE 유니버스 파일 없음(" + config.universe_file +
-                 ") — 유니버스 파일 축 스킵, KIS 랭킹 축만 사용");
+                 ") — 유니버스 파일 축 스킵");
         return;
     }
 
@@ -306,54 +342,6 @@ void take_universe_file_cached(const DevScanCfg& config, CandidateSet& candidate
     g_board_axis_source.reset();
 }
 
-// 업종 등락률 축 — 등락률 내림차순이라 상위 N행이 곧 지금 강한 종목이고, 업종을 순회하므로
-//  한 섹터가 집합을 독식하지 않는다. 정배열·과확장 판정은 뒤 프리필터가 그대로 한다.
-void take_sector_ranking(KisClient& kis, const DevScanCfg& config, QuoteTable& quotes, CandidateSet& candidates,
-                         symbol::SymbolTable& symbols)
-{
-    if (config.sector_codes.empty())
-    {
-        return;
-    }
-
-    const std::size_t before = candidates.symbols.size();
-    int sec_ok = 0, sec_weak = 0;
-
-    for (const auto& sector_code : config.sector_codes)
-    {
-        auto rows = kis.fetch_sector_ranking(sector_code, config.sector_top_n);
-        // 26콜을 쉬지 않고 내면 8.8콜/s로 나가 문서상 한도 20/s의 절반을 이 축 하나가
-        //  버스트로 먹는다(09-08: ranking/fluctuation HTTP 500 70건). 지금은 업종 수 × 250ms
-        //  (kSectorCallIntervalMs)라 26개면 약 6.5초다. 합집합 갱신 주기(union_refresh_sec)에 비하면 작다.
-        //  100ms 로는 모자랐다 — 축마다 따로 쉬는 방식의 한계라, 요청 예산을 한곳에서 재는 것이 근본이다.
-        std::this_thread::sleep_for(std::chrono::milliseconds(kSectorCallIntervalMs));
-
-        if (rows.empty())
-        {
-            continue;
-        }
-
-        ++sec_ok;
-        // 약세 행은 제자리에서 걷어낸다 — 통과 행을 새 벡터로 베끼지 않는다.
-        std::erase_if(rows, [&](const KisClient::RankingStock& row)
-        {
-            if (row.change_rate < config.sector_min_change)
-            {
-                ++sec_weak;
-                return true;
-            }
-
-            return false;
-        });
-        take_ranking(rows, config, quotes, candidates, symbols);
-    }
-
-    LOG_INFO("[Main] DEVSCALE 업종 등락률 축: " + std::to_string(sec_ok) + "/" +
-             std::to_string(config.sector_codes.size()) + "업종 응답, 신규 " +
-             std::to_string(candidates.symbols.size() - before) + "종목 union (약세컷 " +
-             std::to_string(sec_weak) + ")");
-}
-
 // 전 종목 확장 — market_map(코스피+코스닥 전체)을 후보로 붓는다. 종목명은 시세 표에서
 //  가져와 ETF·리츠 필터를 그대로 적용한다(이름이 없으면 버린다).
 //  티커 문자열 순으로 순회한다. 종목 id는 intern 순서라 실행마다 달라지고, 그 순서로 돌면 같은 입력에서도
@@ -417,11 +405,8 @@ void take_full_market(const DevScanCfg& config, const QuoteTable& quotes, Candid
 } // namespace
 
 // 거래대금 상위 축 — 시세 표(재스캔마다 새로 읽는 전 종목 장중 시세)에서 당일 누적 거래대금 상위
-//  turnover_top_n종목을 붓는다. KIS 랭킹은 한 번에 30행, 가격 구간을 갈라도 60행이 끝이라 그보다 깊은
-//  거래대금 순위는 여기서만 나온다. 추가 조회는 없다. 시가총액 축은 대형주가 거래 없이도 자리를
-//  먹어 뺐다 [why D-146].
-//  market_map이 있으면 코스피·코스닥 상장 종목만 본다(ETN·ETF 코드는 사전에 없다). 순위가 같으면
-//  티커 순으로 자른다 — 같은 시세 파일이면 같은 집합이 나오게.
+//  turnover_top_n종목을 붓는다. 추가 조회는 없다. 시가총액 축은 대형주가 거래 없이도 자리를 먹어 뺐다 [why D-146].
+//  market_map이 있으면 코스피·코스닥 상장 종목만 본다(ETN·ETF 코드는 사전에 없다).
 void take_turnover_top(const DevScanCfg& config, const QuoteTable& quotes, CandidateSet& candidates,
                        const symbol::SymbolTable& symbols)
 {
@@ -430,78 +415,67 @@ void take_turnover_top(const DevScanCfg& config, const QuoteTable& quotes, Candi
         return;
     }
 
-    struct Ranked
+    const std::size_t before = candidates.symbols.size();
+    const std::size_t ranked = take_top_by(config, quotes, config.turnover_top_n, candidates, symbols,
+                                           [](symbol::SymbolId, const MarketQuote& quote) -> std::optional<double>
+                                           {
+                                               return quote.value;
+                                           });
+    LOG_INFO("[Main] DEVSCALE 거래대금 상위 축: 신규 " + std::to_string(candidates.symbols.size() - before) +
+             " union (시세 " + std::to_string(ranked) + "종목에서)");
+}
+
+// 거래증가율 상위 축 — 당일 누적 거래량 ÷ 전일 거래량. 옛 KIS 거래증가율 순위(30행 상한)를 대신한다.
+//  전일 거래량은 일봉 캐시에서 읽으므로 장 전 데우기나 지난 스캔이 일봉을 받아 둔 종목만 순위에 오른다 [why D-153].
+void take_volume_surge(const DevScanCfg& config, const QuoteTable& quotes, const std::string& date_yyyymmdd,
+                       CandidateSet& candidates, const symbol::SymbolTable& symbols)
+{
+    if (config.value_top_n <= 0)
     {
-        double           value;
-        symbol::Ticker   ticker;
-        symbol::SymbolId symbol;
-    };
-
-    std::vector<Ranked> ranked;
-
-    for (std::size_t index = 0; index < quotes.size(); ++index)
-    {
-        const symbol::SymbolId symbol = static_cast<symbol::SymbolId>(index);
-        const MarketQuote& quote = quotes[index];
-
-        if (quote.price <= 0.0 || quote.value <= 0.0 || quote.name.empty())
-        {
-            continue;
-        }
-
-        if (candidates.have_market_map &&
-            (index >= candidates.market.size() || candidates.market[index] == Market::Unlisted))
-        {
-            continue;
-        }
-
-        if (quote.price < config.min_price || (config.max_price > 0.0 && quote.price > config.max_price))
-        {
-            continue;
-        }
-
-        if (quote.value < config.min_turnover)
-        {
-            continue;
-        }
-
-        ranked.push_back({quote.value, symbols.name(symbol), symbol});
+        return;
     }
-
-    std::sort(ranked.begin(), ranked.end(), [](const Ranked& left, const Ranked& right)
-    {
-        if (left.value != right.value)
-        {
-            return left.value > right.value;
-        }
-
-        return left.ticker.view() < right.ticker.view();
-    });
 
     const std::size_t before = candidates.symbols.size();
-    int taken = 0;
+    const std::size_t ranked = take_top_by(config, quotes, config.value_top_n, candidates, symbols,
+                                           [&date_yyyymmdd](symbol::SymbolId symbol, const MarketQuote& quote)
+                                               -> std::optional<double>
+                                           {
+                                               const double previous = g_lookup_cache.previous_volume(symbol, date_yyyymmdd);
 
-    for (const Ranked& entry : ranked)
+                                               if (previous <= 0.0 || quote.volume <= 0.0)
+                                               {
+                                                   return std::nullopt;
+                                               }
+
+                                               return quote.volume / previous;
+                                           });
+    LOG_INFO("[Main] DEVSCALE 거래증가율 상위 축: 신규 " + std::to_string(candidates.symbols.size() - before) +
+             " union (전일 거래량이 있는 " + std::to_string(ranked) + "종목에서)");
+}
+
+// 등락률 상위 축 — 지금 강한 종목. 옛 KIS 업종 등락률 축(업종 26개 × 10행, 조회 26건)을 대신한다.
+//  시세판이 전 종목 등락률을 주므로 업종을 돌 필요가 없다. change_min_percent 미만은 넣지 않는다 [why D-029·D-153].
+void take_change_top(const DevScanCfg& config, const QuoteTable& quotes, CandidateSet& candidates,
+                     const symbol::SymbolTable& symbols)
+{
+    if (config.change_top_n <= 0)
     {
-        if (taken >= config.turnover_top_n)
-        {
-            break;
-        }
-
-        const std::string& name = quotes[entry.symbol].name;
-
-        if (excluded_by_name(name, candidates.etf_drop, candidates.reit_drop))
-        {
-            continue;
-        }
-
-        ++taken;
-        candidates.add(entry.symbol, name);
+        return;
     }
 
-    LOG_INFO("[Main] DEVSCALE 거래대금 상위 축: 상위 " + std::to_string(taken) + "종목 중 신규 " +
-             std::to_string(candidates.symbols.size() - before) + " union (시세 " +
-             std::to_string(ranked.size()) + "종목에서)");
+    const std::size_t before = candidates.symbols.size();
+    const std::size_t ranked = take_top_by(config, quotes, config.change_top_n, candidates, symbols,
+                                           [&config](symbol::SymbolId, const MarketQuote& quote) -> std::optional<double>
+                                           {
+                                               if (quote.change_percent < config.change_min_percent)
+                                               {
+                                                   return std::nullopt;
+                                               }
+
+                                               return quote.change_percent;
+                                           });
+    LOG_INFO("[Main] DEVSCALE 등락률 상위 축: 신규 " + std::to_string(candidates.symbols.size() - before) +
+             " union (" + std::to_string(config.change_min_percent) + "% 이상 " + std::to_string(ranked) + "종목에서)");
 }
 
 Market market_from_text(std::string_view text)
@@ -575,62 +549,15 @@ Market CandidateSet::market_of(symbol::SymbolId symbol) const
     return have_market_map ? Market::Unknown : Market::Kospi;
 }
 
-void collect_candidates(KisClient& kis, const DevScanCfg& config, const std::string& date_yyyymmdd,
-                        QuoteTable& quotes, CandidateSet& candidates, symbol::SymbolTable& symbols)
+void collect_candidates(const DevScanCfg& config, const std::string& date_yyyymmdd, const QuoteTable& quotes,
+                        CandidateSet& candidates, symbol::SymbolTable& symbols)
 {
     // 정배열 프리필터로 상당수가 탈락하므로 여기선 max_register로 자르지 않고 넓게 모은다.
-    //  축 순서(파일 → 거래대금 상위 → KIS 랭킹 → 업종 → 전 종목)가 일봉 조회 우선순위라 캐시를 나눠도 이 순서로 합친다.
+    //  축 순서(재랭킹·파일 → 거래대금 → 거래증가율 → 등락률 → 전 종목)가 일봉 조회 우선순위다.
     take_universe_file_cached(config, candidates, symbols);
     take_turnover_top(config, quotes, candidates, symbols);
-
-    CandidateSet kis_axes(symbols.capacity());
-    long long age = -1;
-
-    if (config.union_refresh_sec > 0)
-    {
-        std::lock_guard<std::mutex> lock(g_candidate_mutex);
-
-        if (g_kis_axes_cache.date_yyyymmdd == date_yyyymmdd && !g_kis_axes_cache.symbols.empty() &&
-            std::time(nullptr) - g_kis_axes_cache.at < config.union_refresh_sec)
-        {
-            kis_axes = g_kis_axes_cache;   // 복사가 맞다 — 캐시는 락 아래 남고 호출자는 락 밖에서 자기 사본을 쓴다
-            age = static_cast<long long>(std::time(nullptr) - g_kis_axes_cache.at);
-        }
-    }
-
-    if (age >= 0)
-    {
-        // 현재가·거래대금은 시세 표에서 방금 읽은 값을 쓴다. 랭킹 축이 실어오던
-        //  스냅샷가는 재사용분에 없지만, 네이버 쪽이 더 최신이라 판정에는 그편이 낫다.
-        LOG_INFO("[Main] DEVSCALE KIS 축 재사용: " + std::to_string(kis_axes.symbols.size()) +
-                 "종목 (" + std::to_string(age) +
-                 "초 전 수집, 갱신주기 " + std::to_string(config.union_refresh_sec) + "초)");
-    }
-    else
-    {
-        take_ranking(kis.fetch_value_ranking(config.value_top_n, "J", "3"), config, quotes, kis_axes, symbols);   // 거래대금 상위
-        // 랭킹 TR은 축마다 상위 30행 고정(연속조회 불가)이라 정렬축을 하나 더 union해 집합을 넓힌다.
-        //  거래증가율(1)은 대형주에 편중된 거래대금축과 겹침이 적어(중소형 모멘텀) 정배열 후보를 늘린다.
-        take_ranking(kis.fetch_value_ranking(config.value_top_n, "J", "1"), config, quotes, kis_axes, symbols);   // 거래증가율 상위
-        take_sector_ranking(kis, config, quotes, kis_axes, symbols);
-
-        if (config.union_refresh_sec > 0)
-        {
-            std::lock_guard<std::mutex> lock(g_candidate_mutex);
-            kis_axes.date_yyyymmdd = date_yyyymmdd;
-            kis_axes.at = std::time(nullptr);
-            g_kis_axes_cache = kis_axes;   // 복사가 맞다 — 아래에서 kis_axes를 계속 읽고 캐시는 다음 갱신까지 남는다
-        }
-    }
-
-    for (std::size_t index = 0; index < kis_axes.symbols.size(); ++index)
-    {
-        candidates.add(kis_axes.symbols[index], std::move(kis_axes.names[index]));
-    }
-
-    candidates.etf_drop  += kis_axes.etf_drop;
-    candidates.reit_drop += kis_axes.reit_drop;
-    // 전 종목 확장은 REST가 없어 매번 다시 한다 — 방금 읽은 시세 표로 가격·이름 필터를 건다.
+    take_volume_surge(config, quotes, date_yyyymmdd, candidates, symbols);
+    take_change_top(config, quotes, candidates, symbols);
     take_full_market(config, quotes, candidates, symbols);
 }
 } // namespace universe::detail

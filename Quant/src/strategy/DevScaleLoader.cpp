@@ -422,14 +422,13 @@ DevScaleParams parse_devscale_parameters(const json& node)
     return parameters;
 }
 
-// 스캔 유니버스 설정. 1단(스캐너): 시세 표 거래대금 상위 + KIS 거래대금·거래증가율 상위 + 업종 축의 합집합을
-//  최소·최대가 필터로 압축 + 정배열 프리필터. 시총 축은 D-146에서 뺐다.
+// 스캔 유니버스 설정. 1단(스캐너): 시세 표의 거래대금·거래증가율·등락률 상위 축의 합집합을
+//  최소·최대가 필터로 압축 + 정배열 프리필터. 시총 축은 D-146에서, KIS 순위·업종 축은 D-153에서 뺐다.
 //  2단(전략): 등록된 각 DeviationScale이 자기 일봉으로 정배열+눌림 존을 판정해 자격 종목만 실제로 매매한다.
 universe::DevScanCfg parse_scan_config(const json& node, const DevScaleParams& parameters)
 {
     universe::DevScanCfg config;
-    // 거래대금 상위 스캔 수(장중 급변). 30을 넘기면 가격 구간을 갈라 두 번 부르므로 REST 호출이
-    //  하나 는다 — 그 대신 ETF를 뺀 개별주를 60종목까지 볼 수 있다.
+    // 거래증가율 상위 수. 시세판 거래량과 일봉 캐시의 전일 거래량으로 계산해 KIS 조회가 없다(D-153).
     read_or_keep(node, "value_top_n", config.value_top_n);
     read_or_keep(node, "turnover_top_n", config.turnover_top_n);
     read_or_keep(node, "min_price", config.min_price);
@@ -445,22 +444,11 @@ universe::DevScanCfg parse_scan_config(const json& node, const DevScaleParams& p
     read_or_keep(node, "require_aligned", config.require_aligned);
     read_or_keep(node, "align_lookup_max", config.align_lookup_max);
 
-    // 업종 순위 축 — 업종 코드, 업종마다 상위 몇 행, 최소 등락률.
-    for (const auto& element : jsonx::array_or_empty(node, "sector_codes"))
-    {
-        if (element.is_string())
-        {
-            config.sector_codes.push_back(element.get<std::string>());
-        }
-    }
-
-    read_or_keep(node, "sector_top_n", config.sector_top_n);
-    read_or_keep(node, "sector_min_chg", config.sector_min_change);
-    // 후보 합집합(KIS 랭킹·업종 REST) 갱신 주기. 미지정이면 재스캔 주기와 같아
-    //  기존 동작(재스캔마다 새로 수집)이 유지된다.
-    read_or_keep(node, "union_refresh_sec", config.union_refresh_sec);
+    // 등락률 상위 축 — 몇 종목, 최소 등락률.
+    read_or_keep(node, "change_top_n", config.change_top_n);
+    read_or_keep(node, "change_min_pct", config.change_min_percent);
     read_or_keep(node, "max_dev_pct", config.max_deviation_percent);
-    read_or_keep(node, "universe_file", config.universe_file); // 거래대금 상위 종목 파일(시세판이 씀), 비면 KIS 랭킹만
+    read_or_keep(node, "universe_file", config.universe_file); // 거래대금 상위 종목 파일(시세판이 씀), 시세판 첫 판 전에만 읽는다
     read_or_keep(node, "market_board", config.market_board);
     read_or_keep(node, "min_turnover", config.min_turnover);
     read_or_keep(node, "full_market", config.full_market);
@@ -705,10 +693,12 @@ void register_scan_universe(LoadPass& context, const std::shared_ptr<DevScaleSle
                                    return sleeve->make(symbol);
                                }),
                                policy.rescan_sec, static_cast<size_t>(sleeve->scan_config().max_register),
-                               policy.drop_after_sec, policy.block_after_sec, policy.return_confirm);
+                               policy.drop_after_sec, policy.block_after_sec, policy.return_confirm,
+                               /*follow_board=*/sleeve->scan_config().market_board);
     engine.seed_universe_rescan(seeded);
-    LOG_INFO("[Main] " + parameters.id_prefix + " 주기적 재스캔 활성: " + std::to_string(policy.rescan_sec) +
-             "초 간격, 이탈 차단 " + std::to_string(policy.block_after_sec) + "초(복귀 확인 " +
+    LOG_INFO("[Main] " + parameters.id_prefix + " 주기적 재스캔 활성: " +
+             (sleeve->scan_config().market_board ? std::string("시세판 새 판마다(예비 ") : std::string("(")) +
+             std::to_string(policy.rescan_sec) + "초 간격), 이탈 차단 " + std::to_string(policy.block_after_sec) + "초(복귀 확인 " +
              std::to_string(policy.return_confirm) + "회), 해제 " + std::to_string(policy.drop_after_sec) + "초");
 }
 

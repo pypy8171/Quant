@@ -5910,6 +5910,7 @@ Release LTO를 켜 보았으나 172 ns로 더 나빠 버렸다. 검사기 규칙
 - `PYQuant/kis/client.py`의 주문이 D-096에서 바꾼 새 TR이 아니라 옛 `TTTC0802U/0801U`로 남아 있었다.
   `EXCG_ID_DVSN_CD`도 빠져 있어 NXT·SOR을 낼 수 없는 상태였다.
 - 웹소켓 구독 상한을 41로 알고 있었다. 공식 `kis_auth.py`는 40에서 막는다(`Quant/include/api/KisWebSocket.h`가 맞다).
+  → 2026-09-27 실측으로 서버 상한은 41이었다. 40은 샘플 쪽 제한이다(D-152).
 
 **대안 비교**:
 - 기억·주석에 의존(기존) — 위 세 건이 그 결과다. 주석은 쓴 시점에 멈추고 KIS는 계속 바뀐다.
@@ -7321,3 +7322,49 @@ regime.json 하나를 번갈아 쓰면 어느 쪽 값인지 가릴 수 없어서
 (3) 호출 간격을 줄임 — 한도를 넘겨 EGW00201(D-138).
 
 **연결**: D-071 · D-127 · D-128 · D-138 · `Quant/src/core/EngineOrderThread.cpp` · `Quant/src/ipc/OrderRouterSubmit.cpp`
+
+### D-152 웹소켓 구독 상한을 40에서 41로 올린다 (2026-09-27)
+
+**문제**: `kMaxWsSubs`를 40으로 두고 체결통보 1칸을 포함해 셌다. 시세로 쓰는 칸은 39였다. D-120 때 공식
+`kis_auth.py`가 40에서 막는 것을 보고 40이 맞다고 적었지만, 서버에서 직접 재 본 적은 없었다.
+
+**결정**: 실계좌 키로 한 세션에 구독을 하나씩 걸어 봤다(`scripts/kis_limit_check.py ws`, 2026-09-27 16:29, 트레이더 꺼짐).
+체결통보(H0STCNI0) 1칸 + 체결(H0STCNT0) 40칸 = 41건까지 SUBSCRIBE SUCCESS, 42번째가 `OPSP0008 MAX SUBSCRIBE OVER`였다.
+체결통보 없이도 41건에서 멈췄다. 서버 상한은 41이고 `kis_auth.py`의 `len(open_map) > 40` 검사는 샘플 쪽 제한이다.
+`kMaxWsSubs`를 41로 올려 시세 칸을 40으로 늘린다.
+
+**버린 대안**: 공식 샘플의 40을 따름 — 서버가 받는 한 칸을 버린다. 서버 상한이 줄면 42번째처럼 그 구독만
+`MAX SUBSCRIBE OVER`로 거절되고 넘침 종목은 REST로 받으므로(D-150) 되돌리기도 쉽다.
+
+**연결**: D-016 · D-120 · D-150 · `Quant/include/api/KisWebSocket.h` · `scripts/kis_limit_check.py`
+
+### D-153 후보 수집에서 KIS 순위·업종 조회를 빼고 시세판으로, 재스캔은 새 시세판마다 돈다 (2026-09-27)
+
+**문제**: DevScale 후보는 KIS 거래증가율 순위(30행 상한)와 업종 26개의 등락률 순위(업종마다 한 번, 합계 26건)를 불러 모았다.
+업종 조회는 한도를 피하려고 한 건씩 쉬어 가며 불렀다. 그래서 재스캔 한 번이 길어졌다. 2026-09-23 로그를 보면 966회 중 155회가 5초를 넘었고,
+95% 지점이 28초, 가장 길었던 것이 53초였다. 한편 시세판(`Quant/src/universe/MarketBoard.cpp`)은 전 종목 시세를 5초마다 새로 받는데,
+재스캔은 20초 주기로 돌았다. 새 판 넷 중 셋은 보지 않은 셈이다.
+
+**결정**:
+1. 후보 축을 모두 시세판 표에서 뽑는다. KIS 조회는 부르지 않는다.
+   - 거래증가율 상위 축: 당일 누적 거래량 ÷ 전일 거래량. 전일 거래량은 일봉 캐시(`DailyLookup::volume`)에서 읽는다.
+     네이버 응답에는 전일 거래량이 없다.
+   - 등락률 상위 축: 시세판의 등락률(`fluctuationsRatioRaw`)이 `change_min_pct` 이상인 종목 중 상위 `change_top_n`.
+     업종을 하나씩 돌 필요가 없다.
+   - 설정 `sector_codes`·`sector_top_n`·`sector_min_chg`·`union_refresh_sec`는 지웠다. 쓰지 않는 `KisClient::fetch_sector_ranking`도 지웠다.
+2. 재스캔은 새 시세판이 올 때 돈다. 시세판이 판을 낼 때마다 판 번호를 올리고, data_thread는 잠 대신 새 판을 기다린다
+   (`MarketBoard::wait_new_board`). `UniverseRescan::Job::follow_board`가 켜진 슬리브는 번호가 바뀌면 주기와 무관하게 돈다.
+   `rescan_interval_sec`는 판이 끊겼을 때의 예비 주기로 남는다.
+
+**알려진 한계**: 전일 거래량은 일봉을 받아 둔 종목에만 있다. 장 전 데우기(`daily_warm_until_hhmm`)가 받은 종목과 지난 스캔이 조회한 종목이 해당한다.
+데우기가 거래대금 하한으로 거르므로 전날 거래가 아주 적었던 종목은 급증해도 이 축에 오르지 않는다. 대신 거래대금 축이나 등락률 축으로 들어올 수 있다.
+일봉 캐시 파일 형식이 9열에서 10열로 바뀌었다. 옛 파일은 읽지 않으므로 배포 첫날은 캐시를 다시 채운다.
+
+**확인**: `scripts/check_runtime_health.py`의 "재스캔 5초 안" 행이 재스캔 계측 줄의 경과를 모은다. 5초를 넘은 횟수가 있으면 WARN을 낸다.
+
+**버린 대안**:
+- (1) KIS 순위를 그대로 두고 재스캔만 5초로 줄임: 업종 26건을 5초마다 부르면 주문과 초당 한도(20건, D-138)를 나눠 쓴다.
+- (2) 전일 거래량을 네이버 일별 시세에서 받음: 종목마다 한 번씩 불러야 한다. 일봉 캐시는 이미 들고 있다.
+- (3) 업종 등락률을 시세판에서 업종별로 묶어 재현: 종목의 업종 코드가 시세판 목록에 없다. 전 종목 등락률 상위로도 목적(지금 강한 종목)은 같다.
+
+**연결**: D-028 · D-029 · D-138 · D-146 · `Quant/src/universe/UniverseCandidates.cpp` · `Quant/src/core/UniverseRescan.cpp` · `Quant/src/core/EngineDataThread.cpp`

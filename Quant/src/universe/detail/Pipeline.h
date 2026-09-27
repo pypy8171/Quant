@@ -37,6 +37,7 @@ struct DailyLookup
     //  s_n_live = (s_n*n - roll_n + price_live) / n — REST 없이 정배열을 장중 갱신한다.
     double r5 = 0.0, r10 = 0.0, r20 = 0.0;
     double atr_percent = 0.0;                  // ATR(14)/종가. 정배열 판정용 일봉 재활용(추가 REST 0)
+    double volume = 0.0;                   // 주, 전일 거래량(d[0]). 거래증가율 축의 분모
 };
 
 // 일봉 요약 캐시 — 종목 id 인덱스 배열(date_yyyymmdd가 비면 없음). 표는 락으로 감싼다. [inv] 프로세스 안 종목 테이블은 하나다(Engine의 symbols_.table, OrderGate에도 주입된다) — id는 지워지지
@@ -47,6 +48,9 @@ struct DailyLookup
 class DailyLookupCache
 {
 public:
+    // 파일 한 종목의 칸 수. 다른 칸수는 옛 형식이라 읽지 않는다(캐시 미스와 같다).
+    static constexpr std::size_t kColumns = 10;
+
     // 프로세스당 거래일 1회. 읽기 실패는 캐시 미스와 결과가 같으므로 경고만 남긴다.
     void load_today(const std::string& date_yyyymmdd, symbol::SymbolTable& symbols);
 
@@ -57,6 +61,9 @@ public:
     bool get(symbol::SymbolId symbol, const std::string& date_yyyymmdd, DailyLookup& out) const;
 
     void put(symbol::SymbolId symbol, const DailyLookup& daily_lookup);
+
+    // 오늘치 요약의 전일 거래량. 없으면 0. 거래증가율 축이 전 종목을 돌며 부른다 — 요약 전체를 베끼지 않는다.
+    double previous_volume(symbol::SymbolId symbol, const std::string& date_yyyymmdd) const;
 
     // 거래일 캐시 파일 경로. 장 전 데우기 스레드가 이미 받은 종목을 건너뛰려고 같은 파일을 읽는다.
     static std::string cache_path(const std::string& date_yyyymmdd);
@@ -81,18 +88,13 @@ enum class Market : uint8_t
 
 Market market_from_text(std::string_view text);
 
-// 후보 합집합 — 수집 축들이 공유하는 누적기이자 그대로 재사용 캐시의 몸통이다.
-//  [why D-028] 랭킹·업종 축은 KIS REST 랭킹 3콜 + 업종 코드 수만큼(sector_codes, 250ms 간격)이라 재스캔을 20초로
-//  당기면 이 축만으로 초당 한도를 먹는다. 반면 정배열·이격·점수를 다시 매기는 데 필요한 건
-//  일봉 캐시와 시세 표뿐이라 REST가 0이다. 그래서 "누가 후보인가"(비싼 축)와
-//  "그 중 누가 좋은가"(싼 축)의 주기를 분리한다.
+// 후보 합집합 — 수집 축들이 공유하는 누적기이자 파일 축 재사용 캐시의 몸통이다.
+//  모든 축이 시세판 표·일봉 캐시만 보므로 재스캔마다 새로 모은다(D-153 전에는 KIS 순위·업종 축을 120초 캐시했다).
 //  종목은 id로 든다 — 응답·파일의 문자열 티커는 붓는 자리(take_*)에서 intern한다. [why D-112]
 struct CandidateSet
 {
     static constexpr uint32_t kNoSlot = UINT32_MAX;
 
-    std::string date_yyyymmdd;
-    std::time_t at = 0;
     std::vector<symbol::SymbolId> symbols;       // 등록 순서 = 일봉 점검 우선순위
     std::vector<std::string>      names;         // symbols와 같은 순서
     std::vector<uint32_t>         slot_of;       // 종목 id → symbols 자리. kNoSlot=미등록(옛 seen)
@@ -175,11 +177,18 @@ MarketGate build_market_gate(KisClient& kis, const DevScanCfg& config);
 void take_turnover_top(const DevScanCfg& config, const QuoteTable& quotes, CandidateSet& candidates,
                        const symbol::SymbolTable& symbols);
 
-// 후보 합집합을 채운다. union_refresh_sec 안에 다시 불리면 수집을 통째로 건너뛰고
-//  지난 집합을 그대로 쓴다 — 이 단계만 KIS REST 랭킹 2축 + 업종 코드 수만큼(sector_codes, 250ms 간격)이고 이후 재판정은 0콜이다(D-028).
-//  0이면 매 호출 새로 모은다(기존 동작).
-void collect_candidates(KisClient& kis, const DevScanCfg& config, const std::string& date_yyyymmdd,
-                        QuoteTable& quotes, CandidateSet& candidates, symbol::SymbolTable& symbols);
+// 시세 표의 당일 누적 거래량 ÷ 일봉 캐시의 전일 거래량 상위 value_top_n종목을 붓는다. 0이면 아무것도 안 한다.
+//  전일 거래량이 캐시에 없는 종목은 순위에 없다 [why D-153].
+void take_volume_surge(const DevScanCfg& config, const QuoteTable& quotes, const std::string& date_yyyymmdd,
+                       CandidateSet& candidates, const symbol::SymbolTable& symbols);
+
+// 시세 표의 등락률 상위 change_top_n종목(change_min_percent 이상)을 붓는다. 0이면 아무것도 안 한다 [why D-153].
+void take_change_top(const DevScanCfg& config, const QuoteTable& quotes, CandidateSet& candidates,
+                     const symbol::SymbolTable& symbols);
+
+// 후보 합집합을 채운다. 시세판 표와 일봉 캐시만 보므로 KIS 조회가 없다 [why D-153].
+void collect_candidates(const DevScanCfg& config, const std::string& date_yyyymmdd, const QuoteTable& quotes,
+                        CandidateSet& candidates, symbol::SymbolTable& symbols);
 
 //  점수는 원자료를 바로 더하지 않는다. 추세·눌림·변동성은 단위도 일별 분산도 달라서 그대로
 //   더하면 그날 우연히 많이 벌어진 축이 점수를 지배한다. 통과 집합 안에서 각각 z-score로

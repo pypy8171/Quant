@@ -25,6 +25,7 @@ graph LR
   core -->|15| ipc
   core -->|10| risk
   core -->|4| strategy
+  core -->|2| universe
   core -->|41| utils
   exchange -->|7| core
   exchange -->|3| utils
@@ -431,6 +432,7 @@ graph LR
   n_core_EngineDataThread_cpp --> n_core_Engine_h
   n_core_EngineDataThread_cpp --> n_core_KstTime_h
   n_core_EngineDataThread_cpp --> n_core_LatencyTrace_h
+  n_core_EngineDataThread_cpp --> n_universe_MarketBoard_h
   n_core_EngineDataThread_cpp --> n_utils_Logger_h
   n_core_EngineDataThread_cpp --> n_utils_ThreadName_h
   n_core_EngineFeed_cpp --> n_core_Engine_h
@@ -469,6 +471,7 @@ graph LR
   n_core_EngineSymbols_cpp --> n_utils_Logger_h
   n_core_EngineUniverse_cpp --> n_core_Engine_h
   n_core_EngineUniverse_cpp --> n_core_KstTime_h
+  n_core_EngineUniverse_cpp --> n_universe_MarketBoard_h
   n_core_EngineUniverse_cpp --> n_utils_Logger_h
   n_core_FeedMux_cpp --> n_core_FeedMux_h
   n_core_FeedMux_cpp --> n_utils_ThreadName_h
@@ -1008,7 +1011,7 @@ C++ 엔진·Python 보조 프로세스·스크립트가 파일로 주고받는 �
 | `universe*.json` | `PYQuant/tools/load_injector.py`, `Quant/src/universe/MarketBoard.cpp`, `scripts/make_load_test_config.py` | `PYQuant/main.py`, `PYQuant/tools/full_universe_dump.py`, `PYQuant/tools/load_injector.py`, `PYQuant/tools/universe_feed.py`, `Quant/src/strategy/DevScaleLoader.cpp`, `Quant/src/universe/UniverseCandidates.cpp`, `scripts/exit_ev_dashboard.py`, `scripts/make_load_test_config.py`, `scripts/market_close_minute_backfill.py`, `scripts/notify_trades.py` | `Quant/include/universe/MarketBoard.h`, `Quant/include/universe/UniverseScanner.h`, `Quant/src/api/KisUniverse.cpp`, `scripts/dashboard_server.py` |
 | `open_orders.txt` | `Quant/src/ipc/OrderJournal.cpp`, `scripts/seed_open_orders.py` | `Quant/src/ipc/OrderJournal.cpp`, `Quant/src/ipc/OrderRouterReconcile.cpp`, `scripts/seed_open_orders.py` |  |
 | `quant_trader.log` | `PYQuant/tools/log_report.py`, `scripts/build_review_entry.py`, `scripts/dashboard_server.py`, `scripts/summarize_trading_day.py` | `PYQuant/tools/compare_ws_bars.py`, `scripts/check_runtime_health.py`, `scripts/dashboard_server.py`, `scripts/extract_swap_what_if.py`, `scripts/notify_trades.py`, `scripts/parse_quant_log.py`, `scripts/seed_open_orders.py`, `scripts/summarize_trading_day.py` | `Quant/src/core/CommandLine.cpp`, `scripts/_logdir.py`, `scripts/exit_ev_dashboard.py` |
-| `kis_token_*.json` |  |  | `PYQuant/kis/client.py`, `Quant/src/api/KisAuth.cpp` |
+| `kis_token_*.json` | `scripts/kis_limit_check.py` | `scripts/kis_limit_check.py` | `PYQuant/kis/client.py`, `Quant/src/api/KisAuth.cpp` |
 
 ## 영향범위 질의 · 기계 소비
 

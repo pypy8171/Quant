@@ -107,30 +107,30 @@ flowchart LR
 
 14. [`load_strategies`](../Quant/src/strategy/StrategyFactory.cpp#L500) — config `strategies[]`를 타입별 로더로 나눈다. 새 전략을 붙이는 자리(docs/ENGINE_ARCHITECTURE.md '전략 추가하기')  
    `Quant/src/strategy/StrategyFactory.cpp:500` · `void load_strategies(StrategyLoadCtx& context, const json& strategies)`
-15. [`strategy_load::load_deviation_scale`](../Quant/src/strategy/DevScaleLoader.cpp#L747) — DEVIATION_SCALE 로더 — 보유 스냅숏 → 시세판 기동 → 초기 스캔 → 종목마다 전략 등록 → 재스캔 job 등록  
-   `Quant/src/strategy/DevScaleLoader.cpp:747` · `void load_deviation_scale(LoadPass& context, const json& node)`
-16. [`start_scan_services`](../Quant/src/strategy/DevScaleLoader.cpp#L480) — `market_board:true`면 MarketBoard 스레드와 DailyWarm 스레드를 띄운다. false면 두 스레드 없이 KIS 랭킹 축과 전날 `universe_scan.json`만 쓴다  
-   `Quant/src/strategy/DevScaleLoader.cpp:480` · `void start_scan_services(const LoadPass& context, const json& node, const universe::DevScanCfg& scan_config)`
-17. [`universe::MarketBoard::run`](../Quant/src/universe/MarketBoard.cpp#L375) — KST 날짜가 바뀌면 목록을 새로 받고, 5초마다 시세 한 바퀴, 60초마다 재랭킹  
-   `Quant/src/universe/MarketBoard.cpp:375` · `void MarketBoard::run()` · 시험 [test_market_board](../Quant/tests/test_market_board.cpp)
-18. [`universe::MarketBoard::refresh_listing`](../Quant/src/universe/MarketBoard.cpp#L421) — 네이버 `marketValue/{KOSPI,KOSDAQ}`로 전 종목 목록(ETF·ETN 제외). 900종목씩 묶은 폴링 URL을 만든다. data.go.kr 목록을 대신한 자리  
-   `Quant/src/universe/MarketBoard.cpp:421` · `bool MarketBoard::refresh_listing()` · 시험 [test_market_board](../Quant/tests/test_market_board.cpp)
-19. [`universe::MarketBoard::sweep`](../Quant/src/universe/MarketBoard.cpp#L484) — 폴링 URL을 동시에 불러 현재가·누적 거래대금·시총 판(`BoardSnapshot`)을 만든다  
-   `Quant/src/universe/MarketBoard.cpp:484` · `bool MarketBoard::sweep()` · 시험 [test_market_board](../Quant/tests/test_market_board.cpp)
-20. [`universe::MarketBoard::rerank`](../Quant/src/universe/MarketBoard.cpp#L540) — 거래대금이 잡힌 종목이 절반 미만이면 보류, 아니면 `rank_universe`(시장별 시총·거래대금 상위 N)로 순위를 매기고 `Quant/config/universe_scan.json`에도 쓴다  
-   `Quant/src/universe/MarketBoard.cpp:540` · `void MarketBoard::rerank()` · 시험 [test_market_board](../Quant/tests/test_market_board.cpp)
-21. [`start_daily_warm`](../Quant/src/universe/UniverseFeatures.cpp#L660) — 장 전에 시세판 목록을 기다렸다가 전 종목 일봉을 KIS에서 미리 받아 캐시에 둔다  
-   `Quant/src/universe/UniverseFeatures.cpp:660` · `void start_daily_warm(const KisConfig& kis_config, const DevScanCfg& config)`
+15. [`strategy_load::load_deviation_scale`](../Quant/src/strategy/DevScaleLoader.cpp#L737) — DEVIATION_SCALE 로더 — 보유 스냅숏 → 시세판 기동 → 초기 스캔 → 종목마다 전략 등록 → 재스캔 job 등록  
+   `Quant/src/strategy/DevScaleLoader.cpp:737` · `void load_deviation_scale(LoadPass& context, const json& node)`
+16. [`start_scan_services`](../Quant/src/strategy/DevScaleLoader.cpp#L468) — `market_board:true`면 MarketBoard 스레드와 DailyWarm 스레드를 띄운다. false면 두 스레드 없이 KIS 랭킹 축과 전날 `universe_scan.json`만 쓴다  
+   `Quant/src/strategy/DevScaleLoader.cpp:468` · `void start_scan_services(const LoadPass& context, const json& node, const universe::DevScanCfg& scan_config)`
+17. [`universe::MarketBoard::run`](../Quant/src/universe/MarketBoard.cpp#L385) — KST 날짜가 바뀌면 목록을 새로 받고, 5초마다 시세 한 바퀴, 60초마다 재랭킹  
+   `Quant/src/universe/MarketBoard.cpp:385` · `void MarketBoard::run()` · 시험 [test_market_board](../Quant/tests/test_market_board.cpp)
+18. [`universe::MarketBoard::refresh_listing`](../Quant/src/universe/MarketBoard.cpp#L431) — 네이버 `marketValue/{KOSPI,KOSDAQ}`로 전 종목 목록(ETF·ETN 제외). 900종목씩 묶은 폴링 URL을 만든다. data.go.kr 목록을 대신한 자리  
+   `Quant/src/universe/MarketBoard.cpp:431` · `bool MarketBoard::refresh_listing()` · 시험 [test_market_board](../Quant/tests/test_market_board.cpp)
+19. [`universe::MarketBoard::sweep`](../Quant/src/universe/MarketBoard.cpp#L494) — 폴링 URL을 동시에 불러 현재가·누적 거래대금·시총 판(`BoardSnapshot`)을 만든다  
+   `Quant/src/universe/MarketBoard.cpp:494` · `bool MarketBoard::sweep()` · 시험 [test_market_board](../Quant/tests/test_market_board.cpp)
+20. [`universe::MarketBoard::rerank`](../Quant/src/universe/MarketBoard.cpp#L555) — 거래대금이 잡힌 종목이 절반 미만이면 보류, 아니면 `rank_universe`(시장별 시총·거래대금 상위 N)로 순위를 매기고 `Quant/config/universe_scan.json`에도 쓴다  
+   `Quant/src/universe/MarketBoard.cpp:555` · `void MarketBoard::rerank()` · 시험 [test_market_board](../Quant/tests/test_market_board.cpp)
+21. [`start_daily_warm`](../Quant/src/universe/UniverseFeatures.cpp#L674) — 장 전에 시세판 목록을 기다렸다가 전 종목 일봉을 KIS에서 미리 받아 캐시에 둔다  
+   `Quant/src/universe/UniverseFeatures.cpp:674` · `void start_daily_warm(const KisConfig& kis_config, const DevScanCfg& config)`
 22. [`universe::scan_devscale`](../Quant/src/universe/UniverseScanner.cpp#L40) — 스캔 본체 — 시세 표 → 지수 게이트 → 후보 수집 → 일봉 필터 → 점수 → 자르기. 아래 걸음이 이 함수 안의 순서다  
    `Quant/src/universe/UniverseScanner.cpp:40` · `ScanResult scan_devscale(KisClient& kis, const DevScanCfg& config, symbol::SymbolTable& symbols, …`
-23. [`load_quote_table (시세판)`](../Quant/src/universe/UniverseQuotes.cpp#L59) — MarketBoard 판을 시세 표(`QuoteTable`)로 붓는다. 판이 없으면 바로 위 오버로드가 파일판을 읽는다  
-   `Quant/src/universe/UniverseQuotes.cpp:59` · `void load_quote_table(const BoardSnapshot& board, QuoteTable& quotes, symbol::SymbolTable& symbols)`
+23. [`load_quote_table (시세판)`](../Quant/src/universe/UniverseQuotes.cpp#L60) — MarketBoard 판을 시세 표(`QuoteTable`)로 붓는다. 판이 없으면 바로 위 오버로드가 파일판을 읽는다  
+   `Quant/src/universe/UniverseQuotes.cpp:60` · `void load_quote_table(const BoardSnapshot& board, QuoteTable& quotes, symbol::SymbolTable& symbols)`
 24. [`build_market_gate`](../Quant/src/universe/UniverseRiskGate.cpp#L124) — KIS 지수 등락으로 시장별 risk-off. 둘 다 닫히면 빈 결과  
    `Quant/src/universe/UniverseRiskGate.cpp:124` · `MarketGate build_market_gate(KisClient& kis, const DevScanCfg& config)`
-25. [`detail::collect_candidates`](../Quant/src/universe/UniverseCandidates.cpp#L578) — 후보 축 — 시세판 순위 → 거래대금 상위(REST 없음) → KIS 랭킹 → 업종 → 전 종목(`full_market`)  
-   `Quant/src/universe/UniverseCandidates.cpp:578` · `void collect_candidates(KisClient& kis, const DevScanCfg& config, const std::string& date_yyyymmdd, …`
-26. [`lookup_and_filter`](../Quant/src/universe/UniverseFeatures.cpp#L526) — 캐시에 없는 일봉만 KIS에서 받고, 오늘 현재가를 넣은 정배열(`MaAlign`)·과확장·거래대금 필터  
-   `Quant/src/universe/UniverseFeatures.cpp:526` · `std::vector<Features> lookup_and_filter(KisClient& kis, const DevScanCfg& config, const std::string& date_yyyymmdd, …`
+25. [`detail::collect_candidates`](../Quant/src/universe/UniverseCandidates.cpp#L552) — 후보 축 — 시세판 순위 → 거래대금 상위(REST 없음) → KIS 랭킹 → 업종 → 전 종목(`full_market`)  
+   `Quant/src/universe/UniverseCandidates.cpp:552` · `void collect_candidates(const DevScanCfg& config, const std::string& date_yyyymmdd, const QuoteTable& quotes, …`
+26. [`lookup_and_filter`](../Quant/src/universe/UniverseFeatures.cpp#L540) — 캐시에 없는 일봉만 KIS에서 받고, 오늘 현재가를 넣은 정배열(`MaAlign`)·과확장·거래대금 필터  
+   `Quant/src/universe/UniverseFeatures.cpp:540` · `std::vector<Features> lookup_and_filter(KisClient& kis, const DevScanCfg& config, const std::string& date_yyyymmdd, …`
 27. [`detail::score_cross_section`](../Quant/src/universe/UniverseScoring.cpp#L28) — 추세·눌림·유동성·변동성 z점수 가중합  
    `Quant/src/universe/UniverseScoring.cpp:28` · `void score_cross_section(const DevScanCfg& config, std::vector<Features>& passed)` · 시험 [test_universe_scoring](../Quant/tests/test_universe_scoring.cpp)
 28. [`detail::rank_and_truncate`](../Quant/src/universe/UniverseScoring.cpp#L130) — 점수 순으로 `score_top_n`·`max_register`만큼 잘라 최종 유니버스(`ScanResult`)  
@@ -182,8 +182,8 @@ flowchart LR
    `Quant/src/ipc/DbManager.cpp:483` · `void DbManager::on_trade(const TradeData& trade) noexcept` · 시험 [test_db_manager](../Quant/tests/test_db_manager.cpp)
 46. [`tick_loop`](../Quant/src/ipc/DbManager.cpp#L700) — 적재 워커 — `batch_rows`가 차거나 `flush_ms`가 지나면 묶어서 `COPY ticks(ts,ticker,price,volume,direction,market)`. 끊기면 한 워커만 다시 붙어 본다  
    `Quant/src/ipc/DbManager.cpp:700` · `void tick_loop(DbManager::State& state, TickWorker& worker, unsigned index)` · 시험 [test_db_manager](../Quant/tests/test_db_manager.cpp)
-47. [`Engine::data_thread_fn`](../Quant/src/core/EngineDataThread.cpp#L27) — REST 축 — 봉 폴링·[전략] `poll_regime_file`·`maybe_rescan_universe`·잔고 대조·하루 경계(`new_trading_day`·`reset_daily`). 폴러 대체 틱은 시세 채널의 마지막 줄로 간다  
-   `Quant/src/core/EngineDataThread.cpp:27` · `void Engine::data_thread_fn(std::stop_token stop_token)`
+47. [`Engine::data_thread_fn`](../Quant/src/core/EngineDataThread.cpp#L29) — REST 축 — 봉 폴링·[전략] `poll_regime_file`·`maybe_rescan_universe`·잔고 대조·하루 경계(`new_trading_day`·`reset_daily`). 폴러 대체 틱은 시세 채널의 마지막 줄로 간다  
+   `Quant/src/core/EngineDataThread.cpp:29` · `void Engine::data_thread_fn(std::stop_token stop_token)`
 48. [`DataPoller::poll_universe`](../Quant/src/core/DataPoller.cpp#L100) — REST 현재가 → 대체 `TradeData`(`received_ns`=0). 구독 상한 넘침·틱 끊긴 보유 보충(`top_up`)도 이 클래스  
    `Quant/src/core/DataPoller.cpp:100` · `int DataPoller::poll_universe(const std::vector<WatchSpec>& specifications, std::time_t now_utc)` · 시험 [test_data_poller](../Quant/tests/test_data_poller.cpp)
 49. [`feed::TickCapture::on_trade`](../Quant/include/core/TickCapture.h#L164) — raw 틱 append-only 캡처(원칙 8). 리플레이(`ReplaySource`)의 입력  
@@ -349,10 +349,10 @@ flowchart LR
    `Quant/src/regime/RegimeFeed.cpp:1050` · `void RegimeFeed::run()` · 시험 [test_regime_feed](../Quant/tests/test_regime_feed.cpp)
 99. [`OrderGate::set_manual_halt`](../Quant/include/risk/OrderGate.h#L217) — 운영단말 HALT_REQ의 수동 정지 — 신규 매수·전략 매도를 따로 끈다. 국면의 `entry_halt_`와는 다른 플래그고 `is_entry_halted`에서만 OR로 합친다(D-091)  
    `Quant/include/risk/OrderGate.h:217` · `void set_manual_halt(OrderSide side, bool on);` · 시험 [test_order_gate](../Quant/tests/test_order_gate.cpp)
-100. [`Engine::maybe_rescan_universe`](../Quant/src/core/EngineUniverse.cpp#L79) — [전략] 유니버스 재스캔 — 빠진 보유 종목은 40초에 신규매수 차단, 600초에 전략 해제(`UniverseExit.h`, D-077). 청산 관리 보유(`exit_managed_tickers`)는 스캔 신규매수에서 뺀다  
-   `Quant/src/core/EngineUniverse.cpp:79` · `void Engine::maybe_rescan_universe()` · 시험 [test_universe_rescan](../Quant/tests/test_universe_rescan.cpp)
-101. [`UniverseRescan::run_job`](../Quant/src/core/UniverseRescan.cpp#L155) — job 주기가 되면 1절의 스캔을 다시 돌려 신규 등록·점수 교체·이탈 차단/해제를 판정한다  
-   `Quant/src/core/UniverseRescan.cpp:155` · `bool UniverseRescan::run_job(Job& job, KisClient& scan_client, const ipc::LedgerSnapshot& snapshot, …` · 시험 [test_universe_rescan](../Quant/tests/test_universe_rescan.cpp)
+100. [`Engine::maybe_rescan_universe`](../Quant/src/core/EngineUniverse.cpp#L80) — [전략] 유니버스 재스캔 — 빠진 보유 종목은 40초에 신규매수 차단, 600초에 전략 해제(`UniverseExit.h`, D-077). 청산 관리 보유(`exit_managed_tickers`)는 스캔 신규매수에서 뺀다  
+   `Quant/src/core/EngineUniverse.cpp:80` · `void Engine::maybe_rescan_universe()` · 시험 [test_universe_rescan](../Quant/tests/test_universe_rescan.cpp)
+101. [`UniverseRescan::run_job`](../Quant/src/core/UniverseRescan.cpp#L171) — job 주기가 되면 1절의 스캔을 다시 돌려 신규 등록·점수 교체·이탈 차단/해제를 판정한다  
+   `Quant/src/core/UniverseRescan.cpp:171` · `bool UniverseRescan::run_job(Job& job, KisClient& scan_client, const ipc::LedgerSnapshot& snapshot, …` · 시험 [test_universe_rescan](../Quant/tests/test_universe_rescan.cpp)
 102. [`LedgerReconciler::reconcile`](../Quant/src/core/LedgerReconciler.cpp#L315) — [주문] 브로커 잔고 ↔ 원장. 어긋난 종목만 `RECONCILE` 행(`ReconcilePlan.h` 순수 함수). 잔고조회 서킷브레이커  
    `Quant/src/core/LedgerReconciler.cpp:315` · `void LedgerReconciler::reconcile(bool resync_positions, std::time_t now_utc)` · 시험 [test_ledger_reconciler](../Quant/tests/test_ledger_reconciler.cpp)
 

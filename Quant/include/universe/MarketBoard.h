@@ -10,10 +10,13 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <ctime>
 #include <memory>
 #include <mutex>
+#include <stop_token>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -39,6 +42,7 @@ struct BoardQuote
     double      volume       = 0.0; // 주, 누적 거래량
     double      value        = 0.0; // 원, 누적 거래대금
     double      market_value = 0.0; // 원, 시가총액
+    double      change_percent = 0.0; // %, 전일 종가 대비 등락률
 };
 
 struct BoardSnapshot
@@ -115,6 +119,15 @@ public:
     // 아직 한 번도 못 뽑았으면 nullptr.
     std::shared_ptr<const RankedUniverse> ranked() const;
 
+    // 받은 판 번호. 새 판을 낼 때마다 1씩 오른다(아직 한 판도 없으면 0). 재스캔이 "새 판이 왔나"를 이것으로 가른다 [why D-153].
+    std::uint64_t generation() const
+    {
+        return generation_.load(std::memory_order_acquire);
+    }
+
+    // 판 번호가 seen에서 바뀔 때까지 기다린다. 바뀌었으면 true, 시간이 다 됐거나 정지 요청이면 false.
+    bool wait_new_board(std::uint64_t seen, std::chrono::milliseconds timeout, std::stop_token stop_token) const;
+
     // 오늘 받은 종목 목록. 아직 못 받았으면 nullptr. 장 전 일봉 캐시 데우기가 대상 종목을 여기서 고른다.
     std::shared_ptr<const std::vector<ListedStock>> listing() const;
 
@@ -136,6 +149,8 @@ private:
     std::shared_ptr<const BoardSnapshot>            snapshot_;
     std::shared_ptr<const RankedUniverse>           ranked_;
     std::shared_ptr<const std::vector<ListedStock>> published_listing_;
+    std::atomic<std::uint64_t>                      generation_{0};
+    mutable std::condition_variable_any             board_arrived_; // 새 판을 낼 때 깨운다(mutex_와 짝)
 };
 
 } // namespace universe

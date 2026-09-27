@@ -11,6 +11,7 @@
 
 #include "core/Engine.h"
 #include "core/KstTime.h"
+#include "universe/MarketBoard.h"
 #include "utils/Logger.h"
 #include <algorithm>
 #include <chrono>
@@ -102,7 +103,8 @@ void Engine::maybe_rescan_universe()
         return;
     }
 
-    if (universe_rescan_.run(*scan_kis, *ledger_snapshot_, std::chrono::steady_clock::now()))
+    if (universe_rescan_.run(*scan_kis, *ledger_snapshot_, std::chrono::steady_clock::now(),
+                             universe::MarketBoard::instance().generation()))
     {
         publish_watch_priorities();
     }

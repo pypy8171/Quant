@@ -96,6 +96,22 @@ int UniverseRescan::shortest_interval_sec(int ceiling) const
     return shortest;
 }
 
+bool UniverseRescan::oldest_board_seen(std::uint64_t& seen) const
+{
+    bool found = false;
+
+    for (const auto& job : jobs_)
+    {
+        if (job.follow_board && (!found || job.board_seen < seen))
+        {
+            seen  = job.board_seen;
+            found = true;
+        }
+    }
+
+    return found;
+}
+
 std::vector<int32_t> UniverseRescan::scan_rank(size_t extent) const
 {
     std::vector<int32_t> rank_of(extent, -1);
@@ -140,31 +156,36 @@ void UniverseRescan::retire_owned(Job& job, symbol::SymbolId symbol,
 }
 
 bool UniverseRescan::run(KisClient& scan_client, const ipc::LedgerSnapshot& snapshot,
-                         std::chrono::steady_clock::time_point now)
+                         std::chrono::steady_clock::time_point now, std::uint64_t board_generation)
 {
     bool ran_any = false;
 
     for (auto& job : jobs_)
     {
-        ran_any = run_job(job, scan_client, snapshot, now) || ran_any;
+        ran_any = run_job(job, scan_client, snapshot, now, board_generation) || ran_any;
     }
 
     return ran_any;
 }
 
 bool UniverseRescan::run_job(Job& job, KisClient& scan_client, const ipc::LedgerSnapshot& snapshot,
-                             std::chrono::steady_clock::time_point now)
+                             std::chrono::steady_clock::time_point now, std::uint64_t board_generation)
 {
     if (job.interval_sec <= 0 || !job.universe_fn || !job.factory)
     {
         return false;
     }
 
-    if (job.last_run.time_since_epoch().count() != 0 &&
-        now - job.last_run < std::chrono::seconds(job.interval_sec))
+    const bool interval_due = job.last_run.time_since_epoch().count() == 0 ||
+                              now - job.last_run >= std::chrono::seconds(job.interval_sec);
+    const bool board_due = job.follow_board && board_generation != job.board_seen;
+
+    if (!interval_due && !board_due)
     {
         return false;
     }
+
+    job.board_seen = board_generation;
 
     // 첫 부재 스캔의 시계 원점 — 직전 스캔(마지막으로 보인 때)이다. 첫 실행이면 지금.
     const auto previous_run = job.last_run.time_since_epoch().count() != 0 ? job.last_run : now;

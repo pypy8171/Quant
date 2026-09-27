@@ -34,8 +34,8 @@ std::string local_ymd()
 }
 } // namespace
 
-// DeviationScale 유니버스 선정. 단계는 넷이고 비용이 다르다 — 후보 합집합 수집만 KIS REST를
-//  쓰고(D-028로 주기 분리), 정배열·이격·점수 재판정은 일봉 캐시와 시세 표만 본다.
+// DeviationScale 유니버스 선정. 단계는 넷이다 — 후보 수집과 점수는 시세판 표·일봉 캐시만 보고(D-153),
+//  KIS REST는 지수 게이트와 캐시에 없는 종목의 일봉 조회뿐이다.
 //  스캔 스레드에서만 부른다. 실패는 예외 대신 빈 목록으로 돌려준다.
 ScanResult scan_devscale(KisClient& kis, const DevScanCfg& config, symbol::SymbolTable& symbols,
                          QuoteTable& quotes)
@@ -48,7 +48,7 @@ ScanResult scan_devscale(KisClient& kis, const DevScanCfg& config, symbol::Symbo
         return std::chrono::duration_cast<std::chrono::milliseconds>(scan_clock::now() - from).count();
     };
 
-    const std::string date_yyyymmdd = local_ymd();   // 일봉 캐시·후보 집합 캐시의 거래일 키
+    const std::string date_yyyymmdd = local_ymd();   // 일봉 캐시의 거래일 키
     g_lookup_cache.load_today(date_yyyymmdd, symbols); // 장중 재기동 시 일봉 재조회를 막는다
 
     // 장 전 데우기 스레드가 받아 둔 일봉을 옮긴다. 옮긴 게 있으면 파일에도 남겨 재기동 때 다시 받지 않는다.
@@ -66,7 +66,7 @@ ScanResult scan_devscale(KisClient& kis, const DevScanCfg& config, symbol::Symbo
     }
     else
     {
-        clear_quote_table(quotes, symbols);   // 시세판 꺼짐, 또는 첫 판 받기 전 — 랭킹 축 가격만 쓴다
+        clear_quote_table(quotes, symbols);   // 시세판 꺼짐, 또는 첫 판 받기 전 — 유니버스 파일 축만 남는다
     }
 
     const MarketGate gate = build_market_gate(kis, config);
@@ -83,8 +83,8 @@ ScanResult scan_devscale(KisClient& kis, const DevScanCfg& config, symbol::Symbo
 
     CandidateSet candidates(symbols.capacity());
     const auto   collect_start = scan_clock::now();
-    collect_candidates(kis, config, date_yyyymmdd, quotes, candidates, symbols);
-    const long long collect_ms = ms_since(collect_start);   // KIS 랭킹 REST + 파일 union
+    collect_candidates(config, date_yyyymmdd, quotes, candidates, symbols);
+    const long long collect_ms = ms_since(collect_start);   // 시세 표·일봉 캐시만 본다(REST 없음)
 
     if (!config.require_aligned)
     {
