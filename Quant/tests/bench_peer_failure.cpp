@@ -244,6 +244,12 @@ int run_child(const std::string& mode, const std::string& mapping_name)
     if (mode == "crash")
     {
         // 정리 없이 죽는다 — 전략 코드의 미처리 예외·접근위반과 같은 자리.
+#ifdef _WIN32
+        // Debug CRT 는 abort 에서 대화상자를 띄우고 누를 때까지 프로세스를 살려 둔다 — 그러면 OS 종료 알림이
+        //  측정 창 안에 안 와 "못 잡음"으로 찍힌다. 대화상자만 끈다. 오류 보고(WER)는 운영에서도 거치는 길이라
+        //  남긴다(_CALL_REPORTFAULT).
+        _set_abort_behavior(0, _WRITE_ABORT_MSG);
+#endif
         std::abort();
     }
 
@@ -530,6 +536,11 @@ void measure_durable_append()
 
 int main(int argc, char** argv)
 {
+#ifdef _WIN32
+    // 한글을 UTF-8 로 찍는다 — 콘솔 기본 코드페이지(949)로 두면 표 머리가 깨진다.
+    SetConsoleOutputCP(CP_UTF8);
+#endif
+
     if (argc >= 4 && std::string(argv[1]) == "--child")
     {
         return run_child(argv[2], argv[3]);
