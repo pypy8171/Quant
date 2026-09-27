@@ -275,7 +275,7 @@ flowchart LR
    `Quant/src/core/OrderRateLimiter.cpp:90` · `OrderRateLimiter::Clock::duration OrderRateLimiter::wait_before_send(Clock::time_point now) const` · 시험 [test_order_rate_limiter](../Quant/tests/test_order_rate_limiter.cpp)
 74. [`order_rate::OrderRateLimiter::on_rejected`](../Quant/src/core/OrderRateLimiter.cpp#L96) — 거부 → 재시도 여부·다음 시각. 유량 한도 문장은 `GateReasons.h`와 맞춰 본다  
    `Quant/src/core/OrderRateLimiter.cpp:96` · `bool OrderRateLimiter::on_rejected(Pending pending, OrderStatus status, const std::string& reject_reason, …` · 시험 [test_order_rate_limiter](../Quant/tests/test_order_rate_limiter.cpp)
-75. [`OrderRouter::submit`](../Quant/src/ipc/OrderRouterSubmit.cpp#L135) — `action`으로 분기만 — NEW는 `new_route`, CANCEL·REPLACE는 `cancel_route`·`replace_route`  
+75. [`OrderRouter::submit`](../Quant/src/ipc/OrderRouterSubmit.cpp#L135) — `action`으로 분기만 — NEW는 `new_route`, CANCEL·REPLACE는 `modify_route`  
    `Quant/src/ipc/OrderRouterSubmit.cpp:135` · `ManagedOrder OrderRouter::submit(const OrderSignal& signal)` · 시험 [test_order_router](../Quant/tests/test_order_router.cpp)
 76. [`OrderRouter::new_route`](../Quant/src/ipc/OrderRouterSubmit.cpp#L148) — `clamp_buy_quantity` → 매도가능수량 0이면 `reconcile_blocked_sell` → 시장가 매도 중복 가드(`history_`) → `gate_.check` → `take_intent`(원장 INTENT 선기록·선점, 실패면 전송 안 함) → `kis_.submit_order_acknowledgement`(ODNO) → `gate_.on_accepted` → `record`·`write_trade_row`(`seq` 동반). 실패 경로마다 무엇이 되돌려지는지  
    `Quant/src/ipc/OrderRouterSubmit.cpp:148` · `ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)` · 시험 [test_order_router](../Quant/tests/test_order_router.cpp)

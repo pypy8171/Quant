@@ -404,12 +404,14 @@ void Engine::order_thread_fn(std::stop_token stop_token)
         previous_loop_end_ns     = previous_after_answer_ns;
     };
 
-    // 신규 주문의 KIS 왕복을 맡는 스레드. 직접 보내면 한 건의 왕복(09-14~18 p50 약 1.5초)마다 뒤 주문이 전부
+    // 신규·취소·정정의 KIS 왕복을 맡는 스레드. 직접 보내면 한 건의 왕복(09-14~18 p50 약 1.5초)마다 뒤 주문이 전부
     //  멈춘다. 이 스레드는 판정·선점·원장까지 하고 보내기를 넘긴 뒤 다음 주문으로 간다. 0이면 예전처럼 직접
-    //  보낸다. 취소·정정은 아직 직접 보낸다. [why D-151]
+    //  보낸다. [why D-151]
+    using TransportSend = std::variant<OrderRouter::NewOrderSend, OrderRouter::ModifyOrderSend>;
+
     struct TransportJob
     {
-        OrderRouter::NewOrderSend send;
+        TransportSend             send;
         OrderRateLimiter::Pending pending;
         int64_t                   pop_ns        = 0;
         int64_t                   send_ready_ns = 0;
@@ -422,7 +424,14 @@ void Engine::order_thread_fn(std::stop_token stop_token)
         transport.emplace(static_cast<std::size_t>(order_transport_threads_),
                           [this](TransportJob& job)
                           {
-                              order_router_->send_new(job.send);
+                              if (auto* send = std::get_if<OrderRouter::NewOrderSend>(&job.send))
+                              {
+                                  order_router_->send_new(*send);
+                              }
+                              else
+                              {
+                                  order_router_->send_modify(std::get<OrderRouter::ModifyOrderSend>(job.send));
+                              }
                           },
                           pipeline_.order_wake);
         LOG_INFO("[OrderThread] 전송 스레드 " + std::to_string(order_transport_threads_) + "개");
@@ -477,7 +486,10 @@ void Engine::order_thread_fn(std::stop_token stop_token)
 
             try
             {
-                const ManagedOrder managed_order = order_router_->close_new(std::move(job->send));
+                auto*              send          = std::get_if<OrderRouter::NewOrderSend>(&job->send);
+                const ManagedOrder managed_order =
+                    send ? order_router_->close_new(std::move(*send))
+                         : order_router_->close_modify(std::move(std::get<OrderRouter::ModifyOrderSend>(job->send)));
                 settle(std::move(job->pending), managed_order, true, job->pop_ns, job->send_ready_ns);
             }
             catch (const std::exception& exception)
@@ -486,6 +498,31 @@ void Engine::order_thread_fn(std::stop_token stop_token)
                 answer(request_sequence, ipc::OrderResult::kFailed, 0, exception.what());
             }
         }
+    };
+
+    // 전송 스레드로 넘길 것을 연다. 보낼 것이 없으면(로컬 거부·취소 대상 없음) 끝난 주문을 돌려준다.
+    const auto open_for_transport = [this](const OrderSignal& signal) -> std::variant<ManagedOrder, TransportSend>
+    {
+        if (signal.action == OrderAction::NEW)
+        {
+            auto opened = order_router_->open_new(signal);
+
+            if (auto* send = std::get_if<OrderRouter::NewOrderSend>(&opened))
+            {
+                return TransportSend{std::move(*send)};
+            }
+
+            return std::move(std::get<ManagedOrder>(opened));
+        }
+
+        auto opened = order_router_->open_modify(signal);
+
+        if (auto* send = std::get_if<OrderRouter::ModifyOrderSend>(&opened))
+        {
+            return TransportSend{std::move(*send)};
+        }
+
+        return std::move(std::get<ManagedOrder>(opened));
     };
 
     // 답이 하나 올 때까지(또는 until까지) 자고, 온 것을 닫는다.
@@ -708,11 +745,11 @@ void Engine::order_thread_fn(std::stop_token stop_token)
             // 간격은 KIS를 실제로 부른 뒤에만 센다. 로컬 거부(게이트·ENTRY_HALT)는 한도와 무관하다.
             const uint64_t calls_before = order_router_->kis_calls();
 
-            if (transport && next->signal.action == OrderAction::NEW)
+            if (transport)
             {
-                auto opened = order_router_->open_new(next->signal);
+                auto opened = open_for_transport(next->signal);
 
-                if (auto* send = std::get_if<OrderRouter::NewOrderSend>(&opened))
+                if (auto* send = std::get_if<TransportSend>(&opened))
                 {
                     // 간격은 보낸 시각부터 센다 — 답을 기다리지 않고 다음 주문이 간격만큼 뒤에 나간다.
                     rate_limiter.note_sent(steady_clock::now());

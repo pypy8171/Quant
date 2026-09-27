@@ -4,13 +4,17 @@
 
 namespace feed
 {
-OrderAck PaperExecutor::submit_order_acknowledgement(const OrderSignal& signal)
+void PaperExecutor::wait_acknowledgement() const
 {
     if (acknowledgement_delay_)
     {
         std::this_thread::sleep_for(acknowledgement_delay_());
     }
+}
 
+OrderAck PaperExecutor::submit_order_acknowledgement(const OrderSignal& signal)
+{
+    wait_acknowledgement();
     std::lock_guard<std::mutex> lock(mutex_);
 
     if (signal.quantity <= 0 || signal.side == OrderSide::NONE)
@@ -52,6 +56,7 @@ OrderAck PaperExecutor::submit_order_acknowledgement(const OrderSignal& signal)
 OrderAck PaperExecutor::cancel_order(const std::string& ticker, const std::string& orig_odno, const std::string&,
                                      int quantity, bool all_remaining)
 {
+    wait_acknowledgement();
     std::lock_guard<std::mutex> lock(mutex_);
     const symbol::SymbolId symbol_id = symbols_.lookup(ticker);
     Pending* pending = find_locked(symbol_id, orig_odno);
@@ -76,6 +81,7 @@ OrderAck PaperExecutor::cancel_order(const std::string& ticker, const std::strin
 OrderAck PaperExecutor::revise_order(const std::string& ticker, const std::string& orig_odno, const std::string&,
                                      int new_quantity, double new_price)
 {
+    wait_acknowledgement();
     std::lock_guard<std::mutex> lock(mutex_);
     Pending* pending = find_locked(symbols_.lookup(ticker), orig_odno);
 

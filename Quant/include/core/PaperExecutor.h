@@ -49,7 +49,7 @@ public:
         on_fill_ = std::move(callback);
     }
 
-    // 접수 답을 이만큼 늦춘다 — 증권사 왕복을 흉내 내는 벤치용(bench_order_burst). 잠금 밖에서 자므로 여러 전송
+    // 접수·취소·정정 답을 이만큼 늦춘다 — 증권사 왕복을 흉내 내는 벤치용(bench_order_burst). 잠금 밖에서 자므로 여러 전송
     //  스레드가 겹쳐 기다린다. 함수는 여러 스레드가 동시에 부른다. [inv] 첫 주문 전에만 부른다. [why D-151]
     using AcknowledgementDelay = std::function<std::chrono::milliseconds()>;
     void set_acknowledgement_delay(AcknowledgementDelay delay)
@@ -101,6 +101,9 @@ public:
     }
 
 private:
+    // 지연이 걸려 있으면 그만큼 잔다. 잠금 밖에서 부른다.
+    void wait_acknowledgement() const;
+
     struct Pending
     {
         std::string kis_order_no;

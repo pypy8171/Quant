@@ -239,7 +239,7 @@ MACross의 `make_signal` (`MACrossStrategy.h::make_signal`)은 `type=MARKET`, `q
 
 `Engine::order_thread_fn()` (`EngineOrderThread.cpp::order_thread_fn`): `order_queue_.pop()` → `order_router_->submit(*opt)` → ACCEPTED면 `order_count_++`.
 
-`OrderRouter::submit()` (`OrderRouter.cpp::submit`)은 `sig.action`으로 라우팅: NEW→`new_route`, CANCEL→`cancel_route`, REPLACE→`replace_route`. 전 경로가 단일 order_thread에서만 실행돼 OrderGate의 단일소비자 전제를 보존 (`OrderRouter.cpp::submit`).
+`OrderRouter::submit()` (`OrderRouter.cpp::submit`)은 `sig.action`으로 라우팅: NEW→`new_route`, CANCEL·REPLACE→`modify_route`. 전 경로가 단일 order_thread에서만 실행돼 OrderGate의 단일소비자 전제를 보존 (`OrderRouter.cpp::submit`).
 
 **new_route** (`OrderRouter.cpp::new_route`):
 1. `ManagedOrder` 생성, `order_id="ORD-000001"` 형식(`next_id`, `OrderRouter.cpp::next_id`), status=PENDING, `total_count_++`.
@@ -276,7 +276,7 @@ MACross의 `make_signal` (`MACrossStrategy.h::make_signal`)은 `type=MARKET`, `q
 파티션 키는 `mo.signal.account_id` — 현재 단일 CANO 전제라 ODNO가 유일해 매핑이 정확. 진짜 다계좌 라우팅 시 (odno+account) 키 확장 필요(TODO 주석 `OrderRouter.cpp::on_fill`).
 
 ### 10.4 취소/정정 원장 정합 (MM-1)
-`cancel_route` (`OrderRouter.cpp::cancel_route`): orig_client_oid로 live 주문 스냅샷 → lock 밖에서 `kis_.cancel_order` → 성공 시 그 시점 `quantity - confirmed_qty`를 재계산해 `gate_.on_cancel`로 reserved 해제(이중해제 방지) + 원주문 CANCELLED 표기. `replace_route` (`OrderRouter.cpp::replace_route`): `kis_.revise_order` 성공 시 원 잔량 해제 후 new_qty 재선점, 정정본을 새 ManagedOrder(ACCEPTED)로 추적.
+취소·정정은 `modify_route`가 `open_modify`→`send_modify`→`close_modify` 세 토막으로 나눈다(D-151, 전송 스레드가 있으면 가운데 토막만 그쪽에서). 취소 (`OrderRouterSubmit.cpp::close_cancel`): orig_client_oid로 live 주문 스냅샷 → lock 밖에서 `kis_.cancel_order` → 성공 시 그 시점 `quantity - confirmed_qty`를 재계산해 `gate_.on_cancel`로 reserved 해제(이중해제 방지) + 원주문 CANCELLED 표기. 정정 (`OrderRouterSubmit.cpp::close_replace`): `kis_.revise_order` 성공 시 원 잔량 해제 후 new_qty 재선점, 정정본을 새 ManagedOrder(ACCEPTED)로 추적.
 
 ---
 
@@ -305,7 +305,7 @@ MACross의 `make_signal` (`MACrossStrategy.h::make_signal`)은 `type=MARKET`, `q
 | G3 | **WS 실시간 체결/호가가 전략에 미활용** | `MACrossStrategy.h::on_data`(on_trade/on_order_book 미구현), `StrategyBase.h::on_trade` | H0STCNT0 현재가가 들어와도 MACross는 무시. 실시간성 없음. 구독은 하되 소비 안 함. | 실시간 가격 기반 전략(예: 밴드/스탑) 도입 또는 MACross를 WS 가격으로 교차 판정하도록 확장. |
 | G5 | **포지션 원장이 실제 계좌잔고와 분리되어 시작** | `OrderGate.cpp::reset_daily`(positions_는 리셋하지 않는다), `OrderGate` 초기 상태 = 빈 맵 | 엔진 기동 시 `positions_`는 비어 있어, 실제 계좌에 보유분이 있어도 게이트는 0으로 인식 → 매도 가능수량 오판/평단 부정확. universe_from_balance는 전략 시드만 하고 게이트 원장은 시드 안 함(`StrategyFactory.cpp::load_moving_average_cross`). | 기동 시 `get_balance()`로 positions_/avg_prices_ 시드하는 원장 부트스트랩 추가. |
 | G6 | **US 체결 방향 필드 인덱스 추정** | `WebSocketClient.cpp::parse_us_trade`("방향 필드 위치 확인 후 조정" 주석) | 미국 체결 direction이 부정확할 수 있음(현재 US 전략 미사용이라 저위험). | 실측 로그로 인덱스 확정. |
-| G7 | **정정(REPLACE) 부분체결·조직번호 재캡처 미완** | `OrderRouter.cpp::replace_route`(TODO) | 부분체결 상태 정정은 수량 정합 미보장 → MM은 CANCEL+NEW만 사용. 정정 응답의 새 조직번호 미파싱(원 조직번호 승계). | 정정 응답 파싱 강화 + 부분체결 정정 로직(Phase 2). |
+| G7 | **정정(REPLACE) 부분체결·조직번호 재캡처 미완** | `OrderRouterSubmit.cpp::close_replace`(TODO) | 부분체결 상태 정정은 수량 정합 미보장 → MM은 CANCEL+NEW만 사용. 정정 응답의 새 조직번호 미파싱(원 조직번호 승계). | 정정 응답 파싱 강화 + 부분체결 정정 로직(Phase 2). |
 | G8 | **해외 정정/취소 미구현** | `KisOrder.cpp::cancel_order`(주석 "해외 정정/취소 별도 tr_id — 미구현 TODO") | US 주문 취소/정정 불가. | overseas order-rvsecncl tr_id/URL 추가. |
 | G9 | **Config.cpp / Logger.cpp placeholder** | (당시) `Quant/src/utils/Config.cpp`, `Quant/src/utils/Logger.cpp` | 설정 파서/로거가 헤더·main에 inline. 모듈 경계가 흐림(유지보수 시 혼란). | 해소: 설정 파싱은 `Quant/src/core/AppConfig.cpp::parse_config`, 엔진 배선은 `Quant/src/core/EngineConfigure.cpp::Engine::configure`로 옮겼고 `Config.cpp`는 삭제(d7ef5ac·27a6a70). |
 | G10 | **Logger 타임스탬프 로컬 TZ + flush 없음** | `Logger.h::format` | 주석은 "UTC"인데 localtime 사용. 파이프 캡처 시 블록버퍼링으로 실시간 미표시(§11). | flush 정책 명시(줄마다 `<< std::flush` 또는 파일 라인버퍼), TZ 주석 정정. |

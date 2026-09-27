@@ -1508,7 +1508,7 @@ x64-release` 11/11. 실행 중 `quant_trader`는 재빌드하지 않았다 — �
 2. 스레드·뮤텍스를 소유한 클래스(`Engine`·`KisWebSocket`·`OrderRouter`·`ZmqBridge`·`Logger`·`KisClient`·
    `RegimeController`·큐 3종)는 복사 생성·대입을 `= delete`한다. 큐 3종의 `push`/`pop`은 `[[nodiscard]]`이고
    `RingBuffer::push`는 `T`의 복사·이동이 던지지 않을 때만 `noexcept`다(`MarketData`는 `std::string`을 품어 조건부).
-   `OrderRouter::submit`·`cancel_route`·`replace_route`·`reconcile_blocked_sell`도 `[[nodiscard]]`다.
+   `OrderRouter::submit`·`modify_route`(옛 `cancel_route`·`replace_route`)·`reconcile_blocked_sell`도 `[[nodiscard]]`다.
 3. `kis_ws::detail::to_double/to_i64/to_int`는 `std::from_chars`로 바꾸고 문자열 전체를 소비했을 때만 성공한다.
    `"215000abc"`·`"1,000"`은 실패(`kBadNumber`), 앞의 `'+'`는 KIS 부호 표기라 허용한다. 부동소수 `from_chars`가
    없는 표준 라이브러리(GCC 10 이하)는 `strtod`로 대신하되 같은 규칙을 지킨다.
@@ -7291,7 +7291,10 @@ regime.json 하나를 번갈아 쓰면 어느 쪽 값인지 가릴 수 없어서
 - 순서 보장 단위는 종목이다(원칙 2). 답을 기다리는 종목의 다음 주문(신규·취소·정정·재시도)은 뒤에 세워 두었다가
   답이 오면 낸다. 기다리다 낡은 신규 매수는 큐에서 꺼낼 때와 같은 기준(D-127)으로 버린다.
 - 호출 간격(`order_min_interval_ms`)은 보낸 시각부터 센다. 전송 스레드가 다 차 있으면 하나가 답을 가져올 때까지 기다린다.
-- 수는 config `risk.order_transport_threads`(기본 4, 0이면 예전처럼 직접 보냄). 취소·정정은 아직 직접 보낸다.
+- 수는 config `risk.order_transport_threads`(기본 4, 0이면 예전처럼 직접 보냄).
+- 취소·정정도 같은 세 토막으로 가른다(2026-09-28): `open_modify`(원주문 사본, 정정은 새 수량 선점·INTENT) →
+  `send_modify`(KIS 취소·정정 호출만) → `close_modify`(원주문 닫기·선점 해제·정정본 추적). 정정은 새 ODNO를 받으므로
+  신규처럼 보내는 중인 수에 넣어, 그 틈에 온 체결을 붙든다. 취소는 INTENT를 적지 않아 종목 표시 없이 보낸다.
 
 **측정**(`Quant/tests/bench_order_burst.cpp`, 수동주문 41건을 한꺼번에 넣고 위 193건의 왕복을 차례로 흉내 냄):
 
@@ -7305,6 +7308,16 @@ regime.json 하나를 번갈아 쓰면 어느 쪽 값인지 가릴 수 없어서
 | 500ms | 4 | 11.3초 | 19.6초 | 25.4초 |
 
 4개부터는 호출 간격(41건×350ms ≈ 14초)이 바닥이라 더 늘려도 거의 같다. 그래서 기본을 4로 둔다.
+
+취소 몰림(`--cancels 1`, 위 매수 41건이 접수된 뒤 전략이 취소 41건을 한 번에 냄, 간격 350ms, 같은 왕복 값 이어서):
+
+| 전송 스레드 | 취소 답 p50 | 취소 답 p90 | 마지막 취소 답 |
+|---|---|---|---|
+| 0(예전, 취소를 주문 스레드가 직접) | 51.7초 | 90.7초 | 104.2초 |
+| 4 | 12.9초 | 22.1초 | 28.4초 |
+| 8 | 9.2초 | 14.8초 | 19.9초 |
+
+취소는 4개일 때 신규보다 늦다 — 취소가 받은 왕복 값(193건 중 42~82번째)은 평균 2.18초로 매수 구간(1~41번째) 1.07초의 두 배라 스레드 4개가 먼저 찬다. 8개면 간격 바닥에 닿는다.
 
 - 전송 스레드가 답을 받고 주문 스레드가 `close_new`로 ODNO를 적기까지 틈이 생긴다. 그 사이 온 체결통보는 연결할 주문이
   없어 미연결로 들어가면 전략 귀속을 잃고 그 주문의 선점이 안 풀린다. 그래서 보내는 중인 신규 주문이 있는 동안 연결 안 되는

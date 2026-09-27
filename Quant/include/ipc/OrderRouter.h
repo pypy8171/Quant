@@ -30,7 +30,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // OrderRouter  —  주문 전처리·중계(FEP, Front-End Processor) 역할의 주문 라우팅 레이어
 //
-//  흐름(신규 주문, submit → new_route. 취소·정정은 cancel_route·replace_route가 따로 맡는다):
+//  흐름(신규 주문, submit → new_route. 취소·정정은 modify_route가 따로 맡는다):
 //    OrderSignal
 //       │
 //       ▼
@@ -81,6 +81,18 @@ public:
     void send_new(NewOrderSend& send) const noexcept;
     // 응답으로 접수·거부를 확정하고 원장·이력에 적는다. [inv] 주문 스레드 전용.
     [[nodiscard]] ManagedOrder close_new(NewOrderSend&& send);
+
+    // ── 취소·정정도 같은 세 토막 — 원주문 사본 → KIS 취소/정정 → 원주문 닫기 ──────────
+    //  submit의 취소·정정 경로는 open_modify → send_modify → close_modify를 차례로 부른 것과 같다. 스레드 약속은
+    //  신규와 같다. [why D-151]
+    struct ModifyOrderSend;
+    // 원주문을 값으로 뜨고, 정정이면 새 수량의 INTENT까지 적는다. 대상이 없거나 못 적었으면 끝난 주문을 돌려준다.
+    //  [inv] 주문 스레드 전용.
+    [[nodiscard]] std::variant<ManagedOrder, ModifyOrderSend> open_modify(const OrderSignal& signal);
+    // KIS 취소·정정을 보내고 응답을 send에 담는다. 예외는 밖으로 내지 않고 send에 적는다.
+    void send_modify(ModifyOrderSend& send) const noexcept;
+    // 응답으로 접수·거부를 확정하고 원주문을 닫는다. [inv] 주문 스레드 전용.
+    [[nodiscard]] ManagedOrder close_modify(ModifyOrderSend&& send);
 
     // ── 체결통보 수신 — ODNO로 이력 조회 후 FILLED 상태 갱신 ────────────
     void on_fill(const FillNotification& fill_notification);
@@ -198,8 +210,7 @@ private:
 
     // ── MM-1: 주문 생명주기 라우팅 ────────────────────────────────────────
     ManagedOrder new_route(const OrderSignal& signal);     // 기존 신규 주문 경로
-    [[nodiscard]] ManagedOrder cancel_route(const OrderSignal& signal);  // action=CANCEL
-    [[nodiscard]] ManagedOrder replace_route(const OrderSignal& signal); // action=REPLACE(정정)
+    [[nodiscard]] ManagedOrder modify_route(const OrderSignal& signal);  // action=CANCEL·REPLACE(정정)
     // SELL이 40240000(주문가능분 없음)으로 막히면: 그 종목의 미체결 예약매도를 조회·취소하고
     //  시장가 매도를 1회 재시도한다(장중 자가 청산 정리). 성공 시 kis_order_no 채운 OrderAck,
     //  예약 없음/취소 실패 시 빈 acknowledgement. 이전 세션·수동 예약이 보유수량을 묶은 경우를 해소.
@@ -272,7 +283,7 @@ private:
     // 체결 한 건을 원장 CSV에 적는다. 평단을 모르는 매도면 경고를 먼저 남긴다. 락 밖에서 부른다.
     void emit_fill(const ManagedOrder& fill_order, const FillNotification& fill_notification, int quantity,
                    const PositionLedger::FillResult& result);
-    // KIS 취소(남은 수량 전부)를 보낸다. 예외는 부른 쪽이 잡는다. [inv] kis_calls_는 여기서만 올린다(취소 4곳).
+    // KIS 취소(남은 수량 전부)를 보낸다. 예외는 부른 쪽이 잡는다. [inv] 이 경로의 kis_calls_는 여기서만 올린다(취소 3곳).
     [[nodiscard]] OrderAck send_cancel(const std::string& ticker, const std::string& kis_order_no,
                                        const std::string& krx_forwarding_org_no, int quantity);
     // KIS 미체결을 조회해 open_orders에 담는다. 실패·예외면 경고를 남기고 거짓이며 open_orders는 건드리지 않는다.
@@ -300,6 +311,21 @@ private:
     //  다시 센다 — 전송 사이 체결 스레드가 올렸을 수 있어서다. 원주문이 이미 빠졌으면 release_if_gone만큼 푼다.
     //  [inv] history_mutex_를 쥐고 부른다. [lock-order] history_mutex_ → 원장 positions_mutex_(on_fill과 같다).
     void close_live_original_locked(const OrderSignal& signal, const OriginalOrder& original, int release_if_gone);
+    // 취소·정정 한 건이 세 토막을 지나며 들고 다니는 상태.
+    struct ModifyRoute
+    {
+        OrderSignal         signal;
+        ManagedOrder        managed_order;
+        OriginalOrder       original;
+        int                 new_quantity = 0;    // 정정 수량. 취소는 쓰지 않는다
+        OrderGate::OrderRef order_reference;      // 정정의 원장 레코드 이름표
+        OrderAck            acknowledgement;
+        bool                transport_failed = false; // 전송이 예외로 끝났다
+        std::string         transport_error;          // 그 예외 문구
+    };
+    // close_modify의 두 갈래 — 응답으로 거부·접수를 확정하고 원주문을 닫은 뒤 이력에 적는다.
+    void close_cancel(ModifyRoute& route);
+    void close_replace(ModifyRoute& route);
     // 원주문이 없을 때 그 이유를 가른다. 체결 흔적이 있으면 참을 돌려준다. [inv] history_mutex_를 쥐고 부른다. [why D-035]
     bool classify_missing_original_locked(uint64_t client_order_number, const char*& gone_why);
     // 취소할 원주문이 없을 때 CANCELLED로 닫는다. 체결 흔적이 있으면 그 종목 매수를 잠깐 잠근다. [why D-035]
@@ -412,6 +438,14 @@ public:
         std::unique_ptr<InFlightMark> in_flight;
     };
 
+    // open_modify가 연 취소·정정 하나. 정정만 종목 표시를 건다(새 수량의 INTENT를 적었으므로).
+    //  [inv] NewOrderSend와 같다 — 이 값이 살아 있는 동안 라우터도 살아 있어야 한다.
+    struct ModifyOrderSend
+    {
+        ModifyRoute                   route;
+        std::unique_ptr<InFlightMark> in_flight;
+    };
+
 private:
 
     std::mutex                    in_flight_mutex_;
@@ -465,7 +499,8 @@ private:
 
     // 붙든 체결 (history_mutex_로 보호). close_new가 비운다.
     std::vector<EarlyFill> early_fills_;
-    // open_new가 넘기고 close_new가 닫기 전인 신규 주문 수 (history_mutex_로 보호). 0보다 크면 연결 안 된 체결을 붙든다.
+    // open_new·open_modify(정정)가 넘기고 close_new·close_modify가 닫기 전인 주문 수 (history_mutex_로 보호).
+    //  둘 다 새 ODNO를 받는다. 0보다 크면 연결 안 된 체결을 붙든다.
     int sending_new_orders_ = 0;
     // ODNO 정수 → 이전 세션이 남긴 주문 사유 (history_mutex_로 보호). 파일에서 한 번 읽고,
     //  되살린 주문은 지운다(같은 ODNO를 두 번 되살리지 않게).
@@ -502,7 +537,7 @@ private:
     std::atomic<uint64_t> total_count_{0};
     std::atomic<uint64_t> accepted_count_{0};
     std::atomic<uint64_t> rejected_count_{0};
-    std::atomic<uint64_t> kis_calls_{0};      // [inv] kis_ 주문 호출(신규 2곳·취소는 send_cancel 한 곳·정정 1곳)과 되묻기 미체결조회 1곳, 호출 직전에만 올린다
+    std::atomic<uint64_t> kis_calls_{0};      // [inv] kis_ 주문 호출(신규 2곳·취소는 send_cancel과 open_modify·정정은 open_modify)과 되묻기 미체결조회 1곳, 호출 직전에만 올린다
 
     // 놓친 체결 되찾기 요청. on_session_resumed가 올리고 복구 스레드가 따라잡는다(fill_recovery_mutex_로 보호).
     std::mutex                  fill_recovery_mutex_;

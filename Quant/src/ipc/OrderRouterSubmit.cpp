@@ -130,14 +130,14 @@ std::optional<int> OrderRouter::parse_quantity(const std::string& text)
 
 // ─── 주문 제출 — action에 따라 라우팅 (MM-1) ─────────────────────────────
 //  전 경로가 주문 스레드 하나(Engine::order_thread_fn)에서만 실행된다 — OrderGate C6의
-//  단일생산자·단일소비자(SPSC) 불변 보존. 전략 스레드는 여기 진입하지 않는다. 전송 스레드는 send_new만
+//  단일생산자·단일소비자(SPSC) 불변 보존. 전략 스레드는 여기 진입하지 않는다. 전송 스레드는 send_new·send_modify만
 //  부른다(게이트·원장·이력은 안 만진다). [why D-151]
 ManagedOrder OrderRouter::submit(const OrderSignal& signal)
 {
     switch (signal.action)
     {
-    case OrderAction::CANCEL:  return cancel_route(signal);
-    case OrderAction::REPLACE: return replace_route(signal);
+    case OrderAction::CANCEL:
+    case OrderAction::REPLACE: return modify_route(signal);
     case OrderAction::NEW:
     default:                   return new_route(signal);
     }
@@ -771,7 +771,7 @@ bool OrderRouter::cancel_blocking_sell(const OrderSignal& signal, const OpenOrde
         return false;
     }
 
-    // 이번 세션 주문이면 이력·선점을 같이 정리한다. 잠금 순서 history_mutex_ → 원장 positions_mutex_는 cancel_route와 같다.
+    // 이번 세션 주문이면 이력·선점을 같이 정리한다. 잠금 순서 history_mutex_ → 원장 positions_mutex_는 close_cancel과 같다.
     //  closed는 락 안에서 뜬 사본 — 락 밖의 원장 기록에 쓰고, history_ 원소는 축출로 참조가 죽을 수 있다.
     ManagedOrder closed;
     bool         found   = false;
@@ -967,26 +967,45 @@ void OrderRouter::close_cancel_without_target(ManagedOrder& managed_order, const
              " — 체결 가능성 있어 신규매수 보류");
 }
 
-// ─── 취소 라우팅 (action=CANCEL) ──────────────────────────────────────────
-//  1) original_client_order_number로 live 주문 조회 → 원 ODNO/조직번호/미체결 잔량 스냅샷
-//  2) lock 밖에서 KIS 취소 호출(네트워크)
-//  3) 성공 시에만 lock 재획득 → 미체결 잔량을 '그 시점 confirmed_quantity로 재계산'해 reserved 해제
+// ─── 취소·정정 라우팅 (action=CANCEL·REPLACE) ─────────────────────────────
+//  열기 → 전송 → 닫기를 한 스레드에서 잇는다. 전송 스레드를 쓰는 주문 스레드는 셋을 따로 부른다. [why D-151]
+//  1) 열기: original_client_order_number로 live 주문 조회 → 원 ODNO/조직번호/미체결 잔량 스냅샷
+//  2) 전송: lock 밖에서 KIS 취소·정정 호출(네트워크)
+//  3) 닫기: 성공 시에만 lock 재획득 → 미체결 잔량을 '그 시점 confirmed_quantity로 재계산'해 reserved 해제
 //     (2)와 (3) 사이 체결 스레드의 on_fill이 confirmed_quantity를 올릴 수 있으므로 재계산이 이중해제를 막는다.
-ManagedOrder OrderRouter::cancel_route(const OrderSignal& signal)
+ManagedOrder OrderRouter::modify_route(const OrderSignal& signal)
 {
-    ManagedOrder managed_order = make_pending_order(signal, std::chrono::system_clock::now());
+    auto opened = open_modify(signal);
 
-    // 1) 원주문 스냅샷 (record()는 history_mutex_를 재획득하므로 lock 스코프 밖에서만 호출)
+    if (auto* finished = std::get_if<ManagedOrder>(&opened))
+    {
+        return std::move(*finished);
+    }
+
+    auto& send = std::get<ModifyOrderSend>(opened);
+    send_modify(send);
+    return close_modify(std::move(send));
+}
+
+std::variant<ManagedOrder, OrderRouter::ModifyOrderSend> OrderRouter::open_modify(const OrderSignal& signal)
+{
+    const bool  is_cancel = signal.action == OrderAction::CANCEL;
+    ModifyRoute route;
+    route.signal                = signal;
+    route.managed_order         = make_pending_order(signal, std::chrono::system_clock::now());
+    ManagedOrder&  managed_order = route.managed_order;
+    OriginalOrder& original      = route.original;
+
+    // 원주문 스냅샷 (record()는 history_mutex_를 재획득하므로 lock 스코프 밖에서만 호출)
     //  취소가 빗나갔을 때 "원주문이 이미 체결됐을 수 있나"를 같은 락 안에서 답해 둔다. [why D-035]
-    OriginalOrder original;
-    bool          found                    = false;
-    bool          original_may_have_filled = false;
-    const char*   gone_why                 = "이력 없음(재기동·이력초과)";
+    bool        found                    = false;
+    bool        original_may_have_filled = false;
+    const char* gone_why                 = "이력 없음(재기동·이력초과)";
     {
         std::lock_guard<std::mutex> lock(history_mutex_);
         found = snapshot_live_original_locked(signal.original_client_order_number, original);
 
-        if (!found)
+        if (!found && is_cancel)
         {
             original_may_have_filled = classify_missing_original_locked(signal.original_client_order_number, gone_why);
         }
@@ -994,82 +1013,27 @@ ManagedOrder OrderRouter::cancel_route(const OrderSignal& signal)
 
     if (!found)
     {
-        close_cancel_without_target(managed_order, signal, original_may_have_filled, gone_why);
+        if (is_cancel)
+        {
+            close_cancel_without_target(managed_order, signal, original_may_have_filled, gone_why);
+        }
+        else
+        {
+            mark_rejected(managed_order, "정정 대상 없음 oid=" + signal.original_client_order_id);
+            LOG_WARN("[OrderRouter] 정정 무시 [" + managed_order.order_id + "] " + managed_order.reject_reason);
+        }
+
         record(managed_order);
-        return managed_order;
+        return std::move(managed_order);
     }
 
-    // 2) KIS 취소 (lock 밖)
-    OrderAck cancel;
-
-    try
+    if (is_cancel)
     {
-        cancel = send_cancel(original.ticker, original.kis_order_no, original.krx_forwarding_org_no, original.outstanding);
-    }
-    catch (const std::exception& exception)
-    {
-        mark_rejected(managed_order, std::string("KIS 취소 예외: ") + exception.what());
-        LOG_ERROR("[OrderRouter] 취소 예외 [" + managed_order.order_id + "] " + original.ticker + " — " + exception.what());
-        record(managed_order);
-        return managed_order;
+        ++kis_calls_; // 셈은 주문 스레드가 한다 — 주문 스레드가 이 수의 증가로 호출 여부를 가른다
+        return ModifyOrderSend{std::move(route), nullptr};
     }
 
-    if (!cancel.ok())
-    {
-        // KIS 거부(이미 체결/취소 등) → reserved 미변경. 체결이 먼저면 체결 경로가 이미 해제함.
-        mark_rejected(managed_order, "KIS 취소 거부(원주문 이미 체결/소멸 가능)" + kis_error_suffix(cancel));
-        LOG_WARN("[OrderRouter] 취소 거부 [" + managed_order.order_id + "] " + original.ticker +
-                 " 원oid=" + signal.original_client_order_id);
-        record(managed_order);
-        return managed_order;
-    }
-
-    // 3) 성공 — reserved 해제(잔량 재계산) + 원주문 CANCELLED 표기 + 인덱스 정리
-    {
-        std::lock_guard<std::mutex> lock(history_mutex_);
-        close_live_original_locked(signal, original, 0);
-    }
-
-    managed_order.status           = OrderStatus::CANCELLED; // 취소 요청 자체는 성공 접수
-    managed_order.kis_order_no     = std::move(cancel.kis_order_no);
-    managed_order.kis_order_number = digits_to_number(managed_order.kis_order_no);
-    managed_order.updated_at       = std::chrono::system_clock::now();
-    ++accepted_count_;
-    LOG_INFO("[OrderRouter] 취소 접수 [" + managed_order.order_id + "] " + original.ticker +
-             " 원oid=" + signal.original_client_order_id + " 취소ODNO=" + managed_order.kis_order_no);
-    record(managed_order);
-    return managed_order;
-}
-
-// ─── 정정 라우팅 (action=REPLACE) ─────────────────────────────────────────
-//  KIS 정정 1콜 = cancel-replace. 성공 시 새 ODNO 발급.
-//  근거 없음(2026-09-27): 공식 샘플 order_rvsecncl은 정정을 '단가·주문구분 변경, 수량은 원주문 이하'로만 적고 응답 컬럼
-//  설명이 없다(2026-09-27 MCP 확인). 'cancel-replace'와 '새 ODNO 발급'을 적은 샘플·실측 기록은 찾지 못했다.
-//  reserved 조정: new_quantity는 전송 전 INTENT에서 선점하고, 접수되면 원주문 미체결 잔량을 해제한다(같은 side). 원주문은 CANCELLED,
-//  정정 결과를 새 ManagedOrder(ACCEPTED)로 추적(새 ODNO/새 client_order_id).
-//  ⚠ 첫 컷 한계: 부분체결 상태 정정은 수량 정합이 복잡 → MM은 REPLACE 미사용(CANCEL+NEW 사용).
-//     본 경로는 미체결 전량 대상 정정만 안전. 부분체결분 정정은 Phase 2에서 정밀화.
-ManagedOrder OrderRouter::replace_route(const OrderSignal& signal)
-{
-    auto&        ledger        = gate_.ledger();
-    ManagedOrder managed_order = make_pending_order(signal, std::chrono::system_clock::now());
-
-    OriginalOrder original;
-    bool          found = false;
-    {
-        std::lock_guard<std::mutex> lock(history_mutex_);
-        found = snapshot_live_original_locked(signal.original_client_order_number, original);
-    }
-
-    if (!found)
-    {
-        mark_rejected(managed_order, "정정 대상 없음 oid=" + signal.original_client_order_id);
-        LOG_WARN("[OrderRouter] 정정 무시 [" + managed_order.order_id + "] " + managed_order.reject_reason);
-        record(managed_order);
-        return managed_order;
-    }
-
-    const int new_quantity = (signal.quantity > 0) ? signal.quantity : original.outstanding;
+    route.new_quantity = (signal.quantity > 0) ? signal.quantity : original.outstanding;
 
     // 정정도 전송 전에 원장에 적는다 — 새 수량을 INTENT로 선점하고, 원주문 잔량은 접수된 뒤에 푼다.
     //  못 적으면 보내지 않는다(적히지 않은 주문은 나가지 않는다). [why D-113]
@@ -1077,44 +1041,165 @@ ManagedOrder OrderRouter::replace_route(const OrderSignal& signal)
     reserve_signal.ticker      = original.ticker;
     reserve_signal.account_id  = original.account;
     reserve_signal.side        = original.side;
-    reserve_signal.quantity    = new_quantity;
-    const OrderGate::OrderRef order_reference{digits_to_number(managed_order.order_id), 0, signal.type};
-    const InFlightMark        in_flight{*this, ledger.intern_symbol(original.ticker)};
+    reserve_signal.quantity    = route.new_quantity;
+    route.order_reference      = OrderGate::OrderRef{digits_to_number(managed_order.order_id), 0, signal.type};
+    // close_modify의 이력 기록까지 이 종목의 선점을 정리가 풀지 못하게 건다. [why D-113]
+    auto in_flight = std::make_unique<InFlightMark>(*this, gate_.ledger().intern_symbol(original.ticker));
 
-    if (!take_intent(reserve_signal, order_reference))
+    if (!take_intent(reserve_signal, route.order_reference))
     {
         mark_rejected(managed_order, "원장 저널 기록 실패 — 정정 전송 생략");
         record(managed_order);
-        return managed_order;
+        return std::move(managed_order);
     }
 
-    OrderAck revise_acknowledgement;
+    // 정정은 새 ODNO를 받는다 — close_modify까지 그 사이 온 체결은 on_fill이 붙들어 둔다. [why D-151]
+    {
+        std::lock_guard<std::mutex> lock(history_mutex_);
+        ++sending_new_orders_;
+    }
+
+    ++kis_calls_;
+    return ModifyOrderSend{std::move(route), std::move(in_flight)};
+}
+
+// KIS 정정 1콜 = cancel-replace. 성공 시 새 ODNO 발급.
+//  근거 없음(2026-09-27): 공식 샘플 order_rvsecncl은 정정을 '단가·주문구분 변경, 수량은 원주문 이하'로만 적고 응답 컬럼
+//  설명이 없다(2026-09-27 MCP 확인). 'cancel-replace'와 '새 ODNO 발급'을 적은 샘플·실측 기록은 찾지 못했다.
+//  [inv] kis_와 send 밖은 만지지 않는다. [why D-151]
+void OrderRouter::send_modify(ModifyOrderSend& send) const noexcept
+{
+    ModifyRoute&         route    = send.route;
+    const OriginalOrder& original = route.original;
 
     try
     {
-        ++kis_calls_;
-        revise_acknowledgement = kis_.revise_order(original.ticker, original.kis_order_no, original.krx_forwarding_org_no,
-                                                   new_quantity, signal.price);
+        if (route.signal.action == OrderAction::CANCEL)
+        {
+            route.acknowledgement = kis_.cancel_order(original.ticker, original.kis_order_no,
+                                                      original.krx_forwarding_org_no, original.outstanding,
+                                                      /*all_remaining=*/true);
+        }
+        else
+        {
+            route.acknowledgement = kis_.revise_order(original.ticker, original.kis_order_no,
+                                                      original.krx_forwarding_org_no, route.new_quantity,
+                                                      route.signal.price);
+        }
     }
     catch (const std::exception& exception)
     {
-        mark_rejected(managed_order, std::string("KIS 정정 예외: ") + exception.what());
-        ledger.on_reject(original.account, original.ticker, original.side, new_quantity, order_reference,
-                         managed_order.reject_reason);
-        LOG_ERROR("[OrderRouter] 정정 예외 [" + managed_order.order_id + "] " + original.ticker + " — " + exception.what());
-        record(managed_order);
-        return managed_order;
+        route.transport_failed = true;
+        route.transport_error  = exception.what();
+    }
+    catch (...)
+    {
+        route.transport_failed = true;
+        route.transport_error  = "알 수 없는 예외";
+    }
+}
+
+// 닫기 — 표시는 이력에 적은 뒤 풀리도록 지역으로 옮겨 둔다(지역 변수는 선언 역순으로 소멸).
+ManagedOrder OrderRouter::close_modify(ModifyOrderSend&& send)
+{
+    const std::unique_ptr<InFlightMark> in_flight = std::move(send.in_flight);
+    ModifyRoute&                        route     = send.route;
+
+    if (route.signal.action == OrderAction::CANCEL)
+    {
+        close_cancel(route);
+        return std::move(route.managed_order);
     }
 
-    if (!revise_acknowledgement.ok())
+    try
     {
-        mark_rejected(managed_order, "KIS 정정 거부(원주문 이미 체결/소멸 가능)" + kis_error_suffix(revise_acknowledgement));
-        ledger.on_reject(original.account, original.ticker, original.side, new_quantity, order_reference,
-                         managed_order.reject_reason);
-        LOG_WARN("[OrderRouter] 정정 거부 [" + managed_order.order_id + "] " + original.ticker +
+        close_replace(route);
+    }
+    catch (...)
+    {
+        // 수를 안 내리면 그 뒤 연결 안 되는 체결을 끝없이 붙든다.
+        finish_sending_new();
+        throw;
+    }
+
+    // 새 ODNO가 이력에 들어간 뒤라 붙든 체결 중 이 정정본 것은 이제 연결된다.
+    finish_sending_new();
+    return std::move(route.managed_order);
+}
+
+void OrderRouter::close_cancel(ModifyRoute& route)
+{
+    const OrderSignal& signal        = route.signal;
+    ManagedOrder&      managed_order = route.managed_order;
+    OriginalOrder&     original      = route.original;
+
+    if (route.transport_failed)
+    {
+        mark_rejected(managed_order, "KIS 취소 예외: " + route.transport_error);
+        LOG_ERROR("[OrderRouter] 취소 예외 [" + managed_order.order_id + "] " + original.ticker + " — " +
+                  route.transport_error);
+        record(managed_order);
+        return;
+    }
+
+    if (!route.acknowledgement.ok())
+    {
+        // KIS 거부(이미 체결/취소 등) → reserved 미변경. 체결이 먼저면 체결 경로가 이미 해제함.
+        mark_rejected(managed_order, "KIS 취소 거부(원주문 이미 체결/소멸 가능)" + kis_error_suffix(route.acknowledgement));
+        LOG_WARN("[OrderRouter] 취소 거부 [" + managed_order.order_id + "] " + original.ticker +
                  " 원oid=" + signal.original_client_order_id);
         record(managed_order);
-        return managed_order;
+        return;
+    }
+
+    // 성공 — reserved 해제(잔량 재계산) + 원주문 CANCELLED 표기 + 인덱스 정리
+    {
+        std::lock_guard<std::mutex> lock(history_mutex_);
+        close_live_original_locked(signal, original, 0);
+    }
+
+    managed_order.status           = OrderStatus::CANCELLED; // 취소 요청 자체는 성공 접수
+    managed_order.kis_order_no     = std::move(route.acknowledgement.kis_order_no);
+    managed_order.kis_order_number = digits_to_number(managed_order.kis_order_no);
+    managed_order.updated_at       = std::chrono::system_clock::now();
+    ++accepted_count_;
+    LOG_INFO("[OrderRouter] 취소 접수 [" + managed_order.order_id + "] " + original.ticker +
+             " 원oid=" + signal.original_client_order_id + " 취소ODNO=" + managed_order.kis_order_no);
+    record(managed_order);
+}
+
+//  reserved 조정: new_quantity는 전송 전 INTENT에서 선점하고, 접수되면 원주문 미체결 잔량을 해제한다(같은 side). 원주문은 CANCELLED,
+//  정정 결과를 새 ManagedOrder(ACCEPTED)로 추적(새 ODNO/새 client_order_id).
+//  ⚠ 첫 컷 한계: 부분체결 상태 정정은 수량 정합이 복잡 → MM은 REPLACE 미사용(CANCEL+NEW 사용).
+//     본 경로는 미체결 전량 대상 정정만 안전. 부분체결분 정정은 Phase 2에서 정밀화.
+void OrderRouter::close_replace(ModifyRoute& route)
+{
+    auto&              ledger        = gate_.ledger();
+    const OrderSignal& signal        = route.signal;
+    ManagedOrder&      managed_order = route.managed_order;
+    OriginalOrder&     original      = route.original;
+    const int          new_quantity  = route.new_quantity;
+
+    if (route.transport_failed || !route.acknowledgement.ok())
+    {
+        if (route.transport_failed)
+        {
+            mark_rejected(managed_order, "KIS 정정 예외: " + route.transport_error);
+            LOG_ERROR("[OrderRouter] 정정 예외 [" + managed_order.order_id + "] " + original.ticker + " — " +
+                      route.transport_error);
+        }
+        else
+        {
+            mark_rejected(managed_order,
+                          "KIS 정정 거부(원주문 이미 체결/소멸 가능)" + kis_error_suffix(route.acknowledgement));
+            LOG_WARN("[OrderRouter] 정정 거부 [" + managed_order.order_id + "] " + original.ticker +
+                     " 원oid=" + signal.original_client_order_id);
+        }
+
+        ledger.on_reject(original.account, original.ticker, original.side, new_quantity, route.order_reference,
+                         managed_order.reject_reason);
+        record(managed_order);
+        return;
     }
 
     // 성공 — 원 미체결 잔량 해제, 원주문 CANCELLED, 정정본 ACCEPTED 추적(선점은 INTENT에서 이미 잡혔다)
@@ -1125,12 +1210,12 @@ ManagedOrder OrderRouter::replace_route(const OrderSignal& signal)
         // 정정본 선점은 위 INTENT에서 이미 잡혔다 — 여기서는 새 주문번호로 ACCEPT만 적는다.
         ledger.on_accepted(original.account, original.ticker, original.side, new_quantity,
                            OrderGate::OrderRef{digits_to_number(managed_order.order_id),
-                                               digits_to_number(revise_acknowledgement.kis_order_no), signal.type});
+                                               digits_to_number(route.acknowledgement.kis_order_no), signal.type});
     }
 
     managed_order.status                = OrderStatus::ACCEPTED;
     managed_order.recoverable           = true; // 정정본은 새 주문번호라 누적 체결이 0에서 시작한다 [why D-149]
-    managed_order.kis_order_no          = std::move(revise_acknowledgement.kis_order_no);
+    managed_order.kis_order_no          = std::move(route.acknowledgement.kis_order_no);
     managed_order.kis_order_number      = digits_to_number(managed_order.kis_order_no);
     managed_order.krx_forwarding_org_no = std::move(original.krx_forwarding_org_no); // 정정 응답의 조직번호를 미파싱해 원 조직번호를 승계(통상 동일). TODO: 응답서 재캡처
     managed_order.signal.side           = original.side; // NONE 방지: 원주문 side 승계
@@ -1140,5 +1225,4 @@ ManagedOrder OrderRouter::replace_route(const OrderSignal& signal)
              " 원oid=" + signal.original_client_order_id + " 새ODNO=" + managed_order.kis_order_no +
              std::format(" qty={} @{}", new_quantity, static_cast<int>(signal.price)));
     record(managed_order);
-    return managed_order;
 }

@@ -553,7 +553,7 @@ review = [
   [[stage.step]]
   sym = "OrderRouter::submit"
   file = "Quant/src/ipc/OrderRouterSubmit.cpp"
-  what = "`action`으로 분기만 — NEW는 `new_route`, CANCEL·REPLACE는 `cancel_route`·`replace_route`"
+  what = "`action`으로 분기만 — NEW는 `new_route`, CANCEL·REPLACE는 `modify_route`"
   test = "test_order_router"
 
   [[stage.step]]
