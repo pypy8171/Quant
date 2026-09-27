@@ -29,9 +29,9 @@ KIS OpenAPI  WebSocket: 시세·체결통보 / REST: 봉·잔고·주문
 C++ 엔진 quant_trader — 기본은 한 프로세스, --role feed|strategy|order 로 셋
     ┌ 시세 ───────────┐   ┌ 전략 ─────────────┐   ┌ 주문 ─────────────────┐
     │ 수신 ×N         │ → │ 샤드 ×M (전략)    │ → │ OrderGate → KIS 주문  │
-    │ 체결통보 디코드 │ ─────────────────────────→ │ 체결 반영 → 원장      │
-    │ DB 적재 워커 ×K │   │ 시세판·유니버스   │ ← │ 원장 스냅숏           │
-    │ (설정으로 켬)   │   │ 국면 판정         │   │ 원장 저널 파일        │
+    │ 체결통보 디코드 │ ────────────────────────→ │ 체결 → 포지션 장부    │
+    │ DB 적재 워커 ×K │   │ 시세판·유니버스   │ ← │ 장부 사본             │
+    │ (설정으로 켬)   │   │ 국면 판정         │   │ 장부 일지 파일        │
     └─────────────────┘   └───────────────────┘   └───────────────────────┘
     │                       │ ZMQ PUB                        │
     │ COPY → ticks          PYQuant/main.py record           PYQuant/tools/ledger_recorder.py
@@ -40,15 +40,17 @@ C++ 엔진 quant_trader — 기본은 한 프로세스, --role feed|strategy|ord
                                         TimescaleDB
 ```
 
+용어: 코드의 ledger·원장은 엔진 내부 포지션 장부(메모리)입니다. 공식 기록은 증권사 계좌 원장이고, 장부는 잔고 대사로 그것을 따라갑니다. DB 적재분은 분석용 사본이며 복구에는 일지(`ledger_YYYYMMDD.bin`)를 씁니다.
+
 - 한 프로세스로 띄우면 수신·샤드·주문·체결 스레드가 락 없는 큐로 넘깁니다. 전략은 등록 순서대로 샤드에 돌아가며 배정되고, 한 종목의 체결은 그 종목을 보는 샤드마다 들어온 순서대로 갑니다(D-110).
-- `--role`로 셋으로 띄우면 주문 프로세스가 공유 메모리(`Quant/include/ipc/SharedLayout.h`)를 만들고 나머지가 붙습니다. 통로는 시세, 체결통보, 주문 요청·응답, 제어, 박동, 국면, 원장 스냅숏입니다. 전략 쪽이 죽어도 주문·원장이 남게 하려는 분리입니다(D-114).
-- 체결통보는 시세 쪽 소켓으로 들어옵니다. 시세 쪽은 풀어서 넘기기만 하고 원장은 주문 쪽이 고칩니다. 전략 쪽은 원장 스냅숏으로 보유·매도 가능 수량을 읽습니다.
+- `--role`로 셋으로 띄우면 주문 프로세스가 공유 메모리(`Quant/include/ipc/SharedLayout.h`)를 만들고 나머지가 붙습니다. 통로는 시세, 체결통보, 주문 요청·응답, 제어, 박동, 국면, 장부 사본입니다. 전략 쪽이 죽어도 주문·포지션 장부가 남게 하려는 분리입니다(D-114).
+- 체결통보는 시세 쪽 소켓으로 들어옵니다. 시세 쪽은 풀어서 넘기기만 하고 포지션 장부는 주문 쪽이 고칩니다. 전략 쪽은 장부 사본으로 보유·매도 가능 수량을 읽습니다.
 - 유니버스: 전략 쪽 시세판 스레드(`MarketBoard`)가 네이버에서 5초마다 현재가·거래대금을 받고, 1분마다 거래대금 상위 100종목을 다시 고릅니다. 그 뒤 KIS 일봉으로 걸러 점수를 매깁니다(`Quant/src/universe/`). `market_board`를 끄면 전처럼 `PYQuant/tools/universe_feed.py`가 쓴 파일을 읽습니다.
 - 국면 판정: 매매는 `Quant/config/regime.json`을 읽어 신규 진입 정지와 전략 선택에 씁니다. 이 파일은 전략 프로세스 안 스레드(`Quant/src/regime/RegimeFeed.cpp`)가 3분마다 씁니다. 이력은 `logs/regime_history.jsonl`, 장초 기준점은 `logs/regime_open_ref.json`에 남깁니다. 경로·주기·정지선·청산선은 설정의 `regime_feed` 항목입니다(D-147). 엔진 없이 한 번만 판정하려면 `Quant/build_win/regime_feed_once.exe`를 씁니다.
 - DB 적재는 세 갈래입니다.
   - 체결 시세: 엔진의 `Quant/src/ipc/DbManager.cpp`가 넣습니다(D-148). 수신 스레드는 체결 한 건을 큐에 넣고 바로 돌아옵니다. 적재 워커 K개(기본 2)가 종목 id로 나눠 받아 `ticks` 표에 COPY로 넣습니다(5,000행 또는 200ms마다). 큐가 차면 버리고 세고, DB가 끊기면 1초부터 30초까지 간격을 늘리며 다시 붙습니다. 100만 행 측정에서 워커 2개가 초당 약 37만 행을 넣었습니다(파이썬 기록기는 약 10만 행). `database.enabled`, libpq 빌드, 환경변수 `TSDB_PASSWORD`가 모두 있어야 켜집니다. 운영 설정은 켜 두었고, 그 설정이면 감시견이 파이썬 기록기를 `--record-ticks` 없이 띄워 같은 체결이 두 번 들어가지 않게 합니다. 끄면 전처럼 파이썬 기록기가 ZMQ로 받아 넣습니다.
   - 신호·상태: `PYQuant/main.py record`가 ZMQ로 받아 `signals`·`health`에 넣습니다.
-  - 원장: 주문 프로세스가 KIS에 주문을 보내기 전에 원장 저널 파일(`ledger_YYYYMMDD.bin`)에 먼저 적습니다. `PYQuant/tools/ledger_recorder.py`가 그 파일을 2초마다 따라 읽어 `ledger_events`·`orders`·`fills`·`positions`에 넣습니다. DB가 내려가 있어도 매매는 계속됩니다(D-113).
+  - 포지션 장부: 주문 프로세스는 주문마다 장부 일지 파일(`ledger_YYYYMMDD.bin`)에 INTENT를 적고, 그 기록이 디스크에 남은 뒤에만 KIS로 보냅니다. `PYQuant/tools/ledger_recorder.py`가 그 파일을 2초마다 따라 읽어 `ledger_events`·`orders`·`fills`·`positions`에 넣습니다. DB가 내려가 있어도 매매는 계속되고, 재기동 복구는 DB 대신 일지로 합니다(D-113).
 - 주문·전략 스레드는 DB를 부르지 않습니다.
 - 코드는 역할별 파일로 나눴습니다. `Quant/src/core/Engine.cpp`는 약 4,900줄에서 960줄이 됐고, 스레드마다 `Engine*Thread.cpp`, 시세 입력은 `EngineFeed.cpp`, 제어 요청은 `ControlPlane`으로 뗐습니다(D-135). `OrderGate`에서는 보유·선점·평단을 `PositionLedger`로, 진입 우선순위를 `EntryPriority`로 뗐습니다.
 - 스레드·큐 상세는 [docs/ENGINE_ARCHITECTURE.md](docs/ENGINE_ARCHITECTURE.md), 읽는 순서는 [docs/CODE_FLOW.md](docs/CODE_FLOW.md).
@@ -74,7 +76,7 @@ C++ 엔진 quant_trader — 기본은 한 프로세스, --role feed|strategy|ord
 
 ```
 Quant/       C++ 엔진(core·ipc·risk·strategy·universe·regime), 테스트, 운영단말
-PYQuant/     Python 백테스트, ZMQ 구독·원장 DB 적재, 국면 판정, 대시보드 생성
+PYQuant/     Python 백테스트, ZMQ 구독·장부 일지 DB 적재, 국면 판정, 대시보드 생성
 research/    백테스트 스터디
 strategies/  전략 스펙과 매매일지
 scripts/     운영 스크립트(감시견·마감 정리·배포)

@@ -4,6 +4,8 @@
 헤더의 공개 역할이 바뀌면 이 문단을 고치고 `py ../quant-devtools/sync_impact.py --restamp docs/ENGINE_ARCHITECTURE.md`로 도장을 갱신한다
 (규칙은 `docs/sync_map.toml`). 읽는 순서로 따라가는 코드 흐름은 [CODE_FLOW.md](CODE_FLOW.md), 결정 이력은 [DECISIONS.md](DECISIONS.md).
 
+용어: 코드의 ledger·원장은 엔진 내부 포지션 장부(메모리)다. 공식 기록은 증권사 계좌 원장이고, 장부는 잔고 대사로 그것을 따라간다. DB 적재분은 분석용 사본이며 복구에는 일지(`ledger_YYYYMMDD.bin`)를 쓴다.
+
 ## 아키텍처
 
 ### 스레드 모델
@@ -27,7 +29,7 @@ flowchart LR
     ORDER --> KISO["KIS 주문 API"]
     OPS["운영단말"] -- "manual_inbox" --> ORDER
     RECV -- "fill_queue (체결통보)" --> FILL["체결<br/>Fill"]
-    FILL --> LEDGER["원장 · 저널"]
+    FILL --> LEDGER["포지션 장부 · 일지"]
     ORDER --> LEDGER
     DATA -. "잔고 대조" .-> LEDGER
     CTRL["제어<br/>Control"] -. "토큰 · 시세 감시" .-> RECV
@@ -38,14 +40,14 @@ flowchart LR
 | 스레드 | 하는 일 | 받는 것 → 내보내는 것 | 코드 · 테스트 |
 |---|---|---|---|
 | 수신 ×소켓 | 소켓 읽기·디코드·수신 시각 `received_ns` 찍기·push만 | KIS WS → 행렬 행 i, `fill_queue`, 캡처 큐, ZMQ TRADE 큐 | `Quant/include/core/FeedMux.h` · `test_feed_mux` |
-| 데이터 | `fetch_interval_sec`마다 REST 봉 폴링, 틱 끊긴 보유 종목 현재가 보충, 유니버스 재스캔(`rescan_interval_sec`), 주문 쪽이면 잔고 대조와 손익 갱신 감시 | KIS REST → `bars_matrix`, 원장 | `Quant/include/core/DataPoller.h`·`Quant/include/core/UniverseRescan.h`·`Quant/include/core/UniverseExit.h`·`Quant/include/core/LedgerReconciler.h` · `test_data_poller`·`test_universe_rescan` |
+| 데이터 | `fetch_interval_sec`마다 REST 봉 폴링, 틱 끊긴 보유 종목 현재가 보충, 유니버스 재스캔(`rescan_interval_sec`), 주문 쪽이면 잔고 대조와 손익 갱신 감시 | KIS REST → `bars_matrix`, 포지션 장부 | `Quant/include/core/DataPoller.h`·`Quant/include/core/UniverseRescan.h`·`Quant/include/core/UniverseExit.h`·`Quant/include/core/LedgerReconciler.h` · `test_data_poller`·`test_universe_rescan` |
 | REST 조회 | 시세 쪽이면. WS 칸에 못 든 종목(REST 폴백이면 유니버스 전부)의 현재가를 한 바퀴 1초 목표로 조회. 종목 사이 100ms라 10종목을 넘으면 한 바퀴가 늘어난다(D-138) | KIS REST → `trade_matrix` 폴러 행 | `Quant/include/core/DataPoller.h` · `test_data_poller` |
 | 샤드 ×M | 자기 열을 비우고, 틱의 종목 id를 보는 전략만 부른다. 분봉 집계는 이렇게 불린 전략 안에서 한다(봉 길이는 전략 설정, 예: DevScale `interval_min`) | 행렬 열 m → `shard_out` | `Quant/include/core/StrategyShard.h`·`Quant/include/core/StrategyRouter.h` · `test_strategy_shard`·`test_strategy_router` |
 | 전략(디스패치) | 신호를 주문 요청으로 바꾸기 전 판단, 보호 주문 판정, 강제청산·초과분 정리, 제어 요청 중계, 주문 쪽 응답 수거, 상대 박동 감시와 답 없는 요청 세기 | `shard_out` → 요청 면 / 응답 면을 비운다 | `Quant/include/core/SignalDispatcher.h`·`Quant/include/risk/ProtectiveOrders.h` · `test_signal_dispatcher` |
-| 주문 | 게이트·선점·원장 선기록·재시도, 수동주문, 제어 요청 적용, 슬롯 교체, 상대 박동 감시. 신규 주문은 전송 스레드에 넘기고 답이 오면 이력에 닫는다. 취소·정정은 직접 보낸다 | 요청 면·`manual_inbox`·제어 면 → 전송 스레드·KIS 주문 API, 응답 면 | `Quant/include/core/OrderRateLimiter.h`·`Quant/include/risk/DisplacementDesk.h` · `test_order_rate_limiter`·`test_engine` |
+| 주문 | 게이트·선점·장부 일지 선기록·재시도, 수동주문, 제어 요청 적용, 슬롯 교체, 상대 박동 감시. 신규 주문은 전송 스레드에 넘기고 답이 오면 이력에 닫는다. 취소·정정은 직접 보낸다 | 요청 면·`manual_inbox`·제어 면 → 전송 스레드·KIS 주문 API, 응답 면 | `Quant/include/core/OrderRateLimiter.h`·`Quant/include/risk/DisplacementDesk.h` · `test_order_rate_limiter`·`test_engine` |
 | 주문 전송 ×N | 주문 쪽이면. 신규 주문 하나의 KIS 왕복(p50 약 1.5초)만 맡는다. 같은 종목은 답이 올 때까지 뒤 주문을 세운다. 수는 `risk.order_transport_threads`(기본 4, 0이면 주문 스레드가 직접) | 주문 스레드 → KIS 주문 API → 주문 스레드 | `Quant/include/core/TransportPool.h` · `test_order_router`·`bench_order_burst` (D-151) |
-| 체결 | 체결통보를 원장·CSV에 반영하고 운영단말에 방송 | `fill_queue` → 원장 | `Engine::fill_thread_fn` (D-056) |
-| 장부 | 주문 쪽이면. 읽는 쪽에 주는 장부 사본을 100ms 간격으로 무조건 낸다. 주문 스레드에서 뗀 것은 2,700종목을 들면 한 판이 98µs로 주문 하나 몫의 61%였기 때문이다 | 원장 → 장부 사본 | `Engine::ledger_thread_fn` · `bench_ledger_publish` |
+| 체결 | 체결통보를 포지션 장부·CSV에 반영하고 운영단말에 방송 | `fill_queue` → 포지션 장부 | `Engine::fill_thread_fn` (D-056) |
+| 장부 | 주문 쪽이면. 읽는 쪽에 주는 장부 사본을 100ms 간격으로 무조건 낸다. 주문 스레드에서 뗀 것은 2,700종목을 들면 한 판이 98µs로 주문 하나 몫의 61%였기 때문이다 | 포지션 장부 → 장부 사본 | `Engine::ledger_thread_fn` · `bench_ledger_publish` |
 | 제어 | 토큰 선갱신, 시세 끊김 대응(재연결·REST 대체), 구독 요청 반영·구독 칸 재배정(D-132), 큐 고수위 기록, 마감 자기 종료, 갈라 띄운 날에는 짝이 종료 사유를 적고 나갔는지 5초마다 보고 따라 내려가기 | 주기 작업 | `Quant/include/core/FeedSupervisor.h`·`Quant/include/core/SessionEndJudge.h` |
 | 프리페치 ×2~8 | 전략이 `on_start`에서 맡긴 REST 당기기를 3초 간격으로 | 전략 스냅샷 | `Quant/include/core/PrefetchPool.h` · `test_prefetch_pool` (D-115) |
 | 줄 스레드 ×(소켓+1) | 갈라 띄울 때만. 시세 통로 한 줄을 꺼내 행렬로 나눈다 | 시세 통로 → 행렬 | `Engine::feed_lane_thread_fn` · `test_market_feed_channel` |
@@ -85,10 +87,10 @@ flowchart LR
    거른 뒤 순번 `seq`를 찍어 문자열 없는 고정 레코드 `ipc::OrderRequest`로 요청 면에 넣는다.
 4. 주문 스레드가 꺼내 `ipc::is_plausible`로 값을 보고 `ipc::to_signal`로 되살린다. 1초 넘게 기다린 신규 매수는
    보내지 않는다 — 초당 주문 한도가 꺼내는 속도를 정하므로 낡은 판단이 새 판단의 자리를 먹는다. 취소·정정·매도는 나이를 안 본다(D-127).
-5. `OrderRouter`가 `OrderGate::check()` → 저널에 INTENT 선기록(`PositionLedger::on_intent`) → 초당 한도 대기 → KIS 발주를 한다.
-   신규 주문은 `open_new`(주문 스레드) → `send_new`(전송 스레드, 왕복만) → `close_new`(주문 스레드, 이력·원장)로 갈라 돈다(D-151).
+5. `OrderRouter`가 `OrderGate::check()` → 장부 일지에 INTENT 선기록(`PositionLedger::on_intent`) → 초당 한도 대기 → KIS 발주를 한다.
+   신규 주문은 `open_new`(주문 스레드) → `send_new`(전송 스레드, 왕복만) → `close_new`(주문 스레드, 이력·포지션 장부)로 갈라 돈다(D-151).
    재시도 분류와 최소 간격은 `OrderRateLimiter`(D-065). 구간별 소요는 `logs/latency_trace.csv`에 한 줄씩(D-117).
-6. 종착 상태는 `ipc::OrderResponse`로 응답 면에 돌아가고, 체결통보는 수신 → `fill_queue` → 체결 스레드가 원장에 반영한다.
+6. 종착 상태는 `ipc::OrderResponse`로 응답 면에 돌아가고, 체결통보는 수신 → `fill_queue` → 체결 스레드가 포지션 장부에 반영한다.
 
 운영단말 수동주문은 3단계를 건너뛰고 `manual_inbox`로 바로 주문 스레드에 간다. 전략 프로세스가 멎어도 사람이 낼 수 있게
 꺼내는 쪽을 주문 쪽에 두었다(D-114 단계 4).
@@ -164,15 +166,17 @@ flowchart LR
 붙어 있던 쪽은 제어 스레드가 5초마다 그 번호를 견주어 달라졌으면 옛 판을 들고 주문을 내지 않도록 같이 내려간다.
 종료 사유는 스레드를 다 회수한 `stop()` 끝에서 적으므로, 빈 칸으로 남은 것이 크래시다.
 
-#### 원장과 재기동
+#### 포지션 장부와 재기동
 
 - 주문을 보내기 **전에** `Quant/include/risk/LedgerJournal.h`가 `ledger_YYYYMMDD.bin`(192바이트 고정 레코드, 순번·CRC32)에
-  INTENT를 적는다. 못 적으면 주문을 보내지 않고, 저널을 못 열면 기동하지 않는다.
-- 기동은 저널을 처음부터 리플레이해 보유·평단·선점·현금·당일손익을 되쌓고, 잔고 시드와 대조한 뒤, 결말을 못 본 주문은
-  KIS 미체결조회로 맞춘다. DB는 복제본이다(`PYQuant/tools/ledger_recorder.py`, D-113).
+  INTENT를 적는다. 선점 수량은 잠금 안에서 메모리에 먼저 잡고, 디스크 쓰기는 잠금을 푼 뒤에 한다. 주문은 INTENT가 디스크에
+  남은 뒤에만 나가고, 못 적으면 잡은 수량을 되돌리고 주문을 보내지 않는다(`Quant/src/risk/PositionLedger.cpp`). 장부 일지를 못 열면 기동하지 않는다.
+- 기동은 장부 일지를 처음부터 리플레이해 보유·평단·선점·현금·당일손익을 되쌓고(CRC가 깨진 꼬리에서 멈추고 잘라 낸다),
+  증권사 잔고로 시드한 뒤, 결말을 못 본 INTENT는 KIS 미체결조회와 대조한다. DB는 분석용 사본이라 복구에 쓰지 않는다
+  (`PYQuant/tools/ledger_recorder.py`, D-113).
 - 주기 잔고 대조는 `LedgerReconciler`(D-061)가 한다. 체결 직후 5초는 미루고 30초마다 한 번은 돈다(D-074).
   잔고 조회는 뒤 스레드에서 돌고 한 사이클은 500ms만 기다린다(D-100). 어긋난 종목만 `Quant/include/core/ReconcilePlan.h`가
-  골라 `RECONCILE` 행(`OVERWRITE|PRUNE|KEEP`)을 쓰고, 원장 CSV의 모든 행에는 신호의 `seq`가 남는다(D-038).
+  골라 `RECONCILE` 행(`OVERWRITE|PRUNE|KEEP`)을 쓰고, 거래 기록 CSV의 모든 행에는 신호의 `seq`가 남는다(D-038).
 
 #### 시세 끊김과 마감
 
@@ -191,7 +195,7 @@ flowchart LR
 - 시각은 정수 HHMMSS(`hhmmss`)다. 문자열로는 화면·캡처 파일에서만 되돌린다(`Quant/include/core/MarketSession.h`, D-071).
 - 3분봉은 config `bar_source`로 고른다. `"ws"`(기본)는 샤드 스레드에서 도는 전략이 체결로 1분봉을 모아 판단 직전에
   `interval_min` 봉으로 묶고, `"rest"`는 REST 3분봉을 그대로 쓴다(`Quant/include/core/BarAggregator.h`, D-068·D-069·D-072·D-074).
-- 보호 주문(손절·트레일)은 전략이 `on_start`에서 등록하고 전략 스레드가 원장만 보고 판정한다(나눠 띄운 전략 역할은 주문 쪽이 공유 면에 올린 원장 사본으로 판정한다). config `protective_orders`
+- 보호 주문(손절·트레일)은 전략이 `on_start`에서 등록하고 전략 스레드가 포지션 장부만 보고 판정한다(나눠 띄운 전략 역할은 주문 쪽이 공유 면에 올린 장부 사본으로 판정한다). config `protective_orders`
   (`off`/`shadow`/`owner`, 기본 `shadow`). 전략 박동이 끊기면 주문 스레드가 이어받고, 둘이 같은 차례를 잡지 않게
   `Engine::claim_protective_cycle`이 한쪽만 통과시킨다(D-114 단계 1·2, `test_protective_orders`).
 - ZMQ 포트는 엔진 한 대가 `zmq_pub_port`부터 **4포트 연속 블록**을 갖는다 — 주문 PUB(`zmq_pub_port`) · 제어
@@ -208,23 +212,24 @@ flowchart LR
 
 | 남는 것 | 무엇이 | 형식 | 켜는 설정 | DB까지 |
 |---|---|---|---|---|
-| 거래 원장 `logs/trades_YYYYMMDD.csv` | 주문 종착 상태·체결·잔고 대조 | 텍스트(CSV) | 없음 — 늘 켜짐 | 상시 경로 없음. 빠진 체결만 [scripts/backfill_fills_db.py](../scripts/backfill_fills_db.py)로 뒤에 채운다 |
-| 원장 저널 `ledger_YYYYMMDD.bin` | 주문 의도·접수·거부·체결·취소·조정·시드·현금·당일손익 | 바이너리 — 192바이트 고정 레코드, 순번·CRC32 ([LedgerJournal.h](../Quant/include/risk/LedgerJournal.h)) | `ledger_journal_dir` | [PYQuant/tools/ledger_recorder.py](../PYQuant/tools/ledger_recorder.py)가 파일 꼬리를 따라 읽어 `ledger_events`, 거기서 `fills`·`orders`·`positions`로 옮긴다 |
+| 거래 기록 `logs/trades_YYYYMMDD.csv` | 주문 종착 상태·체결·잔고 대조 | 텍스트(CSV) | 없음 — 늘 켜짐 | 상시 경로 없음. 빠진 체결만 [scripts/backfill_fills_db.py](../scripts/backfill_fills_db.py)로 뒤에 채운다 |
+| 장부 일지 `ledger_YYYYMMDD.bin` | 주문 의도·접수·거부·체결·취소·조정·시드·현금·당일손익 | 바이너리 — 192바이트 고정 레코드, 순번·CRC32 ([LedgerJournal.h](../Quant/include/risk/LedgerJournal.h)) | `ledger_journal_dir` | [PYQuant/tools/ledger_recorder.py](../PYQuant/tools/ledger_recorder.py)가 파일 꼬리를 따라 읽어 `ledger_events`, 거기서 `fills`·`orders`·`positions`로 옮긴다 |
 | 시세 캡처 `ticks_<기동시각>.bin` | 체결·호가·일봉·그날 유니버스 | 바이너리 — QTCAP v2 ([TickCapture.h](../Quant/include/core/TickCapture.h)) | `capture_dir` | 안 간다. 리플레이 백테스트 입력이다 |
-| ZMQ 발행 | 체결틱·신호·주문·체결·엔진 상태 | 토픽 한 프레임 + JSON 한 프레임 ([ZmqBridge.cpp](../Quant/src/ipc/ZmqBridge.cpp)) | `zmq_pub_port` 블록 (ZeroMQ가 링크돼 있으면 늘 켜짐) | [PYQuant/main.py](../PYQuant/main.py) `record`가 구독해 체결틱·신호·엔진 상태만 넣는다. 주문·체결은 저널 쪽이 넣는다(D-113) |
+| ZMQ 발행 | 체결틱·신호·주문·체결·엔진 상태 | 토픽 한 프레임 + JSON 한 프레임 ([ZmqBridge.cpp](../Quant/src/ipc/ZmqBridge.cpp)) | `zmq_pub_port` 블록 (ZeroMQ가 링크돼 있으면 늘 켜짐) | [PYQuant/main.py](../PYQuant/main.py) `record`가 구독해 체결틱·신호·엔진 상태만 넣는다. 주문·체결은 장부 일지 쪽이 넣는다(D-113) |
 | 엔진 DB 적재 | 체결틱 | libpq COPY 글자 — 파이썬 적재기와 같은 `ticks` 표·열, `ts`는 큐에 넣은 벽시계 ms([DbManager.cpp](../Quant/src/ipc/DbManager.cpp)) | `database.enabled` (기본 꺼짐, 비밀번호는 환경변수 `TSDB_PASSWORD`) | 엔진이 바로 넣는다. 운영 설정(`config_dev_paper`·`config_live`)은 09-26부터 켬. 켠 설정이면 감시견이 `record`를 `--record-ticks` 없이 띄운다 — 둘 다 넣으면 같은 체결이 두 번 들어간다(D-148) |
 
 읽을 때 헷갈리기 쉬운 세 가지.
 
 - 주문은 **ZMQ 발행이 CSV 기록보다 먼저** 나간다. CSV가 발행의 상류가 아니다.
 - 시세는 캡처와 발행이 담는 것이 다르다 — 호가와 일봉은 캡처에만 있고 발행되지 않는다.
-- 잃는 방식이 다르다. 저널은 못 적으면 주문을 아예 안 보내고(그래서 정본), 캡처는 큐가 차면 버리고 센 다음 넘어가며,
-  ZMQ는 구독자가 느리면 큐 상한에서 버린다. 엔진 DB 적재도 큐가 차면 버리고 센다. 되짚을 근거로 삼을 것은 저널이고 DB는 그 복제본이다.
+- 잃는 방식이 다르다. 장부 일지는 못 적으면 주문을 아예 안 보내고(그래서 재기동 복구의 근거), 캡처는 큐가 차면 버리고 센 다음 넘어가며,
+  ZMQ는 구독자가 느리면 큐 상한에서 버린다. 엔진 DB 적재도 큐가 차면 버리고 센다. 되짚을 근거로 삼을 것은 장부 일지이고 DB는 분석용 사본이다.
+  공식 기록은 증권사 계좌 원장이고, 포지션 장부는 잔고 대사로 그것을 따라간다.
 
 ### 핵심 타입 (`Quant/include/core/Types.h`)
 
 <!-- sync: Quant/include/core/Types.h@03723a3 -->
-`MarketData`(OHLCV + bar_index), `OrderSignal`(side/type/quantity/price/**reference_price** + strategy_id, 종목 id `symbol_id`는 전략 스레드가 큐에 넣기 전에 찍고, 전략 번호 `strategy_index`·주문 번호 `client_order_number`는 정수라 게이트·라우터가 문자열 없이 찾는다, D-112), `OrderBook`(5단계 호가, 채널 `H0STASP0`), `TradeData`(실시간 체결, 채널 `H0STCNT0`; 호가·체결 모두 종목 id `symbol_id`와 정수 시각 `hhmmss`를 들고, 봉·호가·체결의 `ticker`는 `symbol::Ticker` 15자 고정 배열이라 세 구조체는 trivially copyable이다 — 문자열은 `.str()`, D-071), `WatchSpec`(WebSocket 구독 스펙 — 엔진이 전략에서 모아 WS에 넘긴다. `trade_only`면 체결만 구독), `Regime`(enum: BULL/NEUTRAL/BEAR/UNKNOWN), `OrderStageTiming`(주문 한 건이 라우터 안에서 구간마다 쓴 시간 — 리스크 점검·이력 잠금과 중복 가드·원장 선기록·초당 한도 대기·증권사 왕복·전송 뒤 마무리 여섯. 그중 둘은 다시 갈라 싣는다: 이력 잠금은 기다린 몫, 전송 뒤 마무리는 접수 확정·발행·이력 저장 셋(이력 저장 안의 미결주문 파일 다시쓰기 몫은 따로 한 칸 더) — 더할 때 두 번 넣지 않는다, D-126. 관측 전용이라 매매 판단에는 안 쓴다, D-117), `FillNotification`(체결통보 한 건 — 주문번호·원주문번호·종목·방향·체결수량·체결단가·체결시각에 주문수량 `order_quantity`와 주문거래소 `exchange`가 붙는다. 뒤쪽 두 칸은 전문이 짧으면 안 오므로 0·빈 값이 모른다는 뜻이다, D-121. 실어 온 실시간 세션 번호 `session_generation`도 붙어, 재연결 뒤 다시 온 같은 체결을 라우터가 가른다, D-131. 종류 `kind`가 `SessionResumed`인 것은 체결이 아니라 체결통보 구독이 붙었다는 표시로, 라우터가 끊긴 사이 체결을 당일 체결 조회로 되찾게 한다, D-149).
+`MarketData`(OHLCV + bar_index), `OrderSignal`(side/type/quantity/price/**reference_price** + strategy_id, 종목 id `symbol_id`는 전략 스레드가 큐에 넣기 전에 찍고, 전략 번호 `strategy_index`·주문 번호 `client_order_number`는 정수라 게이트·라우터가 문자열 없이 찾는다, D-112), `OrderBook`(5단계 호가, 채널 `H0STASP0`), `TradeData`(실시간 체결, 채널 `H0STCNT0`; 호가·체결 모두 종목 id `symbol_id`와 정수 시각 `hhmmss`를 들고, 봉·호가·체결의 `ticker`는 `symbol::Ticker` 15자 고정 배열이라 세 구조체는 trivially copyable이다 — 문자열은 `.str()`, D-071), `WatchSpec`(WebSocket 구독 스펙 — 엔진이 전략에서 모아 WS에 넘긴다. `trade_only`면 체결만 구독), `Regime`(enum: BULL/NEUTRAL/BEAR/UNKNOWN), `OrderStageTiming`(주문 한 건이 라우터 안에서 구간마다 쓴 시간 — 리스크 점검·이력 잠금과 중복 가드·장부 일지 선기록·초당 한도 대기·증권사 왕복·전송 뒤 마무리 여섯. 그중 둘은 다시 갈라 싣는다: 이력 잠금은 기다린 몫, 전송 뒤 마무리는 접수 확정·발행·이력 저장 셋(이력 저장 안의 미결주문 파일 다시쓰기 몫은 따로 한 칸 더) — 더할 때 두 번 넣지 않는다, D-126. 관측 전용이라 매매 판단에는 안 쓴다, D-117), `FillNotification`(체결통보 한 건 — 주문번호·원주문번호·종목·방향·체결수량·체결단가·체결시각에 주문수량 `order_quantity`와 주문거래소 `exchange`가 붙는다. 뒤쪽 두 칸은 전문이 짧으면 안 오므로 0·빈 값이 모른다는 뜻이다, D-121. 실어 온 실시간 세션 번호 `session_generation`도 붙어, 재연결 뒤 다시 온 같은 체결을 라우터가 가른다, D-131. 종류 `kind`가 `SessionResumed`인 것은 체결이 아니라 체결통보 구독이 붙었다는 표시로, 라우터가 끊긴 사이 체결을 당일 체결 조회로 되찾게 한다, D-149).
 
 > `OrderSignal.reference_price`는 시장가(price=0) 주문의 명목 한도 평가 기준가다. 지정가는 `price`로 명목을 재지만 시장가는 `price`가 0이라 이 값이 없으면 명목 백스톱이 우회된다(특히 급락장 강제청산의 시장가 전량매도). 발주 측이 직전 현재가/평단을 stamp한다.
 
