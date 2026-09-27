@@ -310,6 +310,28 @@ int test_decode_daily_fill_page()
     return 0;
 }
 
+int test_decode_multi_price()
+{
+    const std::vector<std::string> tickers{"005930", "000660", "035420"};
+    // 실패 봉투: 빈 본문·JSON 아님·rt_cd 실패·요청 종목이 하나도 없는 응답. (D-150)
+    CHECK(kis_rest::decode_multi_price("", tickers).error().code == "transport");
+    CHECK(kis_rest::decode_multi_price("<html>502</html>", tickers).error().code == "parse");
+    const auto throttled = kis_rest::decode_multi_price(
+        R"({"rt_cd":"1","msg_cd":"EGW00201","msg1":"초당 거래건수를 초과하였습니다.","output":[]})", tickers);
+    CHECK(!throttled && throttled.error().code == "EGW00201");
+    CHECK(kis_rest::decode_multi_price(R"({"rt_cd":"0","output":[{"inter_shrn_iscd":"A005930","inter2_prpr":"71000"}]})",
+                                       tickers).error().code == "parse");
+
+    // 응답 순서와 상관없이 요청 순서로 맞추고, 응답에 없는 종목은 0이다. [wire] KIS 응답 필드명
+    const std::string body = R"({"rt_cd":"0","output":[
+        {"inter_shrn_iscd":"035420","inter_kor_isnm":"NAVER","inter2_prpr":"181500"},
+        {"inter_shrn_iscd":"005930","inter_kor_isnm":"삼성전자","inter2_prpr":"71000"}]})";
+    const auto prices = kis_rest::decode_multi_price(body, tickers);
+    CHECK(prices && prices->size() == 3);
+    CHECK((*prices)[0] == 71000.0 && (*prices)[1] == 0.0 && (*prices)[2] == 181500.0);
+    return 0;
+}
+
 int test_kis_result()
 {
     // 봉투(std::expected): 실패는 bool false·error_text, 성공은 값 접근. 실패 봉투에는 값이 없다.
@@ -331,7 +353,7 @@ int main()
 {
     if (test_number() || test_parse_dt() || test_parse_minute_page() || test_aggregate() || test_option_number() ||
         test_decode_holding() || test_decode_balance_page() || test_decode_future_board() || test_decode_open_order_page() ||
-        test_decode_daily_fill_page() || test_kis_result())
+        test_decode_daily_fill_page() || test_decode_multi_price() || test_kis_result())
     {
         return 1;
     }

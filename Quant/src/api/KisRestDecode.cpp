@@ -429,4 +429,60 @@ KisResult<DailyFillPage> decode_daily_fill_page(std::string_view response)
     return page;
 }
 
+KisResult<std::vector<double>> decode_multi_price(std::string_view response, const std::vector<std::string>& tickers)
+{
+    if (response.empty())
+    {
+        return kis_fail("transport", "멀티종목 시세 응답 없음");
+    }
+
+    const nlohmann::json document = nlohmann::json::parse(response, nullptr, /*allow_exceptions=*/false);
+
+    if (document.is_discarded() || !document.is_object())
+    {
+        return kis_fail("parse", "멀티종목 시세 응답 해석 실패");
+    }
+
+    if (document.value("rt_cd", std::string()) != "0")
+    {
+        return kis_fail(document.value("msg_cd", std::string()), document.value("msg1", std::string()));
+    }
+
+    std::vector<double> prices(tickers.size(), 0.0);
+    int                 matched = 0;
+    const auto          rows    = document.find("output");
+
+    if (rows != document.end() && rows->is_array())
+    {
+        for (const auto& node : *rows)
+        {
+            const auto code = node.find("inter_shrn_iscd");
+
+            if (code == node.end() || !code->is_string())
+            {
+                continue;
+            }
+
+            const auto& code_text = code->get_ref<const std::string&>();
+
+            for (size_t index = 0; index < tickers.size(); ++index)
+            {
+                if (tickers[index] == code_text)
+                {
+                    prices[index] = number(node, "inter2_prpr");
+                    ++matched;
+                    break;
+                }
+            }
+        }
+    }
+
+    if (matched == 0 && !tickers.empty())
+    {
+        return kis_fail("parse", "멀티종목 시세 응답에 요청 종목이 없음");
+    }
+
+    return prices;
+}
+
 } // namespace kis_rest

@@ -178,6 +178,93 @@ int test_overflow()
     return 0;
 }
 
+int test_batch()
+{
+    // 65종목 → 30·30·5 세 묶음. 순서는 넣은 순서 그대로, US는 빠진다.
+    std::vector<std::vector<std::string>> batches;
+    std::vector<std::string>              single;
+    std::vector<TradeData>                out;
+    bool                                  fail_second = false;
+    DataPoller data_poller(
+        [&](const std::string& ticker)
+        {
+            single.push_back(ticker);
+            return 7.0;
+        },
+        [&](const TradeData& trade)
+        {
+            out.push_back(trade);
+        });
+    data_poller.set_universe_call_interval(std::chrono::milliseconds(0));
+    data_poller.set_batch_quote(
+        [&](const std::vector<std::string>& tickers) -> std::optional<std::vector<double>>
+        {
+            batches.push_back(tickers);
+
+            if (fail_second && batches.size() == 2)
+            {
+                return std::nullopt;
+            }
+
+            std::vector<double> prices;
+
+            for (const auto& ticker : tickers)
+            {
+                prices.push_back(ticker == "T10" ? 0.0 : 100.0 + std::stoi(ticker.substr(1)));
+            }
+
+            return prices;
+        },
+        30);
+
+    std::vector<WatchSpec> universe;
+
+    for (int index = 0; index < 65; ++index)
+    {
+        universe.push_back(specification(("T" + std::to_string(index)).c_str()));
+    }
+
+    universe.insert(universe.begin() + 5, specification("US1", Market::US));
+    int count = data_poller.poll_universe(universe, kT0);
+    CHECK(batches.size() == 3 && batches[0].size() == 30 && batches[1].size() == 30 && batches[2].size() == 5);
+    CHECK(batches[0].front() == "T0" && batches[1].front() == "T30" && batches[2].back() == "T64" && single.empty());
+    CHECK(count == 64 && out.size() == 64); // T10은 0이라 틱 없음
+    CHECK(out[0].ticker == "T0" && out[0].price == 100.0 && out[63].ticker == "T64" && out[63].price == 164.0);
+    CHECK(out[0].hhmmss == 170000 && out[0].quantity == 0);
+
+    // 가운데 묶음이 실패하면 그 묶음만 한 종목씩 받는다(30건), 앞뒤 묶음은 그대로.
+    batches.clear();
+    out.clear();
+    fail_second = true;
+    count = data_poller.poll_universe(universe, kT0);
+    CHECK(batches.size() == 3 && single.size() == 30 && single.front() == "T30" && single.back() == "T59");
+    CHECK(count == 64 && out.size() == 64 && out[29].ticker == "T30" && out[29].price == 7.0);
+    CHECK(out[28].ticker == "T29" && out[28].price == 129.0 && out[59].ticker == "T60" && out[59].price == 160.0);
+
+    // 넘침 경로도 재구독을 먼저 해 본 뒤 남은 종목만 묶는다. 실패 종목(0)은 틱이 없다.
+    batches.clear();
+    single.clear();
+    out.clear();
+    fail_second = false;
+    CHECK(data_poller.add_overflow(specification("T1")) && data_poller.add_overflow(specification("T2")) &&
+          data_poller.add_overflow(specification("T10")));
+    count = data_poller.poll_overflow({}, [](const WatchSpec& specification)
+    {
+        return specification.ticker == "T2";
+    }, kT0);
+    CHECK(batches.size() == 1 && batches[0].size() == 2 && batches[0][0] == "T1" && batches[0][1] == "T10");
+    CHECK(count == 1 && out.size() == 1 && out[0].ticker == "T1" && data_poller.overflow_count() == 2 && single.empty());
+
+    // 종료 중이면 묶음 호출도 하지 않는다.
+    batches.clear();
+    data_poller.set_keep_going([]
+    {
+        return false;
+    });
+    CHECK(data_poller.poll_universe(universe, kT0) == 0 && batches.empty());
+    return 0;
+}
+
 int test_top_up()
 {
     std::vector<std::pair<std::string, double>> received;
@@ -320,7 +407,7 @@ int main()
         Logger::instance().set_base_directory(Logger::executable_directory() / "logs_test");
     }
 
-    if (test_kst() || test_pure() || test_universe() || test_overflow() || test_top_up() || test_loop())
+    if (test_kst() || test_pure() || test_universe() || test_overflow() || test_batch() || test_top_up() || test_loop())
     {
         return 1;
     }

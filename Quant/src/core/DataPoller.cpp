@@ -6,6 +6,7 @@
 #include "utils/Logger.h"
 #include "utils/ThreadName.h"
 
+#include <algorithm>
 #include <thread>
 
 DataPoller::DataPoller(QuoteFn quote, TickSink sink) : quote_(std::move(quote)), sink_(std::move(sink)) {}
@@ -14,6 +15,12 @@ DataPoller::~DataPoller()
 {
     request_stop();
     join();
+}
+
+void DataPoller::set_batch_quote(BatchQuoteFn batch_quote, size_t batch_size)
+{
+    batch_quote_ = std::move(batch_quote);
+    batch_size_  = std::max<size_t>(batch_size, 1);
 }
 
 void DataPoller::start(LoopSources sources, std::chrono::milliseconds round_period)
@@ -48,11 +55,13 @@ void DataPoller::loop(std::stop_token stop_token, const LoopSources& sources, st
     thread_name::set_current("RestPoller");
 
     LOG_INFO("[Engine] REST 조회 스레드 시작 — 목표 주기 " + std::to_string(round_period.count()) + "ms");
+    auto summary_start = std::chrono::steady_clock::now();
 
     while (!stop_token.stop_requested() && keep_going())
     {
-        const auto round_start = std::chrono::steady_clock::now();
-        int        ticks       = 0;
+        const auto      round_start   = std::chrono::steady_clock::now();
+        const long long symbols_start = round_statistics_.symbols;
+        int             ticks         = 0;
 
         try
         {
@@ -79,6 +88,7 @@ void DataPoller::loop(std::stop_token stop_token, const LoopSources& sources, st
 
         // 한 바퀴가 목표보다 짧으면 남은 만큼 잔다. 길었으면 바로 다음 바퀴 — 호출 간격과 앱키 한도가 속도를 잡는다.
         const auto spent = std::chrono::steady_clock::now() - round_start;
+        record_round(symbols_start, std::chrono::duration_cast<std::chrono::milliseconds>(spent), summary_start);
 
         if (spent < round_period && !wake::sleep_unless_stopped(stop_token, round_period - spent))
         {
@@ -89,38 +99,133 @@ void DataPoller::loop(std::stop_token stop_token, const LoopSources& sources, st
 
 int DataPoller::poll_universe(const std::vector<WatchSpec>& specifications, std::time_t now_utc)
 {
-    const int32_t hhmmss = kst::hhmmss_int(now_utc);
-    int           count      = 0;
+    const int32_t            hhmmss = kst::hhmmss_int(now_utc);
+    int                      count  = 0;
+    std::vector<std::string> tickers;
+    tickers.reserve(specifications.size());
 
     for (const auto& specification : specifications)
     {
-        if (specification.market != Market::KR)
+        if (specification.market == Market::KR)
+        {
+            tickers.push_back(specification.ticker);
+        }
+    }
+
+    const std::vector<double> prices = fetch_prices(tickers);
+
+    for (size_t index = 0; index < prices.size(); ++index)
+    {
+        if (prices[index] <= 0.0)
         {
             continue;
         }
+
+        sink_(poller::make_tick(tickers[index], prices[index], hhmmss, std::chrono::system_clock::now()));
+        ++count;
+    }
+
+    return count;
+}
+
+void DataPoller::wait_call_interval() const
+{
+    if (universe_call_interval_.count() > 0)
+    {
+        std::this_thread::sleep_for(universe_call_interval_);
+    }
+}
+
+std::vector<double> DataPoller::fetch_prices(const std::vector<std::string>& tickers)
+{
+    std::vector<double> prices;
+    prices.reserve(tickers.size());
+    round_statistics_.symbols += static_cast<long long>(tickers.size());
+
+    for (size_t begin = 0; begin < tickers.size();)
+    {
+        const size_t end = batch_quote_ ? std::min(begin + batch_size_, tickers.size()) : begin + 1;
 
         if (!keep_going())
         {
             break;
         }
 
-        if (universe_call_interval_.count() > 0)
+        if (batch_quote_)
         {
-            std::this_thread::sleep_for(universe_call_interval_);
+            const std::vector<std::string> chunk(tickers.begin() + static_cast<std::ptrdiff_t>(begin),
+                                                 tickers.begin() + static_cast<std::ptrdiff_t>(end));
+            wait_call_interval();
+            ++round_statistics_.calls;
+            const auto chunk_prices = batch_quote_(chunk);
+
+            if (chunk_prices && chunk_prices->size() == chunk.size())
+            {
+                prices.insert(prices.end(), chunk_prices->begin(), chunk_prices->end());
+                begin = end;
+                continue;
+            }
+
+            ++round_statistics_.batch_failures;
+
+            if (!batch_failure_logged_)
+            {
+                batch_failure_logged_ = true;
+                LOG_WARN("[Engine] REST 묶음 시세 실패 — 이 묶음은 한 종목씩 조회로 받는다 - first_ticker(" + chunk.front() +
+                         ") count(" + std::to_string(chunk.size()) + ")");
+            }
         }
 
-        const double price = quote_(specification.ticker);
-
-        if (price <= 0.0)
+        // 묶음이 없거나 실패한 묶음은 한 종목씩 받는다.
+        for (size_t index = begin; index < end; ++index)
         {
-            continue;
+            if (!keep_going())
+            {
+                return prices;
+            }
+
+            wait_call_interval();
+            ++round_statistics_.calls;
+            prices.push_back(quote_(tickers[index]));
         }
 
-        sink_(poller::make_tick(specification.ticker, price, hhmmss, std::chrono::system_clock::now()));
-        ++count;
+        begin = end;
     }
 
-    return count;
+    return prices;
+}
+
+void DataPoller::record_round(long long symbols_start, std::chrono::milliseconds spent,
+                              std::chrono::steady_clock::time_point& summary_start)
+{
+    if (round_statistics_.symbols > symbols_start)
+    {
+        ++round_statistics_.busy_rounds;
+        round_statistics_.elapsed_ms_sum += spent.count();
+        round_statistics_.elapsed_ms_max = std::max<long long>(round_statistics_.elapsed_ms_max, spent.count());
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+
+    if (now - summary_start < std::chrono::minutes(1))
+    {
+        return;
+    }
+
+    // 1초 바퀴마다 한 줄이면 하루 수만 줄이라 1분에 한 줄로 묶는다. 조회한 종목이 없던 1분은 남기지 않는다.
+    //  scripts/check_runtime_health.py "REST 조회 한 바퀴" 행이 이 줄을 읽는다. [why D-150]
+    if (round_statistics_.busy_rounds > 0)
+    {
+        LOG_INFO("[Engine] REST 조회 1분 요약 - rounds(" + std::to_string(round_statistics_.busy_rounds) + ") symbols(" +
+                 std::to_string(round_statistics_.symbols / round_statistics_.busy_rounds) + ") calls(" +
+                 std::to_string(round_statistics_.calls / round_statistics_.busy_rounds) + ") avg_ms(" +
+                 std::to_string(round_statistics_.elapsed_ms_sum / round_statistics_.busy_rounds) + ") max_ms(" +
+                 std::to_string(round_statistics_.elapsed_ms_max) + ") batch_fail(" +
+                 std::to_string(round_statistics_.batch_failures) + ")");
+    }
+
+    round_statistics_  = RoundStats{};
+    summary_start = now;
 }
 
 bool DataPoller::add_overflow(const WatchSpec& specification)
@@ -186,9 +291,12 @@ int DataPoller::poll_overflow(const std::vector<WatchSpec>& from_websocket, cons
         return 0;
     }
 
-    const int32_t          hhmmss  = kst::hhmmss_int(now_utc);
-    int                    count       = 0;
+    const int32_t            hhmmss = kst::hhmmss_int(now_utc);
+    int                      count  = 0;
+    std::vector<std::string> tickers;
+    tickers.reserve(pending.size());
 
+    // 재구독을 종목마다 먼저 시도하고, 안 된 KR 종목만 모아 REST로 받는다.
     for (const auto& specification : pending)
     {
         if (resub && resub(specification))
@@ -208,39 +316,35 @@ int DataPoller::poll_overflow(const std::vector<WatchSpec>& from_websocket, cons
             continue;
         }
 
-        if (specification.market != Market::KR)
+        if (specification.market == Market::KR)
         {
-            continue;
+            tickers.push_back(specification.ticker);
         }
+    }
 
-        if (!keep_going())
-        {
-            break;
-        }
+    const std::vector<double> prices = fetch_prices(tickers);
 
-        if (universe_call_interval_.count() > 0)
-        {
-            std::this_thread::sleep_for(universe_call_interval_);
-        }
-
-        const double price = quote_(specification.ticker);
+    for (size_t index = 0; index < prices.size(); ++index)
+    {
+        const std::string& ticker = tickers[index];
+        const double       price  = prices[index];
 
         if (price <= 0.0)
         {
-            if (rest_failed_.insert(specification.ticker).second)
+            if (rest_failed_.insert(ticker).second)
             {
-                LOG_WARN("[Engine] REST 대체 시세 실패 " + specification.ticker + " — 현재가 0(응답 없음/파싱 실패)");
+                LOG_WARN("[Engine] REST 대체 시세 실패 " + ticker + " — 현재가 0(응답 없음/파싱 실패)");
             }
 
             continue;
         }
 
-        if (rest_seen_.insert(specification.ticker).second)
+        if (rest_seen_.insert(ticker).second)
         {
-            LOG_INFO("[Engine] REST 대체 시세 첫 수신 " + specification.ticker + " px=" + std::to_string(price));
+            LOG_INFO("[Engine] REST 대체 시세 첫 수신 " + ticker + " px=" + std::to_string(price));
         }
 
-        sink_(poller::make_tick(specification.ticker, price, hhmmss, std::chrono::system_clock::now()));
+        sink_(poller::make_tick(ticker, price, hhmmss, std::chrono::system_clock::now()));
         ++count;
     }
 

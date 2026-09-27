@@ -193,6 +193,10 @@ WATCH_OVERFLOW_RE = re.compile(r"watch_overflow=(\d+)")
 # 구독 칸 우선순위 배정(D-132). 넘침 종목이 REST 대체조차 없으면 틱이 아예 안 온다.
 WATCH_NO_REST_RE = re.compile(r"WS 구독 상한 — \S+ 는 REST 대체가 아직 없어")
 WS_SLOT_RELEASE_RE = re.compile(r"\[WS칸\] 칸 내줌 — ")
+# 넘침·폴백 REST 조회 1분 요약(D-150). 30종목 묶음이면 160종목 한 바퀴가 약 0.6초다.
+REST_ROUND_RE = re.compile(r"REST 조회 1분 요약 - rounds\((\d+)\) symbols\((\d+)\) calls\((\d+)\) "
+                           r"avg_ms\((\d+)\) max_ms\((\d+)\) batch_fail\((\d+)\)")
+REST_ROUND_SLOW_MS = 2000  # 1분 평균 한 바퀴가 이보다 길면 전략이 2초 넘게 묵은 값을 본다
 WS_SLOT_PROTECTED_OFF_RE = re.compile(r"\[WS칸\] 보유·선점 종목이 칸 밖 — (\S+)")
 WS_SLOT_RELEASE_LIMIT = 200  # 하루 칸 내줌 횟수 문턱 — 넘으면 교체가 잦다
 # 시세 통로(D-114 단계 4 배선 2') — 큐가 차서 못 넘긴 건수, 꺼낸 값이 말이 안 돼 버린 건수.
@@ -1799,6 +1803,11 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
     strategy_register_timeout = -1               # 이름표 등록을 못 받은 수. -1이면 그 줄이 없는 구 exe
     watch_overflow = -1                          # 구독 상한에 밀린 종목 수. -1이면 그 줄이 없는 구 exe
     watch_no_rest = 0                            # 상한에 밀렸는데 REST 대체도 없던 종목 수
+    rest_round_minutes = 0                       # REST 조회 1분 요약 줄 수. 0이면 넘침 종목이 없었거나 옛 exe
+    rest_round_slow_minutes = 0                  # 1분 평균 한 바퀴가 REST_ROUND_SLOW_MS를 넘은 줄 수
+    rest_round_average_max = 0                       # 1분 평균 한 바퀴의 하루 최댓값(ms)
+    rest_round_symbols_max = 0                   # 한 바퀴 종목 수의 하루 최댓값
+    rest_batch_failures = 0                      # 실패해 한 종목씩으로 돌아간 묶음 수 합
     websocket_slot_releases = 0                         # 칸 우선순위 배정이 칸을 내준 횟수(D-132)
     websocket_slot_protected_off = []                   # 보유·선점인데 칸 밖으로 밀린 종목(D-132)
     feed_channel_overflow = -1                   # 통로가 차서 못 넘긴 시세 건수. -1이면 그 줄이 없는 구 exe
@@ -1918,6 +1927,14 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
                 watch_overflow = max(watch_overflow, int(found.group(1)))
             if WATCH_NO_REST_RE.search(line):
                 watch_no_rest += 1
+            if found := REST_ROUND_RE.search(line):
+                rest_round_minutes += 1
+                round_average_ms = int(found.group(4))
+                rest_round_average_max = max(rest_round_average_max, round_average_ms)
+                rest_round_symbols_max = max(rest_round_symbols_max, int(found.group(2)))
+                rest_batch_failures += int(found.group(6))
+                if round_average_ms > REST_ROUND_SLOW_MS:
+                    rest_round_slow_minutes += 1
             if WS_SLOT_RELEASE_RE.search(line):
                 websocket_slot_releases += 1
             if found := WS_SLOT_PROTECTED_OFF_RE.search(line):
@@ -2321,6 +2338,15 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
         #  현재가로 받는다(D-132) — 그래서 밀린 것 자체는 정상이고, REST 대체조차 없는 종목만 FAIL이다.
         watch_row("구독 상한", watch_no_rest == 0, "FAIL",
                   f"소켓에 못 건 종목 {watch_overflow}건(REST로 받음) · REST 대체도 없는 종목 {watch_no_rest}건 (기대 0)"),
+        # 넘친 종목은 REST로 받는데, 한 바퀴가 길면 전략이 묵은 값으로 판단한다. 30종목 묶음 호출이면
+        #  160종목이 약 0.6초다(D-150). 묶음이 실패하면 한 종목씩으로 돌아가 16초 넘게 걸린다.
+        ("REST 조회 한 바퀴",
+         rest_round_slow_minutes == 0,
+         "WARN",
+         "REST 조회 1분 요약 줄 없음(넘침 종목 없음 또는 D-150 전 exe) — 판정 안 함"
+         if rest_round_minutes == 0
+         else f"1분 평균 한 바퀴 최대 {rest_round_average_max}ms · {REST_ROUND_SLOW_MS}ms 넘은 분 {rest_round_slow_minutes}/"
+              f"{rest_round_minutes} · 종목 최대 {rest_round_symbols_max} · 한 종목씩으로 돌아간 묶음 {rest_batch_failures}건"),
         # 칸은 보유 → 선점 → 점수 순으로 준다. 보유·선점 종목이 칸 밖이면 청산 판단이 REST 주기만큼 늦는다.
         #  칸 전부를 보유·선점이 쥔 날에만 생긴다(2칸 종목 20개면 찬다) — 보유 한도와 칸 수를 같이 볼 일이라 WARN.
         ("구독 칸 보유 우선",

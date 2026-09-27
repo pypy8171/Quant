@@ -341,6 +341,26 @@ double KisClient::get_current_price(const std::string& ticker)
     }
 }
 
+KisResult<std::vector<double>> KisClient::get_current_prices(const std::vector<std::string>& tickers)
+{
+    if (tickers.empty() || tickers.size() > kMultiPriceMax)
+    {
+        return kis_fail("argument", "멀티종목 시세 종목 수 - count(" + std::to_string(tickers.size()) + ")");
+    }
+
+    // [wire] 시장 코드 J = KRX. 종목 번호는 1부터 붙는다. KIS 공식 샘플로 확인(2026-09-27, MCP kis-code-assistant).
+    std::string url = base_url() + "/uapi/domestic-stock/v1/quotations/intstock-multprice?";
+
+    for (size_t index = 0; index < tickers.size(); ++index)
+    {
+        const std::string number_text = std::to_string(index + 1);
+        url += (index == 0 ? "" : "&");
+        url += "FID_COND_MRKT_DIV_CODE_" + number_text + "=J&FID_INPUT_ISCD_" + number_text + "=" + tickers[index];
+    }
+
+    return kis_rest::decode_multi_price(http_get(url, authentication_headers("FHKST11300006")), tickers);
+}
+
 Fundamentals KisClient::get_fundamentals(const std::string& ticker)
 {
     std::string url = base_url() + "/uapi/domestic-stock/v1/quotations/inquire-price" + "?FID_COND_MRKT_DIV_CODE=J" +

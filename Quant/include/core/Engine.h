@@ -863,7 +863,7 @@ private:
     // REST 현재가 폴러(폴링 모드 유니버스·WS 넘침 대체·보유 보충). start()에서 feed_.kis 뒤에 만든다.
     //  poll_*은 폴러 자기 스레드(start_rest_poll_loop), top_up은 data_thread가 부른다. [why D-062] [why D-138]
     std::unique_ptr<DataPoller> poller_;
-    static constexpr int kRestPollRoundMs = 1000; // 넘침 종목 한 바퀴 목표. 종목이 한도(초당 10)를 넘으면 그만큼 늘어난다
+    static constexpr int kRestPollRoundMs = 1000; // 넘침 종목 한 바퀴 목표. 30종목 묶음 호출이 초당 10건을 넘으면(300종목 초과) 그만큼 늘어난다
 
     // 무거운 REST를 미리 당기는 공용 프리페치 풀. 전략보다 먼저 선언해 나중에 사라지게 둔다
     //  — 전략 소멸자가 자기 작업을 떼는 동안 풀이 살아 있어야 한다. [why D-071]

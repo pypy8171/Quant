@@ -359,6 +359,35 @@ void Engine::initialize_data_poller()
     {
         return running_.load(std::memory_order_acquire);
     });
+    // 넘침·폴백 조회는 30종목씩 멀티종목 시세 한 건으로 받는다. 실패한 묶음은 폴러가 한 종목씩 다시 받는다.
+    //  첫 실패만 KIS 오류 코드를 남긴다(모의 도메인 지원 여부를 공식 자료로 확인하지 못했다). [why D-150]
+    poller_->set_batch_quote(
+        [this, failure_logged = false](const std::vector<std::string>& tickers) mutable -> std::optional<std::vector<double>>
+        {
+            KisClient* quote_client = feed_.quote_kis ? feed_.quote_kis.get() : feed_.kis.get();
+
+            if (!quote_client)
+            {
+                return std::nullopt;
+            }
+
+            auto prices = quote_client->get_current_prices(tickers);
+
+            if (!prices)
+            {
+                if (!failure_logged)
+                {
+                    failure_logged = true;
+                    LOG_WARN("[Engine] 멀티종목 시세 조회 실패 - error(" + error_text(prices) + ") paper(" +
+                             std::string(quote_client->is_paper() ? "true" : "false") + ")");
+                }
+
+                return std::nullopt;
+            }
+
+            return std::move(*prices);
+        },
+        KisClient::kMultiPriceMax);
 }
 
 bool Engine::try_open_ledger_journal()
@@ -690,7 +719,8 @@ int Engine::ledger_position(const std::string& ticker) const
 void Engine::start_rest_poll_loop()
 {
     // REST 폴백·넘침 종목 조회는 데이터 스레드 30초 사이클에서 떼어 폴러 스레드가 1초 목표로 돈다.
-    //  넘침 종목이 늘면 한 바퀴가 1초를 넘는다 — 초당 호출 한도가 먼저라 그 늘어남은 받아들인다. [why D-138]
+    //  30종목 묶음 한 건에 100ms 간격이라 160종목이면 6건 약 0.6초다. 300종목을 넘거나 묶음이 실패해 한 종목씩
+    //  받으면 한 바퀴가 1초를 넘는다 — 초당 호출 한도가 먼저라 그 늘어남은 받아들인다. [why D-138] [why D-150]
     if (!runs_feed_side() || !poller_)
     {
         return;

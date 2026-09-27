@@ -109,4 +109,11 @@ struct DailyFillPage
 //  tot_ccld_qty·tot_ccld_amt. 실계좌 응답으로 필드 이름 확인(2026-09-27).
 KisResult<DailyFillPage> decode_daily_fill_page(std::string_view response);
 
+// 관심종목(멀티종목) 시세조회 응답 본문 → 현재가. 반환 벡터는 tickers와 같은 순서·길이이고, 응답에 없는 종목은 0이다.
+//  실패 구분은 decode_open_order_page와 같고, 응답 행이 요청 종목과 한 건도 맞지 않아도 "parse" 실패다 — 코드 형식이
+//  달라 전부 0으로 읽히면 호출자가 한 종목씩 조회로 돌아가게 하려는 것이다. [why D-150]
+//  [wire] FHKST11300006(intstock-multprice) output 배열에 inter_shrn_iscd(종목코드)·inter2_prpr(현재가).
+//  KIS 공식 샘플(examples_llm/domestic_stock/intstock_multprice, MCP kis-code-assistant)로 확인(2026-09-27).
+KisResult<std::vector<double>> decode_multi_price(std::string_view response, const std::vector<std::string>& tickers);
+
 } // namespace kis_rest

@@ -7246,3 +7246,32 @@ regime.json 하나를 번갈아 쓰면 어느 쪽 값인지 가릴 수 없어서
 `test_kis_decode`(`decode_daily_fill_page`), `test_fill_channel`(구독 재개 표시).
 
 **연결**: D-097 · D-120 · `Quant/src/ipc/OrderRouter.cpp` · `Quant/src/api/KisAccount.cpp`
+
+---
+
+### D-150 넘침 종목 REST 조회를 멀티종목 시세로 30종목씩 묶는다 (2026-09-27)
+
+**문제**: D-138 뒤에도 넘침 종목(WS 칸 약 40에 못 든 종목)은 종목마다 현재가 조회(FHKST01010100) 한 건씩, 100ms
+간격으로 받았다. 넘침 종목이 160개쯤이면 한 바퀴가 16초를 넘고, 호출 한도 대기까지 겹치면 30초 가까이 되어
+눌림 전략이 20초 안팎 묵은 값으로 판단했다.
+
+**결정**:
+- 관심종목(멀티종목) 시세조회(`intstock-multprice`, FHKST11300006)로 한 호출에 30종목을 받는다. 파라미터는
+  `FID_COND_MRKT_DIV_CODE_n=J`·`FID_INPUT_ISCD_n`(n=1..30), 응답 `output` 배열의 `inter_shrn_iscd`(종목코드)·
+  `inter2_prpr`(현재가)를 읽는다. KIS 공식 샘플(MCP kis-code-assistant, 2026-09-27)로 확인했다
+  (`KisClient::get_current_prices`, `kis_rest::decode_multi_price`).
+- 호출 간격 100ms와 같은 앱키 공유 한도(D-138)는 그대로 둔다. 160종목이면 6건, 한 바퀴 약 0.6초다.
+- `DataPoller::fetch_prices`가 30개씩 끊어 부르고, 묶음 호출이 실패하거나 요청 종목이 하나도 맞지 않으면 그 묶음만
+  한 종목씩 조회로 받는다. 넘침 경로는 전처럼 종목마다 재구독을 먼저 해 보고 남은 종목만 묶는다. 보유 보충(`top_up`)은
+  한 종목씩 그대로다.
+- 조회 스레드가 1분에 한 줄 "REST 조회 1분 요약"(바퀴 수·종목 수·호출 수·평균·최대 ms·실패 묶음 수)을 남긴다. 1초
+  바퀴마다 한 줄이면 하루 수만 줄이라 묶었다. `scripts/check_runtime_health.py` "REST 조회 한 바퀴" 행이 1분 평균이
+  2000ms를 넘은 분을 경고로 센다.
+
+**모르는 것**: 모의 도메인이 이 TR을 받는지는 공식 자료에서 확인하지 못했다. 시세는 보통 시세 전용(실전) 클라이언트가
+받지만, 모의 도메인에서 실패하면 첫 실패의 KIS 오류 코드가 로그에 남고 한 종목씩 조회로 돌아간다.
+
+**버린 대안**: (1) 호출 간격을 줄임 — 한도를 넘겨 EGW00201이 주문까지 막는다(D-138). (2) 넘침 종목 수를 줄임 —
+전략이 보는 종목이 준다.
+
+**연결**: D-062 · D-138 · D-120 · `Quant/src/core/DataPoller.cpp` · `Quant/src/api/KisMarket.cpp`

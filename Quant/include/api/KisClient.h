@@ -109,6 +109,10 @@ public:
     //   반환: 최신→과거(result[0]=최신), 최대 count봉. interval_min=1이면 1분봉 그대로.
     std::vector<MarketData> get_minute_ohlcv(const std::string& ticker, int count, int interval_min = 3) override;
     double get_current_price(const std::string& ticker) override;
+    // 관심종목(멀티종목) 시세조회로 최대 kMultiPriceMax 종목의 현재가를 한 번에 받는다(FHKST11300006).
+    //  반환은 tickers와 같은 순서, 응답에 없는 종목은 0. 넘치면 "argument" 실패. 한도 버킷은 한 건으로 센다. [why D-150]
+    [[nodiscard]] KisResult<std::vector<double>> get_current_prices(const std::vector<std::string>& tickers);
+    static constexpr size_t kMultiPriceMax = 30; // [wire] 한 번에 넣을 수 있는 종목 수(FID_INPUT_ISCD_1..30)
     Fundamentals get_fundamentals(const std::string& ticker);
     // submit·revise는 order_thread가 부른다. cancel_order는 OrderRouter의 재조회·오래된 주문 정리 스레드도 부른다.
     //  실패 사유는 반환값 error_code에 있다(D-039).

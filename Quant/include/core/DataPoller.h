@@ -53,6 +53,8 @@ public:
     using TickSink      = std::function<void(TradeData)>;                   // 큐 push(값으로 넘겨 sink가 옮긴다). 가득 찼을 때 기다림은 호출자 몫
     using ResubscribeFn = std::function<bool(const WatchSpec&)>;            // WS 재구독 시도. true = 슬롯 확보
     using KeepGoingFn   = std::function<bool()>;                            // running_ — 종료 중이면 루프를 끊는다
+    // 여러 종목 현재가를 한 번에. 반환은 tickers와 같은 순서·길이(0 = 그 종목 없음), nullopt = 호출 실패.
+    using BatchQuoteFn  = std::function<std::optional<std::vector<double>>(const std::vector<std::string>& tickers)>;
 
     // 조회 스레드가 한 바퀴마다 묻는 것들. 어느 것이든 비어 있으면 그 일을 하지 않는다.
     struct LoopSources
@@ -69,7 +71,8 @@ public:
     DataPoller& operator=(const DataPoller&) = delete;
 
     // 조회 스레드를 띄운다. 한 바퀴(넘침 종목 전체, REST 폴백이면 감시 종목 전체)를 round_period 안에 끝내는 것이
-    //  목표다. 종목이 많아 한 바퀴가 그보다 길면 쉬지 않고 다음 바퀴로 간다 — 그때 주기는 종목 수 × 호출 간격이다.
+    //  목표다. 종목이 많아 한 바퀴가 그보다 길면 쉬지 않고 다음 바퀴로 간다 — 그때 주기는 호출 수 × 호출 간격이고,
+    //  호출 수는 묶음(set_batch_quote)이 있으면 종목 수 ÷ 묶음 크기다(160종목 → 6건, 약 0.6초). [why D-150]
     //  예전에는 data_thread의 30초 사이클 안에서 돌아, 넘친 종목의 시세가 30초에 한 점이었다. [why D-138]
     void start(LoopSources sources, std::chrono::milliseconds round_period);
     // 정지 요청만 한다(엔진 request_shutdown에서). 회수는 join이다.
@@ -83,11 +86,16 @@ public:
     }
 
     // 종목 간 호출 간격. 실전 앱키 한도는 초당 20건이고 주문·잔고·스캔도 같은 한도를 쓴다(실계좌는 같은 키).
-    //  100ms면 조회 스레드가 초당 10건까지만 쓰고 나머지를 남긴다 — 넘친 종목 10개까지 1초 주기다. [why D-138]
+    //  100ms면 조회 스레드가 초당 10건까지만 쓰고 나머지를 남긴다 — 묶음 없이는 넘친 종목 10개, 30종목 묶음이면
+    //  300개까지 1초 주기다. [why D-138] [why D-150]
     void set_universe_call_interval(std::chrono::milliseconds milliseconds)
     {
         universe_call_interval_ = milliseconds;
     }
+
+    // 넘침·폴백 조회를 batch_size 종목씩 묶어 한 번에 받는다. 묶음 호출이 실패한 묶음은 그 자리에서 한 종목씩
+    //  quote로 다시 받는다. 설정하지 않으면 전부 한 종목씩이다. 조회 스레드를 띄우기 전에 부른다. [why D-150]
+    void set_batch_quote(BatchQuoteFn batch_quote, size_t batch_size);
 
     // 보유 보충은 모의 도메인(초당 한도가 낮다)에서도 돌아 300ms.
     void set_top_up_call_interval(std::chrono::milliseconds milliseconds)
@@ -119,12 +127,21 @@ private:
     }
 
     void loop(std::stop_token stop_token, const LoopSources& sources, std::chrono::milliseconds round_period);
+    // tickers의 현재가를 묶음(또는 한 종목씩)으로 받는다. 호출마다 universe_call_interval_을 먼저 쉰다.
+    //  반환은 tickers 앞쪽부터 같은 순서이고, 종료 요청이면 거기서 끊겨 짧을 수 있다. 조회 스레드(와 시험)만 부른다.
+    std::vector<double> fetch_prices(const std::vector<std::string>& tickers);
+    void wait_call_interval() const;
+    // 한 바퀴를 누계에 더하고, 1분이 지났으면 요약 한 줄을 남긴 뒤 누계를 비운다. 조회 스레드만 부른다.
+    void record_round(long long symbols_start, std::chrono::milliseconds spent,
+                      std::chrono::steady_clock::time_point& summary_start);
 
     QuoteFn                   quote_;
     TickSink                  sink_;
     KeepGoingFn               keep_going_;
     std::chrono::milliseconds universe_call_interval_{100};
     std::chrono::milliseconds top_up_call_interval_{300};
+    BatchQuoteFn              batch_quote_;
+    size_t                    batch_size_ = 1;
     // [lock-order] overflow_mutex_ 안에서는 다른 락을 잡지 않고 네트워크 호출도 하지 않는다.
     mutable std::mutex        overflow_mutex_;
     std::vector<WatchSpec>    overflow_;    // WS 상한에 밀려 REST로 대신 흘리는 종목. overflow_mutex_ 아래서만
@@ -132,5 +149,17 @@ private:
     //  문자열인 이유: 소스 계층은 종목 테이블 앞이라 WatchSpec.ticker(문자열)만 있다. REST 왕복당 한 번.
     std::unordered_set<std::string> rest_seen_;
     std::unordered_set<std::string> rest_failed_;
+    // 1분 요약 로그용 누계 — 조회 스레드(fetch_prices·loop) 소유라 락이 없다. 요약을 낸 뒤 0으로 되돌린다.
+    struct RoundStats
+    {
+        long long symbols         = 0; // 조회한 종목 수 합
+        long long calls           = 0; // REST 호출 수 합(묶음 한 번 = 1)
+        long long batch_failures  = 0; // 실패해 한 종목씩으로 돌아간 묶음 수
+        long long elapsed_ms_sum  = 0; // 종목이 있던 바퀴만 더한다
+        long long elapsed_ms_max  = 0;
+        int       busy_rounds     = 0; // 종목이 하나라도 있던 바퀴
+    };
+    RoundStats                      round_statistics_;
+    bool                            batch_failure_logged_ = false;
     std::jthread                    loop_thread_; // 마지막 멤버 — 소멸 때 가장 먼저 멈추고 회수된다
 };
