@@ -299,6 +299,8 @@
 - [OpsProtocol.h](../Quant/include/ipc/OpsProtocol.h) — 운영단말 ↔ 엔진 TCP 프레이밍 프로토콜(D-043)
 - [OpsServer.h](../Quant/include/ipc/OpsServer.h) — 운영단말 TCP 서버 선언(D-043)
 - [OrderChannel.h](../Quant/include/ipc/OrderChannel.h) — 전략↔주문 요청·응답 레코드와 순번 규칙, 꺼낸 값 범위 검사(문자열·포인터 없음, D-114 단계 2·4)
+- [OrderHistory.h](../Quant/include/ipc/OrderHistory.h) — 주문 라우터의 이번 세션 주문 이력과 번호 색인(ODNO·주문 번호), 잔량·생존 판정 함수 선언
+- [OrderJournal.h](../Quant/include/ipc/OrderJournal.h) — 주문 라우터 부속 파일 기록기 선언 — 미결주문 파일·원장 CSV·주문 사유 쓰기 스레드 둘
 - [OrderRouter.h](../Quant/include/ipc/OrderRouter.h) — 주문 전처리·중계(FEP) 라우팅 레이어 선언
 - [ProcessIdentity.h](../Quant/include/ipc/ProcessIdentity.h) — 프로세스를 번호 + 기동 시각 한 쌍으로 가리킨다 — 번호 재사용을 가리고 주인이 산지 묻는다(D-114 단계 4-b)
 - [RegimeCell.h](../Quant/include/ipc/RegimeCell.h) — 국면 칸 — 전략이 고른 국면을 적고 주문·시세가 읽는 공유 값 한 칸(링 아님, D-129)
@@ -449,7 +451,12 @@
 - [OpsProtocol.cpp](../Quant/src/ipc/OpsProtocol.cpp) — OpsProtocol.h 구현 — 운영단말 ↔ 엔진 TCP 프레이밍 프로토콜(D-043)
 - [OpsServer.cpp](../Quant/src/ipc/OpsServer.cpp) — 운영단말 TCP 서버 구현(D-043)
 - [OrderChannel.cpp](../Quant/src/ipc/OrderChannel.cpp) — OrderChannel.h 구현 — 기다리는 요청 표·같은 순번 거름·주문번호 정수 변환, 꺼낸 요청·응답이 말이 되는지 보기(D-114 단계 2·4)
-- [OrderRouter.cpp](../Quant/src/ipc/OrderRouter.cpp) — 주문 라우터 구현 — 제출·순번·거부코드 처리
+- [OrderHistory.cpp](../Quant/src/ipc/OrderHistory.cpp) — OrderHistory.h 구현 — 이력 넣기·빼기와 색인 유지, 번호로 찾기
+- [OrderJournal.cpp](../Quant/src/ipc/OrderJournal.cpp) — OrderJournal.h 구현 — 미결주문 파일 원자 교체, 원장 CSV·주문 사유 줄 대기열과 쓰기 스레드
+- [OrderRouter.cpp](../Quant/src/ipc/OrderRouter.cpp) — 주문 라우터 구현 — 생성·소멸, 주문 번호, 미결주문 스냅샷, 이력 조회·통계
+- [OrderRouterFill.cpp](../Quant/src/ipc/OrderRouterFill.cpp) — 주문 라우터 체결 쪽 — 체결통보 반영(on_fill)·미연결 체결·끊긴 사이 체결 되찾기
+- [OrderRouterReconcile.cpp](../Quant/src/ipc/OrderRouterReconcile.cpp) — 주문 라우터 대조 쪽 — 재기동 미결 주문 대조, 선점 정리, 전송 타임아웃 되묻기, 이전 세션 미체결 취소
+- [OrderRouterSubmit.cpp](../Quant/src/ipc/OrderRouterSubmit.cpp) — 주문 라우터 발주 쪽 — 신규·취소·정정 경로, 청산차단 자가정리, 이력 기록
 - [ProcessIdentity.cpp](../Quant/src/ipc/ProcessIdentity.cpp) — ProcessIdentity.h 구현 — 윈도우는 프로세스 손잡이·만든 시각, 리눅스는 /proc/<번호>/stat 으로 생존을 묻는다(D-114 단계 4-b)
 - [SharedLayout.cpp](../Quant/src/ipc/SharedLayout.cpp) — SharedLayout.h 구현 — 자리 셈·놓기·붙기와, 양쪽 설정이 다르면 붙기를 거절하는 머리 대조(D-114 단계 4)
 - [SharedRegion.cpp](../Quant/src/ipc/SharedRegion.cpp) — SharedRegion.h 구현 — 윈도우·리눅스 공유메모리 만들기·붙기·치우기, 살아 있는 주인이면 실패하고 주인 없는 옆 판은 물려받는다(짝이 살아 있으면 물려받지 않는다, D-114 단계 4·4-b)
@@ -529,6 +536,7 @@
 - [bench_market_firehose.cpp](../Quant/tests/bench_market_firehose.cpp) — 전종목 규모 시세 파이프라인 부하테스트(E2E 지연·처리량)
 - [bench_order_gate_position.cpp](../Quant/tests/bench_order_gate_position.cpp) — OrderGate 원장 조회 벤치: 키가 (계좌, 종목) 문자열일 때와 정수 id일 때의 position() 비용(D-105 결정 3)
 - [bench_order_path_keys.cpp](../Quant/tests/bench_order_path_keys.cpp) — 주문 경로 키 벤치: 중복 신호 키·우선순위 표·서브원장·체결 키를 문자열과 정수로 잰다(D-112)
+- [bench_order_router_submit.cpp](../Quant/tests/bench_order_router_submit.cpp) — OrderRouter::submit(신규) 한 건의 시간 — 가짜 실행기로 KIS 없이 p50·p99와 구간별 평균을 잰다(ctest 밖)
 - [bench_peer_failure.cpp](../Quant/tests/bench_peer_failure.cpp) — 프로세스 경계 고장 실측 벤치: 공유메모리 한 방향 지연, crash·exit·hang 감지 지연, append+flush 비용(D-071 큐 34)
 - [bench_prefetch_pool.cpp](../Quant/tests/bench_prefetch_pool.cpp) — 프리페치 풀이 작업 N개를 주기 T로 버티는가, 스레드 수 스윕(계산형·대기형 + 이웃 스레드 지연·메모리, D-115, ctest 밖)
 - [bench_sleep_res.cpp](../Quant/tests/bench_sleep_res.cpp) — sleep_for·condvar 대기 해상도 실측 도구

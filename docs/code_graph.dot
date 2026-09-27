@@ -20,10 +20,10 @@ digraph code_graph {
   "core" -> "utils" [label="40"];
   "exchange" -> "core" [label="7"];
   "exchange" -> "utils" [label="3"];
-  "ipc" -> "api" [label="2"];
-  "ipc" -> "core" [label="19"];
+  "ipc" -> "api" [label="3"];
+  "ipc" -> "core" [label="22"];
   "ipc" -> "risk" [label="1"];
-  "ipc" -> "utils" [label="8"];
+  "ipc" -> "utils" [label="13"];
   "main" -> "core" [label="4"];
   "main" -> "strategy" [label="1"];
   "main" -> "utils" [label="2"];

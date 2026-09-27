@@ -60,12 +60,12 @@
     {
       "from": "ipc",
       "to": "api",
-      "weight": 2
+      "weight": 3
     },
     {
       "from": "ipc",
       "to": "core",
-      "weight": 19
+      "weight": 22
     },
     {
       "from": "ipc",
@@ -75,7 +75,7 @@
     {
       "from": "ipc",
       "to": "utils",
-      "weight": 8
+      "weight": 13
     },
     {
       "from": "main",
@@ -232,6 +232,8 @@
     "ipc/OpsProtocol.h": "ipc",
     "ipc/OpsServer.h": "ipc",
     "ipc/OrderChannel.h": "ipc",
+    "ipc/OrderHistory.h": "ipc",
+    "ipc/OrderJournal.h": "ipc",
     "ipc/OrderRouter.h": "ipc",
     "ipc/ProcessIdentity.h": "ipc",
     "ipc/RegimeCell.h": "ipc",
@@ -352,7 +354,12 @@
     "ipc/OpsProtocol.cpp": "ipc",
     "ipc/OpsServer.cpp": "ipc",
     "ipc/OrderChannel.cpp": "ipc",
+    "ipc/OrderHistory.cpp": "ipc",
+    "ipc/OrderJournal.cpp": "ipc",
     "ipc/OrderRouter.cpp": "ipc",
+    "ipc/OrderRouterFill.cpp": "ipc",
+    "ipc/OrderRouterReconcile.cpp": "ipc",
+    "ipc/OrderRouterSubmit.cpp": "ipc",
     "ipc/ProcessIdentity.cpp": "ipc",
     "ipc/SharedLayout.cpp": "ipc",
     "ipc/SharedRegion.cpp": "ipc",
@@ -938,22 +945,52 @@
     "ipc/OrderChannel.h": [
       "core/Types.h"
     ],
-    "ipc/OrderRouter.cpp": [
-      "api/KisErrorCodes.h",
+    "ipc/OrderHistory.cpp": [
+      "ipc/OrderHistory.h"
+    ],
+    "ipc/OrderHistory.h": [
+      "core/Types.h"
+    ],
+    "ipc/OrderJournal.cpp": [
       "core/KstTime.h",
-      "core/LatencyTrace.h",
-      "core/WakeGate.h",
-      "ipc/OrderRouter.h",
+      "ipc/OrderJournal.h",
       "utils/Logger.h",
       "utils/ThreadName.h"
+    ],
+    "ipc/OrderJournal.h": [
+      "core/Types.h"
+    ],
+    "ipc/OrderRouter.cpp": [
+      "ipc/OrderRouter.h"
     ],
     "ipc/OrderRouter.h": [
       "api/IOrderExecutor.h",
       "core/ReconcilePlan.h",
       "core/Types.h",
       "ipc/FillKey.h",
+      "ipc/OrderHistory.h",
+      "ipc/OrderJournal.h",
       "ipc/ZmqBridge.h",
       "risk/OrderGate.h"
+    ],
+    "ipc/OrderRouterFill.cpp": [
+      "core/KstTime.h",
+      "ipc/OrderRouter.h",
+      "utils/Logger.h",
+      "utils/ThreadName.h"
+    ],
+    "ipc/OrderRouterReconcile.cpp": [
+      "api/KisErrorCodes.h",
+      "core/WakeGate.h",
+      "ipc/OrderRouter.h",
+      "utils/Logger.h",
+      "utils/ThreadName.h"
+    ],
+    "ipc/OrderRouterSubmit.cpp": [
+      "api/KisErrorCodes.h",
+      "core/LatencyTrace.h",
+      "ipc/OrderRouter.h",
+      "utils/Logger.h"
     ],
     "ipc/ProcessIdentity.cpp": [
       "ipc/ProcessIdentity.h"
@@ -1359,7 +1396,8 @@
       "api/KisClientInternal.h",
       "core/OrderRateLimiter.cpp",
       "core/PaperExecutor.h",
-      "ipc/OrderRouter.cpp"
+      "ipc/OrderRouterReconcile.cpp",
+      "ipc/OrderRouterSubmit.cpp"
     ],
     "api/KisRateBucket.h": [
       "api/KisTransport.cpp"
@@ -1473,7 +1511,8 @@
       "core/LedgerReconciler.h",
       "core/RegimeFileJudge.h",
       "exchange/ZmqOrderFeed.cpp",
-      "ipc/OrderRouter.cpp",
+      "ipc/OrderJournal.cpp",
+      "ipc/OrderRouterFill.cpp",
       "regime/RegimeFeed.cpp",
       "risk/OrderGate.cpp",
       "strategy/DevScaleLoader.cpp",
@@ -1500,7 +1539,7 @@
       "core/EngineSymbols.cpp",
       "core/LatencyTrace.cpp",
       "core/SignalDispatcher.cpp",
-      "ipc/OrderRouter.cpp"
+      "ipc/OrderRouterSubmit.cpp"
     ],
     "core/LedgerReconciler.h": [
       "core/Engine.h",
@@ -1655,6 +1694,8 @@
       "ipc/FillChannel.h",
       "ipc/MarketFeedChannel.h",
       "ipc/OrderChannel.h",
+      "ipc/OrderHistory.h",
+      "ipc/OrderJournal.h",
       "ipc/OrderRouter.h",
       "ipc/ZmqBridge.h",
       "main.cpp",
@@ -1696,7 +1737,7 @@
       "core/TickCapture.h",
       "core/WakeGate.cpp",
       "ipc/DbManager.cpp",
-      "ipc/OrderRouter.cpp",
+      "ipc/OrderRouterReconcile.cpp",
       "ipc/ZmqBridge.h",
       "strategy/DeviationScaleStrategy.h"
     ],
@@ -1754,9 +1795,20 @@
       "ipc/OrderChannel.cpp",
       "ipc/SharedLayout.h"
     ],
+    "ipc/OrderHistory.h": [
+      "ipc/OrderHistory.cpp",
+      "ipc/OrderRouter.h"
+    ],
+    "ipc/OrderJournal.h": [
+      "ipc/OrderJournal.cpp",
+      "ipc/OrderRouter.h"
+    ],
     "ipc/OrderRouter.h": [
       "core/Engine.h",
-      "ipc/OrderRouter.cpp"
+      "ipc/OrderRouter.cpp",
+      "ipc/OrderRouterFill.cpp",
+      "ipc/OrderRouterReconcile.cpp",
+      "ipc/OrderRouterSubmit.cpp"
     ],
     "ipc/ProcessIdentity.h": [
       "ipc/ProcessIdentity.cpp",
@@ -1998,7 +2050,10 @@
       "exchange/ZmqOrderFeed.cpp",
       "ipc/DbManager.cpp",
       "ipc/OpsServer.cpp",
-      "ipc/OrderRouter.cpp",
+      "ipc/OrderJournal.cpp",
+      "ipc/OrderRouterFill.cpp",
+      "ipc/OrderRouterReconcile.cpp",
+      "ipc/OrderRouterSubmit.cpp",
       "ipc/ZmqBridge.cpp",
       "main.cpp",
       "regime/RegimeFeed.cpp",
@@ -2043,7 +2098,9 @@
       "exchange/ZmqOrderFeed.cpp",
       "ipc/DbManager.cpp",
       "ipc/OpsServer.cpp",
-      "ipc/OrderRouter.cpp",
+      "ipc/OrderJournal.cpp",
+      "ipc/OrderRouterFill.cpp",
+      "ipc/OrderRouterReconcile.cpp",
       "ipc/ZmqBridge.cpp",
       "main.cpp",
       "regime/RegimeFeed.cpp",
@@ -2062,19 +2119,19 @@
   "hubs": [
     {
       "header": "utils/Logger.h",
-      "in_degree": 56
+      "in_degree": 59
     },
     {
       "header": "core/Types.h",
-      "in_degree": 49
+      "in_degree": 51
     },
     {
       "header": "core/KstTime.h",
-      "in_degree": 31
+      "in_degree": 32
     },
     {
       "header": "utils/ThreadName.h",
-      "in_degree": 26
+      "in_degree": 28
     },
     {
       "header": "core/SymbolTable.h",
@@ -3052,14 +3109,14 @@
     },
     "trades_*.csv": {
       "writers": [
-        "Quant/src/ipc/OrderRouter.cpp",
+        "Quant/src/ipc/OrderJournal.cpp",
         "scripts/backfill_fills_db.py",
         "scripts/exit_ev_dashboard.py"
       ],
       "readers": [
         "PYQuant/dashboard/backfill_live.py",
         "PYQuant/tests/test_stats.py",
-        "Quant/src/ipc/OrderRouter.cpp",
+        "Quant/src/ipc/OrderJournal.cpp",
         "Quant/src/strategy/DevScaleLoader.cpp",
         "scripts/backfill_fills_db.py",
         "scripts/check_runtime_health.py",
@@ -3071,7 +3128,7 @@
       "mentions": [
         "PYQuant/dashboard/backfill_live.py",
         "PYQuant/tests/test_stats.py",
-        "Quant/src/ipc/OrderRouter.cpp",
+        "Quant/src/ipc/OrderJournal.cpp",
         "Quant/src/strategy/DevScaleLoader.cpp",
         "scripts/_logdir.py",
         "scripts/backfill_fills_db.py",
@@ -3121,15 +3178,17 @@
     },
     "open_orders.txt": {
       "writers": [
-        "Quant/src/ipc/OrderRouter.cpp",
+        "Quant/src/ipc/OrderJournal.cpp",
         "scripts/seed_open_orders.py"
       ],
       "readers": [
-        "Quant/src/ipc/OrderRouter.cpp",
+        "Quant/src/ipc/OrderJournal.cpp",
+        "Quant/src/ipc/OrderRouterReconcile.cpp",
         "scripts/seed_open_orders.py"
       ],
       "mentions": [
-        "Quant/src/ipc/OrderRouter.cpp",
+        "Quant/src/ipc/OrderJournal.cpp",
+        "Quant/src/ipc/OrderRouterReconcile.cpp",
         "scripts/seed_open_orders.py"
       ]
     },

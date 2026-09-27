@@ -655,7 +655,7 @@ meaning = "분당 한도 거부면 이만큼 뒤 재시도"
 
 [[code_value]]
 id = "router_cancel_miss_guard_sec"
-file = "Quant/src/ipc/OrderRouter.cpp"
+file = "Quant/src/ipc/OrderRouterSubmit.cpp"
 regex = 'kCancelMissGuardSec = (\d+);'
 unit = "초"
 group = "주문 — 발주 속도·재시도·청산 백오프"
@@ -663,7 +663,7 @@ meaning = "취소 대상 없음 뒤 같은 종목 신규 매수 차단"
 
 [[code_value]]
 id = "router_dup_market_sell_guard_sec"
-file = "Quant/src/ipc/OrderRouter.cpp"
+file = "Quant/src/ipc/OrderRouterSubmit.cpp"
 regex = 'kDupMarketSellGuardSec = (\d+);'
 unit = "초"
 group = "주문 — 발주 속도·재시도·청산 백오프"

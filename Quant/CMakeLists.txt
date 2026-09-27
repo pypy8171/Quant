@@ -246,7 +246,11 @@ set(ENGINE_SOURCES
   src/utils/Timer.cpp
 )
 
-list(APPEND ENGINE_SOURCES src/ipc/OrderRouter.cpp src/ipc/OpsServer.cpp)
+# 주문 라우터 소스 — 엔진·test_order_router·bench_order_router_submit이 같은 목록을 쓴다
+set(ORDER_ROUTER_SOURCES src/ipc/OrderRouter.cpp src/ipc/OrderRouterSubmit.cpp src/ipc/OrderRouterReconcile.cpp
+    src/ipc/OrderRouterFill.cpp src/ipc/OrderJournal.cpp
+    src/ipc/OrderHistory.cpp)
+list(APPEND ENGINE_SOURCES ${ORDER_ROUTER_SOURCES} src/ipc/OpsServer.cpp)
 
 if(ZMQ_FOUND)
   list(APPEND ENGINE_SOURCES src/ipc/ZmqBridge.cpp)
@@ -386,7 +390,7 @@ set_tests_properties(bench_order_path_keys PROPERTIES TIMEOUT 120)
 add_executable(test_order_router
     tests/test_order_router.cpp
     src/risk/OrderGate.cpp
-    src/ipc/OrderRouter.cpp
+    ${ORDER_ROUTER_SOURCES}
     src/utils/Logger.cpp
 )
 target_include_directories(test_order_router PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -401,6 +405,19 @@ if(ZMQ_FOUND)
 endif()
 if(UNIX)
     target_link_libraries(test_order_router PRIVATE pthread)
+endif()
+
+# ─── 벤치: OrderRouter::submit(NEW) 한 건 — new_route 발주 경로, 가짜 실행기 ──
+add_executable(bench_order_router_submit tests/bench_order_router_submit.cpp src/risk/OrderGate.cpp
+    ${ORDER_ROUTER_SOURCES} src/utils/Logger.cpp)
+target_include_directories(bench_order_router_submit PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+if(ZMQ_FOUND)
+  target_sources(bench_order_router_submit PRIVATE src/ipc/ZmqBridge.cpp)
+  target_include_directories(bench_order_router_submit PRIVATE ${ZMQ_INC} ${cppzmq_SOURCE_DIR})
+  target_link_libraries(bench_order_router_submit PRIVATE ${ZMQ_LIB} nlohmann_json::nlohmann_json)
+endif()
+if(UNIX)
+    target_link_libraries(bench_order_router_submit PRIVATE pthread)
 endif()
 
 # ─── 테스트 타겟: WS 다건 프레임 분리·분봉 커서 시각 산술 (헤더만, KIS 불필요) ──

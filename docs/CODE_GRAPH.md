@@ -28,10 +28,10 @@ graph LR
   core -->|40| utils
   exchange -->|7| core
   exchange -->|3| utils
-  ipc -->|2| api
-  ipc -->|19| core
+  ipc -->|3| api
+  ipc -->|22| core
   ipc --> risk
-  ipc -->|8| utils
+  ipc -->|13| utils
   main -->|4| core
   main --> strategy
   main -->|2| utils
@@ -59,10 +59,10 @@ graph LR
 
 | 헤더 | 유입 수 |
 |---|---|
-| `utils/Logger.h` | 56 |
-| `core/Types.h` | 49 |
-| `core/KstTime.h` | 31 |
-| `utils/ThreadName.h` | 26 |
+| `utils/Logger.h` | 59 |
+| `core/Types.h` | 51 |
+| `core/KstTime.h` | 32 |
+| `utils/ThreadName.h` | 28 |
 | `core/SymbolTable.h` | 22 |
 | `core/Engine.h` | 18 |
 | `core/WakeGate.h` | 13 |
@@ -196,8 +196,15 @@ graph LR
     n_ipc_OpsServer_h["ipc/OpsServer.h"]
     n_ipc_OrderChannel_cpp["ipc/OrderChannel.cpp"]
     n_ipc_OrderChannel_h["ipc/OrderChannel.h"]
+    n_ipc_OrderHistory_cpp["ipc/OrderHistory.cpp"]
+    n_ipc_OrderHistory_h["ipc/OrderHistory.h"]
+    n_ipc_OrderJournal_cpp["ipc/OrderJournal.cpp"]
+    n_ipc_OrderJournal_h["ipc/OrderJournal.h"]
     n_ipc_OrderRouter_cpp["ipc/OrderRouter.cpp"]
     n_ipc_OrderRouter_h["ipc/OrderRouter.h"]
+    n_ipc_OrderRouterFill_cpp["ipc/OrderRouterFill.cpp"]
+    n_ipc_OrderRouterReconcile_cpp["ipc/OrderRouterReconcile.cpp"]
+    n_ipc_OrderRouterSubmit_cpp["ipc/OrderRouterSubmit.cpp"]
     n_ipc_ProcessIdentity_cpp["ipc/ProcessIdentity.cpp"]
     n_ipc_SharedLayout_cpp["ipc/SharedLayout.cpp"]
     n_ipc_SharedLayout_h["ipc/SharedLayout.h"]
@@ -590,19 +597,35 @@ graph LR
   n_ipc_OpsServer_h --> n_ipc_OpsProtocol_h
   n_ipc_OrderChannel_cpp --> n_ipc_OrderChannel_h
   n_ipc_OrderChannel_h --> n_core_Types_h
-  n_ipc_OrderRouter_cpp --> n_api_KisErrorCodes_h
-  n_ipc_OrderRouter_cpp --> n_core_KstTime_h
-  n_ipc_OrderRouter_cpp --> n_core_LatencyTrace_h
-  n_ipc_OrderRouter_cpp --> n_core_WakeGate_h
+  n_ipc_OrderHistory_cpp --> n_ipc_OrderHistory_h
+  n_ipc_OrderHistory_h --> n_core_Types_h
+  n_ipc_OrderJournal_cpp --> n_core_KstTime_h
+  n_ipc_OrderJournal_cpp --> n_ipc_OrderJournal_h
+  n_ipc_OrderJournal_cpp --> n_utils_Logger_h
+  n_ipc_OrderJournal_cpp --> n_utils_ThreadName_h
+  n_ipc_OrderJournal_h --> n_core_Types_h
   n_ipc_OrderRouter_cpp --> n_ipc_OrderRouter_h
-  n_ipc_OrderRouter_cpp --> n_utils_Logger_h
-  n_ipc_OrderRouter_cpp --> n_utils_ThreadName_h
   n_ipc_OrderRouter_h --> n_api_IOrderExecutor_h
   n_ipc_OrderRouter_h --> n_core_ReconcilePlan_h
   n_ipc_OrderRouter_h --> n_core_Types_h
   n_ipc_OrderRouter_h --> n_ipc_FillKey_h
+  n_ipc_OrderRouter_h --> n_ipc_OrderHistory_h
+  n_ipc_OrderRouter_h --> n_ipc_OrderJournal_h
   n_ipc_OrderRouter_h --> n_ipc_ZmqBridge_h
   n_ipc_OrderRouter_h --> n_risk_OrderGate_h
+  n_ipc_OrderRouterFill_cpp --> n_core_KstTime_h
+  n_ipc_OrderRouterFill_cpp --> n_ipc_OrderRouter_h
+  n_ipc_OrderRouterFill_cpp --> n_utils_Logger_h
+  n_ipc_OrderRouterFill_cpp --> n_utils_ThreadName_h
+  n_ipc_OrderRouterReconcile_cpp --> n_api_KisErrorCodes_h
+  n_ipc_OrderRouterReconcile_cpp --> n_core_WakeGate_h
+  n_ipc_OrderRouterReconcile_cpp --> n_ipc_OrderRouter_h
+  n_ipc_OrderRouterReconcile_cpp --> n_utils_Logger_h
+  n_ipc_OrderRouterReconcile_cpp --> n_utils_ThreadName_h
+  n_ipc_OrderRouterSubmit_cpp --> n_api_KisErrorCodes_h
+  n_ipc_OrderRouterSubmit_cpp --> n_core_LatencyTrace_h
+  n_ipc_OrderRouterSubmit_cpp --> n_ipc_OrderRouter_h
+  n_ipc_OrderRouterSubmit_cpp --> n_utils_Logger_h
   n_ipc_ProcessIdentity_cpp --> n_ipc_ProcessIdentity_h
   n_ipc_SharedLayout_cpp --> n_ipc_SharedLayout_h
   n_ipc_SharedLayout_h --> n_ipc_ControlChannel_h
@@ -976,9 +999,9 @@ C++ 엔진·Python 보조 프로세스·스크립트가 파일로 주고받는 �
 | 파일 | 쓰는 쪽 | 읽는 쪽 | 언급만 |
 |---|---|---|---|
 | `regime.json` | `Quant/src/core/EngineRegime.cpp` | `Quant/src/core/AppConfig.cpp`, `Quant/src/core/EngineDataThread.cpp`, `Quant/src/core/EngineRegime.cpp`, `Quant/src/core/RegimeFileJudge.cpp`, `scripts/dashboard_server.py`, `scripts/notify_trades.py` | `Quant/include/core/AppConfig.h`, `Quant/include/core/Engine.h`, `Quant/include/core/RegimeFileJudge.h`, `Quant/src/core/EngineConfigure.cpp`, `Quant/src/ipc/ZmqBridge.cpp` |
-| `trades_*.csv` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/backfill_fills_db.py`, `scripts/exit_ev_dashboard.py` | `PYQuant/dashboard/backfill_live.py`, `PYQuant/tests/test_stats.py`, `Quant/src/ipc/OrderRouter.cpp`, `Quant/src/strategy/DevScaleLoader.cpp`, `scripts/backfill_fills_db.py`, `scripts/check_runtime_health.py`, `scripts/exit_ev.py`, `scripts/exit_ev_dashboard.py`, `scripts/parse_quant_log.py`, `scripts/trade_costs.py` | `scripts/_logdir.py`, `scripts/notify_trades.py` |
+| `trades_*.csv` | `Quant/src/ipc/OrderJournal.cpp`, `scripts/backfill_fills_db.py`, `scripts/exit_ev_dashboard.py` | `PYQuant/dashboard/backfill_live.py`, `PYQuant/tests/test_stats.py`, `Quant/src/ipc/OrderJournal.cpp`, `Quant/src/strategy/DevScaleLoader.cpp`, `scripts/backfill_fills_db.py`, `scripts/check_runtime_health.py`, `scripts/exit_ev.py`, `scripts/exit_ev_dashboard.py`, `scripts/parse_quant_log.py`, `scripts/trade_costs.py` | `scripts/_logdir.py`, `scripts/notify_trades.py` |
 | `universe*.json` | `PYQuant/tools/load_injector.py`, `Quant/src/universe/MarketBoard.cpp`, `scripts/make_load_test_config.py` | `PYQuant/main.py`, `PYQuant/tools/full_universe_dump.py`, `PYQuant/tools/load_injector.py`, `PYQuant/tools/universe_feed.py`, `Quant/src/strategy/DevScaleLoader.cpp`, `Quant/src/universe/UniverseCandidates.cpp`, `scripts/exit_ev_dashboard.py`, `scripts/make_load_test_config.py`, `scripts/market_close_minute_backfill.py`, `scripts/notify_trades.py` | `Quant/include/universe/MarketBoard.h`, `Quant/include/universe/UniverseScanner.h`, `Quant/src/api/KisUniverse.cpp`, `scripts/dashboard_server.py` |
-| `open_orders.txt` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/seed_open_orders.py` | `Quant/src/ipc/OrderRouter.cpp`, `scripts/seed_open_orders.py` |  |
+| `open_orders.txt` | `Quant/src/ipc/OrderJournal.cpp`, `scripts/seed_open_orders.py` | `Quant/src/ipc/OrderJournal.cpp`, `Quant/src/ipc/OrderRouterReconcile.cpp`, `scripts/seed_open_orders.py` |  |
 | `quant_trader.log` | `PYQuant/tools/log_report.py`, `scripts/build_review_entry.py`, `scripts/dashboard_server.py`, `scripts/summarize_trading_day.py` | `PYQuant/tools/compare_ws_bars.py`, `scripts/check_runtime_health.py`, `scripts/dashboard_server.py`, `scripts/extract_swap_what_if.py`, `scripts/notify_trades.py`, `scripts/parse_quant_log.py`, `scripts/seed_open_orders.py`, `scripts/summarize_trading_day.py` | `Quant/src/core/CommandLine.cpp`, `scripts/_logdir.py`, `scripts/exit_ev_dashboard.py` |
 | `kis_token_*.json` |  |  | `PYQuant/kis/client.py`, `Quant/src/api/KisAuth.cpp` |
 

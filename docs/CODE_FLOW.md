@@ -275,10 +275,10 @@ flowchart LR
    `Quant/src/core/OrderRateLimiter.cpp:87` · `OrderRateLimiter::Clock::duration OrderRateLimiter::wait_before_send(Clock::time_point now) const` · 시험 [test_order_rate_limiter](../Quant/tests/test_order_rate_limiter.cpp)
 74. [`order_rate::OrderRateLimiter::on_rejected`](../Quant/src/core/OrderRateLimiter.cpp#L93) — 거부 → 재시도 여부·다음 시각. 유량 한도 문장은 `GateReasons.h`와 맞춰 본다  
    `Quant/src/core/OrderRateLimiter.cpp:93` · `bool OrderRateLimiter::on_rejected(Pending pending, OrderStatus status, const std::string& reject_reason, …` · 시험 [test_order_rate_limiter](../Quant/tests/test_order_rate_limiter.cpp)
-75. [`OrderRouter::submit`](../Quant/src/ipc/OrderRouter.cpp#L77) — `action`으로 분기만 — NEW는 `new_route`, CANCEL·REPLACE는 `cancel_route`·`replace_route`  
-   `Quant/src/ipc/OrderRouter.cpp:77` · `ManagedOrder OrderRouter::submit(const OrderSignal& signal)` · 시험 [test_order_router](../Quant/tests/test_order_router.cpp)
-76. [`OrderRouter::new_route`](../Quant/src/ipc/OrderRouter.cpp#L89) — `clamp_buy_quantity` → 매도가능수량 0이면 `reconcile_blocked_sell` → 시장가 매도 중복 가드(`history_`) → `gate_.check` → `take_intent`(원장 INTENT 선기록·선점, 실패면 전송 안 함) → `kis_.submit_order_acknowledgement`(ODNO) → `gate_.on_accepted` → `record`·`write_trade_row`(`seq` 동반). 실패 경로마다 무엇이 되돌려지는지  
-   `Quant/src/ipc/OrderRouter.cpp:89` · `ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)` · 시험 [test_order_router](../Quant/tests/test_order_router.cpp)
+75. [`OrderRouter::submit`](../Quant/src/ipc/OrderRouterSubmit.cpp#L133) — `action`으로 분기만 — NEW는 `new_route`, CANCEL·REPLACE는 `cancel_route`·`replace_route`  
+   `Quant/src/ipc/OrderRouterSubmit.cpp:133` · `ManagedOrder OrderRouter::submit(const OrderSignal& signal)` · 시험 [test_order_router](../Quant/tests/test_order_router.cpp)
+76. [`OrderRouter::new_route`](../Quant/src/ipc/OrderRouterSubmit.cpp#L146) — `clamp_buy_quantity` → 매도가능수량 0이면 `reconcile_blocked_sell` → 시장가 매도 중복 가드(`history_`) → `gate_.check` → `take_intent`(원장 INTENT 선기록·선점, 실패면 전송 안 함) → `kis_.submit_order_acknowledgement`(ODNO) → `gate_.on_accepted` → `record`·`write_trade_row`(`seq` 동반). 실패 경로마다 무엇이 되돌려지는지  
+   `Quant/src/ipc/OrderRouterSubmit.cpp:146` · `ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)` · 시험 [test_order_router](../Quant/tests/test_order_router.cpp)
 77. [`OrderGate::check`](../Quant/src/risk/OrderGate.cpp#L269) — 거부 검사 사슬 — 킬스위치 → 방향 → entry_halt(국면 자동 + 운영단말 수동, OR, D-091) → 매매 창(정규장+애프터마켓, D-097) → 1주문 수량·명목 → 종목당 포지션·명목 → 슬롯(교체·쿨다운·점수 우선) → 총노출 → 일손실 → PNL_STALE → 중복 → 유량. 순서가 곧 우선순위다. 매도가능수량은 라우터가 본다  
    `Quant/src/risk/OrderGate.cpp:269` · `bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)` · 시험 [test_order_gate](../Quant/tests/test_order_gate.cpp)
 78. [`OrderGate::clamp_buy_quantity`](../Quant/src/risk/OrderGate.cpp#L123) — 매수 수량을 현금·명목 한도로 깎는다. 0이 되면 거부  
@@ -316,8 +316,8 @@ flowchart LR
    `Quant/src/ipc/FillChannel.cpp:197` · `bool FillChannel::push(const FillNotice& notice) noexcept` · 시험 [test_fill_channel](../Quant/tests/test_fill_channel.cpp)
 88. [`Engine::fill_thread_fn`](../Quant/src/core/EngineFillThread.cpp#L23) — 주문 역할이면 체결 채널에서(100ms 폴링), 아니면 `fill_queue`에서 꺼낸다 → `on_fill` → `ledger_->note_fill`(대조 5초 유예, D-074) → 운영단말 `broadcast`(FILL) → 원장 발행  
    `Quant/src/core/EngineFillThread.cpp:23` · `void Engine::fill_thread_fn(std::stop_token stop_token)`
-89. [`OrderRouter::on_fill`](../Quant/src/ipc/OrderRouter.cpp#L2545) — ODNO로 주문 찾기 → 상태 갱신 → `gate_.ledger().on_fill_confirmed` → 원장 CSV. 못 찾으면 미연결 체결 경로  
-   `Quant/src/ipc/OrderRouter.cpp:2545` · `void OrderRouter::on_fill(const FillNotification& fill_notification)` · 시험 [test_order_router](../Quant/tests/test_order_router.cpp)
+89. [`OrderRouter::on_fill`](../Quant/src/ipc/OrderRouterFill.cpp#L103) — ODNO로 주문 찾기 → 상태 갱신 → `gate_.ledger().on_fill_confirmed` → 원장 CSV. 못 찾으면 미연결 체결 경로  
+   `Quant/src/ipc/OrderRouterFill.cpp:103` · `void OrderRouter::on_fill(const FillNotification& fill_notification)` · 시험 [test_order_router](../Quant/tests/test_order_router.cpp)
 90. [`PositionLedger::on_fill_confirmed`](../Quant/src/risk/PositionLedger.cpp#L836) — 포지션·평단·실현손익 갱신, `reserved_` 해제. `FillResult`가 실현 PnL을 돌려준다  
    `Quant/src/risk/PositionLedger.cpp:836` · `PositionLedger::FillResult PositionLedger::on_fill_confirmed( …` · 시험 [test_position_ledger](../Quant/tests/test_position_ledger.cpp)
 91. [`OrderGate::publish_ledger`](../Quant/src/risk/OrderGate.cpp#L1094) — 보유·매도 가능 수량·진입 정지·배율을 원장 스냅숏에 쓴다(세대 번호를 올리며). 체결 직후·주문 직후·쉴 때 100ms마다  
@@ -434,7 +434,8 @@ SIGINT·운영단말 종료 → `request_shutdown` → `stop`. 체결 큐는 비
 | [Quant/src/ipc/LedgerSnapshot.cpp](../Quant/src/ipc/LedgerSnapshot.cpp) | 65 `begin_optimistic_read` |
 | [Quant/src/ipc/MarketFeedChannel.cpp](../Quant/src/ipc/MarketFeedChannel.cpp) | 44 `push_trade`, 51 `pop_trade` |
 | [Quant/src/ipc/OrderChannel.cpp](../Quant/src/ipc/OrderChannel.cpp) | 70 `to_request`, 82 `make_response` |
-| [Quant/src/ipc/OrderRouter.cpp](../Quant/src/ipc/OrderRouter.cpp) | 75 `submit`, 76 `new_route`, 89 `on_fill` |
+| [Quant/src/ipc/OrderRouterFill.cpp](../Quant/src/ipc/OrderRouterFill.cpp) | 89 `on_fill` |
+| [Quant/src/ipc/OrderRouterSubmit.cpp](../Quant/src/ipc/OrderRouterSubmit.cpp) | 75 `submit`, 76 `new_route` |
 | [Quant/src/ipc/SharedLayout.cpp](../Quant/src/ipc/SharedLayout.cpp) | 9 `bind` |
 | [Quant/src/ipc/SharedRegion.cpp](../Quant/src/ipc/SharedRegion.cpp) | 8 `create`, 105 `mark_clean_shutdown` |
 | [Quant/src/main.cpp](../Quant/src/main.cpp) | 2 `main`, 5 `run_trade` |

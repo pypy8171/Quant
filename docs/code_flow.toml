@@ -552,13 +552,13 @@ review = [
 
   [[stage.step]]
   sym = "OrderRouter::submit"
-  file = "Quant/src/ipc/OrderRouter.cpp"
+  file = "Quant/src/ipc/OrderRouterSubmit.cpp"
   what = "`action`으로 분기만 — NEW는 `new_route`, CANCEL·REPLACE는 `cancel_route`·`replace_route`"
   test = "test_order_router"
 
   [[stage.step]]
   sym = "OrderRouter::new_route"
-  file = "Quant/src/ipc/OrderRouter.cpp"
+  file = "Quant/src/ipc/OrderRouterSubmit.cpp"
   what = "`clamp_buy_quantity` → 매도가능수량 0이면 `reconcile_blocked_sell` → 시장가 매도 중복 가드(`history_`) → `gate_.check` → `take_intent`(원장 INTENT 선기록·선점, 실패면 전송 안 함) → `kis_.submit_order_acknowledgement`(ODNO) → `gate_.on_accepted` → `record`·`write_trade_row`(`seq` 동반). 실패 경로마다 무엇이 되돌려지는지"
   test = "test_order_router"
 
@@ -644,7 +644,7 @@ review = [
 
   [[stage.step]]
   sym = "OrderRouter::on_fill"
-  file = "Quant/src/ipc/OrderRouter.cpp"
+  file = "Quant/src/ipc/OrderRouterFill.cpp"
   what = "ODNO로 주문 찾기 → 상태 갱신 → `gate_.ledger().on_fill_confirmed` → 원장 CSV. 못 찾으면 미연결 체결 경로"
   test = "test_order_router"
 
