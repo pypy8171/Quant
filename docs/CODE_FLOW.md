@@ -73,12 +73,12 @@ flowchart LR
    `Quant/src/main.cpp:318` · `int main(int argc, char* argv[])`
 3. [`parse_command_line`](../Quant/src/core/CommandLine.cpp#L88) — `--role X`를 `ProcessRole`(Both·Order·Strategy·Feed)로. 이후 모든 역할 분기는 `CommandLine.h`의 `runs_*_side` 세 함수로 본다  
    `Quant/src/core/CommandLine.cpp:88` · `CommandLine parse_command_line(int argc, char* argv[])` · 시험 [test_command_line](../Quant/tests/test_command_line.cpp)
-4. [`parse_config`](../Quant/src/core/AppConfig.cpp#L196) — json → `AppConfig`. 키 누락·값 오류는 여기서 멈춘다(네트워크 전). `database`·`regime_feed` 블록도 여기서 읽는다(없으면 꺼짐)  
-   `Quant/src/core/AppConfig.cpp:196` · `AppConfig parse_config(const json& document)` · 시험 [test_app_config](../Quant/tests/test_app_config.cpp)
+4. [`parse_config`](../Quant/src/core/AppConfig.cpp#L199) — json → `AppConfig`. 키 누락·값 오류는 여기서 멈춘다(네트워크 전). `database`·`regime_feed` 블록도 여기서 읽는다(없으면 꺼짐)  
+   `Quant/src/core/AppConfig.cpp:199` · `AppConfig parse_config(const json& document)` · 시험 [test_app_config](../Quant/tests/test_app_config.cpp)
 5. [`run_trade`](../Quant/src/main.cpp#L261) — `set_role` → `configure` → (전략 쪽만) `load_strategies` → `start` → (전략 쪽·설정 있을 때만) RegimeFeed 스레드 → `is_running` 대기 → `stop`  
    `Quant/src/main.cpp:261` · `static int run_trade(const AppConfig& app, ProcessRole role)`
-6. [`Engine::configure`](../Quant/src/core/EngineConfigure.cpp#L198) — AppConfig 값을 엔진 세터로 — 채널(ZMQ·운영단말)·국면별 전략 집합·시세 전용 KIS·리스크. 끝에서 `bind_layout`으로 역할에 맞는 공유 배치를 다시 깐다  
-   `Quant/src/core/EngineConfigure.cpp:198` · `void Engine::configure(const AppConfig& app)`
+6. [`Engine::configure`](../Quant/src/core/EngineConfigure.cpp#L199) — AppConfig 값을 엔진 세터로 — 채널(ZMQ·운영단말)·국면별 전략 집합·시세 전용 KIS·리스크. 끝에서 `bind_layout`으로 역할에 맞는 공유 배치를 다시 깐다  
+   `Quant/src/core/EngineConfigure.cpp:199` · `void Engine::configure(const AppConfig& app)`
 7. [`Engine::bind_layout_on_region`](../Quant/src/core/EngineLayout.cpp#L163) — 주문은 구역을 만들고 이전 판을 물려받았는지 적는다. 전략·시세는 30초까지 붙기를 다시 시도하고 상대의 `boot_generation`을 기억한다(재기동 감지용). `both`는 `bind_layout_on_heap`  
    `Quant/src/core/EngineLayout.cpp:163` · `bool Engine::bind_layout_on_region(size_t needed)`
 8. [`ipc::SharedRegion::create`](../Quant/src/ipc/SharedRegion.cpp#L177) — 이름 있는 공유메모리 생성. 같은 이름이 남아 있으면 주인·참가자 생사를 보고 둘 다 죽었을 때만 물려받고 세대 번호를 올린다. 붙는 쪽은 `attach`  
@@ -87,10 +87,10 @@ flowchart LR
    `Quant/src/ipc/SharedLayout.cpp:185` · `bool SharedLayout::bind(std::byte* base, const SharedLayoutConfig& config, bool as_owner, SharedAttachRole role)` · 시험 [test_shared_layout](../Quant/tests/test_shared_layout.cpp)
 10. [`Engine::adopt_shared_dictionaries`](../Quant/src/core/EngineLayout.cpp#L66) — 종목·전략 사전의 역할 — 주문은 새 번호를 직접 찍고, 시세는 찾아보기만 하고(없는 종목 틱은 버림), 전략은 주문에 등록을 요청한다  
    `Quant/src/core/EngineLayout.cpp:66` · `void Engine::adopt_shared_dictionaries()`
-11. [`Engine::start`](../Quant/src/core/Engine.cpp#L548) — 도우미 호출 목록이 기동 순서다 — `setup_shards`(전략 쪽만) → [시세] `DbManager` → ZMQ·인증·폴러 → [주문] 모의 체결기·`OrderRouter`·대조기·`try_bootstrap_ledger` → [전략] `start_strategies`·`collect_watch_specifications` → [시세] `connect_feed` → `spawn_threads`  
-   `Quant/src/core/Engine.cpp:548` · `void Engine::start()`
-12. [`Engine::spawn_threads`](../Quant/src/core/Engine.cpp#L488) — 역할별 스레드 — 공통 data·control, [전략] 시세 줄 스레드(`feed_lane_thread_fn`)·샤드 M·strategy, [주문] order·fill. stop_token이 첫 인자라 람다로 감싼다  
-   `Quant/src/core/Engine.cpp:488` · `data_thread_ = std::jthread([this] (std::stop_token stop_token) …`
+11. [`Engine::start`](../Quant/src/core/Engine.cpp#L556) — 도우미 호출 목록이 기동 순서다 — `setup_shards`(전략 쪽만) → [시세] `DbManager` → ZMQ·인증·폴러 → [주문] 모의 체결기·`OrderRouter`·대조기·`try_bootstrap_ledger` → [전략] `start_strategies`·`collect_watch_specifications` → [시세] `connect_feed` → `spawn_threads`  
+   `Quant/src/core/Engine.cpp:556` · `void Engine::start()`
+12. [`Engine::spawn_threads`](../Quant/src/core/Engine.cpp#L496) — 역할별 스레드 — 공통 data·control, [전략] 시세 줄 스레드(`feed_lane_thread_fn`)·샤드 M·strategy, [주문] order·fill. stop_token이 첫 인자라 람다로 감싼다  
+   `Quant/src/core/Engine.cpp:496` · `data_thread_ = std::jthread([this] (std::stop_token stop_token) …`
 13. [`LedgerReconciler::bootstrap`](../Quant/src/core/LedgerReconciler.cpp#L20) — [주문] 기동 잔고 시드 — 브로커 잔고를 원장(`PositionLedger`) 포지션으로. 실패 재시도 횟수와 실패 시 기동 중단 여부  
    `Quant/src/core/LedgerReconciler.cpp:20` · `bool LedgerReconciler::bootstrap(int attempts, std::chrono::milliseconds retry_delay)` · 시험 [test_ledger_reconciler](../Quant/tests/test_ledger_reconciler.cpp)
 
@@ -228,8 +228,8 @@ flowchart LR
    `Quant/include/core/BarAggregator.h:59` · `std::vector<MarketData> resample(const std::vector<MarketData>& bars_1m, int interval_min, int max_count = 0);` · 시험 [test_bar_aggregator](../Quant/tests/test_bar_aggregator.cpp)
 63. [`DeviationScaleStrategy::emit_liquidation`](../Quant/include/strategy/DeviationScaleStrategy.h#L347) — 청산 신호 조립 — 시장가면 `reference_price` 스탬프, 매도 가능 수량은 원장 접근자(`sellable_quantity`, 동기 잔고조회 금지)  
    `Quant/include/strategy/DeviationScaleStrategy.h:347` · `bool emit_liquidation(std::vector<OrderSignal>& out, int position, …`
-64. [`Engine::ledger_sellable`](../Quant/src/core/Engine.cpp#L703) — 전략이 보는 보유·매도 가능 수량의 출처 — 주문 프로세스가 발행한 원장 스냅숏  
-   `Quant/src/core/Engine.cpp:703` · `StrategyBase::SellableInfo Engine::ledger_sellable(const std::string&, const std::string& ticker) const`
+64. [`Engine::ledger_sellable`](../Quant/src/core/Engine.cpp#L711) — 전략이 보는 보유·매도 가능 수량의 출처 — 주문 프로세스가 발행한 원장 스냅숏  
+   `Quant/src/core/Engine.cpp:711` · `StrategyBase::SellableInfo Engine::ledger_sellable(const std::string&, const std::string& ticker) const`
 65. [`ipc::LedgerSnapshot::begin_optimistic_read`](../Quant/src/ipc/LedgerSnapshot.cpp#L21) — 쓰는 쪽을 막지 않고 읽은 뒤 세대 번호로 그 사이에 바뀌었는지 확인한다(바뀌었으면 다시 읽음)  
    `Quant/src/ipc/LedgerSnapshot.cpp:21` · `void LedgerSnapshot::begin_optimistic_read() const noexcept` · 시험 [test_ledger_snapshot](../Quant/tests/test_ledger_snapshot.cpp)
 
@@ -267,18 +267,18 @@ flowchart LR
 
 주문 스레드가 유일한 시퀀서다(원칙 4). 요청 링에서 꺼내 값을 검사하고, 조절기(`OrderRateLimiter`)가 간격·재시도를 정하고, 라우터가 게이트 검사 뒤 KIS에 보내고 ODNO를 기억한다. 결과는 응답 링으로 전략 쪽에 돌려준다.
 
-71. [`Engine::order_thread_fn`](../Quant/src/core/EngineOrderThread.cpp#L206) — `take_due_retry` 우선 → 수동주문 → 교체 보류분 → 요청 링 pop(`is_plausible`·중복 거름·`to_signal`·오래된 신규 매수 버림) → `wait_before_send` → `router->submit` → 응답 링에 답 → `publish_ledger`. 갈라 띄우면 2ms 폴링  
-   `Quant/src/core/EngineOrderThread.cpp:206` · `void Engine::order_thread_fn(std::stop_token stop_token)`
+71. [`Engine::order_thread_fn`](../Quant/src/core/EngineOrderThread.cpp#L210) — `take_due_retry` 우선 → 수동주문 → 교체 보류분 → 요청 링 pop(`is_plausible`·중복 거름·`to_signal`·오래된 신규 매수 버림) → `wait_before_send` → 신규는 `open_new` 뒤 전송 스레드로(같은 종목이 답을 기다리면 뒤에 세움, 답이 오면 `close_new`), 그 밖은 `router->submit` → 응답 링에 답 → `publish_ledger`. 갈라 띄우면 2ms 폴링  
+   `Quant/src/core/EngineOrderThread.cpp:210` · `void Engine::order_thread_fn(std::stop_token stop_token)`
 72. [`Engine::take_manual_order`](../Quant/src/core/EngineOpsServer.cpp#L218) — 운영단말 수동 주문(`ops_.manual_inbox`)을 이 스레드가 꺼낸다 — 전략이 멎어도 사람이 손으로 낼 수 있게(D-114). 결과는 단말에 `ORDER_RESULT_NTF`로 간다  
    `Quant/src/core/EngineOpsServer.cpp:218` · `bool Engine::take_manual_order(OrderSignal& signal)` · 시험 [test_engine](../Quant/tests/test_engine.cpp)
 73. [`order_rate::OrderRateLimiter::wait_before_send`](../Quant/src/core/OrderRateLimiter.cpp#L87) — 직전 KIS 호출 뒤 최소 간격. `take_due_retry`·`on_rejected`(재시도 분류)·만기 폐기가 같은 파일  
    `Quant/src/core/OrderRateLimiter.cpp:87` · `OrderRateLimiter::Clock::duration OrderRateLimiter::wait_before_send(Clock::time_point now) const` · 시험 [test_order_rate_limiter](../Quant/tests/test_order_rate_limiter.cpp)
 74. [`order_rate::OrderRateLimiter::on_rejected`](../Quant/src/core/OrderRateLimiter.cpp#L93) — 거부 → 재시도 여부·다음 시각. 유량 한도 문장은 `GateReasons.h`와 맞춰 본다  
    `Quant/src/core/OrderRateLimiter.cpp:93` · `bool OrderRateLimiter::on_rejected(Pending pending, OrderStatus status, const std::string& reject_reason, …` · 시험 [test_order_rate_limiter](../Quant/tests/test_order_rate_limiter.cpp)
-75. [`OrderRouter::submit`](../Quant/src/ipc/OrderRouterSubmit.cpp#L133) — `action`으로 분기만 — NEW는 `new_route`, CANCEL·REPLACE는 `cancel_route`·`replace_route`  
-   `Quant/src/ipc/OrderRouterSubmit.cpp:133` · `ManagedOrder OrderRouter::submit(const OrderSignal& signal)` · 시험 [test_order_router](../Quant/tests/test_order_router.cpp)
-76. [`OrderRouter::new_route`](../Quant/src/ipc/OrderRouterSubmit.cpp#L146) — `clamp_buy_quantity` → 매도가능수량 0이면 `reconcile_blocked_sell` → 시장가 매도 중복 가드(`history_`) → `gate_.check` → `take_intent`(원장 INTENT 선기록·선점, 실패면 전송 안 함) → `kis_.submit_order_acknowledgement`(ODNO) → `gate_.on_accepted` → `record`·`write_trade_row`(`seq` 동반). 실패 경로마다 무엇이 되돌려지는지  
-   `Quant/src/ipc/OrderRouterSubmit.cpp:146` · `ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)` · 시험 [test_order_router](../Quant/tests/test_order_router.cpp)
+75. [`OrderRouter::submit`](../Quant/src/ipc/OrderRouterSubmit.cpp#L134) — `action`으로 분기만 — NEW는 `new_route`, CANCEL·REPLACE는 `cancel_route`·`replace_route`  
+   `Quant/src/ipc/OrderRouterSubmit.cpp:134` · `ManagedOrder OrderRouter::submit(const OrderSignal& signal)` · 시험 [test_order_router](../Quant/tests/test_order_router.cpp)
+76. [`OrderRouter::new_route`](../Quant/src/ipc/OrderRouterSubmit.cpp#L147) — `clamp_buy_quantity` → 매도가능수량 0이면 `reconcile_blocked_sell` → 시장가 매도 중복 가드(`history_`) → `gate_.check` → `take_intent`(원장 INTENT 선기록·선점, 실패면 전송 안 함) → `kis_.submit_order_acknowledgement`(ODNO) → `gate_.on_accepted` → `record`·`write_trade_row`(`seq` 동반). 실패 경로마다 무엇이 되돌려지는지  
+   `Quant/src/ipc/OrderRouterSubmit.cpp:147` · `ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)` · 시험 [test_order_router](../Quant/tests/test_order_router.cpp)
 77. [`OrderGate::check`](../Quant/src/risk/OrderGate.cpp#L269) — 거부 검사 사슬 — 킬스위치 → 방향 → entry_halt(국면 자동 + 운영단말 수동, OR, D-091) → 매매 창(정규장+애프터마켓, D-097) → 1주문 수량·명목 → 종목당 포지션·명목 → 슬롯(교체·쿨다운·점수 우선) → 총노출 → 일손실 → PNL_STALE → 중복 → 유량. 순서가 곧 우선순위다. 매도가능수량은 라우터가 본다  
    `Quant/src/risk/OrderGate.cpp:269` · `bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)` · 시험 [test_order_gate](../Quant/tests/test_order_gate.cpp)
 78. [`OrderGate::clamp_buy_quantity`](../Quant/src/risk/OrderGate.cpp#L123) — 매수 수량을 현금·명목 한도로 깎는다. 0이 되면 거부  
@@ -367,10 +367,10 @@ flowchart LR
 
 SIGINT·운영단말 종료 → `request_shutdown` → `stop`. 체결 큐는 비울 때까지 돌고 로거는 `flush`한다. 종료 사유는 구역에 남아 붙은 프로세스가 따라 내려간다.
 
-103. [`Engine::request_shutdown`](../Quant/src/core/Engine.cpp#L750) — 시그널 핸들러에서 불려도 되는 최소 동작(플래그·깨우기)만  
-   `Quant/src/core/Engine.cpp:750` · `void Engine::request_shutdown(std::string_view reason, ipc::SharedShutdownReason recorded_reason)`
-104. [`Engine::stop`](../Quant/src/core/Engine.cpp#L781) — stop_token 요청 → join 순서(control → order → 샤드 → strategy → data → WS 끊기 → fill 마지막, 큐를 비우고 끝난다) → ZMQ·운영단말·DB 정지 → 전략 `on_stop` → 통계 출력. 미체결 예약주문 기억은 여기서 사라진다(재기동 규칙, CLAUDE.md '장중 운영')  
-   `Quant/src/core/Engine.cpp:781` · `void Engine::stop()`
+103. [`Engine::request_shutdown`](../Quant/src/core/Engine.cpp#L758) — 시그널 핸들러에서 불려도 되는 최소 동작(플래그·깨우기)만  
+   `Quant/src/core/Engine.cpp:758` · `void Engine::request_shutdown(std::string_view reason, ipc::SharedShutdownReason recorded_reason)`
+104. [`Engine::stop`](../Quant/src/core/Engine.cpp#L789) — stop_token 요청 → join 순서(control → order → 샤드 → strategy → data → WS 끊기 → fill 마지막, 큐를 비우고 끝난다) → ZMQ·운영단말·DB 정지 → 전략 `on_stop` → 통계 출력. 미체결 예약주문 기억은 여기서 사라진다(재기동 규칙, CLAUDE.md '장중 운영')  
+   `Quant/src/core/Engine.cpp:789` · `void Engine::stop()`
 105. [`ipc::SharedRegion::mark_clean_shutdown`](../Quant/src/ipc/SharedRegion.cpp#L612) — 종료 사유를 구역에 적는다 — 주인은 머리 칸, 붙은 쪽은 자기 역할 칸. 처음 적은 사유만 남는다(CAS)  
    `Quant/src/ipc/SharedRegion.cpp:612` · `void SharedRegion::mark_clean_shutdown(SharedShutdownReason reason) noexcept` · 시험 [test_shared_region](../Quant/tests/test_shared_region.cpp)
 

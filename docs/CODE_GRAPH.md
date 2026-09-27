@@ -25,7 +25,7 @@ graph LR
   core -->|15| ipc
   core -->|10| risk
   core -->|4| strategy
-  core -->|40| utils
+  core -->|41| utils
   exchange -->|7| core
   exchange -->|3| utils
   ipc -->|3| api
@@ -62,10 +62,10 @@ graph LR
 | `utils/Logger.h` | 59 |
 | `core/Types.h` | 51 |
 | `core/KstTime.h` | 32 |
-| `utils/ThreadName.h` | 28 |
+| `utils/ThreadName.h` | 29 |
 | `core/SymbolTable.h` | 22 |
 | `core/Engine.h` | 18 |
-| `core/WakeGate.h` | 13 |
+| `core/WakeGate.h` | 14 |
 | `strategy/StrategyBase.h` | 13 |
 
 ## 파일 단위 상세
@@ -162,6 +162,7 @@ graph LR
     n_core_TickCapture_h["core/TickCapture.h"]
     n_core_TickSize_cpp["core/TickSize.cpp"]
     n_core_TickSize_h["core/TickSize.h"]
+    n_core_TransportPool_h["core/TransportPool.h"]
     n_core_Types_cpp["core/Types.cpp"]
     n_core_Types_h["core/Types.h"]
     n_core_UniverseExit_cpp["core/UniverseExit.cpp"]
@@ -453,6 +454,7 @@ graph LR
   n_core_EngineOrderThread_cpp --> n_core_Engine_h
   n_core_EngineOrderThread_cpp --> n_core_KstTime_h
   n_core_EngineOrderThread_cpp --> n_core_LatencyTrace_h
+  n_core_EngineOrderThread_cpp --> n_core_TransportPool_h
   n_core_EngineOrderThread_cpp --> n_risk_DisplacementDesk_h
   n_core_EngineOrderThread_cpp --> n_utils_Logger_h
   n_core_EngineOrderThread_cpp --> n_utils_ThreadName_h
@@ -548,6 +550,9 @@ graph LR
   n_core_TickCapture_h --> n_core_WakeGate_h
   n_core_TickSize_cpp --> n_core_TickSize_h
   n_core_TickSize_h --> n_core_Types_h
+  n_core_TransportPool_h --> n_core_MpscQueue_h
+  n_core_TransportPool_h --> n_core_WakeGate_h
+  n_core_TransportPool_h --> n_utils_ThreadName_h
   n_core_Types_cpp --> n_core_Types_h
   n_core_Types_h --> n_core_StrategyTable_h
   n_core_Types_h --> n_core_SymbolTable_h

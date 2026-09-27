@@ -49,6 +49,14 @@ public:
         on_fill_ = std::move(callback);
     }
 
+    // 접수 답을 이만큼 늦춘다 — 증권사 왕복을 흉내 내는 벤치용(bench_order_burst). 잠금 밖에서 자므로 여러 전송
+    //  스레드가 겹쳐 기다린다. 함수는 여러 스레드가 동시에 부른다. [inv] 첫 주문 전에만 부른다. [why D-151]
+    using AcknowledgementDelay = std::function<std::chrono::milliseconds()>;
+    void set_acknowledgement_delay(AcknowledgementDelay delay)
+    {
+        acknowledgement_delay_ = std::move(delay);
+    }
+
     // 접수만 한다. 체결은 그 종목의 다음 틱(on_tick)에서 — 시장가는 틱 가격, 지정가는 가격이 닿을 때.
     //  매도는 보유수량에서 대기 매도를 뺀 만큼만 받고(부족하면 KIS와 같은 40240000), 매수는 현금 한도.
     [[nodiscard]] OrderAck submit_order_acknowledgement(const OrderSignal& signal) override;
@@ -123,6 +131,7 @@ private:
     symbol::SymbolTable& symbols_;
     mutable std::mutex   mutex_;
     FillCb               on_fill_;
+    AcknowledgementDelay             acknowledgement_delay_; // 비어 있으면 바로 답한다
     // 체결 전달만 한 줄로 세운다. 수신 스레드가 여럿이면 on_tick이 동시에 불리는데, 받는 쪽 체결 큐
     //  (Engine fill_queue)는 생산자가 하나여야 하는 SPSC다. mutex_와 따로 두는 건 콜백을 mutex_ 밖에서
     //  불러야 해서다 — 콜백이 체결기를 다시 부르면 mutex_ 안에서는 교착된다. [why CODE_REVIEW W-6]

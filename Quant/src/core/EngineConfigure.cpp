@@ -189,6 +189,7 @@ void configure_risk(Engine& engine, const AppConfig& app)
 
     // 주문 호출 간격 조절(C-2/W-3) — 버스트 청산 EGW00201 회피 + 거부 SELL 재시도.
     engine.set_order_interval(app.order_min_interval_ms, app.order_max_retries);
+    engine.set_order_transport_threads(app.order_transport_threads);
     LOG_INFO("[Engine] 주문 호출 간격 조절: " + std::to_string(app.order_min_interval_ms) + "ms 간격, 청산 SELL 재시도 " +
              std::to_string(app.order_max_retries) + "회");
 }

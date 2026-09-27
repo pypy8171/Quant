@@ -1607,6 +1607,78 @@ def regime_feed_row(date: str) -> tuple:
     return (name, True, "WARN", detail)
 
 
+TRANSPORT_THREADS_RE = re.compile(r"\[OrderThread\] 전송 스레드 (\d+)개")
+
+
+def order_transport_row(date: str) -> tuple:
+    """신규 주문의 KIS 왕복을 전송 스레드가 맡았는지, 몰릴 때 실제로 겹쳐 나갔는지.
+
+    주문 스레드가 직접 보내면 한 건의 답이 와야 다음 건이 나가 09-14 청산 41건이 약 1분 줄을 섰다.
+    겹침은 로그만으로 가린다 — 접수·거부 줄은 답을 닫을 때 찍히고 RTT는 보낸 때부터라, 앞 줄과의 간격이
+    이 줄의 RTT보다 짧으면 앞 건 답을 기다리지 않고 나간 것이다. 직접 보내는 옛 방식에서는 생길 수 없다.
+    기동 줄이 없으면 그날 돈 exe가 이 변경 전 빌드이거나 order_transport_threads가 0이다. [why D-151]
+    """
+    name = "주문 전송 스레드"
+    tolerance_ms = 50   # 로그 시각은 닫은 뒤에 찍혀 수 ms 늦다 — 이만큼은 겹침으로 세지 않는다
+    thread_counts = set()
+    results = 0
+    overlapped = 0
+    early_fills = 0   # 접수 답을 닫기 전에 온 체결 — 붙들었다가 닫을 때 연결한다
+
+    for _account, engine_log in engine_logs():
+        try:
+            body = engine_log.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+
+        previous_ms = None
+
+        for line in body.splitlines():
+            if not line.startswith(date):
+                continue
+
+            started = TRANSPORT_THREADS_RE.search(line)
+
+            if started:
+                thread_counts.add(int(started.group(1)))
+                previous_ms = None   # 재기동 — 앞 프로세스 줄과 잇지 않는다
+                continue
+
+            if "[OrderRouter] 접수 답 전 체결" in line:
+                early_fills += 1
+                continue
+
+            found = RTT_RE.search(line)
+
+            if not found:
+                continue
+
+            try:
+                clock = dt.datetime.strptime(line[11:23], "%H:%M:%S.%f")
+            except ValueError:
+                continue
+
+            now_ms = (clock.hour * 3600 + clock.minute * 60 + clock.second) * 1000 + clock.microsecond // 1000
+            results += 1
+
+            if previous_ms is not None and now_ms - previous_ms + tolerance_ms < int(found.group(1)):
+                overlapped += 1
+
+            previous_ms = now_ms
+
+    if results == 0:
+        return (name, True, "WARN", f"{date} 접수·거부 줄 없음 — 판정 안 함")
+
+    if not thread_counts:
+        return (name, False, "WARN",
+                f"접수·거부 {results}건, 전송 스레드 기동 줄 없음 — 변경 전 exe이거나 order_transport_threads 0")
+
+    counts = "·".join(str(count) for count in sorted(thread_counts))
+    return (name, True, "WARN",
+            f"전송 스레드 {counts}개로 기동, 접수·거부 {results}건 중 앞 건 답을 기다리지 않고 나간 것 {overlapped}건,"
+            f" 접수 답 전에 와서 붙든 체결 {early_fills}건")
+
+
 def global_rows(date: str) -> list:
     """계좌와 무관한 판정 — 하루에 한 번만 낸다.
 
@@ -1621,6 +1693,7 @@ def global_rows(date: str) -> list:
         queue_latency_row(date),
         role_publish_row(date),
         order_latency_breakdown_row(date),
+        order_transport_row(date),
         market_open_gate_row(date),
         after_market_order_row(date),
         restart_verify_row(date),

@@ -91,6 +91,7 @@ struct AppConfig
     OrderGate::Config risk;
     int               order_min_interval_ms = 350;
     int               order_max_retries = 3;
+    int               order_transport_threads = 4; // 신규 주문 전송 스레드 수, 0 = 주문 스레드가 직접 보냄 [why D-151]
     int               session_end_grace_sec = 120; // 마지막 매매 창이 닫힌 뒤 엔진이 스스로 내려가기까지 기다리는 초 [why D-098]
 
     // ── TRADE: 전략 배열 — StrategyFactory가 타입별로 읽는다 ──

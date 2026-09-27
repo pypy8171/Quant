@@ -45,7 +45,7 @@
     {
       "from": "core",
       "to": "utils",
-      "weight": 40
+      "weight": 41
     },
     {
       "from": "exchange",
@@ -214,6 +214,7 @@
     "core/SymbolTable.h": "core",
     "core/TickCapture.h": "core",
     "core/TickSize.h": "core",
+    "core/TransportPool.h": "core",
     "core/Types.h": "core",
     "core/UniverseExit.h": "core",
     "core/UniverseRescan.h": "core",
@@ -652,6 +653,7 @@
       "core/Engine.h",
       "core/KstTime.h",
       "core/LatencyTrace.h",
+      "core/TransportPool.h",
       "risk/DisplacementDesk.h",
       "utils/Logger.h",
       "utils/ThreadName.h"
@@ -835,6 +837,11 @@
     ],
     "core/TickSize.h": [
       "core/Types.h"
+    ],
+    "core/TransportPool.h": [
+      "core/MpscQueue.h",
+      "core/WakeGate.h",
+      "utils/ThreadName.h"
     ],
     "core/Types.cpp": [
       "core/Types.h"
@@ -1557,6 +1564,7 @@
       "core/ControlPlane.h",
       "core/Engine.h",
       "core/TickCapture.h",
+      "core/TransportPool.h",
       "exchange/ZmqOrderFeed.h",
       "ipc/DbManager.cpp",
       "ipc/ZmqBridge.h",
@@ -1664,6 +1672,9 @@
       "strategy/DeviationScaleStrategy.h",
       "strategy/MarketMakingStrategy.h"
     ],
+    "core/TransportPool.h": [
+      "core/EngineOrderThread.cpp"
+    ],
     "core/Types.h": [
       "api/IMarketDataSource.h",
       "api/IOrderExecutor.h",
@@ -1735,6 +1746,7 @@
       "core/PrefetchPool.h",
       "core/StrategyShard.h",
       "core/TickCapture.h",
+      "core/TransportPool.h",
       "core/WakeGate.cpp",
       "ipc/DbManager.cpp",
       "ipc/OrderRouterReconcile.cpp",
@@ -2095,6 +2107,7 @@
       "core/PrefetchPool.h",
       "core/ReplaySource.cpp",
       "core/TickCapture.cpp",
+      "core/TransportPool.h",
       "exchange/ZmqOrderFeed.cpp",
       "ipc/DbManager.cpp",
       "ipc/OpsServer.cpp",
@@ -2131,7 +2144,7 @@
     },
     {
       "header": "utils/ThreadName.h",
-      "in_degree": 28
+      "in_degree": 29
     },
     {
       "header": "core/SymbolTable.h",
@@ -2143,7 +2156,7 @@
     },
     {
       "header": "core/WakeGate.h",
-      "in_degree": 13
+      "in_degree": 14
     },
     {
       "header": "strategy/StrategyBase.h",
@@ -2166,16 +2179,16 @@
       "in_degree": 9
     },
     {
+      "header": "core/MpscQueue.h",
+      "in_degree": 8
+    },
+    {
       "header": "universe/MaAlign.h",
       "in_degree": 8
     },
     {
       "header": "utils/EtfFilter.h",
       "in_degree": 8
-    },
-    {
-      "header": "core/MpscQueue.h",
-      "in_degree": 7
     },
     {
       "header": "ipc/LedgerSnapshot.h",

@@ -275,6 +275,7 @@
 - [SymbolTable.h](../Quant/include/core/SymbolTable.h) — 종목 문자열 ↔ 정수 id 테이블(D-071)
 - [TickCapture.h](../Quant/include/core/TickCapture.h) — 틱·호가 append-only 이진 캡처와 리더(D-071)
 - [TickSize.h](../Quant/include/core/TickSize.h) — KRX 호가단위 표
+- [TransportPool.h](../Quant/include/core/TransportPool.h) — 신규 주문의 KIS 왕복을 맡는 고정 전송 스레드 풀. 주문 스레드는 넘기고 다음 주문으로 간다(D-151)
 - [Types.h](../Quant/include/core/Types.h) — 핵심 타입 정의 — MarketData·WatchSpec 등
 - [UniverseExit.h](../Quant/include/core/UniverseExit.h) — 유니버스 이탈·복귀 판정 순수 함수(D-077)
 - [UniverseRescan.h](../Quant/include/core/UniverseRescan.h) — 유니버스 재스캔 장부 — 슬리브별 스캔 주기·신규 등록·상한 교체·이탈 차단/해제·복귀 확인(D-077·D-087)
@@ -528,6 +529,7 @@
 ### Quant/tests/
 
 - [bench_engine_load.cpp](../Quant/tests/bench_engine_load.cpp) — 전 종목 부하 하네스. 합성 체결 2,700종목을 진짜 Engine에 밀어넣고 수신 스레드 N × 전략 샤드 M을 쓸어 처리량·드롭·지연을 CSV로 낸다
+- [bench_order_burst.cpp](../Quant/tests/bench_order_burst.cpp) — 주문 몰림 재현. 수동주문 N건을 한꺼번에 넣고 실측 왕복을 흉내 내 전송 스레드 수별 접수 시각을 잰다(D-151)
 - [bench_feed_ingest.cpp](../Quant/tests/bench_feed_ingest.cpp) — 시세 피드 수신 부하테스트, TCP loopback 네트워크·처리 구간 분해
 - [bench_gate_contention.cpp](../Quant/tests/bench_gate_contention.cpp) — OrderGate 락 경합 벤치(읽기 지연 분포)
 - [bench_intake.cpp](../Quant/tests/bench_intake.cpp) — 멀티생산자 주문 인테이크 큐 부하 벤치(MPSC 대 Mutex)

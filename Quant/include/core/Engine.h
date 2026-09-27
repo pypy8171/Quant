@@ -320,6 +320,9 @@ public:
         feed_.replay_cash   = cash;
     }
 
+    // 모의 체결기의 접수 답을 늦춘다 — 증권사 왕복을 흉내 내는 벤치용. start() 뒤, 첫 주문 전에만. [why D-151]
+    void set_paper_acknowledgement_delay(feed::PaperExecutor::AcknowledgementDelay delay);
+
 
     // 설정의 종목 목록을 그대로 구독 목록으로 깐다. 갈라 띄운 시세 프로세스에는 전략이 없어 구독 목록이
     //  비는데, 부하시험은 그 목록으로 종목 순번표를 적는다 — 비면 순번표가 0개가 되어 부하 투입기가
@@ -440,6 +443,12 @@ public:
     {
         order_min_interval_ms_ = min_interval_ms;
         order_max_retries_ = max_retries;
+    }
+
+    // 신규 주문의 KIS 왕복을 맡길 스레드 수. 0이면 주문 스레드가 직접 보낸다. 스레드 시작 전에만 호출. [why D-151]
+    void set_order_transport_threads(int thread_count)
+    {
+        order_transport_threads_ = thread_count;
     }
 
     // OrderGate 위험 한도를 config로 주입(스레드 시작 전에만). 기본값은 OrderGate::Config.
@@ -855,6 +864,7 @@ private:
     // ── 주문 설정 ───────────────────────────────────────────────────────────
     int order_min_interval_ms_ = 350; // 주문 간 최소 간격(milliseconds) — order_thread의 OrderRateLimiter가 쓴다 [why D-065]
     int order_max_retries_ = 3;       // 거부된 주문의 재시도 횟수(C-2)
+    int order_transport_threads_ = 0; // 신규 주문 전송 스레드 수, 0 = 주문 스레드가 직접 보냄 [why D-151]
 
     // ── 잔고 대조·REST 폴러 ─────────────────────────────────────────────────
     // 잔고 → 원장 대조기(기동 시드·주기 대조·손익 기준선·서킷브레이커). start()에서 feed_.kis·order_router_ 뒤에

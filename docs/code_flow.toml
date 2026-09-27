@@ -530,7 +530,7 @@ review = [
   [[stage.step]]
   sym = "Engine::order_thread_fn"
   file = "Quant/src/core/EngineOrderThread.cpp"
-  what = "`take_due_retry` 우선 → 수동주문 → 교체 보류분 → 요청 링 pop(`is_plausible`·중복 거름·`to_signal`·오래된 신규 매수 버림) → `wait_before_send` → `router->submit` → 응답 링에 답 → `publish_ledger`. 갈라 띄우면 2ms 폴링"
+  what = "`take_due_retry` 우선 → 수동주문 → 교체 보류분 → 요청 링 pop(`is_plausible`·중복 거름·`to_signal`·오래된 신규 매수 버림) → `wait_before_send` → 신규는 `open_new` 뒤 전송 스레드로(같은 종목이 답을 기다리면 뒤에 세움, 답이 오면 `close_new`), 그 밖은 `router->submit` → 응답 링에 답 → `publish_ledger`. 갈라 띄우면 2ms 폴링"
 
   [[stage.step]]
   sym = "Engine::take_manual_order"

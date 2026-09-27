@@ -1,9 +1,16 @@
 #include "core/PaperExecutor.h"
 
+#include <thread>
+
 namespace feed
 {
 OrderAck PaperExecutor::submit_order_acknowledgement(const OrderSignal& signal)
 {
+    if (acknowledgement_delay_)
+    {
+        std::this_thread::sleep_for(acknowledgement_delay_());
+    }
+
     std::lock_guard<std::mutex> lock(mutex_);
 
     if (signal.quantity <= 0 || signal.side == OrderSide::NONE)

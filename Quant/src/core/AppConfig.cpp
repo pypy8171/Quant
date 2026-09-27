@@ -177,6 +177,9 @@ void parse_risk(const json& document, AppConfig& app)
     // 주문 호출 간격 조절(C-2/W-3) — 버스트 청산 EGW00201 회피 + 거부 SELL 재시도.
     app.order_min_interval_ms       = risk_node.value("order_min_interval_ms", app.order_min_interval_ms);
     app.order_max_retries           = risk_node.value("order_max_retries", app.order_max_retries);
+    // 신규 주문 전송 스레드 수. 간격 500ms에 왕복 p90 약 4.5초면 동시에 답을 기다리는 주문이 9건까지 간다 —
+    //  4개면 p50(약 3건)은 줄 없이 나가고 꼬리만 기다린다. [why D-151]
+    app.order_transport_threads     = risk_node.value("order_transport_threads", app.order_transport_threads);
 }
 
 } // namespace

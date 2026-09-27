@@ -15,6 +15,7 @@
 #include <condition_variable>
 #include <deque>
 #include <filesystem>
+#include <memory>
 #include <stop_token>
 #include <thread>
 #include <mutex>
@@ -23,6 +24,7 @@
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
+#include <variant>
 #include <vector>
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -66,6 +68,19 @@ public:
 
     // ── 주문 제출 — 검증 → KIS 전송 → 상태 기록 ─────────────────────────
     [[nodiscard]] ManagedOrder submit(const OrderSignal& signal);
+
+    // ── 신규 주문을 세 토막으로 — 전송만 다른 스레드에 맡길 때 쓴다 ─────────
+    //  submit의 신규 경로는 open_new → send_new → close_new를 한 스레드에서 차례로 부른 것과 같다. 주문 스레드는
+    //  open_new·close_new를, 전송 스레드는 send_new만 부른다 — 게이트·원장·이력은 주문 스레드 하나만 만진다. [why D-151]
+    struct NewOrderSend;
+    // 전송 직전까지 연다(클램프·가드·게이트·INTENT). 보낼 것이 없으면(로컬 거부, 예약매도 취소 뒤 재발주로 이미 접수)
+    //  끝난 주문을 돌려준다. [inv] 주문 스레드 전용.
+    [[nodiscard]] std::variant<ManagedOrder, NewOrderSend> open_new(const OrderSignal& signal);
+    // KIS로 보내고 응답을 send에 담는다. kis_ 밖의 라우터 상태는 만지지 않으므로 어느 스레드에서 불러도 된다.
+    //  예외는 밖으로 내지 않고 send에 적는다.
+    void send_new(NewOrderSend& send) const noexcept;
+    // 응답으로 접수·거부를 확정하고 원장·이력에 적는다. [inv] 주문 스레드 전용.
+    [[nodiscard]] ManagedOrder close_new(NewOrderSend&& send);
 
     // ── 체결통보 수신 — ODNO로 이력 조회 후 FILLED 상태 갱신 ────────────
     void on_fill(const FillNotification& fill_notification);
@@ -218,6 +233,10 @@ private:
         // 접수 왕복지연과 그 안의 초당 한도 버킷 대기. count()의 타입 그대로 — MSVC는 long long이라 long이면 잘린다(C4244)
         std::chrono::milliseconds::rep rtt_ms         = 0;
         std::chrono::milliseconds::rep bucket_wait_ms = 0;
+        // 왕복지연을 재기 시작한 시각 — INTENT 전이다. 전송 스레드로 넘기면 넘겨받기까지의 대기도 여기 들어간다.
+        std::chrono::steady_clock::time_point send_started{};
+        bool        transport_failed = false; // 전송이 예외로 끝났다 — 접수 여부를 모른다
+        std::string transport_error;          // 그 예외 문구
 
         // 게이트까지의 두 구간을 한 번에 찍는다 — 이력 가드 몫을 게이트에서 빼 둘이 겹치지 않게 한다. [why D-117]
         void stamp_gate_stages();
@@ -230,8 +249,10 @@ private:
     [[nodiscard]] bool skip_duplicate_market_sell(NewRoute& route);
     // 예약매도 취소 시도와 OrderGate::check. 거부면 거부로 닫고 거짓.
     [[nodiscard]] bool pass_gate(NewRoute& route);
-    // 원장 INTENT를 적고 KIS로 보낸다. 못 적었거나 전송 예외면 거부로 닫고 거짓.
-    [[nodiscard]] bool transmit(NewRoute& route);
+    // 원장 INTENT를 적고 보낼 채비를 한다. 못 적었으면 거부로 닫고 거짓.
+    [[nodiscard]] bool prepare_transmit(NewRoute& route);
+    // 전송이 예외로 끝난 주문을 거부로 닫는다 — 선점을 풀고 이력에 적는다.
+    void close_transport_failure(NewRoute& route);
     // 전송 뒤 마무리 — 청산차단 재시도, 접수·거부 확정, 발행, 이력 저장.
     void finalize_new_order(NewRoute& route);
 
@@ -314,6 +335,12 @@ private:
     void restore_from_order_reason_locked(const FillNotification& fill_notification, uint64_t order_number);
     // ODNO 색인, 없으면 원주문번호로 연결된 주문을 찾는다. [inv] history_mutex_를 쥐고 부른다.
     ManagedOrder* find_linked_order_locked(const FillNotification& fill_notification, uint64_t order_number);
+    // 재전송 거르기 뒤의 단계. 연결 주문이 없는데 접수 답을 기다리는 신규 주문이 있으면 early_fills_에 붙든다.
+    //  [inv] lock은 history_mutex_를 쥔 채로 받고, 여기서 풀 수 있다.
+    void route_fill(std::unique_lock<std::mutex>& lock, const FillNotification& fill_notification,
+                    const fill_key::FillKey& fill_key, uint64_t order_number);
+    // close_new 끝 — 보내는 중 수를 하나 내리고 붙든 체결을 다시 판정한다. history_mutex_를 쥐지 않고 부른다.
+    void finish_sending_new();
     // 이 프로세스가 낸 주문이 아닌 체결을 원장에 넣는다. [inv] lock은 history_mutex_를 쥔 채로 받고, 여기서 푼다.
     void apply_unlinked_fill(std::unique_lock<std::mutex>& lock, const FillNotification& fill_notification,
                              const fill_key::FillKey& fill_key, uint64_t order_number);
@@ -376,6 +403,17 @@ private:
         symbol::SymbolId symbol_id_;
     };
 
+public:
+    // open_new가 연 신규 주문 하나 — 전송 스레드로 옮겨 다닌다. 종목 표시(in_flight)는 close_new가 이력에 적은
+    //  뒤에 풀린다. [inv] 이 값이 살아 있는 동안 라우터도 살아 있어야 한다(표시가 라우터를 가리킨다).
+    struct NewOrderSend
+    {
+        NewRoute                      route;
+        std::unique_ptr<InFlightMark> in_flight;
+    };
+
+private:
+
     std::mutex                    in_flight_mutex_;
     std::vector<symbol::SymbolId> in_flight_symbols_; // 같은 종목이 두 번 들 수 있다(신규 안의 청산 재매도)
 
@@ -415,6 +453,20 @@ private:
     // 주문 단위 키(거래일+ODNO, 체결 건별 칸은 0) → 그 주문의 누적 상태 (history_mutex_로 보호).
     //  ODNO는 영업일마다 재사용되므로 거래일을 키에 같이 담는다. 일별 리셋으로 비운다.
     std::unordered_map<FillKey, UnlinkedOrder, FillKeyHash> unlinked_orders_;
+
+    // 접수 답을 닫기 전에 온 체결 하나. 전송 스레드가 답을 받고 주문 스레드가 close_new로 ODNO를 적기까지의
+    //  틈에 체결통보가 먼저 올 수 있다. [why D-151]
+    struct EarlyFill
+    {
+        FillNotification notification;
+        FillKey          key;
+        uint64_t         order_number = 0;
+    };
+
+    // 붙든 체결 (history_mutex_로 보호). close_new가 비운다.
+    std::vector<EarlyFill> early_fills_;
+    // open_new가 넘기고 close_new가 닫기 전인 신규 주문 수 (history_mutex_로 보호). 0보다 크면 연결 안 된 체결을 붙든다.
+    int sending_new_orders_ = 0;
     // ODNO 정수 → 이전 세션이 남긴 주문 사유 (history_mutex_로 보호). 파일에서 한 번 읽고,
     //  되살린 주문은 지운다(같은 ODNO를 두 번 되살리지 않게).
     std::unordered_map<uint64_t, OrderReason> order_reasons_;

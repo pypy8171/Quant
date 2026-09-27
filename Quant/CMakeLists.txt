@@ -391,6 +391,8 @@ add_executable(test_order_router
     tests/test_order_router.cpp
     src/risk/OrderGate.cpp
     ${ORDER_ROUTER_SOURCES}
+    src/core/WakeGate.cpp
+    src/utils/ThreadName.cpp
     src/utils/Logger.cpp
 )
 target_include_directories(test_order_router PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -697,6 +699,9 @@ target_link_libraries(test_engine PRIVATE quant_engine)
 #     ctest에 붙이지 않는다 — 수십 초씩 코어를 다 쓴다. 부하 하네스의 관례다(bench_market_firehose와 같다).
 add_executable(bench_engine_load tests/bench_engine_load.cpp)
 target_link_libraries(bench_engine_load PRIVATE quant_engine)
+# ─── 벤치 타깃: 주문 몰림 재현 — 수동주문 N건을 한꺼번에 넣고 접수까지 걸린 시간을 전송 스레드 수별로 잰다 (D-151) ──
+add_executable(bench_order_burst tests/bench_order_burst.cpp)
+target_link_libraries(bench_order_burst PRIVATE quant_engine)
 
 # ─── 테스트 타깃: config.json → AppConfig 경계 — 키 이름·기본값·kis.exchange 검증·매매 창 hhmm→분 (json 읽기는 이 한 곳) ──
 add_executable(test_app_config tests/test_app_config.cpp)

@@ -629,6 +629,15 @@ meaning = "발주 간 최소 간격 기본"
 config_key = "order_min_interval_ms"
 
 [[code_value]]
+id = "order_transport_threads_default"
+file = "Quant/include/core/AppConfig.h"
+regex = 'int\s+order_transport_threads = (\d+);'
+unit = "개"
+group = "주문 — 발주 속도·재시도·청산 백오프"
+meaning = "신규 주문 KIS 왕복을 맡는 전송 스레드 수 기본(0이면 주문 스레드가 직접, D-151)"
+config_key = "order_transport_threads"
+
+[[code_value]]
 id = "order_max_retries_default"
 file = "Quant/include/core/AppConfig.h"
 regex = 'int\s+order_max_retries = (\d+);'

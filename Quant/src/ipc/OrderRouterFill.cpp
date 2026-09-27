@@ -127,6 +127,14 @@ void OrderRouter::on_fill(const FillNotification& fill_notification)
         return;
     }
 
+    route_fill(lock, fill_notification, fill_key, order_number);
+}
+
+// 재전송 거르기 뒤 — 이전 세션 주문 되살리기 → 연결된 주문 찾기 → 연결 체결 / 붙들기 / 미연결 체결.
+//  붙들어 둔 체결을 다시 판정할 때도 여기로 온다. 목격 기록은 처음 한 번만 올려야 해서 재전송 거르기는 밖에 둔다.
+void OrderRouter::route_fill(std::unique_lock<std::mutex>& lock, const FillNotification& fill_notification,
+                             const FillKey& fill_key, uint64_t order_number)
+{
     if (order_number != 0)
     {
         restore_from_order_reason_locked(fill_notification, order_number);
@@ -175,7 +183,37 @@ void OrderRouter::on_fill(const FillNotification& fill_notification)
         return;
     }
 
+    // 접수 답을 아직 닫지 않은 신규 주문이 있으면 이 체결이 그 주문 것일 수 있다 — ODNO는 close_new가 이력에 적는다.
+    //  미연결로 넣으면 전략 귀속을 잃고, 그 주문의 선점은 체결이 안 와서 안 풀린다. close_new가 다시 판정한다. [why D-151]
+    if (sending_new_orders_ > 0)
+    {
+        early_fills_.push_back(EarlyFill{fill_notification, fill_key, order_number});
+        const std::size_t held = early_fills_.size();
+        lock.unlock();
+        LOG_INFO(std::format("[OrderRouter] 접수 답 전 체결 — 답을 닫을 때 다시 연결 ODNO={} {} {}주 (붙든 것 {}건)",
+                             fill_notification.kis_order_no, fill_notification.ticker, fill_notification.filled_quantity, held));
+        return;
+    }
+
     apply_unlinked_fill(lock, fill_notification, fill_key, order_number);
+}
+
+void OrderRouter::finish_sending_new()
+{
+    std::vector<EarlyFill> held;
+    {
+        std::lock_guard<std::mutex> lock(history_mutex_);
+        --sending_new_orders_;
+        held.swap(early_fills_);
+    }
+
+    // 하나씩 다시 판정한다 — 이번에 닫은 주문 것이면 연결되고, 아직 보내는 중인 다른 주문이 있으면 다시 붙든다.
+    //  보내는 중인 주문이 없는데도 연결이 안 되면 정말 이 프로세스 주문이 아니라 미연결로 넣는다.
+    for (const EarlyFill& early_fill : held)
+    {
+        std::unique_lock<std::mutex> lock(history_mutex_);
+        route_fill(lock, early_fill.notification, early_fill.key, early_fill.order_number);
+    }
 }
 
 // 재기동 복원 — 이전 세션이 낸 주문이면 접수 때 남긴 사유 기록에서 되살린다.

@@ -279,6 +279,14 @@ void Engine::setup_paper_executor(bool offline)
     }
 }
 
+void Engine::set_paper_acknowledgement_delay(feed::PaperExecutor::AcknowledgementDelay delay)
+{
+    if (feed_.paper)
+    {
+        feed_.paper->set_acknowledgement_delay(std::move(delay));
+    }
+}
+
 void Engine::initialize_order_router()
 {
     IOrderExecutor& executor = feed_.paper ? static_cast<IOrderExecutor&>(*feed_.paper) : *feed_.kis;

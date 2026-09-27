@@ -129,7 +129,8 @@ std::optional<int> OrderRouter::parse_quantity(const std::string& text)
 
 // ─── 주문 제출 — action에 따라 라우팅 (MM-1) ─────────────────────────────
 //  전 경로가 주문 스레드 하나(Engine::order_thread_fn)에서만 실행된다 — OrderGate C6의
-//  단일생산자·단일소비자(SPSC) 불변 보존. 전략 스레드는 여기 진입하지 않는다.
+//  단일생산자·단일소비자(SPSC) 불변 보존. 전략 스레드는 여기 진입하지 않는다. 전송 스레드는 send_new만
+//  부른다(게이트·원장·이력은 안 만진다). [why D-151]
 ManagedOrder OrderRouter::submit(const OrderSignal& signal)
 {
     switch (signal.action)
@@ -142,8 +143,23 @@ ManagedOrder OrderRouter::submit(const OrderSignal& signal)
 }
 
 // ─── 신규 주문 (기존 경로) ─────────────────────────────────────────────────
-//  단계: 클램프 → 이력 가드 둘 → 게이트 → 전송 → 마무리. 단계가 거짓이면 그 단계가 거부로 닫고 이력까지 적었다.
+//  열기 → 전송 → 닫기를 한 스레드에서 잇는다. 전송 스레드를 쓰는 주문 스레드는 셋을 따로 부른다. [why D-151]
 ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
+{
+    auto opened = open_new(in_signal);
+
+    if (auto* finished = std::get_if<ManagedOrder>(&opened))
+    {
+        return std::move(*finished);
+    }
+
+    auto& send = std::get<NewOrderSend>(opened);
+    send_new(send);
+    return close_new(std::move(send));
+}
+
+// 단계: 클램프 → 이력 가드 둘 → 게이트 → INTENT. 단계가 거짓이면 그 단계가 거부로 닫고 이력까지 적었다.
+std::variant<ManagedOrder, OrderRouter::NewOrderSend> OrderRouter::open_new(const OrderSignal& in_signal)
 {
     const auto now = std::chrono::system_clock::now();
     NewRoute   route;
@@ -161,17 +177,58 @@ ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)
     }
 
     route.order_reference = OrderGate::OrderRef{digits_to_number(route.managed_order.order_id), 0, route.signal.type};
-    // 여기부터 함수 끝(이력 기록)까지 이 종목의 선점을 정리가 풀지 못하게 건다 — 아래 INTENT 두 자리(청산 재매도,
+    // 여기부터 close_new의 이력 기록까지 이 종목의 선점을 정리가 풀지 못하게 건다 — INTENT 두 자리(청산 재매도,
     //  신규 전송) 모두 이 안이다. [why D-113]
-    const InFlightMark in_flight{*this, route.signal.symbol_id != symbol::kNone
-                                            ? route.signal.symbol_id
-                                            : gate_.ledger().intern_symbol(route.signal.ticker)};
+    auto in_flight = std::make_unique<InFlightMark>(*this, route.signal.symbol_id != symbol::kNone
+                                                               ? route.signal.symbol_id
+                                                               : gate_.ledger().intern_symbol(route.signal.ticker));
 
-    if (pass_gate(route) && transmit(route))
+    if (!pass_gate(route) || !prepare_transmit(route))
     {
-        finalize_new_order(route);
+        return std::move(route.managed_order);
     }
 
+    if (route.freed) // 예약매도 취소 뒤 재발주가 이미 접수됐다 — 보낼 것 없이 그 결과로 닫는다
+    {
+        finalize_new_order(route);
+        return std::move(route.managed_order);
+    }
+
+    // 여기서부터 close_new까지 ODNO를 모르는 주문이다 — 그 사이 온 체결은 on_fill이 붙들어 둔다. [why D-151]
+    {
+        std::lock_guard<std::mutex> lock(history_mutex_);
+        ++sending_new_orders_;
+    }
+
+    return NewOrderSend{std::move(route), std::move(in_flight)};
+}
+
+// 닫기 — 표시는 이력에 적은 뒤 풀리도록 지역으로 옮겨 둔다(지역 변수는 선언 역순으로 소멸).
+ManagedOrder OrderRouter::close_new(NewOrderSend&& send)
+{
+    const std::unique_ptr<InFlightMark> in_flight = std::move(send.in_flight);
+    NewRoute&                           route     = send.route;
+
+    try
+    {
+        if (route.transport_failed)
+        {
+            close_transport_failure(route);
+        }
+        else
+        {
+            finalize_new_order(route);
+        }
+    }
+    catch (...)
+    {
+        // 수를 안 내리면 그 뒤 연결 안 되는 체결을 끝없이 붙든다.
+        finish_sending_new();
+        throw;
+    }
+
+    // ODNO가 이력에 들어간 뒤라 붙든 체결 중 이 주문 것은 이제 연결된다.
+    finish_sending_new();
     return std::move(route.managed_order);
 }
 
@@ -373,16 +430,16 @@ bool OrderRouter::pass_gate(NewRoute& route)
 // 2. KIS 주문 전송 (submit_order_acknowledgement로 ODNO + KRX 조직번호 캡처 — 정정/취소 준비)
 //    접수 왕복지연(RTT)을 재서 접수 로그에 남긴다 → log_report.py가 중앙값(p50)·상위 1%(p99) 집계.
 //    RTT 안에는 초당 한도 버킷 대기(rate_limit_acquire)가 섞여 있어 그 몫을 따로 적는다 — 09-14~18 RTT p50 2초가
-//    망 지연인지 버킷 줄서기인지 이 숫자 없이는 못 가른다. 전송 스레드 분리(T-13-2)는 이 값을 보고 정한다. [why D-117]
-bool OrderRouter::transmit(NewRoute& route)
+//    망 지연인지 버킷 줄서기인지 이 숫자 없이는 못 가른다. 전송 스레드 분리(T-13-2)는 이 값을 보고 정했다. [why D-117]
+//    여기는 채비까지다 — INTENT를 적고 호출 수를 센다. 보내기는 send_new. [why D-151]
+bool OrderRouter::prepare_transmit(NewRoute& route)
 {
     const OrderSignal& signal        = route.signal;
     ManagedOrder&      managed_order = route.managed_order;
 
     managed_order.status = OrderStatus::SUBMITTED;
     route.stamp_gate_stages();
-    const auto          send_thread           = std::chrono::steady_clock::now();
-    const std::uint64_t bucket_wait_before_ns = kis_.rate_limit_wait_ns_this_thread();
+    route.send_started = std::chrono::steady_clock::now();
 
     const int64_t journal_started_ns = trace::now_ns();
 
@@ -398,47 +455,63 @@ bool OrderRouter::transmit(NewRoute& route)
     if (!route.freed)
     {
         route.intent_taken = true;
+        ++kis_calls_; // 셈은 주문 스레드가 한다 — 주문 스레드가 이 수의 증가로 호출 여부를 가른다
     }
 
-    const int64_t transport_started_ns = trace::now_ns();
-    managed_order.stages.journal_us    = (transport_started_ns - journal_started_ns) / 1000;
+    managed_order.stages.journal_us = (trace::now_ns() - journal_started_ns) / 1000;
+    return true;
+}
+
+// KIS로 보낸다. 버킷 대기는 스레드별 누계라 보내는 스레드에서 전후를 잰다. RTT는 채비 시각부터라 전송 스레드에
+//  넘겨지기를 기다린 몫도 들어간다 — 그 대기도 접수 지연이다. [inv] kis_와 send 밖은 만지지 않는다. [why D-151]
+void OrderRouter::send_new(NewOrderSend& send) const noexcept
+{
+    NewRoute&           route                 = send.route;
+    const std::uint64_t bucket_wait_before_ns = kis_.rate_limit_wait_ns_this_thread();
+    const int64_t       transport_started_ns  = trace::now_ns();
 
     try
     {
-        if (!route.freed) // 예약매도 취소 뒤 재발주가 이미 접수됐으면 그 결과를 쓴다
-        {
-            ++kis_calls_;
-            route.acknowledgement = kis_.submit_order_acknowledgement(signal);
-        }
-
-        route.rtt_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                           std::chrono::steady_clock::now() - send_thread)
-                           .count();
-        route.bucket_wait_ms = static_cast<std::chrono::milliseconds::rep>(
-            (kis_.rate_limit_wait_ns_this_thread() - bucket_wait_before_ns) / 1000000ULL);
-
-        // 같은 대기를 us로도 남긴다 — ms로 자르면 버킷 대기가 0인지 0.9ms인지 구분이 안 된다.
-        //  전송 시간은 버킷 줄서기를 뺀 몫이다. 뺀 값이 음수면(시계 해상도) 0으로 둔다.
-        const int64_t bucket_wait_us = static_cast<int64_t>(
-            (kis_.rate_limit_wait_ns_this_thread() - bucket_wait_before_ns) / 1000ULL);
-        managed_order.stages.bucket_wait_us = bucket_wait_us;
-        managed_order.stages.transport_us =
-            std::max<int64_t>(0, (trace::now_ns() - transport_started_ns) / 1000 - bucket_wait_us);
+        route.acknowledgement = kis_.submit_order_acknowledgement(route.signal);
     }
     catch (const std::exception& exception)
     {
-        mark_rejected(managed_order, std::string("KIS 예외: ") + exception.what());
-        // 전송 예외는 접수 여부를 모른다. 선점을 풀고 REJECT를 적는다 — 실제로 접수됐다면 체결통보·잔고 대조가
-        //  원장을 되맞춘다(선점을 붙잡아 두면 그 종목이 하루 종일 막힌다). [why D-113]
-        gate_.ledger().on_reject(signal.account_id, signal.ticker, signal.side, signal.quantity, route.order_reference,
-                                 managed_order.reject_reason);
-        LOG_ERROR("[OrderRouter] KIS 예외 [" + managed_order.order_id + "] " + signal.ticker + " — " + exception.what());
-        publish_order_result(signal, false);
-        record_before_transport(managed_order);
-        return false;
+        route.transport_failed = true;
+        route.transport_error  = exception.what();
+    }
+    catch (...)
+    {
+        route.transport_failed = true;
+        route.transport_error  = "알 수 없는 예외";
     }
 
-    return true;
+    route.rtt_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                       std::chrono::steady_clock::now() - route.send_started)
+                       .count();
+    const std::uint64_t bucket_wait_ns = kis_.rate_limit_wait_ns_this_thread() - bucket_wait_before_ns;
+    route.bucket_wait_ms               = static_cast<std::chrono::milliseconds::rep>(bucket_wait_ns / 1000000ULL);
+
+    // 같은 대기를 us로도 남긴다 — ms로 자르면 버킷 대기가 0인지 0.9ms인지 구분이 안 된다.
+    //  전송 시간은 버킷 줄서기를 뺀 몫이다. 뺀 값이 음수면(시계 해상도) 0으로 둔다.
+    const int64_t bucket_wait_us               = static_cast<int64_t>(bucket_wait_ns / 1000ULL);
+    route.managed_order.stages.bucket_wait_us = bucket_wait_us;
+    route.managed_order.stages.transport_us =
+        std::max<int64_t>(0, (trace::now_ns() - transport_started_ns) / 1000 - bucket_wait_us);
+}
+
+// 전송 예외는 접수 여부를 모른다. 선점을 풀고 REJECT를 적는다 — 실제로 접수됐다면 체결통보·잔고 대조가
+//  원장을 되맞춘다(선점을 붙잡아 두면 그 종목이 하루 종일 막힌다). [why D-113]
+void OrderRouter::close_transport_failure(NewRoute& route)
+{
+    const OrderSignal& signal        = route.signal;
+    ManagedOrder&      managed_order = route.managed_order;
+
+    mark_rejected(managed_order, "KIS 예외: " + route.transport_error);
+    gate_.ledger().on_reject(signal.account_id, signal.ticker, signal.side, signal.quantity, route.order_reference,
+                             managed_order.reject_reason);
+    LOG_ERROR("[OrderRouter] KIS 예외 [" + managed_order.order_id + "] " + signal.ticker + " — " + route.transport_error);
+    publish_order_result(signal, false);
+    record_before_transport(managed_order);
 }
 
 // 3. 전송 뒤 마무리 — 접수 확정(원장 ACCEPT 기록)·발행·이력 저장·파일 넘기기. 여기부터가 record_us다.
