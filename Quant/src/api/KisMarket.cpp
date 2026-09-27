@@ -22,6 +22,7 @@ std::vector<MarketData> KisClient::get_chart_ohlcv(const std::string& ticker, in
     // 캐시 키에 절단 여부와 주기를 넣는다. ticker만으로 키를 잡으면 절단본과 미절단본이 서로를
     //  덮어써서 호출자가 뭘 받을지 호출 순서에 달리게 된다(D-005).
     const std::string ckey = ticker + "|" + period + (include_current ? "|T" : "|F");
+    const std::string cache_date = kst::date_yyyymmdd(std::time(nullptr));
 
     // 캐시 조회 — 유효시간 안이고 요청한 만큼 담겨 있으면 그대로 쓴다. 최신봉이 앞이라
     //  더 짧은 요청은 앞에서 잘라 답한다. timestamp는 받아온 시각이라 지금으로 다시 찍는다.
@@ -30,9 +31,13 @@ std::vector<MarketData> KisClient::get_chart_ohlcv(const std::string& ticker, in
         std::lock_guard<std::mutex> lock(daily_cache_mutex_);
         auto iterator = daily_cache_.find(ckey);
 
-        if (iterator != daily_cache_.end() && iterator->second.requested >= count &&
-            std::chrono::steady_clock::now() - iterator->second.at <
-                std::chrono::seconds(config_.daily_cache_ttl_sec))
+        // [inv] 지난 봉은 장중에 바뀌지 않는다 — 당일 봉이 빠진 항목은 받은 날 동안, 당일 봉이 든 항목만 TTL 동안 쓴다.
+        const bool fresh = iterator != daily_cache_.end() &&
+                           (include_current ? std::chrono::steady_clock::now() - iterator->second.at <
+                                                  std::chrono::seconds(config_.daily_cache_ttl_sec)
+                                            : iterator->second.kst_date == cache_date);
+
+        if (fresh && iterator->second.requested >= count)
         {
             size_t total = (std::min)(static_cast<size_t>(count), iterator->second.bars.size());
             // 락 안에서 뜬 사본 — 반환값이 락 밖으로 나가고 timestamp도 새로 찍으므로 복사가 맞다.
@@ -197,6 +202,7 @@ std::vector<MarketData> KisClient::get_chart_ohlcv(const std::string& ticker, in
         std::lock_guard<std::mutex> lock(daily_cache_mutex_);
         auto& cache_entry = daily_cache_[ckey];
         cache_entry.at = std::chrono::steady_clock::now();
+        cache_entry.kst_date = cache_date;
         cache_entry.requested = count;
         cache_entry.bars = result; // 캐시가 한 벌, 호출자가 한 벌 — 둘 다 필요한 복사
     }
