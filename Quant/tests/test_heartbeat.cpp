@@ -10,6 +10,7 @@
 //   ⑤ 본 가장 긴 공백을 쌓는가(문턱을 정하는 근거)
 //   ⑥ 뛰는 쪽과 보는 쪽이 값 하나로 이어지는가
 //   ⑦ 주문 쪽 문턱이 증권사 왕복 상한 위에 있는가(멀쩡히 왕복 중인 주문 스레드를 죽었다고 읽지 않게)
+//   ⑧ 보는 쪽도 같이 멈췄다 깼으면 그 시간을 상대 사망으로 세지 않는가(프로세스째 멈춤, 2026-09-28)
 //
 //   사용법: test_heartbeat
 
@@ -112,7 +113,8 @@ int main()
         check(monitor.observe(second_beat + milliseconds(10), second_beat) == Step::kHealthy, "박동이 돌아오면 정상으로 내려온다");
         check(!monitor.take_dead_once(), "정상으로 내려온 것만으로는 가져갈 사망이 없다");
 
-        // 그다음 사망은 다시 마무리를 타야 한다.
+        // 그다음 사망은 다시 마무리를 타야 한다. 보는 쪽은 사망 문턱보다 자주 본다(⑧과 갈라지게).
+        monitor.observe(second_beat + milliseconds(900), second_beat);
         monitor.observe(second_beat + milliseconds(1'500), second_beat);
         check(monitor.take_dead_once(), "다시 죽으면 다시 한 번 가져간다");
         check(monitor.dead_count() == 2, "두 번째 사망도 센다");
@@ -172,6 +174,40 @@ int main()
 
         check(kOrderSideConfig.suspect_ms > kWindowsRoundTripMs,
               "의심 문턱이 왕복 상한 위에 있다 — 좁히려면 실측부터");
+    }
+
+    // ── ⑧ 보는 쪽도 멈췄다 깼을 때 ──────────────────────────────────────
+    //  디버거 정지나 OS 정지로 프로세스가 통째로 멈추면 보는 쪽(주문 스레드)도 같이 선다. 깨어나 먼저 보면
+    //  상대 박동은 멈추기 전 시각 그대로라 공백이 멈춘 시간만큼 벌어져 보인다 — 그것을 사망으로 세면 안 된다.
+    {
+        ipc::HeartbeatMonitor monitor(test_config());
+        const int64_t         beat_at = milliseconds(1'000);
+
+        check(monitor.observe(beat_at + milliseconds(10), beat_at) == Step::kHealthy, "멈추기 전에는 정상");
+        check(monitor.take_observer_stall_ns() == 0, "보는 쪽이 제때 봤으면 멈춤 길이가 없다");
+
+        // 3,790ms 뒤에 깨어나 본다. 상대는 아직 안 뛰었다(같이 멈췄다가 아직 첫 바퀴 전).
+        check(monitor.observe(beat_at + milliseconds(3'800), beat_at) == Step::kHealthy,
+              "같이 멈췄던 시간은 상대 공백으로 세지 않는다");
+        check(monitor.dead_count() == 0, "그래서 사망도 안 난다");
+        check(monitor.take_observer_stall_ns() == milliseconds(3'790), "보는 쪽이 멈춘 길이를 한 번 알려 준다");
+        check(monitor.take_observer_stall_ns() == 0, "두 번째는 0이다 — 로그를 한 줄만 남기게");
+
+        // 깨어난 뒤에도 상대가 계속 안 뛰면 그다음 바퀴에 잡힌다.
+        check(monitor.observe(beat_at + milliseconds(3'810), beat_at) == Step::kDead, "깬 뒤에도 안 뛰면 다음 바퀴에 사망");
+    }
+
+    {
+        // 보는 쪽 바퀴가 매번 문턱보다 길어도 정말 죽은 상대는 결국 잡는다 — 직전에 본 시각까지의 공백이 자란다.
+        ipc::HeartbeatMonitor monitor(test_config());
+        const int64_t         beat_at = milliseconds(1'000);
+
+        check(monitor.observe(beat_at + milliseconds(500), beat_at) == Step::kSuspect, "첫 바퀴는 의심");
+        check(monitor.observe(beat_at + milliseconds(1'600), beat_at) == Step::kSuspect,
+              "느린 바퀴에서는 직전에 본 시각까지(500ms)만 센다");
+        check(monitor.observe(beat_at + milliseconds(2'700), beat_at) == Step::kDead,
+              "그다음 바퀴에는 직전 시각까지의 공백(1,600ms)이 문턱을 넘어 사망");
+        check(monitor.last_gap_ns() == milliseconds(1'600), "판정에 쓴 공백을 들고 있다(사망 로그에 적는다)");
     }
 
     std::cout << "test_heartbeat: " << g_checks << " checks passed\n";

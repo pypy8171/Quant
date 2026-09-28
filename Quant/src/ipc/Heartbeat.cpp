@@ -27,6 +27,9 @@ HeartbeatMonitor::HeartbeatMonitor(HeartbeatConfig config) : config_(config)
 
 HeartbeatMonitor::Step HeartbeatMonitor::observe(int64_t now_ns, int64_t last_beat_ns)
 {
+    const int64_t previous_observe_ns = last_observe_ns_;
+    last_observe_ns_                  = now_ns;
+
     if (last_beat_ns == 0)
     {
         // 아직 한 번도 안 뛰었다. 기동 직후 찍는 쪽(전략·주문·시세)이 첫 바퀴를 돌기 전이라 공백을 세지 않는다.
@@ -34,7 +37,18 @@ HeartbeatMonitor::Step HeartbeatMonitor::observe(int64_t now_ns, int64_t last_be
         return state_;
     }
 
-    const int64_t gap_ns = std::max<int64_t>(now_ns - last_beat_ns, 0);
+    // 보는 쪽이 사망 문턱 넘게 안 봤다 = 이 스레드도 멈췄다 깼다. 그 사이 상대가 못 뛴 것은 상대 탓이 아니다 —
+    //  직전에 본 시각까지의 공백만 센다. 상대가 정말 죽었으면 그 공백도 문턱을 넘어 있거나 다음 바퀴에 넘는다.
+    int64_t judged_until_ns = now_ns;
+
+    if (previous_observe_ns != 0 && now_ns - previous_observe_ns >= config_.dead_ms * kNanosecondsPerMillisecond)
+    {
+        judged_until_ns    = previous_observe_ns;
+        observer_stall_ns_ = now_ns - previous_observe_ns;
+    }
+
+    const int64_t gap_ns = std::max<int64_t>(judged_until_ns - last_beat_ns, 0);
+    last_gap_ns_         = gap_ns;
     max_gap_ns_          = std::max(max_gap_ns_, gap_ns);
 
     const Step previous = state_;
@@ -74,6 +88,13 @@ HeartbeatMonitor::Step HeartbeatMonitor::observe(int64_t now_ns, int64_t last_be
     }
 
     return state_;
+}
+
+int64_t HeartbeatMonitor::take_observer_stall_ns() noexcept
+{
+    const int64_t stall_ns = observer_stall_ns_;
+    observer_stall_ns_     = 0;
+    return stall_ns;
 }
 
 bool HeartbeatMonitor::take_dead_once() noexcept

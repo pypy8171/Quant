@@ -151,7 +151,7 @@ void Engine::track_feed_liveness(ipc::HeartbeatMonitor::Step step, bool just_die
 // 마무리 순서: ① 새 진입을 끊고 ② 감시견에 알리고 ③ 보유분은 보호 주문 표가 지킨다.
 //  저널은 여기서 따로 안 민다 — 표를 들고 있는 쪽(주문·원장)이 살아 있고 append마다 이미 fflush한다.
 //  [inv] order_thread 전용. 여기서 부르는 OrderRouter::submit이 단일 스레드를 전제한다. [why D-114]
-void Engine::track_strategy_liveness(ipc::HeartbeatMonitor::Step step, bool just_died,
+void Engine::track_strategy_liveness(ipc::HeartbeatMonitor::Step step, bool just_died, int64_t strategy_gap_ns,
                                      std::chrono::steady_clock::time_point now)
 {
     // 박동이 돌아왔다 — 감시견이 전략을 다시 띄웠거나 멈췄던 스레드가 깨어났다. 정지를 안 풀면 그날 내내 못 산다.
@@ -169,7 +169,8 @@ void Engine::track_strategy_liveness(ipc::HeartbeatMonitor::Step step, bool just
         //  청산(SELL)·취소는 그대로 통과한다 — 급락장에 청산이 미완료로 남지 않게(entry_halt와 같은 규칙).
         order_gate_.set_strategy_down_halt(true);
         strategy_wound_down_.store(true, std::memory_order_relaxed);
-        LOG_ERROR("[마무리] 전략 박동이 끊겼다 — 신규 진입 정지, 보호 주문은 주문 스레드가 이어받는다");
+        LOG_ERROR("[마무리] 전략 박동이 끊겼다 — 신규 진입 정지, 보호 주문은 주문 스레드가 이어받는다 (공백 " +
+                  std::to_string(strategy_gap_ns / kNanosecondsPerMillisecond) + "ms)");
     }
 
     if (!strategy_wound_down_.load(std::memory_order_relaxed) || order_router_ == nullptr ||
@@ -548,7 +549,17 @@ void Engine::order_thread_fn(std::stop_token stop_token)
 
         const auto step = strategy_monitor.observe(trace::now_ns(), pipeline_.strategy_heartbeat->last_ns());
         pipeline_.strategy_beat_gap_max_ns.store(strategy_monitor.max_gap_ns(), std::memory_order_relaxed);
-        track_strategy_liveness(step, strategy_monitor.take_dead_once(), steady_clock::now());
+
+        // 이 스레드가 멈췄다 깼다 — 프로세스째 멈춘 것(디버거 정지·OS 정지)이라 전략 사망으로 세지 않았다.
+        //  몇 번, 얼마나 멈췄는지는 건전성 점검이 이 줄로 센다.
+        if (const int64_t stall_ns = strategy_monitor.take_observer_stall_ns(); stall_ns != 0)
+        {
+            LOG_WARN("[마무리] 주문 스레드가 " + std::to_string(stall_ns / kNanosecondsPerMillisecond) +
+                     "ms 멈췄다 깼다 — 그 사이 공백은 전략 사망으로 세지 않는다");
+        }
+
+        track_strategy_liveness(step, strategy_monitor.take_dead_once(), strategy_monitor.last_gap_ns(),
+                                steady_clock::now());
 
         // 시세가 살아 있는가 — 같은 자리에서 본다. 전략 쪽과 달리 아직 한 번도 안 뛴 칸(0)은 정상으로
         //  읽히므로(HeartbeatMonitor::observe), 시세 프로세스가 아직 안 뜬 기동 초반을 사망으로 보지 않는다.

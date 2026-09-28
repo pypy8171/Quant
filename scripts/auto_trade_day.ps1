@@ -515,9 +515,11 @@ if (-not $NoDashboard)
   # --logs 도 같이 넘긴다. 이게 없으면 대시보드는 같은 날짜 원장 중 행 수가 많은 쪽을 고른다
   #  (_logdir.find_ledger). 모의가 하루 종일 돌아 원장이 훨씬 크므로, 실계좌 화면에 모의의
   #  실현손익·체결 건수가 뜨고 계좌 잔고만 실계좌이다(2026-09-23 실측).
-  $ledgerDirectory = ""
-  try { $ledgerDirectory = (Get-Content $Config -Raw -Encoding UTF8 | ConvertFrom-Json).ledger_journal_dir } catch { }
-  $logsClause = if ($ledgerDirectory) { " --logs $ledgerDirectory" } else { "" }
+  #  넘기는 폴더는 엔진이 quant_trader.log·trades_*.csv 를 실제로 쓰는 곳이어야 한다. 예전에는
+  #  ledger_journal_dir 을 넘겼는데, -Instance 없이 띄운 모의 엔진은 build_win\logs 에 쓰고
+  #  logs_paper 에는 저널만 있어 피드·원장이 통째로 비었다(2026-09-28).
+  $engineLogDirectory = if ($env:QUANT_LOG_DIR) { $env:QUANT_LOG_DIR } else { Join-Path $Repo "Quant\build_win\logs" }
+  $logsClause = " --logs `"$engineLogDirectory`""
   Start-Window "quant-dashboard" "py scripts\dashboard_server.py --config $Config --port $dashboardPort$logsClause" "dashboard_server.py"
   Say "  대시보드 http://127.0.0.1:$dashboardPort  ($Config)"
 }
@@ -592,6 +594,12 @@ function Start-TraderProcess([string]$roleName)
   # 세션 기록·크래시 루프 판정(last_exit)이 전부 null을 본다.
   $null = $process.Handle
   $tag  = if ($roleName) { " $roleName 쪽" } else { "" }
+  # 우선순위는 부모에게서 물려받는다. 작업 스케줄러가 띄운 감시견은 BelowNormal(작업 기본 우선순위 7)이라
+  #  엔진도 BelowNormal로 떠서, 빌드가 코어를 다 쓰는 동안 엔진 프로세스가 최대 3.8초씩 통째로 멈췄다
+  #  (2026-09-28 모의, 전략 사망 판정 56회). 손으로 띄운 실계좌 감시견은 Normal이라 같은 때 멀쩡했다.
+  #  빌드(Normal)에 밀리지 않게 한 칸 위로 둔다. 엔진은 할 일이 없으면 자므로 다른 작업을 굶기지 않는다.
+  try { $process.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::AboveNormal }
+  catch { Say "  트레이더$tag pid=$($process.Id) 우선순위 올리기 실패 — $($_.Exception.Message)" "WARN" }
   if ($script:Job -ne [IntPtr]::Zero) {
     if (-not [WinJob]::Add($script:Job, $process.Id)) { Say "  트레이더$tag pid=$($process.Id) 잡 편입 실패 — 워치독이 죽으면 미연결로 남는다." "WARN" }
   }

@@ -67,8 +67,8 @@ flowchart LR
 
 감시견이 같은 exe를 `--role`만 달리해 띄운다. 구역을 만드는 쪽은 주문이라 주문을 먼저 띄우고, 전략·시세는 30초까지 붙기를 다시 시도한다. `Engine::start()`와 `spawn_threads()`가 `runs_order_side`·`runs_strategy_side`·`runs_feed_side`로 역할마다 부품과 스레드를 고른다.
 
-1. [`Start-TraderProcess`](../scripts/auto_trade_day.ps1#L584) — 감시견이 `quant_trader.exe <config> --role <역할>`로 띄운다. `-Roles order,strategy,feed`면 셋, 기본은 `both` 하나. 하나가 죽으면 정상 종료면 20초 기다리고, 아니면 나머지를 바로 내린다  
-   `scripts/auto_trade_day.ps1:584` · `function Start-TraderProcess([string]$roleName)`
+1. [`Start-TraderProcess`](../scripts/auto_trade_day.ps1#L586) — 감시견이 `quant_trader.exe <config> --role <역할>`로 띄운다. `-Roles order,strategy,feed`면 셋, 기본은 `both` 하나. 하나가 죽으면 정상 종료면 20초 기다리고, 아니면 나머지를 바로 내린다  
+   `scripts/auto_trade_day.ps1:586` · `function Start-TraderProcess([string]$roleName)`
 2. [`main`](../Quant/src/main.cpp#L318) — 진입. 번호 주석이 초기화 순서다 — 콘솔·로거(역할별 로그 파일) → 인자 → `parse_config` → 로그 임계값 → 크래시 핸들러 → `run_trade`  
    `Quant/src/main.cpp:318` · `int main(int argc, char* argv[])`
 3. [`parse_command_line`](../Quant/src/core/CommandLine.cpp#L88) — `--role X`를 `ProcessRole`(Both·Order·Strategy·Feed)로. 이후 모든 역할 분기는 `CommandLine.h`의 `runs_*_side` 세 함수로 본다  
@@ -267,8 +267,8 @@ flowchart LR
 
 주문 스레드가 유일한 시퀀서다(원칙 4). 요청 링에서 꺼내 값을 검사하고, 조절기(`OrderRateLimiter`)가 간격·재시도를 정하고, 라우터가 게이트 검사 뒤 KIS에 보내고 ODNO를 기억한다. 결과는 응답 링으로 전략 쪽에 돌려준다.
 
-71. [`Engine::order_thread_fn`](../Quant/src/core/EngineOrderThread.cpp#L210) — `take_due_retry` 우선 → 수동주문 → 교체 보류분 → 요청 링 pop(`is_plausible`·중복 거름·`to_signal`·오래된 신규 매수 버림) → `wait_before_send` → 신규는 `open_new` 뒤 전송 스레드로(같은 종목이 답을 기다리면 뒤에 세움, 답이 오면 `close_new`), 그 밖은 `router->submit` → 응답 링에 답 → `publish_ledger`. 갈라 띄우면 2ms 폴링  
-   `Quant/src/core/EngineOrderThread.cpp:210` · `void Engine::order_thread_fn(std::stop_token stop_token)`
+71. [`Engine::order_thread_fn`](../Quant/src/core/EngineOrderThread.cpp#L211) — `take_due_retry` 우선 → 수동주문 → 교체 보류분 → 요청 링 pop(`is_plausible`·중복 거름·`to_signal`·오래된 신규 매수 버림) → `wait_before_send` → 신규는 `open_new` 뒤 전송 스레드로(같은 종목이 답을 기다리면 뒤에 세움, 답이 오면 `close_new`), 그 밖은 `router->submit` → 응답 링에 답 → `publish_ledger`. 갈라 띄우면 2ms 폴링  
+   `Quant/src/core/EngineOrderThread.cpp:211` · `void Engine::order_thread_fn(std::stop_token stop_token)`
 72. [`Engine::take_manual_order`](../Quant/src/core/EngineOpsServer.cpp#L218) — 운영단말 수동 주문(`ops_.manual_inbox`)을 이 스레드가 꺼낸다 — 전략이 멎어도 사람이 손으로 낼 수 있게(D-114). 결과는 단말에 `ORDER_RESULT_NTF`로 간다  
    `Quant/src/core/EngineOpsServer.cpp:218` · `bool Engine::take_manual_order(OrderSignal& signal)` · 시험 [test_engine](../Quant/tests/test_engine.cpp)
 73. [`order_rate::OrderRateLimiter::wait_before_send`](../Quant/src/core/OrderRateLimiter.cpp#L90) — 직전 KIS 호출 뒤 최소 간격. `take_due_retry`·`on_rejected`(재시도 분류)·만기 폐기가 같은 파일  

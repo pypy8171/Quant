@@ -60,7 +60,19 @@ public:
 
     // 한 번 판정한다. 둘 다 steady_clock 나노초다. 마지막 박동이 0이면(아직 한 번도 안 뛰었으면) 정상으로 본다 —
     //  기동 직후를 사망으로 읽지 않게. 첫 박동이 찍힌 뒤부터 공백을 센다.
+    //  보는 쪽이 사망 문턱 넘게 안 봤으면(프로세스째 멈췄다 깼으면) 지금이 아니라 직전에 본 시각까지의 공백으로
+    //  판정한다 — 둘이 같이 멈춘 시간을 상대 탓으로 세지 않게. 2026-09-28 모의 엔진이 프로세스째 최대 3.8초씩
+    //  멈추기를 5분 되풀이해 전략 사망이 33번 났다(주문·시세 스레드 공백도 같이 벌어졌다).
     Step observe(int64_t now_ns, int64_t last_beat_ns);
+
+    // 보는 쪽이 멈췄다 깬 것을 본 그 한 번만 멈춘 길이(나노초), 아니면 0. 로그에 한 줄 남기라고 둔다.
+    int64_t take_observer_stall_ns() noexcept;
+
+    // 마지막 판정에 쓴 공백(나노초). 사망 로그에 적는다.
+    [[nodiscard]] int64_t last_gap_ns() const noexcept
+    {
+        return last_gap_ns_;
+    }
 
     // 사망 판정이 새로 난 그 한 번만 참. 마무리 순서를 두 번 타지 않게 한다. 박동이 돌아오면 다시 무장된다.
     bool take_dead_once() noexcept;
@@ -88,11 +100,14 @@ public:
 
 private:
     HeartbeatConfig config_;
-    Step            state_         = Step::kHealthy;
-    bool            dead_pending_  = false; // 사망 전이가 났고 아직 아무도 가져가지 않았다
-    int64_t         max_gap_ns_    = 0;
-    uint64_t        suspect_count_ = 0;
-    uint64_t        dead_count_    = 0;
+    Step            state_             = Step::kHealthy;
+    bool            dead_pending_      = false; // 사망 전이가 났고 아직 아무도 가져가지 않았다
+    int64_t         max_gap_ns_        = 0;
+    int64_t         last_gap_ns_       = 0;
+    int64_t         last_observe_ns_   = 0; // 직전에 본 시각. 0이면 아직 안 봤다
+    int64_t         observer_stall_ns_ = 0; // 아직 아무도 안 가져간 보는 쪽 멈춤 길이
+    uint64_t        suspect_count_     = 0;
+    uint64_t        dead_count_        = 0;
 };
 
 } // namespace ipc

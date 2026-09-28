@@ -758,7 +758,7 @@ private:
 
     // 전략 생사에 따라 주문 쪽 마무리를 켜고 끈다. 주문 스레드는 안 내려간다 — 보유분을 지키는 것이 남은 일이다.
     //  [inv] order_thread에서만 부른다(OrderRouter::submit의 단일 스레드 규약). [why D-114]
-    void track_strategy_liveness(ipc::HeartbeatMonitor::Step step, bool just_died,
+    void track_strategy_liveness(ipc::HeartbeatMonitor::Step step, bool just_died, int64_t strategy_gap_ns,
                                  std::chrono::steady_clock::time_point now);
 
     // 시세 생사에 따라 신규 진입을 끊고 푼다. 전략 쪽과 달리 보호 주문은 걸지 않는다 — 현재가가 멎어

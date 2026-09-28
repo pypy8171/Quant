@@ -161,6 +161,8 @@ BLOCKED_SELL_RE = re.compile(r"청산차단 미해소 (\d{6})")
 # 전략 사망 마무리(D-114 단계 2) — 주문 스레드가 전략 박동 공백만 보고 낸 판정.
 BEAT_DEAD_RE = re.compile(r"\[마무리\] 전략 박동이 끊겼다")
 BEAT_BACK_RE = re.compile(r"\[마무리\] 전략 박동이 돌아왔다")
+# 주문 스레드 자신이 멈췄다 깬 것 — 프로세스째 멈춤(디버거 정지·OS 정지). 전략 사망으로는 안 센다(2026-09-28).
+OBSERVER_STALL_RE = re.compile(r"\[마무리\] 주문 스레드가 (\d+)ms 멈췄다 깼다")
 # [큐 고수위] 줄 꼬리 — 없으면 D-114 배포 전 바이너리라 이 세 행을 판정하지 않는다.
 BEAT_GAP_RE = re.compile(r"(?<![a-z_])beat_gap_max=(\d+)ms")
 # 시세 사망 마무리(D-137) — 주문 스레드가 시세 박동 공백만 보고 낸 판정.
@@ -1894,6 +1896,8 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
     beat_dead = 0                                # 주문 스레드가 전략을 죽었다고 본 횟수
     beat_back = 0                                # 박동이 돌아와 진입 정지를 푼 횟수
     beat_gap_max = -1                            # 전략 박동의 가장 긴 공백(ms). -1이면 그 줄이 없는 구 exe
+    observer_stalls = 0                          # 주문 스레드가 멈췄다 깬 횟수(프로세스째 멈춤)
+    observer_stall_max = 0                       # 그중 가장 긴 멈춤(ms)
     feed_dead = 0                                # 주문 스레드가 시세를 죽었다고 본 횟수(D-137)
     feed_back = 0                                # 시세 박동이 돌아와 진입 정지를 푼 횟수
     feed_beat_gap_max = -1                       # 시세 박동의 가장 긴 공백(ms). -1이면 그 칸이 없는 옛 exe
@@ -1992,6 +1996,9 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
                 beat_dead += 1
             if BEAT_BACK_RE.search(line):
                 beat_back += 1
+            if found := OBSERVER_STALL_RE.search(line):
+                observer_stalls += 1
+                observer_stall_max = max(observer_stall_max, int(found.group(1)))
             if found := BEAT_GAP_RE.search(line):
                 beat_gap_max = max(beat_gap_max, int(found.group(1)))
             if FEED_DEAD_RE.search(line):
@@ -2379,6 +2386,11 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
         # 문턱 아래여도 의심 문턱을 넘은 날은 전략 스레드가 한 바퀴에 오래 붙들린 것이라 미리 본다.
         channel_row("전략 박동 여유", beat_gap_max <= BEAT_SUSPECT_MS, "WARN",
                     f"가장 긴 공백 {beat_gap_max}ms (의심 문턱 {BEAT_SUSPECT_MS}ms, 부하 하네스 실측 24ms)"),
+        # 엔진 프로세스가 통째로 멈췄다 깬 횟수. 사망으로는 안 세지만, 장중이면 그동안 주문·시세도 같이 섰다.
+        #  09-28 08:14~08:19 모의 엔진이 최대 3.8초씩 멈추기를 되풀이했다(실계좌 엔진은 같은 때 멀쩡).
+        channel_row("엔진 프로세스 멈춤", observer_stalls == 0, "WARN",
+                    f"주문 스레드가 {BEAT_DEAD_MS}ms 넘게 멈췄다 깬 횟수 {observer_stalls}회 · 가장 긴 멈춤 "
+                    f"{observer_stall_max}ms (기대 0회 — 디버거 붙임·절전·디스크 멈춤을 먼저 본다)"),
         # 시세가 죽으면 체결통보가 주문 쪽에 안 들어와 예약 수량이 안 풀린다(총노출 이중계상). 09-25 Kill_feed
         #  회차에서 죽여도 90초간 로그가 한 줄도 안 났던 자리다 — 이제 판정이 여기서 난다. [why D-137]
         feed_beat_row("시세 박동", feed_dead == 0, "FAIL",
