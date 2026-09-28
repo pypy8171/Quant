@@ -8,6 +8,14 @@
 - 지금 도는 전략은 DeviationScale 하나입니다. 모의계좌에서 돌리고, 9월 하순부터 실계좌에서도 소액으로 돌립니다. 매수·매도 선점을 나누는 수정 동안 하루 멈췄다가(2026-09-25) 9월 26일에 다시 켰습니다.
 - 표본이 적어 수익성은 아직 판단하지 않습니다.
 
+## 결과
+
+| 내용 | 링크 |
+|---|---|
+| 엔진 부하 시험 | [부하 시험](https://claude.ai/artifact/Ahgj1CbDYc7aPfkujiQRQR#load) |
+| 모의·실계좌 매매 결과 | [매매 결과](https://claude.ai/artifact/Ahgj1CbDYc7aPfkujiQRQR#journal) |
+| 백테스트 | [백테스트](https://claude.ai/artifact/Ahgj1CbDYc7aPfkujiQRQR#backtest) |
+
 ## 흐름
 
 ```
