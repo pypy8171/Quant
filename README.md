@@ -48,7 +48,3 @@ strategies/  전략 스펙과 매매일지
 scripts/     운영 스크립트(감시견·마감 정리·배포)
 docs/        설계 결정, 아키텍처, 자동화, 용어
 ```
-
-## 기술 스택
-
-C++23(MSVC, GCC 14), CMake·Ninja, WinHTTP·libcurl, nlohmann/json, ZeroMQ, libpq, MFC, Python 3.11, TimescaleDB, Docker
