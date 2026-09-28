@@ -5,7 +5,7 @@
     py scripts/market_close_autodoc.py --date 2026-09-07
     py scripts/market_close_autodoc.py --dry-run      # 파일을 쓰지 않고 결과만 출력
 
-이 스크립트는 LLM 없이 도는 결정론 경로다. 로그·원장에서 뽑을 수 있는 사실만 채우고,
+이 스크립트는 LLM 없이 도는 결정론 경로다. 로그·장부에서 뽑을 수 있는 사실만 채우고,
 해석이 필요한 자리는 빈 칸으로 남긴다. 해석은 `/market-close-review`가 뒤에 붙어서 채운다.
 
 기존 일지를 덮지 않는다. 사람이 쓴 일지에는 AUTO 마커가 없으므로 그런 파일은 건드리지 않고,
@@ -53,8 +53,8 @@ NAME_RE = re.compile(r"(\d{6})\(([^)]{1,24})\)")
 NUM_RE = re.compile(r"\d")
 
 WEEKDAY_KR = "월화수목금토일"
-# 매매 비용 요율 — 원장이 realized_pnl을 계산할 때 쓰는 수와 같다(Quant/src/risk/PositionLedger.cpp kCommissionRate·kSellTaxRate:
-#  수수료 0.015% 매수·매도, 거래세 0.20% 매도만). 원장 실현손익은 매도측 비용을 이미 뺀 값이라 둘을 더하면 이중 계산이다.
+# 매매 비용 요율 — 장부가 realized_pnl을 계산할 때 쓰는 수와 같다(Quant/src/risk/PositionLedger.cpp kCommissionRate·kSellTaxRate:
+#  수수료 0.015% 매수·매도, 거래세 0.20% 매도만). 장부 실현손익은 매도측 비용을 이미 뺀 값이라 둘을 더하면 이중 계산이다.
 COMMISSION_RATE = 0.00015
 TAX_RATE = 0.0020    # 2026년 증권거래세(코스피 0.05%+농특세 0.15%, 코스닥 0.20%)
 
@@ -62,10 +62,10 @@ TAX_RATE = 0.0020    # 2026년 증권거래세(코스피 0.05%+농특세 0.15%, 
 # ─────────────────────────── 입력 찾기 ───────────────────────────
 
 def find_files(ymd_compact: str):
-    """그 날짜 원장(행 수 최대, 동률이면 mtime 최신)과 그 옆의 로그. 규칙은 _logdir 하나다.
+    """그 날짜 장부(행 수 최대, 동률이면 mtime 최신)과 그 옆의 로그. 규칙은 _logdir 하나다.
 
     mtime으로 고르면 장 마감 뒤에 돌린 테스트 바이너리가 cwd 하위 logs/에 남긴 몇 줄짜리
-    원장이 실제 원장을 이긴다(2026-09-08, 561체결이 7체결로 덮일 뻔했다).
+    장부가 실제 장부를 이긴다(2026-09-08, 561체결이 7체결로 덮일 뻔했다).
     """
     csvp = _logdir.find_ledger(ymd_compact)
     if csvp is None:
@@ -136,10 +136,10 @@ def scan_log(log: Path, ymd: str) -> dict:
             "names": names, "warns": warns.most_common(10)}
 
 
-# ─────────────────────────── 원장 파싱 ───────────────────────────
+# ─────────────────────────── 장부 파싱 ───────────────────────────
 
 # 매매가 아닌 이벤트. 집계에서 갈라 내지 않으면 체결 수가 부풀어 보인다.
-NON_STRATEGY = {"TEST", "STARTUP_CHECK", "STARTUP_PROBE"}   # STARTUP_PROBE 는 09-19 이전 원장의 옛 태그
+NON_STRATEGY = {"TEST", "STARTUP_CHECK", "STARTUP_PROBE"}   # STARTUP_PROBE 는 09-19 이전 장부의 옛 태그
 
 
 def scan_ledger(path: Path) -> dict:
@@ -257,10 +257,10 @@ def render(ymd: str, log_facts: dict, led: dict, log_path, csv_path) -> str:
     add("")
     add("> 환경: **KIS 모의계좌**(openapivts, is_paper=true). 시세·랭킹·지수는 실전 도메인 REST 폴링, 주문은 모의 발주.")
     add("> 전략: **DeviationScale (DEVSCALE)** 정배열눌림 지정가 분할 매수 + **ITB** 청산 관리(전일 보유분).")
-    add(f"> 손익은 모의(가상) 기준. 로그 `{rel(log_path)}`, 원장 `{csv_path.name}`"
+    add(f"> 손익은 모의(가상) 기준. 로그 `{rel(log_path)}`, 장부 `{csv_path.name}`"
         f"({led.get('n_rows', 0)} 이벤트, {led.get('span', ('', ''))[0][11:19]}~{led.get('span', ('', ''))[1][11:19]}).")
     add("")
-    add(f"> 이 일지는 `scripts/market_close_autodoc.py`가 로그·원장에서 자동 생성했다"
+    add(f"> 이 일지는 `scripts/market_close_autodoc.py`가 로그·장부에서 자동 생성했다"
         f"(생성 {datetime.now():%Y-%m-%d %H:%M}). 아래 AUTO 구간은 재실행하면 다시 쓰인다.")
     add("> 해석·판단이 필요한 자리는 비워 두었다. `/market-close-review`로 채운다.")
     add("")
@@ -283,7 +283,7 @@ def render(ymd: str, log_facts: dict, led: dict, log_path, csv_path) -> str:
         add("전일대비 손익 줄이 로그에 없다 — 아래 표는 세션 기준 카운터다.")
     add("")
     # 비용은 손익 바로 옆에 둔다 — 거래가 잦은 날은 비용이 손익만큼 커지는데(09-14~09-18: 비용 약 170만, 비용 전 손익 -60만)
-    #  4절 집계까지 내려가야 보이면 놓친다. 원장 실현손익은 매도측 비용을 뺀 뒤의 값이라 비용 전 손익을 같이 적는다.
+    #  4절 집계까지 내려가야 보이면 놓친다. 장부 실현손익은 매도측 비용을 뺀 뒤의 값이라 비용 전 손익을 같이 적는다.
     cost = led.get("cost")
     if cost and cost["fills"]:
         total = cost["commission"] + cost["tax"]
@@ -291,7 +291,7 @@ def render(ymd: str, log_facts: dict, led: dict, log_path, csv_path) -> str:
         add(f"**매매 비용 약 {man(total)}** = 수수료 {man(cost['commission'])} + 거래세 {man(cost['tax'])} "
             f"(체결 {cost['fills']}건, 매수 {man(cost['buy'])}·매도 {man(cost['sell'])}, "
             f"요율 {COMMISSION_RATE * 100:.3f}%·{TAX_RATE * 100:.2f}%). "
-            f"원장 실현손익 {signed_man(realized)}은 매도측 비용을 뺀 값이고, 비용 전 손익은 "
+            f"장부 실현손익 {signed_man(realized)}은 매도측 비용을 뺀 값이고, 비용 전 손익은 "
             f"{signed_man(realized + cost['sell_side'])}.")
         add("")
     if pnl:
@@ -356,7 +356,7 @@ def render(ymd: str, log_facts: dict, led: dict, log_path, csv_path) -> str:
             add(f"| {label} | {a['t0'][:5]}~{a['t1'][:5]} | {a['B']}건 {a['Bq']}주 | "
                 f"{a['S']}건 {a['Sq']}주 | {won(a['Bn'])} | {won(a['Sn'])} | {won(a['rp'])}원 |")
         add("")
-        add("### 사유 (원장 `entry_reason` 원문)")
+        add("### 사유 (장부 `entry_reason` 원문)")
         add("")
         for t, a in sorted(per.items(), key=lambda kv: -(kv[1]["Bn"] + kv[1]["Sn"])):
             label = f"{t} {names.get(t, '')}".strip()
@@ -506,7 +506,7 @@ def main() -> int:
 
     lines = [f"[{datetime.now():%Y-%m-%d %H:%M:%S}] market_close_autodoc {ymd}"]
     if csv_path is None:
-        lines.append("  원장 없음 — 매매하지 않은 날로 보고 건너뜀")
+        lines.append("  장부 없음 — 매매하지 않은 날로 보고 건너뜀")
         print("\n".join(lines))
         _append_run_log(lines, a.dry_run)
         return 0
