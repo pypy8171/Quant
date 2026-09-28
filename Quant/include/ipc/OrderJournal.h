@@ -18,8 +18,8 @@ void stop_join(std::jthread& thread);
 //
 //  세 파일을 주문 스레드 대신 전담 스레드 둘이 쓴다.
 //   - logs/open_orders.txt        : 살아 있는 주문 스냅샷. 한 칸짜리 대기함, 최신이 이긴다(쓰기 스레드 1).
-//   - logs/trades_YYYYMMDD.csv    : 거래 원장 CSV. 줄을 세우는 큐(쓰기 스레드 2).
-//   - logs/order_reasons_YYYYMMDD.txt : 접수된 주문의 사유. 원장 CSV와 같은 큐.
+//   - logs/trades_YYYYMMDD.csv    : 거래 장부 CSV. 줄을 세우는 큐(쓰기 스레드 2).
+//   - logs/order_reasons_YYYYMMDD.txt : 접수된 주문의 사유. 장부 CSV와 같은 큐.
 //  스냅샷 본문과 번호는 라우터가 history_mutex_ 아래에서 떠서 넘긴다 — 이 클래스는 이력을 모른다.
 //
 //  [lock-order] 라우터 history_mutex_ → io_mutex_ → append_outbox_mutex_. 라우터 on_fill은 세션 첫 체결 때
@@ -36,7 +36,7 @@ public:
     OrderJournal(const OrderJournal&)            = delete;
     OrderJournal& operator=(const OrderJournal&) = delete;
 
-    // 미결주문 쓰기 스레드를 세우고 남은 스냅샷을 쓴 뒤, 원장·사유 쓰기 스레드를 세우고 남은 줄을 쓴다.
+    // 미결주문 쓰기 스레드를 세우고 남은 스냅샷을 쓴 뒤, 장부·사유 쓰기 스레드를 세우고 남은 줄을 쓴다.
     //  라우터 소멸자가 자기 스레드(되묻기·기동 취소·체결 복구)를 먼저 세운 다음 부른다. 두 번 불러도 된다.
     void stop();
 
@@ -50,14 +50,14 @@ public:
     //  형식: odno|ticker|side|수량|가격|기준가|전략|사유   (한 줄 한 주문, 헤더 없음)
     void append_order_reason(const ManagedOrder& managed_order);
 
-    // 거래 원장 CSV 적재 — 주문/체결을 logs/trades_YYYYMMDD.csv 에 한 줄씩 영속화.
+    // 거래 장부 CSV 적재 — 주문/체결을 logs/trades_YYYYMMDD.csv 에 한 줄씩 영속화.
     //   event가 빈 문자열이면 managed_order.status를 event로 사용(접수/거부/취소). 체결은 "FILL".
     //   줄을 만들어 덧붙이기 큐에 넣을 뿐 파일은 쓰기 스레드가 쓴다(history_mutex_ 밖에서 호출). [why D-124]
     //   realized_pnl은 매도 체결의 실현손익(수수료·세금 차감 후). 그 외 행은 빈 칸으로 남긴다.
     //   strategy_realized_pnl은 같은 매도 체결의 strategy_id 기준 실현손익(D-089, 열 맨 끝 추가분).
     void write_trade_row(const std::string& event, const ManagedOrder& managed_order, int fill_quantity, double fill_price,
                          double realized_pnl = 0.0, double strategy_realized_pnl = 0.0);
-    // 원장 CSV에 덧붙일 한 줄을 줄 세우는 큐에 놓고 곧바로 돌아온다(디스크는 전담 스레드가 기다린다).
+    // 장부 CSV에 덧붙일 한 줄을 줄 세우는 큐에 놓고 곧바로 돌아온다(디스크는 전담 스레드가 기다린다).
     //  시각 열은 여기서 박는다 — 쓰기 스레드가 언제 쓰든 행의 시각은 주문 스레드가 지나간 그 순간이다.
     //  write_trade_row·라우터 record_reconcile이 줄을 만들어 여기로 보낸다. [why D-094] [why D-124]
     void append_trade_line(const std::string& line);
@@ -79,7 +79,7 @@ private:
     // 쓰기 스레드 본문 — 대기함에 뭔가 들어올 때까지 자고, 깨면 비운다. 멈춤 요청 뒤 한 번 더 비운다.
     void open_orders_writer_loop(std::stop_token stop_token);
 
-    // ── 덧붙이기 큐(원장 CSV·사유) ────────────────────────────────────────
+    // ── 덧붙이기 큐(장부 CSV·사유) ────────────────────────────────────────
     //  미결주문 파일과 달리 이 둘은 중간 것도 다 남아야 한다. 그래서 한 칸짜리 대기함이 아니라
     //  줄을 세우는 큐이고, 꺼낸 순서와 쓴 순서가 같아야 한다. [why D-124]
     struct PendingLine
@@ -107,10 +107,10 @@ private:
     // trade_file_을 그 날짜 파일로 (재)연다 — 없으면 헤더를 쓰고, 옛 헤더면 열을 맞춰 한 번
     //  재작성한다. 호출자는 io_mutex_를 보유해야 한다.
     void open_trade_file_locked(const std::string& date);
-    // 원장 CSV 시각 열 — 날짜 파일명(YYYYMMDD)과 행 시각("YYYY-MM-DD HH:MM:SS")을 같이 만든다. KST 고정.
+    // 장부 CSV 시각 열 — 날짜 파일명(YYYYMMDD)과 행 시각("YYYY-MM-DD HH:MM:SS")을 같이 만든다. KST 고정.
     static void trade_row_timestamp(std::string& date, std::string& stamp);
 
-    std::mutex io_mutex_;                          // 원장 CSV·부속 파일 쓰기 직렬화
+    std::mutex io_mutex_;                          // 장부 CSV·부속 파일 쓰기 직렬화
     uint64_t   open_orders_written_sequence_ = 0; // io_mutex_ 보호
     // 부속 파일 쓰기 대기함 — 한 칸짜리, 최신이 이긴다. sequence 0은 "대기 중인 것 없음"(스냅샷 번호는 1부터).
     //  [lock-order] 라우터 history_mutex_·open_orders_outbox_mutex_·io_mutex_ 셋은 겹쳐 잡지 않는다 — 스냅샷은
@@ -126,7 +126,7 @@ private:
     std::ofstream order_reason_file_;
     std::string   order_reason_file_date_;
 
-    // 원장 CSV·사유 덧붙이기 큐 — 줄을 세운다(미결주문 파일과 달리 중간 것도 다 남아야 한다).
+    // 장부 CSV·사유 덧붙이기 큐 — 줄을 세운다(미결주문 파일과 달리 중간 것도 다 남아야 한다).
     //  [lock-order] io_mutex_ → append_outbox_mutex_. 넣는 쪽은 append_outbox_mutex_만 잡는다.
     //   라우터 on_fill은 세션 첫 체결 때 history_mutex_를 쥔 채 큐를 비운다(history_mutex_ → io_mutex_ → append_outbox_mutex_).
     std::mutex                  append_outbox_mutex_;
@@ -141,7 +141,7 @@ private:
     //   멤버는 선언 순서대로 지어지고, 스레드는 지어지는 즉시 그 셋을 만진다.
     std::jthread open_orders_writer_;
 
-    // 원장 CSV·사유 쓰기 스레드. 생성자에서 바로 뜬다.
+    // 장부 CSV·사유 쓰기 스레드. 생성자에서 바로 뜬다.
     //  [inv] 이 줄은 큐 멤버(append_outbox_*)·파일 핸들·io_mutex_보다 반드시 뒤에 있어야 한다 —
     //   멤버는 선언 순서대로 지어지고, 스레드는 지어지는 즉시 그것들을 만진다.
     std::jthread append_writer_;

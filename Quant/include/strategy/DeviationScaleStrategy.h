@@ -53,7 +53,7 @@
 //        (REST 1분봉은 시드·폴백, D-068·D-069·D-072). 판단은 언제나 interval_min 봉으로 한다 — 1분봉은 기저일 뿐이다.
 //
 //  포지션 진실원천: OrderGate 확정 포지션(confirmed_position). 체결콜백 부재(rest)에도
-//        잔고 대조로 원장이 최신이라 신뢰 가능 → 별도 on_fill 불필요.
+//        잔고 대조로 장부가 최신이라 신뢰 가능 → 별도 on_fill 불필요.
 //
 //  첫 컷 한계:
 //   • 재호가는 CANCEL+NEW 전량(REPLACE 미사용). 자기 예약 live 여부는 낙관 가정,
@@ -116,7 +116,7 @@ public:
         std::string id_prefix = "DEVSCALE";
         //  buy_split_steps: 되돌림 매수(물타기) 층수. -1이면 split_step_count와 같다(기존 동작), 0이면 베이스
         //   매수만 내고 하방 분할 매수를 깔지 않는다. 방향성 이격 게이트에서 하방 분할 매수는 추세
-        //   반전에 그대로 노출된다 — 09-08~11 원장에서 매수 수량의 89%가 미청산으로 남았다.
+        //   반전에 그대로 노출된다 — 09-08~11 장부에서 매수 수량의 89%가 미청산으로 남았다.
         int    buy_split_steps = -1;
         //  stop_loss_percent: >0이면 잔고 평단 대비 이만큼(%) 아래에서 미체결 취소+시장가 청산.
         //   [inv] 기준은 진입봉 저가가 아니라 평단이다 — 재기동해도 잔고 조회로 되살아나는 값이다.
@@ -161,7 +161,7 @@ public:
         int    interval_min   = 3;     // 집계봉 간격(분)
         int    min_action_ms  = 3000;  // on_trade_batch 판단·발주 스로틀(프리페치 주기는 공용 풀이 정한다)
         int    daily_lookback = 70;    // 일봉 조회 개수(정배열 판정 ≥20, 나머지는 고가 대비 표기 여유)
-        std::string account;           // 원장 계좌키(단일계좌는 "")
+        std::string account;           // 장부 계좌키(단일계좌는 "")
     };
 
     explicit DeviationScaleStrategy(Params parameters);
@@ -288,7 +288,7 @@ private:
     // ── 프리페치: 무거운 REST(3분봉·일봉·잔고)를 샤드 스레드 밖에서 미리 당겨
     //    스냅샷에 적재한다. on_trade_batch는 스냅샷만 읽어(락 짧게) 발주를 판단 → 특정
     //    종목의 느린 REST가 전 전략을 막던 head-output_file-line 블로킹을 없앤다. 발주·매도가능
-    //    (sellable_quantity)은 원장 최신성을 위해 동기 유지. 여기서 부르는 KIS 메서드는 전부
+    //    (sellable_quantity)은 장부 최신성을 위해 동기 유지. 여기서 부르는 KIS 메서드는 전부
     //    읽기전용(get_daily_ohlcv·get_minute_ohlcv·get_balance, 동시호출 감사 완료).
     //  주기(Engine::kPrefetchPeriodMs 3초)와 스레드는 공용 풀이 가진다 — 이 함수는 한 주기에 한 번 불린다. [why D-115]
     void prefetch_once();
@@ -340,12 +340,12 @@ private:
     double liquidation_reference_price();
 
     // ── 청산 발주: 매도가능분 클램프 + 지수 백오프 ───────────────────────────
-    //  버그 이력: 존이탈/장 마감 청산이 원장 보유수량 전량을 시장가 매도했으나, 예약매도
+    //  버그 이력: 존이탈/장 마감 청산이 장부 보유수량 전량을 시장가 매도했으나, 예약매도
     //  (미연결/미결제)로 실매도가능분(ord_psbl_qty)이 보유보다 작으면 KIS가 전량 거부
     //  (40240000 "잔고내역 없습니다") → 매 하트비트 무한 재거부 스팸. 실계좌 동일.
     //  근거: ord_psbl_qty는 KIS 공식 샘플 inquire_balance output1 컬럼(2026-09-27 MCP 확인), 40240000은 실측 D-046·D-055·
     //  DAILY_LOG.md 2026-08-12(모의 응답). '실계좌 동일'을 뒷받침하는 실계좌 응답 기록은 찾지 못했다(2026-09-27).
-    //  대책: (1) 매 시도 원장 사본의 매도가능분으로 클램프(sellable_quantity) → 잠긴 수량
+    //  대책: (1) 매 시도 장부 사본의 매도가능분으로 클램프(sellable_quantity) → 잠긴 수량
     //  초과분 미발주(과매도·이중주문 위험 0, 브로커 상태 기준이라 체결지연에도 자기교정).
     //  (2) 시도 후 진행(position 감소) 없으면 30·60·120·240·480s(capture 300s) 지수 백오프.
     //  반환: 시장가 매도를 실제로 out에 넣었으면 true.
@@ -354,7 +354,7 @@ private:
                           std::chrono::steady_clock::time_point now, const std::string& tag,
                           long long max_backoff_ms = 300000, bool clamp_sellable = true);
 
-    // 해당 종목의 매도가능수량. 원장 사본의 매도가능분으로 클램프한다(접근자가 없으면 계좌 클라이언트
+    // 해당 종목의 매도가능수량. 장부 사본의 매도가능분으로 클램프한다(접근자가 없으면 계좌 클라이언트
     //  account_kis() 잔고 조회로 대체, 그것도 없으면 0). 안전 우선: 확실히 알 수 없으면 0(보류)을 반환해
     //  과매도/이중주문을 유발하지 않는다.
     //  - 대체 경로에서 조회 실패(예외)·잔고에 종목 없음 → 0 (다음 백오프에 재시도).

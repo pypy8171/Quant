@@ -66,7 +66,7 @@ void FeedMux::set_fill_callback(FillCb callback)
     on_fill_ = std::move(callback);
 
     // 맡은 소스 하나에만 건다 — 자리(0번)가 아니라 맡았는지로 고른다. 맡은 소스가 둘이면 KIS가 세션마다
-    //  같은 통보를 보내 원장이 두 번 세므로, 설정이 하나만 맡게 하고(AppConfig::parse_feed_keys) 여기서도
+    //  같은 통보를 보내 장부가 두 번 세므로, 설정이 하나만 맡게 하고(AppConfig::parse_feed_keys) 여기서도
     //  첫 하나에만 건다. 아무도 안 맡으면 아무 데도 걸지 않는다. [why D-114]
     for (size_t source_index = 0; source_index < sources_.size(); ++source_index)
     {

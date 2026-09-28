@@ -10,7 +10,7 @@ namespace
 {
 // 국내 주식 체결 비용률 (KIS 실계좌 기준).
 constexpr double kCommissionRate = 0.00015; // 위탁수수료 0.015% (매수·매도 공통)
-constexpr double kSellTaxRate    = 0.0020;  // 증권거래세 0.20% (매도에만 부과. 2026년: 코스피 0.05%+농특세 0.15%, 코스닥 0.20%. 09-21까지 원장은 0.18%)
+constexpr double kSellTaxRate    = 0.0020;  // 증권거래세 0.20% (매도에만 부과. 2026년: 코스피 0.05%+농특세 0.15%, 코스닥 0.20%. 09-21까지 장부는 0.18%)
 
 // 키가 없으면 fallback. count 뒤 []로 두 번 찾던 자리를 한 번 찾기로 모은다(CODE_REVIEW S-1).
 template <typename Map>
@@ -22,7 +22,7 @@ typename Map::mapped_type find_or(const Map& map, const typename Map::key_type& 
 }
 } // namespace
 
-// ─── 주문 의도 — 전송 직전 선점 + INTENT 기록 (실체결 원장 positions_는 불변) ────────
+// ─── 주문 의도 — 전송 직전 선점 + INTENT 기록 (실체결 장부 positions_는 불변) ────────
 namespace
 {
 ledger_journal::Record make_order_record(ledger_journal::Kind kind, OrderSide side, int quantity,
@@ -60,7 +60,7 @@ bool PositionLedger::on_intent(const std::string& account, const std::string& ti
         sequence = journal_append(record, account, ticker);
     }
 
-    // 디스크 쓰기는 잠금을 푼 뒤에 한다 — 체결 반영·원장 읽기가 이 쓰기를 기다리지 않는다(W-2). 주문은 여전히
+    // 디스크 쓰기는 잠금을 푼 뒤에 한다 — 체결 반영·장부 읽기가 이 쓰기를 기다리지 않는다(W-2). 주문은 여전히
     //  INTENT가 디스크에 남은 뒤에만 나간다(이 함수가 참을 돌려준 뒤).
     if (journal_written(sequence))
     {
@@ -210,7 +210,7 @@ bool PositionLedger::set_journal(const std::filesystem::path& directory, std::st
 
     if (!journal_->ok())
     {
-        LOG_ERROR(std::format("[PositionLedger] 원장 저널을 못 열었다 - path({})", journal_->path().string()));
+        LOG_ERROR(std::format("[PositionLedger] 장부 저널을 못 열었다 - path({})", journal_->path().string()));
         return false;
     }
 
@@ -265,7 +265,7 @@ void PositionLedger::journal_flush()
     }
 
     journal_failures_.fetch_add(result.failed, std::memory_order_relaxed);
-    LOG_ERROR(std::format("[PositionLedger] 원장 저널 기록 실패, 파일이 원장보다 뒤처졌다 - {}건 첫 kind({})",
+    LOG_ERROR(std::format("[PositionLedger] 장부 저널 기록 실패, 파일이 장부보다 뒤처졌다 - {}건 첫 kind({})",
                           result.failed, result.first_failed_kind));
 }
 
@@ -619,7 +619,7 @@ void PositionLedger::restore_sellable(const std::string& account, const std::str
 
     if (position_iterator == positions_.end() || position_iterator->second <= 0)
     {
-        return;   // 원장이 모르는 보유는 손대지 않는다 — 없는 매도가능수량을 만들어 낼 이유가 없다
+        return;   // 장부가 모르는 보유는 손대지 않는다 — 없는 매도가능수량을 만들어 낼 이유가 없다
     }
 
     auto strategy_iterator = sellable_.find(key);
@@ -815,7 +815,7 @@ void PositionLedger::add_realized_pnl(double pnl)
     daily_pnl_ += pnl;
 }
 
-// ─── 원장 부트스트랩 (G5) — 실계좌 보유분 시드 ──────────────────────────────
+// ─── 장부 부트스트랩 (G5) — 실계좌 보유분 시드 ──────────────────────────────
 //  체결이 아니므로 reserved_·daily_pnl_은 두고 positions_·average_prices_·sellable_·opened_at_을 설정한다.
 //  기동 때와 데이터 스레드의 재동기(LedgerReconciler) 때 부른다.
 void PositionLedger::seed_position(const std::string& account, const std::string& ticker, int quantity, double average,
@@ -860,7 +860,7 @@ PositionLedger::FillResult PositionLedger::on_fill_confirmed(
         int pre_quantity    = find_or(positions_, key, 0); // 체결 전 실보유
         double current_average = find_or(average_prices_, key, 0.0);
 
-        // 전략별 서브원장(D-089) — 위 종목단위 pre_quantity/current_average와 별개로 같은 락에서 갱신.
+        // 전략별 서브장부(D-089) — 위 종목단위 pre_quantity/current_average와 별개로 같은 락에서 갱신.
         //  전략 번호가 없으면(kNone) 건드리지 않는다(계산·판정에 영향 없음, 참고용 집계일 뿐).
         if (strategy != strategy_table::kNone)
         {
@@ -912,7 +912,7 @@ PositionLedger::FillResult PositionLedger::on_fill_confirmed(
 
         if (side == OrderSide::BUY)
         {
-            // 실체결분만 원장에 반영 (부분체결도 정확) — 평단 분모는 실체결 수량
+            // 실체결분만 장부에 반영 (부분체결도 정확) — 평단 분모는 실체결 수량
             int new_quantity = pre_quantity + quantity;
             average_prices_[key] = (new_quantity > 0)
                 ? (pre_quantity * current_average + quantity * price) / new_quantity
@@ -943,7 +943,7 @@ PositionLedger::FillResult PositionLedger::on_fill_confirmed(
                 new_quantity = 0;  // 공매도 미지원 — 보유 초과 매도는 0으로 클램프
             }
 
-            // 평단 미상(원장이 종목을 모름·재기동 후 미시드)이면 손익을 계산할 수 없다.
+            // 평단 미상(장부가 종목을 모름·재기동 후 미시드)이면 손익을 계산할 수 없다.
             //  0으로 곱하면 매도대금 전액이 이익으로 적립되므로 0을 두고 플래그로 알린다.
             if (!average_prices_.count(key) || current_average <= 0.0)
             {
@@ -978,7 +978,7 @@ PositionLedger::FillResult PositionLedger::on_fill_confirmed(
             release_reservation(key, OrderSide::SELL, quantity);
         }
 
-        // FILL 기록 — 같은 락 안에서 순번을 받아 파일 순서가 원장 갱신 순서와 같다. 실현손익은 참고용(리플레이는 다시 계산한다).
+        // FILL 기록 — 같은 락 안에서 순번을 받아 파일 순서가 장부 갱신 순서와 같다. 실현손익은 참고용(리플레이는 다시 계산한다).
         ledger_journal::Record record = make_order_record(ledger_journal::Kind::FILL, side, quantity, reference);
         record.price                  = price;
         record.pnl                    = result.realized_pnl;
@@ -1008,7 +1008,7 @@ PositionLedger::FillResult PositionLedger::on_fill_confirmed(
     return result;
 }
 
-// check() 3절의 원장 키 — 처음 보는 계좌·종목은 등록한다(모르는 계좌끼리 중복 신호 키가 겹치지 않게).
+// check() 3절의 장부 키 — 처음 보는 계좌·종목은 등록한다(모르는 계좌끼리 중복 신호 키가 겹치지 않게).
 PositionLedger::PosKey PositionLedger::register_signal(const OrderSignal& signal)
 {
     std::lock_guard<std::mutex> lock(positions_mutex_);
@@ -1166,7 +1166,7 @@ void PositionLedger::publish(ipc::LedgerSnapshot& snapshot, const std::function<
         std::lock_guard<std::mutex> lock(positions_mutex_);
 
         // 어느 계좌를 싣는가 — 한 프로세스는 한 계좌만 다룬다. 가장 작은 계좌 번호를 이번 판의 계좌로
-        //  삼고(같은 원장이면 판마다 같은 답이 나온다), 다른 계좌 줄은 싣지 않고 센다.
+        //  삼고(같은 장부면 판마다 같은 답이 나온다), 다른 계좌 줄은 싣지 않고 센다.
         uint32_t account = kUnknownAccount;
 
         for (const auto& entry : positions_)
@@ -1186,7 +1186,7 @@ void PositionLedger::publish(ipc::LedgerSnapshot& snapshot, const std::function<
         }
 
         // 이번 판의 계좌 이름. 실린 줄이 하나도 없으면(기동 직후) 0번 = ""을 쓴다 — 단일 계좌에서
-        //  원장 키가 쓰는 이름이 그것이고, 이름을 비워 두면 전략 쪽이 강제청산 주문에 계좌를 못 적는다.
+        //  장부 키가 쓰는 이름이 그것이고, 이름을 비워 두면 전략 쪽이 강제청산 주문에 계좌를 못 적는다.
         {
             const std::string& account_name = keys_.account_name(account);
             const size_t       copied       = (account_name.size() < sizeof(globals.account)) ? account_name.size()

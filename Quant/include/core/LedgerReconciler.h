@@ -1,8 +1,8 @@
 #pragma once
-// 브로커 잔고(REST inquire-balance) → 원장(OrderGate) 대조기. 기동 시드(bootstrap)·주기 대조(reconcile)·
+// 브로커 잔고(REST inquire-balance) → 장부(OrderGate) 대조기. 기동 시드(bootstrap)·주기 대조(reconcile)·
 //  당일 손익 기준선(파일 영속)·잔고조회 서킷브레이커를 한 단위로 든다. Engine의 data_thread가 부르고
 //  start()의 단일스레드 구간에서 bootstrap을 한 번 부른다 — 동기화는 없다. 잔고 조회(fetch_)만 std::async로
-//  뒤 스레드에서 돌고, 그 결과를 원장에 적용하는 일은 부른 스레드가 한다.
+//  뒤 스레드에서 돌고, 그 결과를 장부에 적용하는 일은 부른 스레드가 한다.
 //  브로커 호출·대조 행 기록·종목명 등록은 std::function으로 받아 KIS 없이 시험한다. [why D-061]
 #include "api/KisResult.h"
 #include "api/KisTypes.h"
@@ -21,7 +21,7 @@
 
 namespace ledger
 {
-// 잔고에 없는 원장 보유를 걷어내기 전에 두는 유예(초). 잔고 조회 왕복(수 초)보다 넉넉히 길게
+// 잔고에 없는 장부 보유를 걷어내기 전에 두는 유예(초). 잔고 조회 왕복(수 초)보다 넉넉히 길게
 //  잡아, 방금 체결된 신규 보유가 아직 잔고에 안 보이는 것을 유령으로 오인하지 않게 한다.
 inline constexpr int kPrunePositionAgeSec = 90;
 
@@ -134,15 +134,15 @@ public:
 
     // G5: 잔고 보유 행(ticker/quantity/average_price/주문가능)을 OrderGate.seed_position으로 시드. 실패=false → 기동 중단.
     //  기동 직후는 유령주문 취소·유니버스 스캔과 같은 초 안에 겹쳐 한도(초당 5건)에 자주 걸리므로
-    //  attempts번 retry_delay 간격으로 다시 묻는다. 끝내 못 읽으면 빈 원장으로 매매하지 않는다(09-11 09:17 사례).
+    //  attempts번 retry_delay 간격으로 다시 묻는다. 끝내 못 읽으면 빈 장부로 매매하지 않는다(09-11 09:17 사례).
     bool bootstrap(int attempts = 5, std::chrono::milliseconds retry_delay = std::chrono::milliseconds(1500));
 
-    // 주기 대조. resync_positions=true(폴링 모드)면 미체결 선점(reserved_)을 비우고 실보유로 원장을 덮어쓴다.
-    //  체결통보가 오는 WS 모드에서는 원장이 이미 체결로 갱신되고 reserved_에는 살아 있는 지정가 주문이
+    // 주기 대조. resync_positions=true(폴링 모드)면 미체결 선점(reserved_)을 비우고 실보유로 장부를 덮어쓴다.
+    //  체결통보가 오는 WS 모드에서는 장부가 이미 체결로 갱신되고 reserved_에는 살아 있는 지정가 주문이
     //  잡혀 있으므로 false로 불러 총평가금·일손익·매도가능수량만 갱신한다. now_utc는 기준선 파일 날짜용.
     //  잔고 조회(fetch_)는 별도 스레드에서 돌리고 이 함수는 fetch_wait_budget_만 기다린다 — 모의 서버가
     //  잔고 응답에 20~100초를 쓴 날(09-18) 이 한 호출이 데이터 사이클(재스캔·시세 보충)을 통째로 세웠다.
-    //  응답이 늦으면 다음 사이클이 결과를 집어 적용한다. 원장·게이트 갱신은 여전히 부른 스레드에서만 한다.
+    //  응답이 늦으면 다음 사이클이 결과를 집어 적용한다. 장부·게이트 갱신은 여전히 부른 스레드에서만 한다.
     void reconcile(bool resync_positions, std::time_t now_utc);
 
     bool fetch_in_flight() const

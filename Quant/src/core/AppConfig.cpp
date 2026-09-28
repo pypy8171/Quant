@@ -46,7 +46,7 @@ KisConfig parse_quote_kis(const json& node, const KisConfig& order_kis)
 }
 
 // 추가 WS 세션 키(D-071 원칙 1). 계좌·모의 여부는 기본 키와 같고 app_key·app_secret만 다르다.
-//  체결통보(hts_id)는 **한 세션만** 받는다 — KIS는 세션마다 같은 통보를 보내므로 둘이 받으면 원장이 두 번 센다.
+//  체결통보(hts_id)는 **한 세션만** 받는다 — KIS는 세션마다 같은 통보를 보내므로 둘이 받으면 장부가 두 번 센다.
 //  기본값은 기본 키가 맡는 것이고, 추가 키에 "fill_notice": true 를 주면 맡는 자리를 그 키로 옮긴다
 //  (체결을 듣는 세션을 주문 쪽에 붙이려는 것, D-114 단계 3). 둘 이상이 맡겠다고 하면 첫 번째만 맡는다.
 //  맡지 않는 세션은 H0STCNI를 구독하지 않아 그 세션의 구독 슬롯(kMaxWsSubs)이 한 칸 남는다.

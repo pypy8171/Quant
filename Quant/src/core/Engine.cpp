@@ -38,7 +38,7 @@ Engine::Engine(KisConfig kis_config, int fetch_interval_sec)
         LOG_ERROR("[Engine] 자리표를 못 깔았다 — " + std::string(layout_.last_error()));
     }
 
-    // 원장 키의 종목 번호를 신호·틱과 같은 테이블에서 받는다. 첫 시드·체결 전에 묶어야 한다. [why D-105]
+    // 장부 키의 종목 번호를 신호·틱과 같은 테이블에서 받는다. 첫 시드·체결 전에 묶어야 한다. [why D-105]
     ledger.set_symbol_table(&symbols_.table);
 }
 
@@ -170,7 +170,7 @@ void Engine::setup_zmq_bridge()
 
     zmq_bridge_ = std::make_unique<ZmqBridge>(publish_port, reply_port);
     zmq_bridge_->set_bind_address(zmq_bind_address_);
-    zmq_bridge_->set_account_no(kis_config_.account_no); // 실계좌·모의계좌 원장 분리용 [why D-090]
+    zmq_bridge_->set_account_no(kis_config_.account_no); // 실계좌·모의계좌 장부 분리용 [why D-090]
     zmq_bridge_->set_role_label(role_.to_string());       // HEALTH 를 역할별로 가르는 열 [why D-129]
 
     // 국면 칸을 꽂는다. 국면을 고르는 쪽은 전략이고 체결을 적는 쪽은 주문이라, 갈라 띄우면 프로세스 안
@@ -311,7 +311,7 @@ void Engine::initialize_order_router()
 
 void Engine::initialize_ledger_reconciler()
 {
-    // 잔고 → 원장 대조기. 브로커·라우터·종목명은 함수로 넘겨 대조기가 KisClient·OrderRouter를 모르게 한다. [why D-061]
+    // 잔고 → 장부 대조기. 브로커·라우터·종목명은 함수로 넘겨 대조기가 KisClient·OrderRouter를 모르게 한다. [why D-061]
     ledger_ = std::make_unique<LedgerReconciler>(order_gate_,
                                                  [this]
                                                  {
@@ -411,17 +411,17 @@ bool Engine::try_open_ledger_journal()
     // 단일 계좌 키("")로 적히는 레코드에 실을 계좌 번호 — DB fills·orders·positions가 계좌를 가르는 칸이다.
     ledger.set_journal_account(feed_.kis ? feed_.kis->account_no() : std::string("PAPER"));
 
-    // 오늘 파일을 열고 처음부터 다시 적용한다 — 재기동 전 선점·체결·대조가 원장에 되살아난다. 못 열면 원장 없이
+    // 오늘 파일을 열고 처음부터 다시 적용한다 — 재기동 전 선점·체결·대조가 장부에 되살아난다. 못 열면 장부 없이
     //  주문이 나가는 셈이라 기동을 거부한다(감시견이 다시 띄운다). [why D-113]
     if (!ledger.set_journal(utf8::path_from_utf8(ledger_journal_directory_), kst::date_yyyymmdd(std::time(nullptr)),
                                  ledger_journal_fsync_))
     {
-        LOG_ERROR("[Engine] 원장 저널을 못 열어 기동하지 않는다: " + ledger_journal_directory_);
+        LOG_ERROR("[Engine] 장부 저널을 못 열어 기동하지 않는다: " + ledger_journal_directory_);
         return false;
     }
 
     const auto& replay = ledger.journal_replay();
-    LOG_INFO("[Engine] 원장 저널 리플레이: " + std::to_string(replay.applied) + "건 (마지막 seq " +
+    LOG_INFO("[Engine] 장부 저널 리플레이: " + std::to_string(replay.applied) + "건 (마지막 seq " +
              std::to_string(replay.last_sequence) + (replay.truncated_tail ? ", 꼬리 잘림" : "") + ")");
     return true;
 }
@@ -437,19 +437,19 @@ void Engine::resolve_open_intents()
 
     if (intents.empty())
     {
-        LOG_INFO("[Engine] 원장 미결 주문 대조: 되살림 0건 · 선점해제 0건 · 저널기록실패 " +
+        LOG_INFO("[Engine] 장부 미결 주문 대조: 되살림 0건 · 선점해제 0건 · 저널기록실패 " +
                  std::to_string(ledger.journal_failures()) + "건");
         return;
     }
 
     const auto adopted = order_router_->adopt_open_intents(intents);
-    LOG_INFO("[Engine] 원장 미결 주문 대조: 되살림 " + std::to_string(adopted.restored) + "건 · 선점해제 " +
+    LOG_INFO("[Engine] 장부 미결 주문 대조: 되살림 " + std::to_string(adopted.restored) + "건 · 선점해제 " +
              std::to_string(adopted.released) + "건 · 저널기록실패 " + std::to_string(ledger.journal_failures()) + "건");
 }
 
 bool Engine::try_bootstrap_ledger()
 {
-    // G5: 실계좌 보유분을 원장에 시드 (스레드 시작 전, 단일스레드 구간)
+    // G5: 실계좌 보유분을 장부에 시드 (스레드 시작 전, 단일스레드 구간)
     if (!bootstrap_ledger_)
     {
         return true;
@@ -461,7 +461,7 @@ bool Engine::try_bootstrap_ledger()
     }
 
     // running_이 아직 false라 main 루프가 바로 빠지고, 감시자가 5초 뒤 다시 띄운다.
-    LOG_ERROR("[Engine] 원장 없이 기동하지 않는다 — 프로세스 종료");
+    LOG_ERROR("[Engine] 장부 없이 기동하지 않는다 — 프로세스 종료");
     return false;
 }
 
@@ -496,7 +496,7 @@ void Engine::spawn_threads()
     }
 
     // 데이터 스레드는 양쪽에 하나씩 둔다 — 보는 일감이 다르다. 전략 쪽은 국면·재스캔·시세 보충이고,
-    //  주문 쪽은 원장 대조·선점 정리·하루 초기화다(가르는 선은 docs/DECISIONS.md D-114). [why D-114]
+    //  주문 쪽은 장부 대조·선점 정리·하루 초기화다(가르는 선은 docs/DECISIONS.md D-114). [why D-114]
     // jthread는 stop_token을 첫 인자로 넣으므로 멤버 함수 포인터(this가 첫 인자)는 람다로 감싼다.
     data_thread_ = std::jthread([this](std::stop_token stop_token)
     {
@@ -668,7 +668,7 @@ void Engine::start()
                 });
         }
 
-        // 원장 파일·미결주문 파일은 한 프로세스만 연다 — 둘이 같은 파일을 쓰면 줄이 섞인다. [why D-114]
+        // 장부 파일·미결주문 파일은 한 프로세스만 연다 — 둘이 같은 파일을 쓰면 줄이 섞인다. [why D-114]
         if (!try_open_ledger_journal() || !try_bootstrap_ledger())
         {
             return;

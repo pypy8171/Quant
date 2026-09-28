@@ -256,7 +256,7 @@ static void log_exchange_choice(const KisConfig& kis_config)
 }
 
 // TRADE 모드: 전략 매매 엔진 (tickers 설정 불필요 — 전략이 동적으로 구성). configure() → 전략 로딩 → start() 순서이고,
-//  configure() 안의 배선은 core/EngineConfigure.cpp, start() 안의 순서(샤드·인증·주문 라우터·원장·전략·피드·스레드)는
+//  configure() 안의 배선은 core/EngineConfigure.cpp, start() 안의 순서(샤드·인증·주문 라우터·장부·전략·피드·스레드)는
 //  Engine::start()가 정본이다.
 static int run_trade(const AppConfig& app, ProcessRole role)
 {

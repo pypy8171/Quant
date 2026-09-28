@@ -26,7 +26,7 @@
 
 using namespace std::chrono_literals;
 
-// 보호 주문 표 한 주기. 전략이 등록해 둔 규칙과 원장 보유·현재가만으로 청산을 만든다 — 전략 코드를 한 줄도 안 봐도 된다는 것이
+// 보호 주문 표 한 주기. 전략이 등록해 둔 규칙과 장부 보유·현재가만으로 청산을 만든다 — 전략 코드를 한 줄도 안 봐도 된다는 것이
 //  이 단계의 요점이다. 프로세스를 가르면 이 함수가 주문 프로세스로 간다(단계 4). [why D-114]
 //  시퀀서 하나만 부른다 — strategy_thread 전용이라 protective_next_는 잠금이 필요 없다. [inv]
 bool Engine::claim_protective_cycle(std::chrono::steady_clock::time_point now)
@@ -56,7 +56,7 @@ std::vector<OrderSignal> Engine::build_protective_orders(std::chrono::steady_clo
         return last_price(symbol);
     };
 
-    // 원장을 쥔 역할(한 프로세스·주문)은 원장을 바로 본다.
+    // 장부를 쥔 역할(한 프로세스·주문)은 장부를 바로 본다.
     if (runs_order_side())
     {
         const auto& ledger = order_gate_.ledger();
@@ -68,7 +68,7 @@ std::vector<OrderSignal> Engine::build_protective_orders(std::chrono::steady_clo
             }, now);
     }
 
-    // 갈라 띄운 전략 역할의 원장은 체결을 받지 않아 늘 비어 있다 — 주문 쪽이 내는 장부 사본을 한 판 읽어 보유·평단·
+    // 갈라 띄운 전략 역할의 장부는 체결을 받지 않아 늘 비어 있다 — 주문 쪽이 내는 장부 사본을 한 판 읽어 보유·평단·
     //  선점을 채운다. 사본은 한 계좌만 싣는다. ticker는 채우지 않는다 — evaluate는 계좌와 종목 번호로만 찾는다. [why D-114]
     std::vector<symbol::SymbolId> ledger_ids;
     std::vector<ipc::LedgerRow>   ledger_rows;
@@ -149,7 +149,7 @@ void Engine::track_feed_liveness(ipc::HeartbeatMonitor::Step step, bool just_die
 }
 
 // 마무리 순서: ① 새 진입을 끊고 ② 감시견에 알리고 ③ 보유분은 보호 주문 표가 지킨다.
-//  저널은 여기서 따로 안 민다 — 표를 들고 있는 쪽(주문·원장)이 살아 있고 append마다 이미 fflush한다.
+//  저널은 여기서 따로 안 민다 — 표를 들고 있는 쪽(주문·장부)이 살아 있고 append마다 이미 fflush한다.
 //  [inv] order_thread 전용. 여기서 부르는 OrderRouter::submit이 단일 스레드를 전제한다. [why D-114]
 void Engine::track_strategy_liveness(ipc::HeartbeatMonitor::Step step, bool just_died, int64_t strategy_gap_ns,
                                      std::chrono::steady_clock::time_point now)
@@ -184,7 +184,7 @@ void Engine::track_strategy_liveness(ipc::HeartbeatMonitor::Step step, bool just
         return;
     }
 
-    // 전략 코드를 한 줄도 안 보고 표와 원장 보유·현재가만으로 청산을 만든다. 디스패처를 안 거치는 이유는
+    // 전략 코드를 한 줄도 안 보고 표와 장부 보유·현재가만으로 청산을 만든다. 디스패처를 안 거치는 이유는
     //  그것이 전략 스레드 소유이기 때문이다 — 게이트 판정은 OrderRouter::submit 안에서 그대로 돈다.
     for (auto& protective_signal : build_protective_orders(now))
     {
@@ -406,7 +406,7 @@ void Engine::order_thread_fn(std::stop_token stop_token)
     };
 
     // 신규·취소·정정의 KIS 왕복을 맡는 스레드. 직접 보내면 한 건의 왕복(09-14~18 p50 약 1.5초)마다 뒤 주문이 전부
-    //  멈춘다. 이 스레드는 판정·선점·원장까지 하고 보내기를 넘긴 뒤 다음 주문으로 간다. 0이면 예전처럼 직접
+    //  멈춘다. 이 스레드는 판정·선점·장부까지 하고 보내기를 넘긴 뒤 다음 주문으로 간다. 0이면 예전처럼 직접
     //  보낸다. [why D-151]
     using TransportSend = std::variant<OrderRouter::NewOrderSend, OrderRouter::ModifyOrderSend>;
 
@@ -466,7 +466,7 @@ void Engine::order_thread_fn(std::stop_token stop_token)
                });
     };
 
-    // 답이 온 주문을 닫는다 — 이력·원장에 적고 마무리한다. 고리 곳곳(맨 앞, 간격 대기, 자리 대기)에서 부른다.
+    // 답이 온 주문을 닫는다 — 이력·장부에 적고 마무리한다. 고리 곳곳(맨 앞, 간격 대기, 자리 대기)에서 부른다.
     const auto collect_sent = [&]()
     {
         if (!transport)

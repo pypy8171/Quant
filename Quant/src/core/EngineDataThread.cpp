@@ -49,7 +49,7 @@ void Engine::data_thread_fn(std::stop_token stop_token)
         //  겨울(EST)에는 23:30이 맞는데 core/KstTime.h 상수는 서머타임을 반영하지 않는다 — 그 파일 주석 참고.
         if (market_now && !was_market_open)
         {
-            // 하루치를 새로 여는 것은 주문 쪽 제 주기다 — 게이트·원장·라우터가 거기 있다. [why D-114]
+            // 하루치를 새로 여는 것은 주문 쪽 제 주기다 — 게이트·장부·라우터가 거기 있다. [why D-114]
             if (order_side)
             {
                 request_reset_daily();
@@ -189,12 +189,12 @@ void Engine::data_thread_fn(std::stop_token stop_token)
 
             const bool rest_now = feed_.rest_feed_active.load(std::memory_order_relaxed);
 
-            // 매 사이클 잔고 대조. 폴링 모드는 원장까지 덮어쓰고(체결콜백 부재 보완),
+            // 매 사이클 잔고 대조. 폴링 모드는 장부까지 덮어쓰고(체결콜백 부재 보완),
             //  WS 모드는 총평가금·일손익만 갱신한다. WS 모드에서 이걸 건너뛰면 equity가 0에
             //  머물러 총노출 게이트가 조용히 통과만 하고, 일간손실 한도의 기준값도 안 움직인다.
             //  잔고 조회 자체는 대조기가 뒤 스레드에서 돌리고 여기서는 짧게만 기다리므로(기본 500ms) 서버가
             //  늦어도 아래 재선점 정리·시세 보충은 제때 돈다. 늦은 응답은 다음 사이클이 집는다.
-            //  원장과 라우터는 주문 프로세스 것이라 대조·선점 정리도 그쪽 제 주기로 돈다. [why D-114]
+            //  장부와 라우터는 주문 프로세스 것이라 대조·선점 정리도 그쪽 제 주기로 돈다. [why D-114]
             if (order_side)
             {
                 const auto reconcile_start = cycle_clock::now();

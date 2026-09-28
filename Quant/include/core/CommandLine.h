@@ -6,7 +6,7 @@
 #include <string>
 #include <string_view>
 
-// 한 exe가 맡는 자리. Both는 지금까지의 한 프로세스(시세·전략·주문·원장 전부), Order는 주문·원장·체결,
+// 한 exe가 맡는 자리. Both는 지금까지의 한 프로세스(시세·전략·주문·장부 전부), Order는 주문·장부·체결,
 //  Strategy는 전략·신호, Feed는 WebSocket 소켓 하나와 디코드다. StrategyType과 같은 스마트enum idiom.
 //  값은 뒤에만 더한다 — 앞에 끼우면 저장된 숫자가 다른 역할을 가리킨다.
 class ProcessRole
@@ -41,7 +41,7 @@ public:
 
     // ── 이 역할이 맡는 일감 ────────────────────────────────────────────────
     // **긍정형으로 적는다** — 여기 적힌 역할만 참이다. 부정형(`value_ != Strategy`)으로 두면 역할이
-    //  늘어날 때 새 역할이 아무도 손대지 않은 채 참이 되어, 시세만 맡을 프로세스가 주문 스레드와 원장까지
+    //  늘어날 때 새 역할이 아무도 손대지 않은 채 참이 되어, 시세만 맡을 프로세스가 주문 스레드와 장부까지
     //  띄운다. 그건 같은 계좌에 주문 프로세스가 둘이라는 뜻이다. [why D-114]
     // 이 셋이 역할 판정의 정본이다. Engine의 같은 이름 술어는 자기 역할을 넘겨 이것을 부르기만 한다 —
     //  Engine을 만들지 않고도 표를 시험으로 박아 둘 수 있게.
@@ -77,7 +77,7 @@ struct CommandLine
 // quant_trader [config] [--role both|order|strategy|feed]
 //   quant_trader.exe                          → config/config.json, 역할 both
 //   quant_trader.exe config.json TRADE        → 지정 config. 옛 명령줄의 `TRADE`는 받아 넘긴다
-//   quant_trader.exe config.json --role order → 지정 config, 주문·원장만 맡는다
+//   quant_trader.exe config.json --role order → 지정 config, 주문·장부만 맡는다
 //   quant_trader.exe config.json --role feed  → 지정 config, 시세 소켓만 맡는다
 // `FEED`·`KR_TEST`·`US_TEST` 낱말은 지운 실행 모드라 오류로 멈춘다. 역할 `--role feed`와는 다른 것이다. [why D-130]
 [[nodiscard]] CommandLine parse_command_line(int argc, char* argv[]);

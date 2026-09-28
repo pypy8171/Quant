@@ -138,7 +138,7 @@ void Engine::publish_watch_priorities()
             continue;
         }
 
-        // 보유·선점은 원장 사본에서 본다 — 재스캔 이탈 판정과 같은 자리다. [why D-114]
+        // 보유·선점은 장부 사본에서 본다 — 재스캔 이탈 판정과 같은 자리다. [why D-114]
         const auto& row      = ledger_snapshot_->row(symbol);
         const bool  held     = row.position != 0;
         const bool  reserved = row.reserved != 0;

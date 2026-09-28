@@ -131,7 +131,7 @@ std::optional<int> OrderRouter::parse_quantity(const std::string& text)
 // ─── 주문 제출 — action에 따라 라우팅 (MM-1) ─────────────────────────────
 //  전 경로가 주문 스레드 하나(Engine::order_thread_fn)에서만 실행된다 — OrderGate C6의
 //  단일생산자·단일소비자(SPSC) 불변 보존. 전략 스레드는 여기 진입하지 않는다. 전송 스레드는 send_new·send_modify만
-//  부른다(게이트·원장·이력은 안 만진다). [why D-151]
+//  부른다(게이트·장부·이력은 안 만진다). [why D-151]
 ManagedOrder OrderRouter::submit(const OrderSignal& signal)
 {
     switch (signal.action)
@@ -386,7 +386,7 @@ bool OrderRouter::pass_gate(NewRoute& route)
         //  (09-11 014530: 09:17 익절 지정가 118주가 취소 한도거부로 잔존, 이후 재기동 8회 내내 거부).
         //  풀리면 그 자리에서 재발주한 접수로 이어간다. [why D-055]
         const auto sellable_view = gate_.ledger().sellable_view(signal.account_id, signal.ticker);
-        LOG_WARN(std::format("[OrderRouter] 매도가능 {}/{}주 {} — 원장 보유 {}주, 잔고 주문가능 {}주, 이 세션 미체결 매도 {}주 → 예약매도 취소 시도",
+        LOG_WARN(std::format("[OrderRouter] 매도가능 {}/{}주 {} — 장부 보유 {}주, 잔고 주문가능 {}주, 이 세션 미체결 매도 {}주 → 예약매도 취소 시도",
                              route.allowed, signal.quantity, signal.ticker, sellable_view.held, sellable_view.possible_quantity_cap, sellable_view.pending));
         OrderAck reconcile_acknowledgement = reconcile_blocked_sell(signal, route.order_reference, route.intent_taken);
 
@@ -444,10 +444,10 @@ bool OrderRouter::prepare_transmit(NewRoute& route)
 
     const int64_t journal_started_ns = trace::now_ns();
 
-    // 원장 먼저, 전송은 그 다음 — 적히지 않은 주문은 나가지 않는다. 재기동은 이 INTENT로 미결 주문을 안다. [why D-113]
+    // 장부 먼저, 전송은 그 다음 — 적히지 않은 주문은 나가지 않는다. 재기동은 이 INTENT로 미결 주문을 안다. [why D-113]
     if (!route.freed && !take_intent(signal, route.order_reference))
     {
-        mark_rejected(managed_order, "원장 저널 기록 실패 — 전송 생략");
+        mark_rejected(managed_order, "장부 저널 기록 실패 — 전송 생략");
         publish_order_result(signal, false);
         record_before_transport(managed_order);
         return false;
@@ -501,7 +501,7 @@ void OrderRouter::send_new(NewOrderSend& send) const noexcept
 }
 
 // 전송 예외는 접수 여부를 모른다. 선점을 풀고 REJECT를 적는다 — 실제로 접수됐다면 체결통보·잔고 대조가
-//  원장을 되맞춘다(선점을 붙잡아 두면 그 종목이 하루 종일 막힌다). [why D-113]
+//  장부를 되맞춘다(선점을 붙잡아 두면 그 종목이 하루 종일 막힌다). [why D-113]
 void OrderRouter::close_transport_failure(NewRoute& route)
 {
     const OrderSignal& signal        = route.signal;
@@ -515,7 +515,7 @@ void OrderRouter::close_transport_failure(NewRoute& route)
     record_before_transport(managed_order);
 }
 
-// 3. 전송 뒤 마무리 — 접수 확정(원장 ACCEPT 기록)·발행·이력 저장·파일 넘기기. 여기부터가 record_us다.
+// 3. 전송 뒤 마무리 — 접수 확정(장부 ACCEPT 기록)·발행·이력 저장·파일 넘기기. 여기부터가 record_us다.
 //    왕복만 재고 끝내면 남은 시간이 어디로 갔는지 말할 수 없다 — 파일 쓰기가 여기서 드러나 쓰기 스레드로 옮겼다(D-123·D-124). [why D-117]
 void OrderRouter::finalize_new_order(NewRoute& route)
 {
@@ -536,8 +536,8 @@ void OrderRouter::finalize_new_order(NewRoute& route)
 
         if (sellable_view.held <= 0)
         {
-            // 게이트는 원장이 모르는 종목을 자르지 않고 KIS에 넘긴다 — 그 거부가 여기로 온다.
-            LOG_WARN("[OrderRouter] 보유수량 0(원장 기준) " + signal.ticker + " — 매도 불가, KIS도 주문가능분 없음으로 거부");
+            // 게이트는 장부가 모르는 종목을 자르지 않고 KIS에 넘긴다 — 그 거부가 여기로 온다.
+            LOG_WARN("[OrderRouter] 보유수량 0(장부 기준) " + signal.ticker + " — 매도 불가, KIS도 주문가능분 없음으로 거부");
         }
 
         OrderAck reconcile_acknowledgement = reconcile_blocked_sell(signal, route.order_reference, route.intent_taken);
@@ -558,7 +558,7 @@ void OrderRouter::finalize_new_order(NewRoute& route)
         managed_order.kis_order_number      = digits_to_number(managed_order.kis_order_no); // 전문 문자열이 정수가 되는 자리
         managed_order.krx_forwarding_org_no = std::move(acknowledgement.krx_forwarding_org_no); // 정정/취소 시 원주문 조직번호로 재입력
         ++accepted_count_;
-        // 선점은 전송 직전 INTENT에서 이미 잡혔다. 여기서는 원장에 ACCEPT(주문번호 확보)만 적는다 — 재기동
+        // 선점은 전송 직전 INTENT에서 이미 잡혔다. 여기서는 장부에 ACCEPT(주문번호 확보)만 적는다 — 재기동
         //  리플레이가 "보냈고 접수됐다"를 "보냈는데 응답을 못 봤다"와 구분한다. [why D-113]
         route.order_reference.kis_order_number = managed_order.kis_order_number;
         ledger.on_accepted(signal.account_id, signal.ticker, signal.side, signal.quantity, route.order_reference);
@@ -602,7 +602,7 @@ void OrderRouter::finalize_new_order(NewRoute& route)
     managed_order.stages.record_us        = (trace::now_ns() - record_started_ns) / 1000;
 }
 
-// ─── 전송 직전 원장 기록 ────────────────────────────────────────────────────
+// ─── 전송 직전 장부 기록 ────────────────────────────────────────────────────
 //  선점가는 지정가=price, 시장가(0)=reference_price로 근사 stamp → §3d 총노출이 시장가 선점을 과소평가하지
 //  않게(check()의 평가가와 대칭, 보수측). 거짓이면 선점도 되돌려져 있다. [why D-113]
 bool OrderRouter::take_intent(const OrderSignal& signal, const OrderGate::OrderRef& reference)
@@ -613,7 +613,7 @@ bool OrderRouter::take_intent(const OrderSignal& signal, const OrderGate::OrderR
         return true;
     }
 
-    LOG_ERROR("[OrderRouter] 원장 저널 기록 실패 — 주문을 보내지 않는다: " + signal.ticker + " " +
+    LOG_ERROR("[OrderRouter] 장부 저널 기록 실패 — 주문을 보내지 않는다: " + signal.ticker + " " +
               std::to_string(signal.quantity) + "주");
     return false;
 }
@@ -622,7 +622,7 @@ bool OrderRouter::take_intent(const OrderSignal& signal, const OrderGate::OrderR
 //  전제: SELL이 40240000(주문가능분 없음)으로 막힌 직후 호출. 그 종목의 미체결 예약매도가
 //  보유수량을 묶어 ord_psbl_qty=0이 된 상황을 KIS 미체결 조회로 규명하고, 예약을 취소해
 //  수량을 풀어준 뒤 시장가 매도를 1회 재시도한다. 취소한 예약이 이번 세션 주문(history_에
-//  ODNO가 있음)이면 CANCELLED로 닫고 원장(PositionLedger) 선점(reserved_)을 풀어 원장 행을 남긴다 — 그러지
+//  ODNO가 있음)이면 CANCELLED로 닫고 장부(PositionLedger) 선점(reserved_)을 풀어 장부 행을 남긴다 — 그러지
 //  않으면 선점이 스윕 때까지 남아 한도 계산을 조인다(C-2). 이전 세션·수동 예약은 history_에
 //  없으므로 선점은 건드리지 않고 매도가능수량만 되돌린다(포지션 정합은 체결통보로).
 OrderAck OrderRouter::reconcile_blocked_sell(const OrderSignal& signal, const OrderGate::OrderRef& reference, bool& intent_taken)
@@ -771,8 +771,8 @@ bool OrderRouter::cancel_blocking_sell(const OrderSignal& signal, const OpenOrde
         return false;
     }
 
-    // 이번 세션 주문이면 이력·선점을 같이 정리한다. 잠금 순서 history_mutex_ → 원장 positions_mutex_는 close_cancel과 같다.
-    //  closed는 락 안에서 뜬 사본 — 락 밖의 원장 기록에 쓰고, history_ 원소는 축출로 참조가 죽을 수 있다.
+    // 이번 세션 주문이면 이력·선점을 같이 정리한다. 잠금 순서 history_mutex_ → 장부 positions_mutex_는 close_cancel과 같다.
+    //  closed는 락 안에서 뜬 사본 — 락 밖의 장부 기록에 쓰고, history_ 원소는 축출로 참조가 죽을 수 있다.
     ManagedOrder closed;
     bool         found   = false;
     int          release = 0;
@@ -808,7 +808,7 @@ bool OrderRouter::cancel_blocking_sell(const OrderSignal& signal, const OpenOrde
     }
     else
     {
-        // 이전 세션 줄 — 부속 파일에서 빼고, 취소로 풀린 수량을 원장 매도가능수량에 되돌린다(기동 취소와 같은 처리).
+        // 이전 세션 줄 — 부속 파일에서 빼고, 취소로 풀린 수량을 장부 매도가능수량에 되돌린다(기동 취소와 같은 처리).
         if (erase_carry_row(open.kis_order_no))
         {
             rewrite_open_orders();
@@ -839,7 +839,7 @@ int64_t OrderRouter::record(const ManagedOrder& managed_order, int64_t* open_ord
     }
 
     // 파일 I/O는 history_mutex_ 밖에서 — 디스크가 느린 순간 체결(on_fill)·발주(submit)가 같이 밀리지 않게(W-8).
-    // 거래 원장 CSV — 주문 종착 상태(접수/거부/취소)를 한 줄로 영속화.
+    // 거래 장부 CSV — 주문 종착 상태(접수/거부/취소)를 한 줄로 영속화.
     //   event="" → managed_order.status 문자열(ACCEPTED/REJECTED/CANCELLED)이 event가 된다.
     journal_.write_trade_row("", managed_order, 0, 0.0);
 
@@ -886,7 +886,7 @@ void OrderRouter::close_live_original_locked(const OrderSignal& signal, const Or
         live->updated_at = std::chrono::system_clock::now();
     }
 
-    // 원장 positions_mutex_는 history_mutex_와 별개다. 잠금 순서 history_mutex_ → positions_mutex_는 on_fill과 같다(데드락 없음).
+    // 장부 positions_mutex_는 history_mutex_와 별개다. 잠금 순서 history_mutex_ → positions_mutex_는 on_fill과 같다(데드락 없음).
     if (release > 0)
     {
         gate_.ledger().on_cancel(original.account, original.ticker, original.side, release,
@@ -1035,7 +1035,7 @@ std::variant<ManagedOrder, OrderRouter::ModifyOrderSend> OrderRouter::open_modif
 
     route.new_quantity = (signal.quantity > 0) ? signal.quantity : original.outstanding;
 
-    // 정정도 전송 전에 원장에 적는다 — 새 수량을 INTENT로 선점하고, 원주문 잔량은 접수된 뒤에 푼다.
+    // 정정도 전송 전에 장부에 적는다 — 새 수량을 INTENT로 선점하고, 원주문 잔량은 접수된 뒤에 푼다.
     //  못 적으면 보내지 않는다(적히지 않은 주문은 나가지 않는다). [why D-113]
     OrderSignal reserve_signal = signal;
     reserve_signal.ticker      = original.ticker;
@@ -1048,7 +1048,7 @@ std::variant<ManagedOrder, OrderRouter::ModifyOrderSend> OrderRouter::open_modif
 
     if (!take_intent(reserve_signal, route.order_reference))
     {
-        mark_rejected(managed_order, "원장 저널 기록 실패 — 정정 전송 생략");
+        mark_rejected(managed_order, "장부 저널 기록 실패 — 정정 전송 생략");
         record(managed_order);
         return std::move(managed_order);
     }

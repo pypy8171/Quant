@@ -201,7 +201,7 @@ void SignalDispatcher::from_strategy(bool active, bool exit_manager, const Order
 
 void SignalDispatcher::submit(OrderSignal signal)
 {
-    // 여기서 한 번 찍어 두면 게이트·교체 창구·원장이 전부 이 번호로 간다.
+    // 여기서 한 번 찍어 두면 게이트·교체 창구·장부가 전부 이 번호로 간다.
     //  교체 진입(최약체 매도 뒤 매수 보류)은 주문 쪽 risk::DisplacementDesk가 한다 — 최약체를 고르는 읽기와
     //  자리를 예약하는 쓰기가 한 덩어리라 전략 쪽에 두면 둘이 같은 종목을 두 번 판다. [why D-114]
     signal.symbol_id = symbol_of(signal);

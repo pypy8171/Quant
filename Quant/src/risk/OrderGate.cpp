@@ -130,7 +130,7 @@ int OrderGate::clamp_buy_quantity(const OrderSignal& signal)
     //  254주·381주 두 번 다 전량 거부, 보유분이 갇혔다). 나갈 수 있는 만큼이라도
     //  내보내는 편이 낫다. 이미 FORCE_LIQ와 디스플레이스먼트는 같은 식으로 깎고 있고,
     //  전략 청산 신호만 이 경로를 안 거치고 있었다.
-    //  원장이 그 종목을 모를 때(positions_ 없음 또는 0)는 손대지 않는다 - 과소 인식으로
+    //  장부가 그 종목을 모를 때(positions_ 없음 또는 0)는 손대지 않는다 - 과소 인식으로
     //  정당한 청산을 0주로 깎는 쪽이 거부당하는 것보다 위험하다.
     if (signal.side == OrderSide::SELL && signal.action == OrderAction::NEW && quantity > 0)
     {
@@ -475,7 +475,7 @@ GateVerdict OrderGate::evaluate(const OrderSignal& signal)
     // 3. 포지션 수량 한도 (BUY에만 적용) — 실체결(positions_) + 미체결 매수 선점 합산. 미체결 매도는
     //    체결될지 모르므로 빼 주지 않는다(clamp_buy_quantity와 같은 셈).
     //    계좌별 파티션 — 한 계좌 한도는 다른 계좌 주문을 막지 않는다.
-    // 원장 키를 여기서 한 번 만든다 — 3절(한도)과 5절(중복 신호 키)이 같은 번호를 쓴다. 처음 보는 계좌·종목은
+    // 장부 키를 여기서 한 번 만든다 — 3절(한도)과 5절(중복 신호 키)이 같은 번호를 쓴다. 처음 보는 계좌·종목은
     //  등록한다(모르는 계좌끼리 중복 키가 겹치지 않게).
     const PosKey key = ledger_.register_signal(signal);
 
@@ -519,7 +519,7 @@ GateVerdict OrderGate::evaluate(const OrderSignal& signal)
             size_t held = 0;   // 그중 실보유. 거부 문구에서 유령 선점과 갈라 보려고 따로 센다
 
             // 3c-2(아래)가 쓰는 "나보다 랭크가 위인데 이미 차지된 종목 수"를 같은 순회에서 센다 — 표를 도는 대신
-            //  원장(보유·선점 ≤ 슬롯 수)을 돈다. 표는 불변 스냅샷이라 락 밖 포인터로 읽는다.
+            //  장부(보유·선점 ≤ 슬롯 수)를 돈다. 표는 불변 스냅샷이라 락 밖 포인터로 읽는다.
             const std::shared_ptr<const PriorityTable> table =
                 config_.entry_priority_enabled ? entry_priority_.snapshot() : nullptr;
             const int rank        = table ? EntryPriority::rank_of(*table, key.symbol) : 0;
@@ -562,7 +562,7 @@ GateVerdict OrderGate::evaluate(const OrderSignal& signal)
 
             if (open >= static_cast<size_t>(config_.max_concurrent_positions))
             {
-                // 교체가 떨어진 사유는 describe()가 원장 잠금 밖에서 붙인다.
+                // 교체가 떨어진 사유는 describe()가 장부 잠금 밖에서 붙인다.
                 reject(GateReject::ConcurrentLimit).amount = static_cast<int64_t>(open);
                 verdict.base   = static_cast<int64_t>(held);
                 verdict.symbol = key.symbol;
@@ -606,7 +606,7 @@ GateVerdict OrderGate::evaluate(const OrderSignal& signal)
                 //  24위라 quant=0.93 > 기준 0.54). 그러면 슬롯이 25에 닿지 못하고,
                 //  교체 진입은 capacity_full()에서만 열리므로 둘 다 영원히 막힌다.
                 //  살 수 있는 종목들 사이의 순위로 재면 최상위 후보는 항상 1위가 된다.
-                //  "나보다 위" 전체 수는 표가 미리 세 두었고(below_by_symbol), 그중 차지된 수는 위 원장 순회가 셌다.
+                //  "나보다 위" 전체 수는 표가 미리 세 두었고(below_by_symbol), 그중 차지된 수는 위 장부 순회가 셌다.
                 if (rank > 0)
                 {
                     eff_rank = table->below_by_symbol[key.symbol] - taken_ahead + 1;
@@ -1029,7 +1029,7 @@ bool OrderGate::reset_daily(uint32_t trading_date_yyyymmdd)
 
     ledger_.expire_reservations(trading_date_yyyymmdd); // 미체결 선점 일일 만료 — 사유는 PositionLedger::expire_reservations
 
-    // average_prices_ / positions_ 는 영속 원장 — 장 시작에 초기화하지 않는다
+    // average_prices_ / positions_ 는 영속 장부 — 장 시작에 초기화하지 않는다
     LOG_INFO(std::format("[OrderGate] 하루 리셋 - 거래일({}) 선점·당일 손익·주문 한도를 새로 열었다", trading_date_yyyymmdd));
     return true;
 }
@@ -1088,9 +1088,9 @@ OrderGate::EntrySnapshot OrderGate::entry_snapshot(const std::string& account, c
 }
 
 // ─── 장부 사본 발행 (D-114 단계 2.5) ─────────────────────────────────────────
-//  전역값 중 게이트가 든 것(국면 플래그·한도)은 여기서 채우고, 종목별 값과 원장에서 셈하는 전역값(열린 슬롯·
+//  전역값 중 게이트가 든 것(국면 플래그·한도)은 여기서 채우고, 종목별 값과 장부에서 셈하는 전역값(열린 슬롯·
 //  여력)은 PositionLedger::publish가 채운다. 채우는 순서와 잠금 구간은 publish 안에서 그대로다 — 이 함수는
-//  발행 잠금을 쥔 뒤, 원장 잠금을 잡기 전에 불린다.
+//  발행 잠금을 쥔 뒤, 장부 잠금을 잡기 전에 불린다.
 void OrderGate::publish_ledger(ipc::LedgerSnapshot& snapshot) const
 {
     const auto fill_globals = [this](ipc::LedgerGlobals& globals)

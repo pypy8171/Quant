@@ -59,7 +59,7 @@ const OpenOrder* match_unnumbered_intent(const OrderGate::OpenIntent& intent, co
 } // namespace
 
 // ─── 재기동 미결 주문 대조 ─────────────────────────────────────────────────
-//  원장 저널의 미결 INTENT를 KIS 미체결과 맞춰 되살리거나 선점을 푼다. 세 갈래는 헤더 선언 주석에 있다. [why D-113]
+//  장부 저널의 미결 INTENT를 KIS 미체결과 맞춰 되살리거나 선점을 푼다. 세 갈래는 헤더 선언 주석에 있다. [why D-113]
 OrderRouter::AdoptResult OrderRouter::adopt_open_intents(const std::vector<OrderGate::OpenIntent>& intents)
 {
     auto& ledger = gate_.ledger();
@@ -169,7 +169,7 @@ void OrderRouter::restore_intent(const OrderGate::OpenIntent& intent, uint64_t k
     signal.quantity    = intent.remaining;
     signal.price       = intent.price;
     signal.strategy_id = intent.strategy_name.empty() ? std::string("UNLINKED") : intent.strategy_name;
-    signal.reason      = "재기동 복원(원장 저널 미결 주문)";
+    signal.reason      = "재기동 복원(장부 저널 미결 주문)";
     ManagedOrder managed_order = make_restored_order(std::format("ORD-{:06}", intent.order_id),
                                                      std::format("{:010}", kis_order_number), std::move(signal),
                                                      std::chrono::system_clock::now());
@@ -205,14 +205,14 @@ ManagedOrder OrderRouter::make_restored_order(std::string order_id, std::string 
     managed_order.status                = OrderStatus::ACCEPTED;
     managed_order.signal                = std::move(signal);
     managed_order.signal.symbol_id      = ledger.intern_symbol(managed_order.signal.ticker); // 파일의 문자열 — 복원 때 한 번
-    managed_order.signal.strategy_index = ledger.strategy_index_of(managed_order.signal.strategy_id); // 서브원장 귀속은 번호로
+    managed_order.signal.strategy_index = ledger.strategy_index_of(managed_order.signal.strategy_id); // 서브장부 귀속은 번호로
     managed_order.submitted_at          = at;
     managed_order.updated_at            = at;
     return managed_order;
 }
 
 // ─── 유령 선점 정리 ───────────────────────────────────────────────────────
-//  원장(PositionLedger)의 선점(reserved_)은 전송 직전 INTENT 때 생기고 체결·취소·거부로만 풀린다. 통보를 한 번
+//  장부(PositionLedger)의 선점(reserved_)은 전송 직전 INTENT 때 생기고 체결·취소·거부로만 풀린다. 통보를 한 번
 //  놓치면 그 선점이 슬롯을 물고 남아, 실제 보유가 한도에 못 미치는데 신규 진입이 막힌다
 //  (09-09: 보유 20인데 "25 >= 25" 거부). 살아 있는 주문이 없는 종목의 선점을 푼다.
 int OrderRouter::sweep_stale_reservations()
@@ -220,7 +220,7 @@ int OrderRouter::sweep_stale_reservations()
     auto& ledger = gate_.ledger();
 
     std::vector<bool> live(ledger.symbols().capacity(), false);
-    // [inv] 표시 목록을 읽고 원장 선점을 풀 때까지 in_flight_mutex_를 쥔다 — 그 사이에 주문 스레드가 표시를
+    // [inv] 표시 목록을 읽고 장부 선점을 풀 때까지 in_flight_mutex_를 쥔다 — 그 사이에 주문 스레드가 표시를
     //  걸고 INTENT를 적으면, 읽을 때 없던 새 선점을 풀게 된다.
     std::lock_guard<std::mutex> in_flight_lock(in_flight_mutex_);
 
@@ -629,7 +629,7 @@ void OrderRouter::cancel_stale_rows(std::stop_token stop_token, const std::vecto
             LOG_INFO("[OrderRouter] 유령주문 취소 " + row[2] + " " + row[3] + " " +
                      std::to_string(quantity) + "주 ODNO=" + row[0]);
 
-            // 취소로 브로커에서는 수량이 풀렸지만 원장(PositionLedger)의 sellable_은 잔고 시드값
+            // 취소로 브로커에서는 수량이 풀렸지만 장부(PositionLedger)의 sellable_은 잔고 시드값
             //  (ord_psbl_qty, 취소 전 스냅샷) 그대로다. 되돌리지 않으면 미체결이 없는데도
             //  자기 청산이 막힌다 — 09-09 000215은 13:45 취소 뒤 16분간 "매도가능수량 0"으로
             //  교체 진입이 네 번 무산됐다. 매도 취소만 해당한다(매수는 현금을 풀 뿐이다).
@@ -683,7 +683,7 @@ void OrderRouter::record_reconcile(const ReconcileNote& reconcile_note)
 
     if (reconcile_note.action != "KEEP")
     {
-        LOG_WARN(std::format("[OrderRouter] 잔고 대조 {} 원장 {}주@{} vs 브로커 {}주@{} → {} ({})", reconcile_note.ticker,
+        LOG_WARN(std::format("[OrderRouter] 잔고 대조 {} 장부 {}주@{} vs 브로커 {}주@{} → {} ({})", reconcile_note.ticker,
                              reconcile_note.ledger_quantity, static_cast<long long>(reconcile_note.ledger_average), reconcile_note.broker_quantity,
                              static_cast<long long>(reconcile_note.broker_average), reconcile_note.action, reason));
     }

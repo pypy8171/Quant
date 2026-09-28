@@ -32,7 +32,7 @@ struct AppConfig
     std::vector<std::string> capture_tickers;
     // 전략이 안 봐도 WS 칸을 늘 쥐는 종목(체결만). 엔진이 실제로 받는 체결 수를 캡처로 세려고 둔다. [why D-138]
     std::vector<std::string> websocket_pin_tickers;
-    // 원장 저널 폴더(ledger_YYYYMMDD.bin). capture_directory와 독립 — 틱 캡처를 안 켜도 이건 켠다(저장량이 틱의
+    // 장부 저널 폴더(ledger_YYYYMMDD.bin). capture_directory와 독립 — 틱 캡처를 안 켜도 이건 켠다(저장량이 틱의
     //  몇 만분의 1). 빈 문자열=끔(테스트·벤치만). fsync=append마다 디스크 동기화. [why D-113]
     std::string            ledger_journal_directory;
     bool                   ledger_journal_fsync = false;

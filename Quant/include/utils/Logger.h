@@ -35,7 +35,7 @@ public:
     static std::filesystem::path executable_directory();
 
     // 로그·산출물 기준 디렉터리 기본값: QUANT_LOG_DIR 환경변수 > 실행파일 옆 logs/.
-    //  cwd 기준이면 테스트 바이너리를 repo 루트에서 돌릴 때 당일 원장(trades_*.csv)에 TEST 행이 섞인다.
+    //  cwd 기준이면 테스트 바이너리를 repo 루트에서 돌릴 때 당일 장부(trades_*.csv)에 TEST 행이 섞인다.
     static std::filesystem::path default_base_directory();
 
     void initialize(const std::filesystem::path& filepath, LogLevel min_level = LogLevel::INFO);

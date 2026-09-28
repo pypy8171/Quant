@@ -139,11 +139,11 @@ MAX_CURL_GIVEUPS = 5      # 수신 제한 시간 초과로 재시도 없이 버�
 MAX_EQUITY_FAILS = 3      # 기준자본 조회 실패 — 09-22엔 로그가 없었고 쿨다운과 같이 들어갔다. 쿨다운이 60초라 하루 상한이 곧 이 수다
 MAX_RATE_RETRIES = 10     # 초당 한도로 되보낸 HTTP 요청 — 09-22 37건. 모의 스캔 간격을 600ms로 벌렸으니 줄어야 한다
 # 원장 저널(D-113) — 기동 줄 둘과 장중 기록 실패. 저널에 못 적은 주문은 아예 나가지 않는다.
-LEDGER_REPLAY_RE = re.compile(r"\[Engine\] 원장 저널 리플레이: (\d+)건 \(마지막 seq (\d+)(, 꼬리 잘림)?\)")
+LEDGER_REPLAY_RE = re.compile(r"\[Engine\] (?:원장|장부) 저널 리플레이: (\d+)건 \(마지막 seq (\d+)(, 꼬리 잘림)?\)")
 LEDGER_UNNUMBERED_RE = re.compile(r"\[OrderRouter\] 재기동 미결 주문 짝 ")
-LEDGER_RESOLVE_RE = re.compile(r"\[Engine\] 원장 미결 주문 대조: 되살림 (\d+)건 · 선점해제 (\d+)건 · 저널기록실패 (\d+)건")
+LEDGER_RESOLVE_RE = re.compile(r"\[Engine\] (?:원장|장부) 미결 주문 대조: 되살림 (\d+)건 · 선점해제 (\d+)건 · 저널기록실패 (\d+)건")
 # 주문 앞 선기록(OrderRouter)과 잠금 밖 묶음 기록(PositionLedger, W-2) 실패를 같이 센다.
-LEDGER_WRITE_FAIL_RE = re.compile(r"\[(?:OrderRouter|PositionLedger)\] 원장 저널 기록 실패")
+LEDGER_WRITE_FAIL_RE = re.compile(r"\[(?:OrderRouter|PositionLedger)\] (?:원장|장부) 저널 기록 실패")
 # 엔진 DB 관리자(D-148) — 시작 줄이 있으면 켜진 것, 종료 줄에 받은·넣은·버린 행 수가 있다.
 DB_WRITER_START_RE = re.compile(r"\[DbManager\] 시작 — ")
 DB_WRITER_NO_PASSWORD_RE = re.compile(r"\[DbManager\] TSDB_PASSWORD 환경변수가 없다")

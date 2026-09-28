@@ -24,10 +24,10 @@
 //  평단·손익·저널)는 Quant/include/risk/PositionLedger.h이고, 이 클래스는 한도·교체 판정과 유량·중복 제한을 든다.
 //  검사 항목과 그 실행 순서의 정본은 `OrderGate.cpp::check` 하나다 — 목록을 여기에 복사하지 않는다.
 //
-// [lock-order] check()는 원장 Reader(PositionLedger의 positions_mutex_)를 쥔 채 EntryPriority의 displace_mutex_·
+// [lock-order] check()는 장부 Reader(PositionLedger의 positions_mutex_)를 쥔 채 EntryPriority의 displace_mutex_·
 //   priority_mutex_를 잡는다(교체 후보·우선순위 판정이 보유 스냅샷과 같은 시점이어야 해서). 그러므로 순서는
 //   positions → {displace, priority}이고, displace·priority를 쥔 채 positions를 잡는 경로는 두지 않는다
-//   (plan_displacement는 비중첩). 원장 안의 순서(positions → journal, publish → positions)는
+//   (plan_displacement는 비중첩). 장부 안의 순서(positions → journal, publish → positions)는
 //   Quant/include/risk/PositionLedger.h. pnl·rate·dedup은 독립 스코프에서만 획득한다.
 // ─────────────────────────────────────────────────────────────────────────────
 namespace ipc
@@ -36,7 +36,7 @@ class LedgerSnapshot; // 장부 사본. 구현(.cpp)에서만 include한다 — 
 }
 
 // 게이트가 주문을 막은 까닭. 판정(OrderGate::evaluate)은 이 코드와 숫자만 돌려주고, 문장은
-//  OrderGate::describe가 원장 잠금 밖에서 만든다. [why CODE_REVIEW W-8]
+//  OrderGate::describe가 장부 잠금 밖에서 만든다. [why CODE_REVIEW W-8]
 enum class GateReject : uint8_t
 {
     None,                // 통과
@@ -161,7 +161,7 @@ public:
         return config_;
     }
 
-    // 원장 — 보유·선점·평단·당일 손익과 원장 저널(Quant/include/risk/PositionLedger.h). 체결 반영·시드·조회는 여기로 간다.
+    // 장부 — 보유·선점·평단·당일 손익과 장부 저널(Quant/include/risk/PositionLedger.h). 체결 반영·시드·조회는 여기로 간다.
     [[nodiscard]] PositionLedger& ledger() noexcept
     {
         return ledger_;
@@ -172,7 +172,7 @@ public:
         return ledger_;
     }
 
-    // 원장 쪽 중첩 형 — 바깥 코드가 OrderGate:: 이름으로 쓰던 것을 그대로 받는다.
+    // 장부 쪽 중첩 형 — 바깥 코드가 OrderGate:: 이름으로 쓰던 것을 그대로 받는다.
     using OpenIntent   = PositionLedger::OpenIntent;
     using OrderRef     = PositionLedger::OrderRef;
     using FillResult   = PositionLedger::FillResult;
@@ -184,7 +184,7 @@ public:
     bool check(const OrderSignal& signal, std::string& reject_reason);
     // 판정만 한다 — 문자열을 만들지 않는다. 통과하면 유량 창·중복 창에 이 신호를 적는다.
     [[nodiscard]] GateVerdict evaluate(const OrderSignal& signal);
-    // 판정을 로그·운영단말에 나가는 문장으로 옮긴다. 원장 잠금을 잡지 않는다.
+    // 판정을 로그·운영단말에 나가는 문장으로 옮긴다. 장부 잠금을 잡지 않는다.
     [[nodiscard]] std::string describe(const GateVerdict& verdict) const;
 
     // ── 한도 클램프 (BUY NEW 전용) ─────────────────────────────────────────
@@ -196,7 +196,7 @@ public:
     // 반환 0 = 여유 없음(발주 불가). 정정·취소는 원본 수량을 그대로 돌려준다.
     // SELL NEW는 매도가능수량(보유 - 미체결매도)으로 깎는다. 자기 익절 지정가가 자기
     // 청산을 막아 KIS가 40240000으로 주문을 통째로 거부하면 한 주도 못 빠져나온다.
-    // 원장이 그 종목을 0으로 알고 있으면 손대지 않는다(과소 인식 방어).
+    // 장부가 그 종목을 0으로 알고 있으면 손대지 않는다(과소 인식 방어).
     int clamp_buy_quantity(const OrderSignal& signal);
 
     // ── Kill switch ─────────────────────────────────────────────────────────
@@ -259,7 +259,7 @@ public:
     //  z는 같은 점수의 표준화값 — 랭크는 "몇 번째"만 알려주고 "얼마나 더 좋은지"는 못 알려준다.
     //  교체는 격차가 잡음보다 큰지를 봐야 하므로 z가 따로 필요하다.
     //  종목은 id로 받는다(intern_symbol·symbol_id_of). 표는 id 배열 세 개(랭크·"나보다 위" 수·z)로 굳혀
-    //  check()가 "나보다 위인데 아직 안 산 종목 수"를 원장 순회(보유·선점 ≤ 슬롯 수) 안에서 정수 조회로 센다 —
+    //  check()가 "나보다 위인데 아직 안 산 종목 수"를 장부 순회(보유·선점 ≤ 슬롯 수) 안에서 정수 조회로 센다 —
     //  문자열 맵 전체를 돌며 항목마다 해시하던 것(300종목 4.2µs)을 없앤다. 표는 통째로 바꿔 끼우고(shared_ptr)
     //  읽는 쪽은 포인터만 복사하므로 plan_displacement가 맵을 복사해 락 밖으로 들고 나오던 일도 없다. [why D-112]
     using PriorityEntry = EntryPriority::Entry;
@@ -278,9 +278,9 @@ public:
         double      average_price = 0.0;
         double      victim_z = 0.0;
         double      new_z = 0.0;
-        std::string reason;       // 로그·원장에 남길 사유
+        std::string reason;       // 로그·장부에 남길 사유
     };
-    //  new_symbol은 신호의 symbol_id(원장 테이블 번호). 모르는 종목(kNone)은 점수가 없어 거절된다.
+    //  new_symbol은 신호의 symbol_id(장부 테이블 번호). 모르는 종목(kNone)은 점수가 없어 거절된다.
     DisplacePlan plan_displacement(const std::string& account, symbol::SymbolId new_symbol) const;
     // 교체를 실제로 발주했을 때 호출 — 쿨다운·횟수·슬롯 예약을 기록한다. beneficiary는 자리를 받을 종목 id.
     void note_displacement(const DisplacePlan& plan, symbol::SymbolId beneficiary);
@@ -321,14 +321,14 @@ public:
     //  전략 쪽이 읽을 사본을 한 판 낸다. 게이트가 든 전역값(국면 플래그·한도)을 넘기고, 종목별 값과 열린 슬롯·
     //  여력은 PositionLedger::publish가 positions_mutex_ 한 번으로 함께 담는다 — 따로 담으면 판 안에서 서로
     //  안 맞는다. [why D-086] 장부를 바꾼 스레드가 부른다 — 접수(주문 스레드)와 체결(체결 스레드) 둘이라
-    //  발행끼리는 원장의 발행 잠금으로 줄을 세운다. 읽는 쪽은 그 잠금을 안 잡는다.
+    //  발행끼리는 장부의 발행 잠금으로 줄을 세운다. 읽는 쪽은 그 잠금을 안 잡는다.
     void publish_ledger(ipc::LedgerSnapshot& snapshot) const;
 
 private:
     using Clock = std::chrono::steady_clock;
     using TimePoint = Clock::time_point;
 
-    // 원장 파티션 키 — (계좌 번호, 종목 id). 만드는 규칙과 [why]는 Quant/include/risk/LedgerKeys.h.
+    // 장부 파티션 키 — (계좌 번호, 종목 id). 만드는 규칙과 [why]는 Quant/include/risk/LedgerKeys.h.
     static constexpr uint32_t kUnknownAccount = LedgerKeys::kUnknownAccount;
     using PosKey = PositionLedger::PosKey;
 
@@ -346,7 +346,7 @@ private:
     using PriorityTable = EntryPriority::Table;
     EntryPriority entry_priority_;
 
-    // 원장 — 자체 락(positions·journal·pnl·publish)을 든다. 판정은 ledger_.read()로 positions_mutex_를 쥔 채 본다.
+    // 장부 — 자체 락(positions·journal·pnl·publish)을 든다. 판정은 ledger_.read()로 positions_mutex_를 쥔 채 본다.
     PositionLedger ledger_;
 
     mutable std::mutex rate_mutex_;

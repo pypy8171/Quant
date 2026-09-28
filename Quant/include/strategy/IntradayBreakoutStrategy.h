@@ -30,7 +30,7 @@
 //          — 마감 임박 진입은 트레일 발동 전 장 마감 강제청산되므로.
 //
 //  안전장치: 재진입 쿨다운으로 청산 직후 재매수 폭주 방지. account_id 기본 "" → OrderGate
-//           원장 시드 키 일치(C-1). 신규 진입 후 position_is_seed_=false로 성격 전환.
+//           장부 시드 키 일치(C-1). 신규 진입 후 position_is_seed_=false로 성격 전환.
 // ─────────────────────────────────────────────────────────────────────────────
 class IntradayBreakoutStrategy : public StrategyBase
 {
@@ -119,9 +119,9 @@ public:
     std::optional<OrderSignal> on_trade(const TradeData& trade) override;
 
 private:
-    // 청산 대기 중 틱 처리. 원장(confirmed_position)이 0이면 해제, 줄었으면 잔량으로 갱신하고
+    // 청산 대기 중 틱 처리. 장부(confirmed_position)가 0이면 해제, 줄었으면 잔량으로 갱신하고
     //  백오프를 되돌린다. 아니면 백오프 창이 지났을 때 같은 수량을 재발주한다.
-    //  원장이 이 종목을 모르면(미시드) 0이 나와 곧바로 해제된다 — 예전 동작과 같다.
+    //  장부가 이 종목을 모르면(미시드) 0이 나와 곧바로 해제된다 — 예전 동작과 같다.
     //  체결 뒤 남은 재발주는 게이트가 안 잡고 브로커가 거부하므로 횟수 상한으로 스팸을 끊는다.
     std::optional<OrderSignal> exit_pending_tick(double price, std::chrono::system_clock::time_point timestamp);
 
@@ -170,7 +170,7 @@ private:
     double day_base_price_ = 0.0; // 당일 기준점(시가 또는 첫 틱)
     bool in_position_ = false;
     bool position_is_seed_ = false;   // 현재 포지션이 물린 시드분인가(청산 로직 분기)
-    bool ledger_confirmed_ = false;   // [inv] 원장이 이 보유를 최소 1회 인정했나
+    bool ledger_confirmed_ = false;   // [inv] 장부가 이 보유를 최소 1회 인정했나
     double entry_price_ = 0.0;
     double peak_ = 0.0;
     double saved_peak_ = 0.0;      // 부착 시 seed_peaks.json에서 읽은 당일 고점(없으면 0)

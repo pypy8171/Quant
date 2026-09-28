@@ -102,7 +102,7 @@ void OrderRouter::load_order_reasons_locked()
 //  단계: 재전송 거르기 → 이전 세션 주문 되살리기 → 연결된 주문 찾기 → 연결 체결 / 미연결 체결.
 void OrderRouter::on_fill(const FillNotification& fill_notification)
 {
-    // unique_lock: 원장 갱신까지만 잡고, 파일 쓰기·publish 전에 푼다(W-8).
+    // unique_lock: 장부 갱신까지만 잡고, 파일 쓰기·publish 전에 푼다(W-8).
     std::unique_lock<std::mutex> lock(history_mutex_);
     // 중복 제거 — KIS 체결통보는 at-least-once(재전송/WS 재구독 시 중복 가능).
     // H0STCNI0 전문에 체결고유번호가 없어 kis_order_no+체결시각+수량+단가를 조합 키로 사용.
@@ -122,7 +122,7 @@ void OrderRouter::on_fill(const FillNotification& fill_notification)
     if (is_replayed_fill_locked(fill_key, fill_notification.session_generation))
     {
         lock.unlock();
-        LOG_WARN(std::format("[OrderRouter] 재연결 뒤 같은 체결통보 — 재전송으로 보고 원장에 안 넣음 ODNO={} {} {}주 @{} time={} 세션={} (수량은 잔고 대조가 맞춘다)",
+        LOG_WARN(std::format("[OrderRouter] 재연결 뒤 같은 체결통보 — 재전송으로 보고 장부에 안 넣음 ODNO={} {} {}주 @{} time={} 세션={} (수량은 잔고 대조가 맞춘다)",
                              fill_notification.kis_order_no, fill_notification.ticker, fill_notification.filled_quantity,
                              static_cast<int>(fill_notification.filled_price), fill_notification.fill_time,
                              fill_notification.session_generation));
@@ -149,7 +149,7 @@ void OrderRouter::route_fill(std::unique_lock<std::mutex>& lock, const FillNotif
     {
         ManagedOrder& managed_order = *matched;
 
-        // 조회로 이미 되찾은 체결의 통보가 늦게 왔으면 그만큼은 원장에 다시 넣지 않는다. [why D-149]
+        // 조회로 이미 되찾은 체결의 통보가 늦게 왔으면 그만큼은 장부에 다시 넣지 않는다. [why D-149]
         const int credited          = consume_recovered_credit_locked(managed_order, fill_notification);
         const int incoming_quantity = fill_notification.filled_quantity - credited;
 
@@ -162,7 +162,7 @@ void OrderRouter::route_fill(std::unique_lock<std::mutex>& lock, const FillNotif
                 lock.unlock();
             }
 
-            LOG_INFO(std::format("[OrderRouter] 되찾은 체결의 늦은 통보 — {}주는 원장에 다시 안 넣음 ODNO={} {} 통보={}주 time={} (남은 몫 {}주)",
+            LOG_INFO(std::format("[OrderRouter] 되찾은 체결의 늦은 통보 — {}주는 장부에 다시 안 넣음 ODNO={} {} 통보={}주 time={} (남은 몫 {}주)",
                                  credited, fill_notification.kis_order_no, fill_notification.ticker,
                                  fill_notification.filled_quantity, fill_notification.fill_time, credit_left));
 
@@ -282,7 +282,7 @@ ManagedOrder* OrderRouter::find_linked_order_locked(const FillNotification& fill
     // 원주문번호로 한 번 더 찾는다. 정정이 나가면 KIS가 새 ODNO를 주고 이력의 ODNO를 그 값으로 바꾸는데,
     //  정정 응답을 못 받으면(전송 실패·타임아웃) 이력에는 옛 ODNO가 남는다. 그 뒤 체결통보는 새 ODNO로
     //  오므로 위 색인이 비고, 전략 귀속을 잃은 채 미매핑 경로로 떨어진다. 전문 [3]OODER_NO가 그 옛 ODNO라
-    //  여기서 되찾는다. 원장에 쓰는 번호는 통보가 준 실제 ODNO 그대로다(바꾸지 않는다).
+    //  여기서 되찾는다. 장부에 쓰는 번호는 통보가 준 실제 ODNO 그대로다(바꾸지 않는다).
     // 근거: [3]OODER_NO=원주문번호는 공식 샘플 ccnl_notice 열 순서(2026-09-27 MCP 확인). 정정이 새 ODNO를 준다는 것은
     //  샘플 order_rvsecncl에 응답 칸 설명이 없어 확인하지 못했다.
     const uint64_t original_order_number = digits_to_number(fill_notification.original_order_no);
@@ -308,12 +308,12 @@ ManagedOrder* OrderRouter::find_linked_order_locked(const FillNotification& fill
 //  history_는 메모리에만 있어서 장중 재시작하면 이전 세션의 미체결 주문이 사라진다.
 //  거래소 호가창에는 그 주문이 그대로 살아있으므로, 나중에 체결되면 여기로 떨어진다.
 //  2026-09-07 ODNO 0000014893이 이 경우다 — 09:58 접수, 10:38 재시작, 11:07 91주 전량
-//  체결이 통째로 버려져 원장·포지션이 91주(약 498만원) 어긋났다.
-//  체결 자체는 실재하므로 버리지 않고 원장·포지션에 반영한다. 전략 귀속만 알 수 없어
+//  체결이 통째로 버려져 장부·포지션이 91주(약 498만원) 어긋났다.
+//  체결 자체는 실재하므로 버리지 않고 장부·포지션에 반영한다. 전략 귀속만 알 수 없어
 //  strategy_id를 "UNLINKED"로 남긴다(사후 분석에서 구분 가능).
 //  선점(reserved_)은 이전 세션과 함께 사라졌다. on_fill_confirmed는 선점 해제를 전제로
 //  reserved_를 깎으므로, 그대로 부르면 음수 선점이 생겨 이후 한도 계산이 왜곡된다.
-//  같은 수량을 on_intent로 먼저 되살린 뒤 해제시켜 순변화를 0으로 맞춘다(원장에도 INTENT→FILL 두 줄로 남는다).
+//  같은 수량을 on_intent로 먼저 되살린 뒤 해제시켜 순변화를 0으로 맞춘다(장부에도 INTENT→FILL 두 줄로 남는다).
 //  미연결은 history_에 없어 우리 쪽 주문수량을 모른다. 대신 전문 [16]ODER_QTY가 그 주문의 총수량이라,
 //  있으면 연결된 주문과 같은 방식으로 누적 체결을 그 수량까지 묶는다. 상한이 키가 아니라 수량이 되므로
 //  같은 초·같은 수량·단가로 갈라진 진짜 분할체결도 잃지 않는다(종전 W-6의 손실을 되돌린다).
@@ -393,9 +393,9 @@ void OrderRouter::apply_unlinked_fill(std::unique_lock<std::mutex>& lock, const 
     const auto result = ledger.on_fill_confirmed(unlinked_fill.signal.account_id, fill_notification.ticker, fill_notification.side,
                                                  unlinked_quantity, fill_notification.filled_price,
                                                  unlinked_fill.signal.strategy_index, unlinked_reference);
-    lock.unlock(); // 원장 갱신 끝 — 파일 쓰기는 락 밖에서
+    lock.unlock(); // 장부 갱신 끝 — 파일 쓰기는 락 밖에서
 
-    LOG_WARN(std::format("[OrderRouter] 미매핑 체결 원장 반영 [{}] ODNO={} {} {} {}주 @{} (주문수량 {}) — 이전 세션 주문으로 추정(재시작 전 접수분)",
+    LOG_WARN(std::format("[OrderRouter] 미매핑 체결 장부 반영 [{}] ODNO={} {} {} {}주 @{} (주문수량 {}) — 이전 세션 주문으로 추정(재시작 전 접수분)",
                          unlinked_fill.order_id, fill_notification.kis_order_no, fill_notification.ticker, fill_notification.side == OrderSide::BUY ? "BUY" : "SELL",
                          unlinked_quantity, static_cast<int>(fill_notification.filled_price),
                          unlinked_order_quantity > 0 ? std::to_string(unlinked_order_quantity) + "주" : std::string("미상")));
@@ -405,7 +405,7 @@ void OrderRouter::apply_unlinked_fill(std::unique_lock<std::mutex>& lock, const 
 }
 
 // ─── 연결된 주문에 체결 반영 ─────────────────────────────────────────────────
-//  체결통보와 조회로 되찾은 체결이 같은 길을 탄다 — 잔량 상한·원장·원장 CSV·미결 파일·발행이 한 곳에 있어야
+//  체결통보와 조회로 되찾은 체결이 같은 길을 탄다 — 잔량 상한·장부·장부 CSV·미결 파일·발행이 한 곳에 있어야
 //  둘의 결과가 어긋나지 않는다.
 void OrderRouter::apply_linked_fill(std::unique_lock<std::mutex>& lock, ManagedOrder& managed_order,
                                     const FillNotification& fill_notification, int incoming_quantity, std::string_view note)
@@ -413,7 +413,7 @@ void OrderRouter::apply_linked_fill(std::unique_lock<std::mutex>& lock, ManagedO
     auto& ledger = gate_.ledger();
 
     // 주문 잔량 상한 — 누적 체결이 주문수량을 넘지 못하게 클램프한다.
-    //  통보 재전송으로 같은 체결이 두 번 와도 과체결로 원장이 부풀지 않는다.
+    //  통보 재전송으로 같은 체결이 두 번 와도 과체결로 장부가 부풀지 않는다.
     const int outstanding    = outstanding_of(managed_order);
     const int apply_quantity = (incoming_quantity > outstanding) ? outstanding : incoming_quantity;
 
@@ -426,7 +426,7 @@ void OrderRouter::apply_linked_fill(std::unique_lock<std::mutex>& lock, ManagedO
         managed_order.status = OrderStatus::FILLED;
     }
 
-    // 포지션 원장 갱신 (average_price 재계산 + 실현손익) — 원주문의 계좌로 파티션.
+    // 포지션 장부 갱신 (average_price 재계산 + 실현손익) — 원주문의 계좌로 파티션.
     // 현재는 단일 CANO 전제라 ODNO가 유일 → managed_order.signal.account_id 매핑이 정확하다.
     // TODO(다계좌): 진짜 다중 CANO 라우팅 시 ODNO가 계좌별로 재사용되므로 체결 매칭 키를
     //   (kis_order_no + account) 또는 CANO별 H0STCNI 피드 분리로 확장해야 오적립을 막는다.
@@ -444,7 +444,7 @@ void OrderRouter::apply_linked_fill(std::unique_lock<std::mutex>& lock, ManagedO
 
     if (!note.empty())
     {
-        snapshot.reject_reason = std::string(note); // 원장 CSV 사유 칸 — 사본에만 적는다
+        snapshot.reject_reason = std::string(note); // 장부 CSV 사유 칸 — 사본에만 적는다
     }
 
     // 로그 문장은 락을 푼 뒤 사본으로 만든다 — 체결마다 도는 자리라 history_mutex_를 잡은 채 문자열을
@@ -461,7 +461,7 @@ void OrderRouter::apply_linked_fill(std::unique_lock<std::mutex>& lock, ManagedO
                          static_cast<int>(fill_notification.filled_price), snapshot.confirmed_quantity,
                          snapshot.signal.quantity, note.empty() ? std::string() : " — " + std::string(note)));
 
-    // 거래 원장 CSV — 실제 체결(부분/전량)을 한 줄로 영속화. 실현손익을 같이 남기려고
+    // 거래 장부 CSV — 실제 체결(부분/전량)을 한 줄로 영속화. 실현손익을 같이 남기려고
     //   gate_.ledger().on_fill_confirmed() 뒤에 쓴다(managed_order.status는 위에서 이미 갱신됨).
     emit_fill(snapshot, fill_notification, apply_quantity, result);
     journal_.queue_open_orders_file(std::move(open_orders), sequence);
@@ -473,7 +473,7 @@ void OrderRouter::emit_fill(const ManagedOrder& fill_order, const FillNotificati
 {
     if (result.basis_unknown)
     {
-        LOG_WARN(std::format("[OrderRouter] 평단 미상 SELL 체결 — 실현손익 미산정(0) [{}] {} {}주 @{} (원장 재시드 필요)",
+        LOG_WARN(std::format("[OrderRouter] 평단 미상 SELL 체결 — 실현손익 미산정(0) [{}] {} {}주 @{} (장부 재시드 필요)",
                              fill_order.order_id, fill_notification.ticker, quantity, static_cast<int>(fill_notification.filled_price)));
     }
 

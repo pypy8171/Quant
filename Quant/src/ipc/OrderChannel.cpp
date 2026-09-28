@@ -11,7 +11,7 @@ namespace
 {
 
 // 고정 칸에 글자를 옮긴다. 칸을 넘으면 자르되 **글자 경계에서** 자른다 — UTF-8 한글은 한 글자가 세 바이트라
-//  바이트로 끊으면 반쪽 글자가 남고, 그 글을 그대로 싣는 원장 CSV·로그가 깨진다. 항상 0으로 끝낸다.
+//  바이트로 끊으면 반쪽 글자가 남고, 그 글을 그대로 싣는 장부 CSV·로그가 깨진다. 항상 0으로 끝낸다.
 //  잘렸으면 참을 준다.
 bool copy_text(char* destination, size_t capacity, std::string_view text) noexcept
 {

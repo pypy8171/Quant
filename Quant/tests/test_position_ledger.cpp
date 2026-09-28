@@ -410,7 +410,7 @@ void test_journal_writes_account_number_for_single_account()
     PositionLedger restarted;
     restarted.set_journal_account("50204275");
     assert(restarted.set_journal(directory, date, false));
-    assert(restarted.position(std::string(), "005930") == 5);   // 원장 키는 여전히 ""
+    assert(restarted.position(std::string(), "005930") == 5);   // 장부 키는 여전히 ""
     assert(restarted.position("50204275", "005930") == 0);
     assert(restarted.highest_order_id() == 7);
 

@@ -6,7 +6,7 @@
 //   사용법:
 //     ops_client [--host 127.0.0.1] [--port 7100] [--token T] <명령>
 //       status                       엔진 상태
-//       positions                    보유 목록(원장 기준)
+//       positions                    보유 목록(장부 기준)
 //       sell <ticker> <quantity> [price]  수동 매도(price 생략=시장가). 결과(ORDER_RESULT)까지 기다린다
 //       buy  <ticker> <quantity> [price]  수동 매수
 //       watch                        접속을 유지하며 push(POSITIONS·ORDER_RESULT·FILL)를 출력

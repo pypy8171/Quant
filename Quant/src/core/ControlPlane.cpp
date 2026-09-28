@@ -65,7 +65,7 @@ void ControlPlane::relay()
 
     while (auto option = outbox_.pop())
     {
-        // 낱말로 줄을 가른다 — 구독·해지는 소켓을 쥔 시세 쪽으로, 나머지 표 고치기는 원장을 쥔 주문 쪽으로.
+        // 낱말로 줄을 가른다 — 구독·해지는 소켓을 쥔 시세 쪽으로, 나머지 표 고치기는 장부를 쥔 주문 쪽으로.
         //  역할이 아니라 낱말로 가르는 것은 한 프로세스로 돌 때도 같은 길을 타야 갈라 띄운 날과 동작이
         //  같기 때문이다(줄이 둘 다 이 프로세스 안에 있을 뿐이다). [why D-114 단계 5]
         const bool to_feed = ipc::routes_to_feed(option->kind);
@@ -184,7 +184,7 @@ void ControlPlane::apply()
 
             break;
 
-        // 전략 이름표에 넣는 자리도 여기 하나다 — 이름과 번호가 갈리면 서브원장 귀속이 남의 전략에 붙는다.
+        // 전략 이름표에 넣는 자리도 여기 하나다 — 이름과 번호가 갈리면 서브장부 귀속이 남의 전략에 붙는다.
         //  못 넣으면 위와 같은 까닭으로 말한다.
         case ipc::ControlKind::kRegisterStrategy:
             if (ledger.strategy_index_of(request.strategy_name.view()) == strategy_table::kNone)

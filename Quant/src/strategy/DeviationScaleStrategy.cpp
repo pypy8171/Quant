@@ -282,7 +282,7 @@ void DeviationScaleStrategy::on_trade_batch(const TradeData& trade, std::vector<
     }
 
     // ── 재구성: 기존 취소 후 신규 지정가 ──────────────────────────────────
-    //  익절 매도는 재구성 시점의 실매도가능분(ord_psbl_qty)으로 클램프 → 원장 보유와
+    //  익절 매도는 재구성 시점의 실매도가능분(ord_psbl_qty)으로 클램프 → 장부 보유와
     //  매도가능 괴리(예약매도·미결제)로 KIS가 전량 거부(40240000 "잔고내역 없습니다")하던
     //  것을 차단. 청산 경로(emit_liquidation)와 동일 원칙. 잔고조회는 재구성 시 1회만
     //  (지연에 민감한 경로 부하 억제 — 매수는 캡을 OrderGate가 처리하므로 클램프 불필요).
@@ -582,9 +582,9 @@ bool DeviationScaleStrategy::exit_on_protective_rules(double current_price, std:
     {
         const int position = confirmed_position(parameters_.account, symbol_id_, parameters_.ticker);
 
-        // [inv] 평단 캐시는 보유 수량이 바뀐 뒤 쓰지 않는다. 전량 청산 뒤 재진입하면 원장 평단은 새 체결가로
+        // [inv] 평단 캐시는 보유 수량이 바뀐 뒤 쓰지 않는다. 전량 청산 뒤 재진입하면 장부 평단은 새 체결가로
         //  바뀌는데 캐시는 옛 평단이라, 새 체결 직후 스탑이 바로 걸려 15초 왕복 매매가 났다(09-14 067290:
-        //  옛 평단 3515.9, 새 체결 3415). 보유 0이면 비우고, 수량이 바뀌었으면 원장(REST 없음)에서 다시 읽는다.
+        //  옛 평단 3515.9, 새 체결 3415). 보유 0이면 비우고, 수량이 바뀌었으면 장부(REST 없음)에서 다시 읽는다.
         if (position <= 0)
         {
             last_average_price_ = 0.0;
@@ -926,7 +926,7 @@ bool DeviationScaleStrategy::rebuild_suppressed(const std::string& signal, int p
         last_split_buy_reference_ > 0.0 && std::fabs(split_buy_reference - last_split_buy_reference_) < reprice_band;
 
     // (a) 계획 시그니처+pos가 직전과 동일하면 live 유무와 무관하게 스킵.
-    //     매도가능=0이라 아무것도 못 깔아 live_가 빈 채로 남을 때(원장 보유↔매도가능 괴리)
+    //     매도가능=0이라 아무것도 못 깔아 live_가 빈 채로 남을 때(장부 보유↔매도가능 괴리)
     //     매 하트비트 재진입해 잔고조회를 난사하던 스핀을 차단. 체결로 pos가 바뀌면 즉시 재구성.
     // (b) 데드밴드(reprice 이내 미세이동)+position 동일 스킵은 살아있는 분할 매수에만 적용.
     if (signal == last_split_buy_signal_ && position == last_position_)
@@ -964,7 +964,7 @@ bool DeviationScaleStrategy::rebuild_suppressed(const std::string& signal, int p
 std::string DeviationScaleStrategy::entry_context_text(const TradeData& trade, double current_price) const
 {
     // 진입 문맥 스탬프(2026-09-11 회의 §3·§5): 체결강도(CTTR)·20일 평균 대비 누적거래량
-    //  배율·직전 250봉 고가 대비 거리. 나중에 "저항 아래서 샀나"를 원장에서 바로 대조한다.
+    //  배율·직전 250봉 고가 대비 거리. 나중에 "저항 아래서 샀나"를 장부에서 바로 대조한다.
     //  REST 폴링 틱은 strength/accumulated_volume이 0이라 그때는 찍지 않는다.
     std::string entry_context;
     double volume20 = 0.0, hi250 = 0.0;
@@ -1434,7 +1434,7 @@ bool DeviationScaleStrategy::emit_liquidation(std::vector<OrderSignal>& out, int
 
 int DeviationScaleStrategy::sellable_quantity()
 {
-    // 원장 접근자가 주입돼 있으면 그것으로 끝낸다 — 샤드 스레드에서 REST를 부르지 않는다. [why D-055]
+    // 장부 접근자가 주입돼 있으면 그것으로 끝낸다 — 샤드 스레드에서 REST를 부르지 않는다. [why D-055]
     if (const auto sellable_from_ledger = ledger_sellable(parameters_.account, parameters_.ticker))
     {
         if (sellable_from_ledger->average_price > 0.0)

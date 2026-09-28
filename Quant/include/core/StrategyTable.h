@@ -1,5 +1,5 @@
 // 전략 id 테이블 — 전략 이름("DEVSCALE_005930"·"MANUAL"·"FORCE_LIQ")을 기동 때 정수 하나로 바꾼다.
-//  주문·체결 경로에서 전략을 키로 쓰는 곳(서브원장·중복 신호 키)은 이 번호를 쓴다. 문자열은 로그·CSV에만 남는다.
+//  주문·체결 경로에서 전략을 키로 쓰는 곳(서브장부·중복 신호 키)은 이 번호를 쓴다. 문자열은 로그·CSV에만 남는다.
 //  종목 테이블(core/SymbolTable.h)과 같은 규약이다 — 등록은 write_mutex_ 아래 한 번, 이름 조회는 락 없이. [why D-112]
 //  알맹이(이름 배열·다음 번호)는 TableSlots로 떼어 두었다. 힙에 두면 이 표이고, 공유 쪽지에 두면
 //  ipc::SharedStrategyDictionary다 — 프로세스를 갈라도 같은 전략에 같은 번호가 붙어야 해서다. [why D-114]
@@ -19,7 +19,7 @@ namespace strategy_table
 
 using StrategyId = uint32_t;
 
-// 0은 "전략 없음" — 신호에 전략을 안 붙인 경로(테스트·수동)가 이 값을 든다. 서브원장은 이 값이면 건너뛴다.
+// 0은 "전략 없음" — 신호에 전략을 안 붙인 경로(테스트·수동)가 이 값을 든다. 서브장부는 이 값이면 건너뛴다.
 constexpr StrategyId kNone = 0;
 // 전략 수 상한 기본값. 종목 표(core/SymbolTable.h 의 kDefaultSymbolCapacity)와 같은 수다 — 재스캔이
 //  종목마다 전략을 하나 만들기 때문에, 전략 표가 종목 표보다 작으면 종목 수가 그 수를 넘는 날
@@ -57,7 +57,7 @@ struct StrategyName
 static_assert(sizeof(StrategyName) == StrategyName::kMax + 1, "이름 칸에 빈틈이 생기면 공유 쪽지 배치가 어긋난다");
 
 // 이름이 칸에 드는가. 안 들면 등록을 거절한다 — 잘라서 넣으면 접두가 같은 전략 둘이 한 번호를 쓰고
-//  서브원장 귀속이 섞인다. 종목 코드와 달리 전략 이름은 설정이 정하므로 길이 상한이 없다.
+//  서브장부 귀속이 섞인다. 종목 코드와 달리 전략 이름은 설정이 정하므로 길이 상한이 없다.
 [[nodiscard]] bool fits(std::string_view name) noexcept;
 
 // 표의 알맹이 — 이름 배열과 다음 번호. 힙이든 공유 쪽지든 이 셋만 가리키면 아래 함수들이 그대로 돈다.

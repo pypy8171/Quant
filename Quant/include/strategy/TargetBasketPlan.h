@@ -59,7 +59,7 @@ struct Targets
 //  reference_price > 0(DROP 제외), 모르는 슬리브 이름 없음.
 std::optional<Targets> parse_targets(const nlohmann::json& document, std::string& error);
 
-// 원장이 보는 보유분 — TargetBasketStrategy가 confirmed_position·ledger_sellable로 채운다.
+// 장부가 보는 보유분 — TargetBasketStrategy가 confirmed_position·ledger_sellable로 채운다.
 struct Holding
 {
     int    quantity      = 0;
@@ -90,7 +90,7 @@ struct PlanInput
     double capital_krw      = 0.0; // 고정 시드
     double realized_pnl_krw = 0.0; // 상태 파일에 쌓은 실현손익(추정)
     double band             = 0.10; // 리밸 날 목표 금액 대비 이만큼 넘게 어긋나야 주문
-    std::function<Holding(const std::string&)> holding; // 종목 → 원장 보유
+    std::function<Holding(const std::string&)> holding; // 종목 → 장부 보유
 };
 
 // [formula] 목표 수량 = floor(순자산 × Σ(share × weight) / 기준가). 차이 = 목표 − 보유.

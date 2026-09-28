@@ -1,5 +1,5 @@
 #pragma once
-// 보호 주문 표의 주문 쪽 구현 — 규칙(risk/ProtectiveRule.h)과 원장 보유 스냅샷·현재가만으로 청산 주문을 만든다.
+// 보호 주문 표의 주문 쪽 구현 — 규칙(risk/ProtectiveRule.h)과 장부 보유 스냅샷·현재가만으로 청산 주문을 만든다.
 //  전략은 이 파일을 모른다 — 전략이 보는 것은 등록 창구(ProtectiveOrderRegistry)뿐이다. [why D-114]
 //
 //  [lock-order] mutex_ → OrderGate. evaluate()는 mutex_를 쥔 채 sell_pending_of(미체결 매도)를 묻는다.
@@ -76,7 +76,7 @@ public:
 
     bool consume_fired(const std::string& account, symbol::SymbolId symbol) override;
 
-    // 주문 쪽 한 주기. held는 원장 보유 스냅샷(OrderGate::snapshot_positions), price_of는 현재가,
+    // 주문 쪽 한 주기. held는 장부 보유 스냅샷(OrderGate::snapshot_positions), price_of는 현재가,
     //  sell_pending_of는 이미 낸 미체결 매도 수량이다. 낼 것이 없으면 빈 벡터.
     //  shadow 모드는 판정만 세고 빈 벡터를 돌려준다.
     std::vector<OrderSignal> evaluate(const std::vector<OrderGate::HeldPos>& held, const PriceFn& price_of,

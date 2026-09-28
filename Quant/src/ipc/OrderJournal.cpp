@@ -1,4 +1,4 @@
-// 주문 라우터의 부속 파일 쓰기 — 미결주문 스냅샷, 거래 원장 CSV, 주문 사유. 선언부 주석은 Quant/include/ipc/OrderJournal.h.
+// 주문 라우터의 부속 파일 쓰기 — 미결주문 스냅샷, 거래 장부 CSV, 주문 사유. 선언부 주석은 Quant/include/ipc/OrderJournal.h.
 #include "ipc/OrderJournal.h"
 #include "core/KstTime.h"
 #include "utils/Logger.h"
@@ -44,7 +44,7 @@ void OrderJournal::stop()
     stop_join(open_orders_writer_);
     flush_open_orders_file(); // 스레드가 멈춘 뒤 남은 것이 있으면 여기서 쓴다
     stop_join(append_writer_);
-    flush_append_outbox(); // 줄 서 있던 원장 행·사유 줄을 마저 쓴다
+    flush_append_outbox(); // 줄 서 있던 장부 행·사유 줄을 마저 쓴다
 }
 
 // ─── ODNO → 주문 사유 기록 ────────────────────────────────────────────────
@@ -179,7 +179,7 @@ void OrderJournal::open_orders_writer_loop(std::stop_token stop_token)
     flush_open_orders_file(); // 멈추라는 말을 듣고도 마지막 스냅샷은 디스크에 남긴다
 }
 
-// ─── 원장 CSV·사유 덧붙이기 넘기기 ────────────────────────────────────────
+// ─── 장부 CSV·사유 덧붙이기 넘기기 ────────────────────────────────────────
 void OrderJournal::queue_append_line(PendingLine line)
 {
     bool backed_up = false;
@@ -239,7 +239,7 @@ void OrderJournal::write_pending_lines_locked(const std::deque<PendingLine>& bat
 
             if (!trade_file_.is_open())
             {
-                continue; // best-effort — 원장 정본은 OrderGate 저널이다(D-113)
+                continue; // best-effort — 장부 정본은 OrderGate 저널이다(D-113)
             }
 
             trade_file_ << pending.text << '\n';
@@ -300,11 +300,11 @@ void OrderJournal::append_writer_loop(std::stop_token stop_token)
     flush_append_outbox(); // 멈추라는 말을 듣고도 줄 서 있던 것은 디스크에 남긴다
 }
 
-// ─── 거래 원장 CSV 적재 ───────────────────────────────────────────────────
+// ─── 거래 장부 CSV 적재 ───────────────────────────────────────────────────
 //  실행 로그(quant_trader.log)와 별개로 매수·매도·거부·체결·잔고 대조를 구조적으로 남긴다.
 //  logs/trades_YYYYMMDD.csv 에 한 줄씩 append(날짜별 파일). record()·on_fill()·record_reconcile()
 //  이 줄을 만들어 줄 대기열에 넣고, 쓰기 스레드 하나가 파일에 쓴다(동시쓰기 없음). [why D-124]
-//  원장 쓰기 실패는 매매를 막지 않는다(best-effort — 조용히 반환).
+//  장부 쓰기 실패는 매매를 막지 않는다(best-effort — 조용히 반환).
 //  열 정본은 kTradeHeader 하나다. 열을 더할 때는 끝에 붙인다 — 스키마 승격이 옛 파일 행 끝에 빈 칸을
 //  덧붙이는 방식이라 중간 삽입은 기존 행의 값을 엉뚱한 열로 밀어낸다. Python 판독기는 열 이름으로 읽는다.
 constexpr std::string_view kTradeHeader =
@@ -337,7 +337,7 @@ void OrderJournal::open_trade_file_locked(const std::string& date)
 {
     namespace fs = std::filesystem;
     std::error_code error_code;
-    // 실행 위치(cwd)와 무관하게 로그 폴더(main에서 고정)에 매매원장 append.
+    // 실행 위치(cwd)와 무관하게 로그 폴더(main에서 고정)에 매매장부 append.
     fs::path path = Logger::instance().path_for(std::string("trades_") + date + ".csv");
 
     const bool need_header = !fs::exists(path, error_code);

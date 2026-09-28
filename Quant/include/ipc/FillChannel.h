@@ -74,7 +74,7 @@ struct FillLimits
     double  price_max    = 100'000'000.0; // 한 주 최대 가격(원)
 };
 
-// 큐에서 꺼낸 체결이 원장에 들어가도 되는가. 건너편이 망가졌거나 칸이 덮였을 때 그 값으로 예약 수량을
+// 큐에서 꺼낸 체결이 장부에 들어가도 되는가. 건너편이 망가졌거나 칸이 덮였을 때 그 값으로 예약 수량을
 //  풀지 않으려고 여기를 지나게 한다. 거짓이면 버리고 센다. 글자 칸이 칸 안에서 끝나는지까지 본다.
 [[nodiscard]] bool is_plausible(const FillNotice& notice, const FillLimits& limits) noexcept;
 

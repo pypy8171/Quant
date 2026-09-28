@@ -135,7 +135,7 @@ void KisWebSocket::handle_control_frame(const std::string& message)
 
                 // AES-256-CBC: key는 정확히 32바이트, iv는 16바이트여야 함.
                 // 길이가 다르면(서버 포맷 변경 등) 앞 N바이트만 써서 잘못된 키로
-                // 복호→쓰레기 평문이 원장에 들어가므로 등호 검증 후 거부 (C-2)
+                // 복호→쓰레기 평문이 장부에 들어가므로 등호 검증 후 거부 (C-2)
                 // 근거: 32·16바이트는 AES-256 규격 값이다(키 256비트, 블록 128비트). 샘플은 "AES256 KEY·IV"라고만 적는다(2026-09-27 MCP 확인).
                 if (key.size() == 32 && value.size() == 16)
                 {
@@ -398,7 +398,7 @@ void KisWebSocket::parse_us_trade(kis_websocket::Fields fields)
     }
 }
 
-// 체결통보는 원장에 들어가므로 관대하지 않다 — 읽지 못한 레코드는 버리고 WARN을 남긴다.
+// 체결통보는 장부에 들어가므로 관대하지 않다 — 읽지 못한 레코드는 버리고 WARN을 남긴다.
 void KisWebSocket::parse_fill_notification(kis_websocket::Fields fields)
 {
     if (fields.size() < kis_websocket::kMinFieldsFill)

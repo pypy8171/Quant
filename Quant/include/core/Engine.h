@@ -109,10 +109,10 @@ public:
     }
 
     // 이 프로세스가 맡는 일감. Both 면 셋 다 참이다 — 지금까지의 한 프로세스와 같다.
-    //  주문 쪽은 주문·체결·원장·게이트, 전략 쪽은 전략·신호, 시세 쪽은 WebSocket 소켓과 디코드다
+    //  주문 쪽은 주문·체결·장부·게이트, 전략 쪽은 전략·신호, 시세 쪽은 WebSocket 소켓과 디코드다
     //  (가르는 선은 docs/DECISIONS.md D-114).
     // **긍정형이다** — 열거한 역할만 참이다. 부정형으로 두면 역할이 늘 때 새 역할이 조용히 참이 되어
-    //  시세만 맡을 프로세스가 주문 스레드·원장까지 띄운다. 판정 본문은 ProcessRole 쪽에 있다. [why D-114]
+    //  시세만 맡을 프로세스가 주문 스레드·장부까지 띄운다. 판정 본문은 ProcessRole 쪽에 있다. [why D-114]
     [[nodiscard]] bool runs_order_side() const noexcept
     {
         return role_.runs_order_side();
@@ -206,7 +206,7 @@ public:
     [[nodiscard]] uint64_t fill_channel_received();
 
     // ── 주문 쪽 스위치를 고치는 자리 ────────────────────────────────────────
-    // OrderGate·원장은 주문 프로세스 것이다. 전략 역할이면 여기서 직접 고치지 않고 제어 요청 한 줄을
+    // OrderGate·장부는 주문 프로세스 것이다. 전략 역할이면 여기서 직접 고치지 않고 제어 요청 한 줄을
     //  보낸다 — 표를 고치는 일은 단일 시퀀서인 주문 스레드가 한다(D-071 원칙 4). [why D-114]
     //  Both 역할이면 지금까지처럼 그 자리에서 고친다.
     void request_reset_daily();                       // 장이 열렸다 — 하루치를 새로 연다
@@ -280,7 +280,7 @@ public:
         database_config_ = config;
     }
 
-    // 원장 저널 폴더 — 거래일마다 ledger_YYYYMMDD.bin 하나(틱 캡처와 달리 재기동이 같은 파일에 이어 쓴다, 다음 기동이
+    // 장부 저널 폴더 — 거래일마다 ledger_YYYYMMDD.bin 하나(틱 캡처와 달리 재기동이 같은 파일에 이어 쓴다, 다음 기동이
     //  리플레이해야 하므로). start()가 열고 리플레이하며, 못 열면 기동을 거부한다. 빈 문자열이면 저널 없이 동작
     //  (테스트·벤치). fsync는 append마다 디스크 동기화(전원 장애 방어). [why D-113]
     void set_ledger_journal(const std::string& directory, bool fsync)
@@ -344,8 +344,8 @@ public:
 
     // ── 기동 옵션 ────────────────────────────────────────────────────────────
     // 기동 시(bootstrap) 실계좌 잔고를 내부 장부의 초기값으로 채운다(G5).
-    // 프로그램을 재시작하면 OrderGate 원장이 0으로 비는데, 실계좌엔 이미 보유분이 남아있다.
-    // get_balance(잔고조회)로 종목·수량·평단을 읽어 원장에 심어(seed) 실제와 장부를 맞춘다
+    // 프로그램을 재시작하면 OrderGate 장부가 0으로 비는데, 실계좌엔 이미 보유분이 남아있다.
+    // get_balance(잔고조회)로 종목·수량·평단을 읽어 장부에 심어(seed) 실제와 장부를 맞춘다
     // (안 맞으면 매도수량·평단·손실한도 계산이 어긋난다). main이 config로 켠다.
     void set_bootstrap_ledger(bool bootstrap_ledger)
     {
@@ -473,7 +473,7 @@ public:
     //  같은 표를 로그 폴더 entry_scores.json에도 남겨 대시보드가 보유 종목을 점수순으로 보인다. [why D-047]
     //  항목은 종목 id(symbols().intern)·랭크·z — 문자열 표는 없다. [why D-112]
     void set_entry_priority(const std::vector<OrderGate::PriorityEntry>& entries, int total);
-    // 현재 보유(롱) 원장 스냅샷 — 유니버스 재스캔의 "보유분 제외"가 매회 최신 잔고를 보게 한다.
+    // 현재 보유(롱) 장부 스냅샷 — 유니버스 재스캔의 "보유분 제외"가 매회 최신 잔고를 보게 한다.
     //  기동 시 1회 조회한 잔고를 계속 쓰면 청산된 종목이 세션 내내 후보에서 빠진다.
     std::vector<OrderGate::HeldPos> held_positions() const
     {
@@ -742,7 +742,7 @@ private:
     void fill_thread_fn(std::stop_token stop_token);     // 체결통보 소비(fill_queue → OrderRouter::on_fill → ops 방송). WS 수신 스레드에서 뗀 것 [why D-056]
     void control_thread_fn(std::stop_token stop_token); // WebSocket 시세단절 감지·재연결(연속 실패 시 kill switch). ZMQ REP 처리는 ZmqBridge 내부 스레드 담당
 
-    // 보호 주문 표 한 주기 — 원장 보유 스냅샷·현재가로 청산을 만들어 디스패처로 보낸다. strategy_thread 전용. [why D-114]
+    // 보호 주문 표 한 주기 — 장부 보유 스냅샷·현재가로 청산을 만들어 디스패처로 보낸다. strategy_thread 전용. [why D-114]
     void run_protective_orders(SignalDispatcher& dispatcher, std::chrono::steady_clock::time_point now);
     std::vector<OrderSignal> build_protective_orders(std::chrono::steady_clock::time_point now);
 
@@ -817,7 +817,7 @@ private:
     // ── 기본 설정 ───────────────────────────────────────────────────────────
     KisConfig kis_config_;
     int fetch_interval_sec_;
-    bool bootstrap_ledger_ = false; // 기동 시 실계좌 보유분 원장 시드 여부(G5, option-in)
+    bool bootstrap_ledger_ = false; // 기동 시 실계좌 보유분 장부 시드 여부(G5, option-in)
     // ── 피드 상태 ────────────────────────────────────────────────────────────
     struct FeedState
     {
@@ -869,7 +869,7 @@ private:
     int order_transport_threads_ = 0; // 신규 주문 전송 스레드 수, 0 = 주문 스레드가 직접 보냄 [why D-151]
 
     // ── 잔고 대조·REST 폴러 ─────────────────────────────────────────────────
-    // 잔고 → 원장 대조기(기동 시드·주기 대조·손익 기준선·서킷브레이커). start()에서 feed_.kis·order_router_ 뒤에
+    // 잔고 → 장부 대조기(기동 시드·주기 대조·손익 기준선·서킷브레이커). start()에서 feed_.kis·order_router_ 뒤에
     //  만들고 data_thread만 부른다. [why D-061]
     std::unique_ptr<LedgerReconciler> ledger_;
     // REST 현재가 폴러(폴링 모드 유니버스·WS 넘침 대체·보유 보충). start()에서 feed_.kis 뒤에 만든다.
@@ -974,7 +974,7 @@ private:
         //  두어야 하고 그 칸은 건너편이 덮을 수 있다. 그래서 넣는 쪽이 넣은 뒤 한 번 보고 최고치만 남긴다.
         //  [inv] 넣는 쪽이 하나라 읽고 쓰는 사이에 끼어들 쪽이 없다. [why D-114]
         std::atomic<uint64_t> order_high_water{0};
-        // 체결통보. WS 수신 스레드는 여기 push만 하고 원장 반영(OrderRouter::on_fill)은 fill_thread가 한다 —
+        // 체결통보. WS 수신 스레드는 여기 push만 하고 장부 반영(OrderRouter::on_fill)은 fill_thread가 한다 —
         //  체결 하나 처리(history_mutex_·CSV 쓰기) 동안 전 종목 틱 수신이 멈추지 않게. [why D-056]
         //  칸은 문자열 없는 레코드(ipc::FillNotice)다 — 갈라 띄운 날의 체결 통로와 같은 모양이라 두 길의 옮기는
         //  코드가 하나다. [why CODE_REVIEW W-7]
@@ -983,7 +983,7 @@ private:
         // 큐가 가득 찼을 때 체결통보를 버리지 않고 잠시 두는 곳. 다음 체결통보가 올 때와 제어 스레드가
         //  5초마다 앞에서부터 큐로 다시 넣는다. 늘 뒤에 붙이고 앞에서 빼니 순서가 지켜진다.
         //  [inv] fill_producing 차례를 쥔 쪽만 만진다.
-        //  [why] 체결은 잔고·예약 수량을 바꾼다. 버리면 잔고 대조가 메울 때까지 원장이 틀린다.
+        //  [why] 체결은 잔고·예약 수량을 바꾼다. 버리면 잔고 대조가 메울 때까지 장부가 틀린다.
         std::deque<ipc::FillNotice> fill_overflow;
         std::atomic<uint64_t> fill_overflow_waiting{0}; // 넘침 목록 길이. 제어 스레드가 차례 없이 보려고 따로 둔다
         std::atomic<uint64_t> fill_overflowed{0};       // 넘침 목록에 넣은 누적 건수. 0이 아니면 큐가 찬 적이 있다
@@ -1080,7 +1080,7 @@ private:
 
     // ── 운영 채널(Ops·수동주문) ──────────────────────────────────────────────
     // 운영단말 서버와 수동주문 인테이크. 서버 스레드가 push, order_thread가 pop해
-    //  OrderSignal(strategy_id="MANUAL")로 바꿔 게이트·원장을 그대로 지난다. 소켓 스레드가 발주 사슬에
+    //  OrderSignal(strategy_id="MANUAL")로 바꿔 게이트·장부를 그대로 지난다. 소켓 스레드가 발주 사슬에
     //  직접 들어가지 않는 것은 FORCE_LIQ와 같은 이유고, 꺼내는 쪽을 주문 쪽에 둔 것은 전략 프로세스가
     //  멎어도 사람이 손으로 낼 수 있어야 해서다. [why D-043][why D-114]
     struct OpsChannel

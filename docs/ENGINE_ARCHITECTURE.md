@@ -10,7 +10,7 @@
 
 ### 스레드 모델
 
-<!-- sync: Quant/include/core/Engine.h@b2715bd Quant/src/core/Engine.cpp@212e419 Quant/include/core/DataPoller.h@ff8f3ca Quant/include/core/SignalDispatcher.h@beada4c Quant/include/core/OrderRateLimiter.h@2650fb2 Quant/include/core/LedgerReconciler.h@90505cf Quant/include/core/WakeGate.h@a9c7f38 Quant/include/core/BarAggregator.h@dabda6f Quant/include/core/LatencyTrace.h@b76bf56 Quant/include/core/ReconcilePlan.h@5e8d897 -->
+<!-- sync: Quant/include/core/Engine.h@3705c0e Quant/src/core/Engine.cpp@c933a62 Quant/include/core/DataPoller.h@ff8f3ca Quant/include/core/SignalDispatcher.h@beada4c Quant/include/core/OrderRateLimiter.h@2650fb2 Quant/include/core/LedgerReconciler.h@6ebdf62 Quant/include/core/WakeGate.h@a9c7f38 Quant/include/core/BarAggregator.h@dabda6f Quant/include/core/LatencyTrace.h@cd2a5a5 Quant/include/core/ReconcilePlan.h@023d414 -->
 스레드는 여섯 개(데이터·전략·주문·체결·제어·장부)에 전략 샤드 M개(config `strategy_shards`, 기본 1, 상한 64), 소켓마다
 수신 스레드 하나, 프리페치 풀(코어/4, 2~8개)을 더한다. `database.enabled`면 시세 쪽에 DB 적재 워커 M개가 더 붙는다(D-148). 주문 쪽에는 신규 주문의 KIS 왕복을 맡는 전송 스레드 N개(`risk.order_transport_threads`, 기본 4, 0이면 없음, D-151)가 붙는다. 설정에 따라 보조 스레드가 더 뜬다 — 시세판(`MarketBoard`, `market_board`, D-147), 장 전 일봉 데우기(`DailyWarm`, 08:00까지), 국면 판정(`RegimeFeed`), REST 폴러(`RestPoller`), ZMQ 발행(`ZmqBridge`), 운영 서버(`OpsServer`), 틱 캡처(`TickCapture`), 로그 기록(`LogWriter`). 스레드끼리는 락 없는 큐로만 넘긴다. 각 스레드는 기동 직후
 `thread_name::set_current`(`Quant/include/utils/ThreadName.h`)로 이름을 붙여 procwatch와 디버거에 그 이름으로 보인다.
@@ -228,7 +228,7 @@ flowchart LR
 
 ### 핵심 타입 (`Quant/include/core/Types.h`)
 
-<!-- sync: Quant/include/core/Types.h@1a62ce1 -->
+<!-- sync: Quant/include/core/Types.h@5b2dae5 -->
 `MarketData`(OHLCV + bar_index), `OrderSignal`(side/type/quantity/price/**reference_price** + strategy_id, 종목 id `symbol_id`는 전략 스레드가 큐에 넣기 전에 찍고, 전략 번호 `strategy_index`·주문 번호 `client_order_number`는 정수라 게이트·라우터가 문자열 없이 찾는다, D-112), `OrderBook`(5단계 호가, 채널 `H0STASP0`), `TradeData`(실시간 체결, 채널 `H0STCNT0`; 호가·체결 모두 종목 id `symbol_id`와 정수 시각 `hhmmss`를 들고, 봉·호가·체결의 `ticker`는 `symbol::Ticker` 15자 고정 배열이라 세 구조체는 trivially copyable이다 — 문자열은 `.str()`, D-071), `WatchSpec`(WebSocket 구독 스펙 — 엔진이 전략에서 모아 WS에 넘긴다. `trade_only`면 체결만 구독), `Regime`(enum: BULL/NEUTRAL/BEAR/UNKNOWN), `OrderStageTiming`(주문 한 건이 라우터 안에서 구간마다 쓴 시간 — 리스크 점검·이력 잠금과 중복 가드·장부 일지 선기록·초당 한도 대기·증권사 왕복·전송 뒤 마무리 여섯. 그중 둘은 다시 갈라 싣는다: 이력 잠금은 기다린 몫, 전송 뒤 마무리는 접수 확정·발행·이력 저장 셋(이력 저장 안의 미결주문 파일 다시쓰기 몫은 따로 한 칸 더) — 더할 때 두 번 넣지 않는다, D-126. 관측 전용이라 매매 판단에는 안 쓴다, D-117), `FillNotification`(체결통보 한 건 — 주문번호·원주문번호·종목·방향·체결수량·체결단가·체결시각에 주문수량 `order_quantity`와 주문거래소 `exchange`가 붙는다. 뒤쪽 두 칸은 전문이 짧으면 안 오므로 0·빈 값이 모른다는 뜻이다, D-121. 실어 온 실시간 세션 번호 `session_generation`도 붙어, 재연결 뒤 다시 온 같은 체결을 라우터가 가른다, D-131. 종류 `kind`가 `SessionResumed`인 것은 체결이 아니라 체결통보 구독이 붙었다는 표시로, 라우터가 끊긴 사이 체결을 당일 체결 조회로 되찾게 한다, D-149).
 
 > `OrderSignal.reference_price`는 시장가(price=0) 주문의 명목 한도 평가 기준가다. 지정가는 `price`로 명목을 재지만 시장가는 `price`가 0이라 이 값이 없으면 명목 백스톱이 우회된다(특히 급락장 강제청산의 시장가 전량매도). 발주 측이 직전 현재가/평단을 stamp한다.
@@ -249,7 +249,7 @@ flowchart LR
 
 ### KIS API 클라이언트 (`Quant/include/api/KisClient.h`, 멤버 구현은 7파일, 목록 `Quant/src/api/KisClientInternal.h`, 자유 함수는 `KisClient.cpp`)
 
-<!-- sync: Quant/include/api/KisClient.h@49619fa Quant/include/api/KisResult.h@1b13686 Quant/include/api/KisTypes.h@9e973b3 Quant/include/api/KisRestDecode.h@4941221 Quant/include/api/IOrderExecutor.h@0005a9c Quant/include/api/IMarketDataSource.h@24dfa31 -->
+<!-- sync: Quant/include/api/KisClient.h@632bcac Quant/include/api/KisResult.h@8e841fd Quant/include/api/KisTypes.h@9e973b3 Quant/include/api/KisRestDecode.h@4941221 Quant/include/api/IOrderExecutor.h@0005a9c Quant/include/api/IMarketDataSource.h@24dfa31 -->
 클래스는 하나고 구현이 도메인별로 나뉩니다(D-048): `KisTransport.cpp`(플랫폼별 HTTP — Windows는 WinHTTP, Linux는 libcurl — 재시도·초당 한도·공용 인증 헤더 `authentication_headers()`), `KisAuth.cpp`(OAuth2 토큰 발급·캐시), `KisMarket.cpp`(주식 시세 — 분봉 페이지 병합·집계는 순수 함수 헤더 `Quant/include/api/KisRestDecode.h`, D-051), `KisIndex.cpp`(지수·수급·선물), `KisOrder.cpp`(주문 — config `kis.exchange`(KRX/NXT/SOR)가 `EXCG_ID_DVSN_CD`와 tr_id `TTTC0012U/0011U/0013U`를 정한다, D-096), `KisAccount.cpp`(잔고·미체결), `KisUniverse.cpp`(순위·유니버스), `KisClient.cpp`(어디에도 안 붙는 공용 함수 — 주문 거래소 코드 고르기, hhmmss 에서 분 빼기). 구현끼리만 쓰는 include·상수는 `Quant/src/api/KisClientInternal.h`. 주요 메서드: `authenticate()`, `get_chart_ohlcv()`, `get_current_price()`, 여러 종목 현재가 `get_current_prices()`(멀티종목 시세, 한 번에 30종목 — 넘침 종목 REST 조회가 쓴다, D-150), `send_order()`, 국내 선물 시세 `get_future_price()`(단일 시세)·`get_future_board()`(전광판, 그릭스 포함). 새 REST 호출은 인증 헤더 네 줄을 손으로 쓰지 말고 `authentication_headers(tr_id, {추가 항목})`을 씁니다. 공개 헤더는 `nlohmann::json`을 내보내지 않습니다 — 잔고 `get_balance()`·미체결 `get_open_orders()`·당일 주문별 누적 체결 `get_daily_order_fills()`(체결통보가 끊긴 사이 체결 되찾기, D-149)·전광판 `get_future_board()`는 `KisResult<T>`(`Quant/include/api/KisResult.h`, 실패 코드 동반) 봉투에 값 타입(`Quant/include/api/KisTypes.h`)을 담아 돌려주고, 응답 필드 해석은 `Quant/include/api/KisRestDecode.h`의 순수 함수가 맡습니다(D-059). 인터페이스는 둘을 구현합니다 — 주문 `IOrderExecutor`(`Quant/include/api/IOrderExecutor.h`, D-039)와 읽기 전용 시세·봉 `IMarketDataSource`(`Quant/include/api/IMarketDataSource.h`, D-066 — 현재가·일봉·분봉·지수 일봉·지수 현재값·해외 일봉). 순위·수급·잔고는 인터페이스 밖입니다. 거래대금 상위(`fetch_value_ranking`)와 시가총액 상위(`fetch_kr_ranking`)는 한 번에 30행이 상한이고 연속조회가 없어, 그보다 많이 달라고 하면 가격 구간을 갈라 두 번 부르고 합칩니다 — 거래대금 쪽은 ETF·ETN을 제외 마스크로 KIS 쪽에서 빼고, 시가총액 쪽은 그 마스크를 API가 막아 두어 보통주 구분값과 이름 필터로 거릅니다(2026-09-23 실측). 시세 전용 클라이언트가 주문 클라이언트와 앱키·도메인이 같으면 `share_rate_limit_with()`로 초당 한도 버킷 하나를 같이 씁니다 — 따로 세면 합쳐 공표 한도의 두 배까지 나갔습니다(D-138). 주문 스레드가 초당 한도 버킷에서 기다린 시간은 `IOrderExecutor::rate_limit_wait_ns_this_thread()`로 재서 접수·거부 로그의 `버킷대기=`에 남깁니다(전송 분리 여부는 이 숫자로 정한다, T-13-2). 모의·실계좌 REST 접속점(호스트·포트)은 `Quant/include/api/KisEndpoints.h`의 `rest_base_url()` 한 곳에서 옵니다 — 파이썬 쪽 같은 표는 `PYQuant/kis/endpoints.py`입니다(T-13-3).
 
 ### WebSocket 클라이언트 (`Quant/include/api/KisWebSocket.h`, 구현은 `Quant/src/api/KisWebSocket.cpp`·`WebSocketClient.cpp`(연결·재연결·구독)·`KisWebSocketParse.cpp`(수신 프레임 파싱) + `WsSocketWin.cpp`/`WsSocketPosix.cpp`)
@@ -269,7 +269,7 @@ REST로 approval key를 발급받고, `ops.koreainvestment.com:31000`(모의) �
 
 ### 로깅
 
-<!-- sync: Quant/include/utils/Logger.h@38372e1 -->
+<!-- sync: Quant/include/utils/Logger.h@5ca2ce6 -->
 싱글톤 `Logger`가 밀리초 단위 로컬 시각(`localtime`) 타임스탬프로 콘솔과 `logs/quant_trader.log`(cwd 하위 `logs/` 폴더에 고정, 부모 폴더는 자동 생성)에 기록합니다. 과거 로그는 `logs/archive/`에 보관합니다. 사용 매크로: `LOG_INFO()`, `LOG_WARN()`, `LOG_ERROR()`, `LOG_DEBUG()`. 기본 임계값은 INFO이고 config `"log_level": "DEBUG"`가 봉 닫힘(D-069)·KIS 응답 본문 같은 DEBUG 줄을 연다 — 비교표를 뽑는 날만 켠다(`PYQuant/tools/compare_ws_bars.py`).
 
 **비동기 구조**: 전략·주문 hot path는 레코드를 큐에 push만 하고 즉시 반환하며, 타임스탬프 포맷팅과 파일/콘솔 I/O는 전용 writer 스레드가 담당합니다(저지연은 평균 지연보다 최악 지연(tail latency)이 중요하다는 설계 의도로 디스크 플러시를 hot path에서 분리). 큐는 락 없는 `MpscQueue<Record>`(65,536슬롯)이고 writer는 큐가 비면 condvar에서 자며 생산자는 writer가 "잔다"고 표시한 때만 깨웁니다(D-045). 밀림 처리: 큐가 가득 차면 새 레코드를 드롭하고 `dropped()`로 셉니다(hot path 블로킹 방지). 종료·테스트 직전 정합 확인용 `flush()`를 제공합니다. 큐·writer 스레드·파일 핸들은 헤더가 아니라 `Quant/src/utils/Logger.cpp`의 `Logger::Implementation`에 있습니다 — 이 헤더를 34개 파일이 직접 포함해, 로거 내부를 한 줄 고칠 때마다 전체가 다시 컴파일됐습니다(80초). 지금은 내부 수정이 `Logger.cpp` 한 파일만 다시 컴파일합니다(16초).

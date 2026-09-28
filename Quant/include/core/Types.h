@@ -103,7 +103,7 @@ struct OrderSignal
     std::string ticker;
     // 종목 id. 신호를 큐에 넣기 전에 ticker로 찍는다 — 샤드 스레드의 emit(Engine::shard_thread_fn)과
     //  SignalDispatcher::submit이 찍는다. 0이면 배선이 빠진 경로.
-    //  남은 문자열(ticker·strategy_id·client_order_id·reason)은 신호가 틱보다 훨씬 드물고 KIS 전문·원장 CSV가
+    //  남은 문자열(ticker·strategy_id·client_order_id·reason)은 신호가 틱보다 훨씬 드물고 KIS 전문·장부 CSV가
     //  문자열을 요구해 그대로 둔다 — 링 복사 비용은 test_strategy_router 5번이 잰다. [why D-071]
     symbol::SymbolId symbol_id = symbol::kNone;
     OrderSide side = OrderSide::NONE;
@@ -114,19 +114,19 @@ struct OrderSignal
     // 지정가는 price로 명목을 평가하지만 시장가는 price가 0이라, 이 값이 없으면 명목 백스톱이
     // 우회된다(특히 급락장 강제청산의 시장가 전량매도). 발주 측이 마지막 체결가를 stamp한다.
     double reference_price = 0.0;
-    std::string strategy_id; // 로그·원장 CSV·ZMQ용 이름. 키로는 쓰지 않는다 — 아래 strategy_index가 키다.
-    // 전략 번호(StrategyTable). 엔진이 전략 등록 때 매기고 emit에서 찍는다. 게이트 서브원장·중복 신호 키는 이 번호로
+    std::string strategy_id; // 로그·장부 CSV·ZMQ용 이름. 키로는 쓰지 않는다 — 아래 strategy_index가 키다.
+    // 전략 번호(StrategyTable). 엔진이 전략 등록 때 매기고 emit에서 찍는다. 게이트 서브장부·중복 신호 키는 이 번호로
     //  찾는다 — 신호마다 "계좌:전략:종목:방향" 문자열을 만들어 해시하던 것을 정수 키로 바꿨다
     //  (중복 신호 키는 계좌·전략·종목·방향·지정가 다섯 개). [why D-112]
     strategy_table::StrategyId strategy_index = strategy_table::kNone;
     Market market = Market::KR;
     std::string exchange; // US only: "NAS", "NYS"
     std::chrono::system_clock::time_point timestamp;
-    std::string account_id; // 법인/직접시장접속(DMA, Direct Market Access) 다계좌 구분 — 계좌별 원장 분리 키 (빈값=단일 계좌)
+    std::string account_id; // 법인/직접시장접속(DMA, Direct Market Access) 다계좌 구분 — 계좌별 장부 분리 키 (빈값=단일 계좌)
 
     // ── 주문 생명주기 관리 (MM-1) — 전부 기본값, 비파괴 확장 ─────────────────
     OrderAction action = OrderAction::NEW; // 기본 NEW라 기존 전략은 이 필드를 몰라도 동일 동작
-    std::string client_order_id;                // 전략이 부여하는 주문 이름 — 로그·원장 CSV·운영단말 응답용. 키가 아니다
+    std::string client_order_id;                // 전략이 부여하는 주문 이름 — 로그·장부 CSV·운영단말 응답용. 키가 아니다
     std::string original_client_order_id;           // CANCEL/REPLACE 대상 원주문 이름(로그용)
     // 주문 번호 — 신호를 만들 때 next_client_order_number()로 한 번 받는다. 라우터는 취소·정정 대상을 이 번호로
     //  찾는다(문자열 이름을 이력 전체와 비교하던 것을 정수 색인으로 바꿨다). 0=없음. [why D-112]
@@ -144,7 +144,7 @@ struct OrderSignal
     int64_t signal_at_ns = 0;
 
     // ── 신호 순번 (C-2) — 전략 스레드가 신호를 만들 때 단조 증가로 stamp. 0=미부여 ────────
-    // 게이트 거부·라우터 접수·체결·원장 CSV(`sequence` 열)가 이 번호를 그대로 물고 가므로
+    // 게이트 거부·라우터 접수·체결·장부 CSV(`sequence` 열)가 이 번호를 그대로 물고 가므로
     // 한 신호의 경로를 ODNO 없이도 잇는다(재기동 전 접수된 주문의 체결은 ODNO만 있어 0).
     uint64_t sequence = 0;
 };
@@ -253,21 +253,21 @@ uint64_t digits_to_number(std::string_view digits) noexcept;
 // 주문 번호 발급 — 프로세스 안에서 단조 증가. 전략·수동주문이 신호를 만들 때 한 번 부른다. [why D-112]
 uint64_t next_client_order_number() noexcept;
 
-// 주문 하나가 OrderRouter 안에서 쓴 시간(us). -1은 그 구간을 안 지났다 — 게이트 거부는 원장·전송이 없다.
-// 주문 스레드가 이 값을 구간 분포에 넣는다. pop→반환을 한 덩이로 두면 게이트·이력 훑기·원장 디스크·초당한도
-// 줄서기·망 왕복·파일 쓰기 중 누구 탓인지 못 가른다. gate·이력가드·원장·버킷·왕복·마무리 여섯을 더하면
+// 주문 하나가 OrderRouter 안에서 쓴 시간(us). -1은 그 구간을 안 지났다 — 게이트 거부는 장부·전송이 없다.
+// 주문 스레드가 이 값을 구간 분포에 넣는다. pop→반환을 한 덩이로 두면 게이트·이력 훑기·장부 디스크·초당한도
+// 줄서기·망 왕복·파일 쓰기 중 누구 탓인지 못 가른다. gate·이력가드·장부·버킷·왕복·마무리 여섯을 더하면
 // pop→반환에 거의 닿고, 나머지 칸은 그 여섯을 다시 가른 몫이다(합에 두 번 넣지 않는다). [why D-071] [wire] Quant/include/core/LatencyTrace.h PipelineLatency::add
 struct OrderStageTiming
 {
     int64_t gate_us          = -1; // 라우터 진입 → 게이트 판정 끝(한도 클램프·예약매도 정리·check). history_guard_us를 뺀 몫
     int64_t history_guard_us = -1; // 주문 이력 잠금·중복 가드(취소누락 보류 조회 + 같은 시장가 매도 선형 탐색)
     int64_t history_lock_wait_us = -1; // 그중 잠금을 기다린 몫. 나머지가 잠금 안에서 훑은 몫이다 [why D-126]
-    int64_t journal_us       = -1; // 원장 선기록(take_intent — 디스크에 닿는다) [why D-113]
+    int64_t journal_us       = -1; // 장부 선기록(take_intent — 디스크에 닿는다) [why D-113]
     int64_t bucket_wait_us   = -1; // 증권사 초당한도 버킷에서 줄 선 시간
     int64_t transport_us     = -1; // 증권사 REST 왕복(버킷 대기 뺀 몫)
-    int64_t record_us        = -1; // 전송 뒤 마무리 — 접수 확정(원장 ACCEPT)·발행·이력 저장·원장 CSV·미결주문 파일
+    int64_t record_us        = -1; // 전송 뒤 마무리 — 접수 확정(장부 ACCEPT)·발행·이력 저장·장부 CSV·미결주문 파일
     // record_us를 셋으로 가른 몫. 셋을 더하면 record_us에 거의 닿는다(남는 건 구간 사이 잔돈). [why D-126]
-    int64_t accept_us        = -1; // 접수 확정 — 원장 ACCEPT/REJECT 기록(드물게 청산차단 자가정리 왕복도 여기 든다)
+    int64_t accept_us        = -1; // 접수 확정 — 장부 ACCEPT/REJECT 기록(드물게 청산차단 자가정리 왕복도 여기 든다)
     int64_t publish_us       = -1; // ZMQ 발행
     int64_t history_store_us = -1; // 이력 저장 — 이력 잠금·미결주문 스냅숏·파일 넘기기(open_orders_us를 품는다)
     int64_t open_orders_us   = -1; // 그중 미결주문 파일 다시쓰기 몫(record_us 안에 포함된다 — 더할 때 빼야 한다)
@@ -288,7 +288,7 @@ struct ManagedOrder
     //  재기동 복원 주문은 재기동 전 체결이 이미 잔고 시드에 들어 있어 견주면 두 번 센다. [why D-149]
     bool          recoverable        = false;
     // 조회로 되찾은 수량 중 아직 체결통보로 안 온 몫. 조회 시각(recovered_until_hhmmss, KST) 이전 체결시각의 통보가
-    //  늦게 오면 이 몫에서 깎고 원장에 다시 넣지 않는다. [why D-149]
+    //  늦게 오면 이 몫에서 깎고 장부에 다시 넣지 않는다. [why D-149]
     int           recovered_credit_quantity = 0;
     uint32_t      recovered_until_hhmmss    = 0;
     OrderStageTiming stages;      // 라우터 안 구간 시간 — 관측용, 매매 판단에는 안 쓴다
@@ -353,7 +353,7 @@ public:
         FIXED_INTERVAL,
         MARKET_MAKING,
         DEVIATION_SCALE,
-        TARGET_BASKET // 목표 비중표(파일)를 원장과 맞추는 바스켓 슬리브 [why D-109]
+        TARGET_BASKET // 목표 비중표(파일)를 장부와 맞추는 바스켓 슬리브 [why D-109]
     };
 
     StrategyType() = default;

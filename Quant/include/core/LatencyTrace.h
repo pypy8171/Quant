@@ -25,7 +25,7 @@ struct Marks
     int64_t signal_ns     = 0; // 전략 스레드가 신호를 만든 시각(sequence stamp 지점)
     int64_t pop_ns        = 0; // 주문 스레드가 pipeline_.requests에서 꺼낸 시각
     int64_t send_ready_ns = 0; // 호출 간격 조절(OrderRateLimiter) sleep이 끝난 시각 — 우리가 스스로 줄 세운 몫의 끝
-    int64_t done_ns       = 0; // OrderRouter::submit이 돌아온 시각(게이트+원장+HTTP)
+    int64_t done_ns       = 0; // OrderRouter::submit이 돌아온 시각(게이트+장부+HTTP)
     // 아래 둘은 이 주문이 아니라 **직전 주문**의 값이다 — 재는 자리(LatencyTrace::record)가 고리 한가운데라
     //  이번 회차의 꼬리는 아직 안 돌았다. 분포만 보면 되는 값이라 한 칸 밀어 싣는다. 이 둘이 없으면
     //  주문 하나 몫에서 pop_to_done 을 뺀 나머지가 어디로 갔는지 아무도 모른다(09-26 부하시험에서 770µs 중 31µs만 재고 있었다).
@@ -108,10 +108,10 @@ struct PipelineLatency
     LatencyHistogram pop_to_send;    // 꺼냄 → 호출 간격 조절 끝(우리가 스스로 줄 세운 시간)
     LatencyHistogram gate;           // 주문 게이트 판정(아래 이력 가드 몫을 뺀 것)
     LatencyHistogram history_guard;  // 주문 이력 잠금·중복 가드 훑기(선형 탐색)
-    LatencyHistogram journal;        // 원장 선기록(디스크)
+    LatencyHistogram journal;        // 장부 선기록(디스크)
     LatencyHistogram bucket_wait;    // 증권사 초당한도 버킷 줄서기
     LatencyHistogram transport;      // 증권사 REST 왕복
-    LatencyHistogram record;         // 전송 뒤 마무리 — 접수 확정·발행·이력 저장·원장 CSV·미결주문 파일
+    LatencyHistogram record;         // 전송 뒤 마무리 — 접수 확정·발행·이력 저장·장부 CSV·미결주문 파일
     LatencyHistogram open_orders;    // 그중 미결주문 파일 다시쓰기 — record 안에 든 몫이라 합산에서 뺀다
     LatencyHistogram pop_to_done;    // 꺼냄 → 라우터 반환(위 여섯 + 발주 간격 대기를 품은 한 덩이)
     LatencyHistogram total;          // 틱 수신 → 라우터 반환

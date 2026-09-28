@@ -14,15 +14,15 @@
 //  우선순위 표는 유니버스 스캔이 낸 종목별 랭크·z를 종목 id 배열로 굳힌 불변 스냅샷이다. 재스캔이 새 표를 만들어
 //  통째로 바꿔 끼우고, 읽는 쪽(check·plan_displacement)은 포인터만 복사해 락 밖에서 읽는다. [why D-112]
 //  교체 기록은 교체 진입(D-019)이 남기는 것 — 밀려난 종목의 재진입 쿨다운, 비운 슬롯의 수혜 종목 예약,
-//  종목별 직전 교체 거절 사유, 당일 교체 횟수. OrderGate에서 떼어 냈다 — 원장과 섞여 있으면 교체 규칙을
-//  고칠 때 원장 코드를 같이 읽어야 했다. 원장과 표를 함께 보는 판정(check·plan_displacement)은 OrderGate에 남는다.
+//  종목별 직전 교체 거절 사유, 당일 교체 횟수. OrderGate에서 떼어 냈다 — 장부와 섞여 있으면 교체 규칙을
+//  고칠 때 장부 코드를 같이 읽어야 했다. 장부와 표를 함께 보는 판정(check·plan_displacement)은 OrderGate에 남는다.
 //
 // 쓰는 스레드는 둘이다 — 표는 스캔을 받는 Engine 스레드(set), 교체 기록은 주문 스레드(check·plan·note).
 //   표와 교체 기록은 락을 따로 든다(priority_mutex_·displace_mutex_). 둘 다 잎 잠금이다 — 이 클래스는 쥔 채 다른
 //   락을 잡지 않는다.
-// [lock-order] OrderGate::check()는 원장 락(PositionLedger::Reader가 쥔 positions_mutex_)을 쥔 채
+// [lock-order] OrderGate::check()는 장부 락(PositionLedger::Reader가 쥔 positions_mutex_)을 쥔 채
 //   여기의 snapshot·append_decline·admit을 부른다
-//   (positions → {priority, displace}). 반대로 여기 락을 쥔 채 원장 락을 잡는 경로는 없다.
+//   (positions → {priority, displace}). 반대로 여기 락을 쥔 채 장부 락을 잡는 경로는 없다.
 // ─────────────────────────────────────────────────────────────────────────────
 class EntryPriority
 {
@@ -64,7 +64,7 @@ public:
     // 표를 새로 굳혀 바꿔 끼운다. capacity는 종목 테이블 용량 — id 배열을 그만큼 잡아 경계 검사가 index < size() 하나로 끝난다.
     void set(const std::vector<Entry>& entries, int total, size_t capacity);
     [[nodiscard]] std::shared_ptr<const Table> snapshot() const;
-    // 모르는 종목이면 0. check()의 원장 순회가 항목마다 부른다.
+    // 모르는 종목이면 0. check()의 장부 순회가 항목마다 부른다.
     [[nodiscard]] static int rank_of(const Table& table, symbol::SymbolId symbol) noexcept
     {
         return symbol < table.rank_by_symbol.size() ? table.rank_by_symbol[symbol] : 0;

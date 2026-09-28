@@ -217,11 +217,11 @@ public:
     // 종목 하나의 전략을 만든다(초기 등록·재스캔 공용).
     std::unique_ptr<StrategyBase> make(symbol::SymbolId symbol) const;
 
-    // 기동 등록용 — load_strategies는 engine.start()(bootstrap_ledger 포함) 전에 돌아 OrderGate 원장이 아직
+    // 기동 등록용 — load_strategies는 engine.start()(bootstrap_ledger 포함) 전에 돌아 OrderGate 장부가 아직
     //  비어 있다. 기동 때 직접 조회한 잔고 스냅샷으로 거른다.
     std::vector<symbol::SymbolId> scan_initial(KisClient& kis, const HeldSnapshot& snapshot);
 
-    // 주기적 재스캔용 — 매회 OrderGate 원장에서 현재 보유를 다시 읽는다. 청산 관리가 청산한
+    // 주기적 재스캔용 — 매회 OrderGate 장부에서 현재 보유를 다시 읽는다. 청산 관리가 청산한
     //  종목은 그 시점부터 다시 후보가 된다(기동 스냅샷 고정이 유니버스를 굳히던 문제).
     //  이미 등록된 종목은 재스캔이 추가만 하므로 자기 보유분으로 등록이 풀리진 않는다.
     std::vector<symbol::SymbolId> rescan(KisClient& kis);
@@ -547,8 +547,8 @@ DevScaleSizing parse_sizing(const json& node, const DevScaleParams& parameters)
     return sizing;
 }
 
-// 이 슬리브(id_prefix)가 오늘부터 lookback_days일 전(달력일)까지 산 종목 — 체결 원장 logs/trades_YYYYMMDD.csv
-//  (OrderRouter가 쓴다)의 FILL·BUY 행. lookback_days 0이면 오늘 원장 하나만 본다.
+// 이 슬리브(id_prefix)가 오늘부터 lookback_days일 전(달력일)까지 산 종목 — 체결 장부 logs/trades_YYYYMMDD.csv
+//  (OrderRouter가 쓴다)의 FILL·BUY 행. lookback_days 0이면 오늘 장부 하나만 본다.
 //  재기동 때 보유분을 전부 청산 관리(ITB)로 넘기면 당일 매수분도 익절선 없이 트레일에만 걸린다(09-04~18 승계 매도
 //  725체결 −190만). 분할 매수가 없으면(buy_split_steps 0) 명목 상한 초과 위험이 없어 DevScale이 그대로 맡는다.
 //  파일이 없거나(첫 기동) 못 읽으면 빈 집합 — 그때는 기존대로 청산 관리가 맡는다.
@@ -621,7 +621,7 @@ HeldSnapshot snapshot_holdings(const LoadPass& context, const DevScaleParams& pa
     }
 
     // 당일 매수분은 DevScale이 다시 맡는다(재인수). 분할 매수가 있으면 기존대로 청산 관리에 넘긴다.
-    //  넘김 모드면 최근 20일 원장까지 봐서 전날 넘긴 보유도 되찾는다.
+    //  넘김 모드면 최근 20일 장부까지 봐서 전날 넘긴 보유도 되찾는다.
     const bool carry_over = parameters.market_close_hhmm >= devscale_rules::kNoMarketCloseHhmm;
 
     if (parameters.buy_split_steps == 0)
@@ -630,7 +630,7 @@ HeldSnapshot snapshot_holdings(const LoadPass& context, const DevScaleParams& pa
 
         for (const std::string& ticker : tickers_bought_recently(parameters.id_prefix, lookback_days))
         {
-            const symbol::SymbolId symbol = engine.symbols().intern(ticker); // 원장 CSV의 문자열 티커 — 여기서 id가 된다
+            const symbol::SymbolId symbol = engine.symbols().intern(ticker); // 장부 CSV의 문자열 티커 — 여기서 id가 된다
 
             if (has_symbol(snapshot.held, symbol) && !has_symbol(context.basket_owned, symbol)) // 바스켓 것은 바스켓이 인수한다 [why D-109]
             {

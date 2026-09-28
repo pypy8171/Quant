@@ -67,7 +67,7 @@ enum class Decode
     kOk,        // 전 필드 정상
     kShort,     // 필드 수 부족 — 구조체를 채우지 않았다
     kSkip,      // 이 채널이 다루지 않는 레코드(체결통보의 접수/취소 통보 등)
-    kBadSide,   // 체결통보 매매구분이 01/02 밖 — 원장에 못 넣는다
+    kBadSide,   // 체결통보 매매구분이 01/02 밖 — 장부에 못 넣는다
     kBadNumber, // 숫자 필드 하나 이상이 변환 실패. 나머지 필드는 채워져 있다
 };
 
@@ -170,7 +170,7 @@ Decode decode_us_trade(Fields fields, TradeData& trade);
 //   [18]ORD_COND_PRC 호가조건가격                         ●[19]ORD_EXG_GB 주문거래소 구분(KRX/NXT)
 //   [20]POPUP_YN [21]FILLER [22]CRDT_CLS [23]CRDT_LOAN_DATE [24]CNTG_ISNM40 [25]ODER_PRC 주문가격
 // 체결 건별 고유번호는 이 전문에 없다 — 식별자는 [2]·[3] 둘뿐이다. 체결 한 건을 가리키는 키는 라우터가 만든다.
-// 체결통보(2)만 kOk. 원장에 들어가는 값이라 매매구분·수량·단가 어느 하나라도 못 읽으면 채우지 않는다.
+// 체결통보(2)만 kOk. 장부에 들어가는 값이라 매매구분·수량·단가 어느 하나라도 못 읽으면 채우지 않는다.
 // [16]·[19]는 없어도 kOk다(order_quantity=0·exchange 빈 값) — 최소 폭 주석 참고.
 Decode decode_fill(Fields fields, FillNotification& fill_notification);
 

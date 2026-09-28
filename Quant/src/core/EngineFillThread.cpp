@@ -1,4 +1,4 @@
-// 체결 쪽 — 체결통보를 원장에 반영하는 스레드.
+// 체결 쪽 — 체결통보를 장부에 반영하는 스레드.
 //  Engine 클래스는 그대로다. Engine.cpp 가 2,800줄을 넘겨 열기 어려워 이 스레드 본체만 따로 낸 것이다
 //  (헤더는 한 줄도 안 바뀐다 — 같은 Engine 의 멤버 함수 본체가 여기 있을 뿐이다).
 //
@@ -17,7 +17,7 @@
 using namespace std::chrono_literals;
 
 // 체결통보 소비 전용 스레드. 주문 스레드에 얹지 않은 이유: 주문 스레드는 KIS 발주(REST, 수십~수백 milliseconds)와 발주 간격
-//  대기에 묶여 있는 시간이 길어, 그 뒤에 선 체결이 원장에 늦게 들어가고 다음 SELL의 보유 수량 판단이 그만큼 낡는다.
+//  대기에 묶여 있는 시간이 길어, 그 뒤에 선 체결이 장부에 늦게 들어가고 다음 SELL의 보유 수량 판단이 그만큼 낡는다.
 //  큐가 비면 condvar에서 자고 WS 콜백이 깨운다 — 1ms 폴링은 Windows에서 실측 8~15ms 늦었다(test_pipeline_stress).
 //  on_fill이 던지면 스레드가 죽어 이후 체결이 전부 큐에 쌓이므로 건마다 잡아 로그로 남긴다. [why D-056]
 void Engine::fill_thread_fn(std::stop_token stop_token)
@@ -26,7 +26,7 @@ void Engine::fill_thread_fn(std::stop_token stop_token)
     LOG_INFO("[FillThread] 시작");
 
     // 갈라 띄운 날의 체결통보는 건너편 시세 프로세스가 통로로 넘긴 것이다. 한 프로세스로 돌면 예전처럼
-    //  프로세스 안 큐에서 꺼낸다 — 두 길의 나머지(원장 반영·방송)는 같다. [why D-114 단계 5]
+    //  프로세스 안 큐에서 꺼낸다 — 두 길의 나머지(장부 반영·방송)는 같다. [why D-114 단계 5]
     const bool from_channel = role_ == ProcessRole::Order;
     const ipc::FillLimits fill_limits;
 
@@ -99,7 +99,7 @@ void Engine::fill_thread_fn(std::stop_token stop_token)
 
         const FillNotification& fill_notification = *option;
 
-        // 체결통보 구독이 새로 붙었다는 표지 — 원장·단말에 넣을 체결이 아니다. 라우터가 끊긴 사이 놓친 체결을
+        // 체결통보 구독이 새로 붙었다는 표지 — 장부·단말에 넣을 체결이 아니다. 라우터가 끊긴 사이 놓친 체결을
         //  조회로 되찾게 한다(따로 도는 스레드라 여기는 바로 돌아온다). [why D-149]
         if (fill_notification.kind == FillKind::SessionResumed)
         {
@@ -141,7 +141,7 @@ void Engine::fill_thread_fn(std::stop_token stop_token)
             LOG_ERROR("[FillThread] 체결 반영 예외 " + fill_notification.ticker + " ODNO=" + fill_notification.kis_order_no + ": " + exception.what());
         }
 
-        // 사본은 여기서 내지 않는다 — 체결 하나마다 2,700종목을 훑으면 다음 체결이 그만큼 늦게 원장에
+        // 사본은 여기서 내지 않는다 — 체결 하나마다 2,700종목을 훑으면 다음 체결이 그만큼 늦게 장부에
         //  들어가고, 그게 다음 SELL의 보유 수량 판단을 낡게 한다. 발행은 ledger_thread_fn이 간격을 두고 낸다.
     }
 

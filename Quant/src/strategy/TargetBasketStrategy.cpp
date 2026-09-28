@@ -391,7 +391,7 @@ void TargetBasketStrategy::run_pass(std::vector<OrderSignal>& out)
 
     if (!plan.sells.empty() && clock_() - day_.sell_leg_at < parameters_.buy_leg_delay_sec)
     {
-        return; // 매도 체결이 원장·현금에 반영될 시간
+        return; // 매도 체결이 장부·현금에 반영될 시간
     }
 
     if (entry_halted())

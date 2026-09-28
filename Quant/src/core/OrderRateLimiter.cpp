@@ -71,7 +71,7 @@ std::optional<OrderRateLimiter::Pending> OrderRateLimiter::take_due_retry(Clock:
         retry_queue_.pop_front();
 
         // 청산이 이미 끝났으면 버린다. 원주문이 체결되는 동안 예약된 청산 SELL 재시도가 남아 있다가 보유가 0이
-        //  된 뒤에 발주돼 40240000으로 거부되곤 했다. 거부라 원장은 다치지 않지만 청산 한 건마다 오거부가 몇 줄씩
+        //  된 뒤에 발주돼 40240000으로 거부되곤 했다. 거부라 장부는 다치지 않지만 청산 한 건마다 오거부가 몇 줄씩
         //  쌓여 진짜 거부를 덮는다. 재시도의 목적은 미청산분을 마저 파는 것이니 보유가 0이면 이미 이뤄진 것이다.
         if (retry.signal.action == OrderAction::NEW && retry.signal.side == OrderSide::SELL && position_ &&
             position_(retry.signal.account_id, retry.signal.ticker) <= 0)

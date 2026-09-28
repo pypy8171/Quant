@@ -56,7 +56,7 @@ public:
     }
 
     // 이 프로세스가 물린 브로커 계좌번호. 한 프로세스=한 계좌라 FILL/ORDER 페이로드에 고정으로 실어
-    // DB 쪽에서 실계좌·모의계좌 원장이 섞이지 않게 한다.
+    // DB 쪽에서 실계좌·모의계좌 장부가 섞이지 않게 한다.
     void set_account_no(std::string account)
     {
         account_no_ = std::move(account);

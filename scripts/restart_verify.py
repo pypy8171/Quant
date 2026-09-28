@@ -43,7 +43,7 @@ REQUIRED_MARKS = {
     # 시세 쪽은 주문도 원장도 안 든다 — WebSocket 소켓과 디코드만 맡는다. 스레드 줄 하나로 본다.
     "feed": (READY_MARK,),
 }
-LEDGER_MARK = "[Engine] 원장 부트스트랩 완료"
+LEDGER_MARKS = ("[Engine] 원장 부트스트랩 완료", "[Engine] 장부 부트스트랩 완료")  # 옛 로그는 원장, 새 로그는 장부
 FILL_SESSION_MARK = "[Engine] 체결통보 세션:"
 FAIL_MARKS = (
     "[Main] 비정상 종료",
@@ -52,6 +52,7 @@ FAIL_MARKS = (
     "[Engine] KIS 인증 실패",
     "기동 중단",
     "[Engine] 원장 부트스트랩 예외",
+    "[Engine] 장부 부트스트랩 예외",
 )
 
 SUCCESS, FAIL, UNKNOWN = "성공", "실패", "판정불가"
@@ -140,7 +141,7 @@ def _judge_text(path: Path, text: str) -> LogVerdict | None:
     if len(verdict.reached) == len(required):
         verdict.result = SUCCESS
         notes = []
-        if role in ("both", "order") and LEDGER_MARK not in body:
+        if role in ("both", "order") and not any(mark in body for mark in LEDGER_MARKS):
             notes.append("원장 시드 줄 없음")
 
         fill_line = next((line for line in body.splitlines() if FILL_SESSION_MARK in line), "")

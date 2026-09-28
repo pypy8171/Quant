@@ -162,7 +162,7 @@ void Engine::start_strategies()
         //  그러면 매도가능수량이 항상 0으로 떨어져 익절·존이탈청산·장 마감청산이 전부 발주되지 않는다.
         strategy->set_account_kis(feed_.kis.get());
         strategy->set_prefetch_pool(&prefetch_pool_); // 프리페치는 전략마다 스레드를 띄우지 않고 공용 풀이 돌린다 [why D-071]
-        // D2: 확정 포지션 접근자 주입 — 전략이 원장을 진실원천으로 읽는다. 그 원장을 이제는 사본으로 본다:
+        // D2: 확정 포지션 접근자 주입 — 전략이 장부를 진실원천으로 읽는다. 그 장부를 이제는 사본으로 본다:
         //  주문 쪽 장부를 직접 부르면 단계 4에서 프로세스가 갈릴 때 이 네 자리가 한꺼번에 막힌다. [why D-114]
         strategy->set_position_provider([this](const std::string&, const std::string& ticker) {
             return ledger_position(ticker);

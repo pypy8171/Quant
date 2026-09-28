@@ -1,5 +1,5 @@
 #pragma once
-// UTC 초 → KST 분해 시각. 거래일(YYYYMMDD)·틱 시각(HHMMSS)·장 시간 판정·원장 날짜가 같은 변환을 쓴다. [why D-062]
+// UTC 초 → KST 분해 시각. 거래일(YYYYMMDD)·틱 시각(HHMMSS)·장 시간 판정·장부 날짜가 같은 변환을 쓴다. [why D-062]
 //  달력 산술은 <chrono>로만 한다 — gmtime·localtime 계열을 부르지 않으므로 머신 TZ와 무관하다. [why D-070]
 #include <chrono>
 #include <ctime>
@@ -58,7 +58,7 @@ inline struct tm to_tm(std::time_t now_utc)
     return decompose(wall(now_utc));
 }
 
-// 거래일 YYYYMMDD. 손익 기준선 파일·날짜별 표식 파일·원장 CSV 파일명이 쓴다.
+// 거래일 YYYYMMDD. 손익 기준선 파일·날짜별 표식 파일·장부 CSV 파일명이 쓴다.
 inline std::string date_yyyymmdd(std::time_t now_utc)
 {
     return format_ymd(date(now_utc));
@@ -70,7 +70,7 @@ std::string hhmmss(std::time_t now_utc);
 // 틱 시각 HHMMSS 정수(TradeData.hhmmss). REST 대체 틱·시계 닫힘이 WS 틱과 같은 값을 갖게 한다. [why D-071]
 int32_t hhmmss_int(std::time_t now_utc);
 
-// 원장 CSV 행 시각 "YYYY-MM-DD HH:MM:SS".
+// 장부 CSV 행 시각 "YYYY-MM-DD HH:MM:SS".
 std::string datetime(std::time_t now_utc);
 
 // KST 자정부터 흐른 초 [0, 86400). 벽시계 경계(정각·5분)에 맞춘 주기 작업이 쓴다.

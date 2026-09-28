@@ -10,11 +10,11 @@
 #include <vector>
 
 // ─────────────────────────────────────────────────────────────────────────────
-// LedgerKeys — 원장 키 (계좌 번호, 종목 id) 를 만들고 되찾는 표
+// LedgerKeys — 장부 키 (계좌 번호, 종목 id) 를 만들고 되찾는 표
 //
-//  PositionLedger 원장의 모든 맵이 이 키를 쓴다. 종목은 SymbolTable(Engine이 넘긴 것, 없으면 자체 테이블),
+//  PositionLedger 장부의 모든 맵이 이 키를 쓴다. 종목은 SymbolTable(Engine이 넘긴 것, 없으면 자체 테이블),
 //  계좌는 account_names_ 인덱스라 키가 정수 두 개다. 문자열은 로그·계획·스냅샷에서 ticker_of()·account_of()로
-//  되찾는다. OrderGate에서 떼어 냈다 — 키 규칙이 원장 계산과 섞여 있으면 둘 중 하나를 고칠 때 다른 쪽을 같이 읽어야 했다.
+//  되찾는다. OrderGate에서 떼어 냈다 — 키 규칙이 장부 계산과 섞여 있으면 둘 중 하나를 고칠 때 다른 쪽을 같이 읽어야 했다.
 //
 // [thread] 종목 테이블은 자체 락을 든다. account_names_는 락이 없다 — 소유자(PositionLedger)가 positions_mutex_를 잡고
 //   부른다. 계좌를 등록하는 make·register_signal·account_index(create)만이 아니라 읽는 lookup·account_of도 같다.
@@ -37,7 +37,7 @@ public:
     struct KeyHash
     {
         // 두 32비트를 64비트 하나로 붙여 곱셈으로 섞는다. xor만 하면 (a,b)와 (b,a)가 같은 버킷에 간다.
-        //  원장 맵 조회마다 불려 헤더에 둔다 — .cpp로 내리면 인라인이 안 돼 체결 한 건이 8 ns 늘었다.
+        //  장부 맵 조회마다 불려 헤더에 둔다 — .cpp로 내리면 인라인이 안 돼 체결 한 건이 8 ns 늘었다.
         size_t operator()(const Key& key) const noexcept
         {
             const uint64_t mixed = ((static_cast<uint64_t>(key.account) << 32) | key.symbol) * 0x9e3779b97f4a7c15ull;
@@ -70,7 +70,7 @@ public:
 
     // 쓰기 경로(체결·시드·선점) — 처음 보는 계좌·종목을 등록한다. 종목 테이블이 가득 차면 던진다.
     Key make(std::string_view account, std::string_view ticker);
-    // 읽기 경로(조회·정리·게이트) — 등록하지 않는다. 모르는 계좌·종목이면 원장에 없는 키가 나와 find가 빈다.
+    // 읽기 경로(조회·정리·게이트) — 등록하지 않는다. 모르는 계좌·종목이면 장부에 없는 키가 나와 find가 빈다.
     [[nodiscard]] Key lookup(std::string_view account, std::string_view ticker) const;
     [[nodiscard]] Key lookup(std::string_view account, symbol::SymbolId symbol) const;
     // 신호는 수신 스레드가 찍은 symbol_id를 이미 들고 있다 — Engine 테이블을 쓸 때만 그 id를 믿는다
@@ -131,7 +131,7 @@ inline LedgerKeys::Key LedgerKeys::make(std::string_view account, std::string_vi
 
     if (symbol == symbol::kNone)
     {
-        throw std::runtime_error(std::format("OrderGate: 종목 테이블이 가득 차 원장 키를 못 만든다 ticker={} capacity={}",
+        throw std::runtime_error(std::format("OrderGate: 종목 테이블이 가득 차 장부 키를 못 만든다 ticker={} capacity={}",
                                              ticker, symbols_->capacity()));
     }
 

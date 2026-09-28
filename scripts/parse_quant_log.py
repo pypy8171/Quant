@@ -87,7 +87,7 @@ def classify(rest: str, lvl: str):
     if "[Strategy] 신호:" in rest:
         return ("signal", rest)
     # 원장 저널에 못 적어 안 나간 주문(D-113) — ERROR 묶음에 섞이면 묻힌다. 못 적은 수만큼 매매가 빈다.
-    if "원장 저널 기록 실패" in rest:
+    if "원장 저널 기록 실패" in rest or "장부 저널 기록 실패" in rest:
         return ("ledger_fail", rest)
     # 청산차단(수동 확인 필요) — 항상 즉시 노출
     if "청산차단" in rest:

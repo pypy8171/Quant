@@ -153,7 +153,7 @@ public:
     // [wire] 출처: KIS 공식 샘플 inquire_balance(TTTC8434R/VTTC8434R, 한 번에 실전 50건·모의 20건), 2026-09-27 MCP 확인.
     //  모의 20건 한 장은 _private/_intraday_issues/2026-09-09.md 13:44 항목에서도 실측했다.
     //  실패(전송·파싱·rt_cd≠0, 어느 페이지든)는 fail 봉투로 돌려주고 부분 목록은 내지 않는다 — 호출자가 잔고에
-    //  없는 원장 보유를 걷어내므로 반쪽 목록은 빈 목록보다 위험하다. [why D-059]
+    //  없는 장부 보유를 걷어내므로 반쪽 목록은 빈 목록보다 위험하다. [why D-059]
     [[nodiscard]] KisResult<AccountBalance> get_balance();
 
     // 지수 현재값. 구조체는 api/IMarketDataSource.h로 옮겼고 KisClient::IndexPrice 이름은 그대로 통한다.

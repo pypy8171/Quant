@@ -1,4 +1,4 @@
-// api/KisAccount.cpp — 잔고·미체결 조회(연속조회 tr_cont 포함). 원장 재시드·대사가 읽는다.
+// api/KisAccount.cpp — 잔고·미체결 조회(연속조회 tr_cont 포함). 장부 재시드·대사가 읽는다.
 //  [why D-048] 파일 분할 경위.
 #include "KisClientInternal.h"
 #include "api/KisRestDecode.h"
@@ -58,8 +58,8 @@ KisResult<AccountBalance> KisClient::get_balance()
         }
 
         // [wire] 한도 초과(EGW00201)나 서버 오류 본문은 rt_cd≠"0"에 output1이 빈 배열이다. 이걸
-        //  정상 응답처럼 돌려주면 호출자가 "보유 0종목"으로 읽어 원장을 비운 채 매매한다
-        //  (09-11 09:17 재기동 시드 0건 → 3분간 빈 원장).
+        //  정상 응답처럼 돌려주면 호출자가 "보유 0종목"으로 읽어 장부를 비운 채 매매한다
+        //  (09-11 09:17 재기동 시드 0건 → 3분간 빈 장부).
         if (document.value("rt_cd", "") != "0")
         {
             const std::string message_code = document.value("msg_cd", "");

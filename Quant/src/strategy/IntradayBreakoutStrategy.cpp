@@ -20,8 +20,8 @@ void IntradayBreakoutStrategy::on_start()
     day_base_price_ = 0.0;
     in_position_ = start_in_position_;
     position_is_seed_ = start_in_position_; // 기동 보유분 = 물린 시드분
-    // 시드분은 잔고에서 읽어 온 것이라 원장이 이미 인정한 보유다. false로 두면 교체 진입이
-    //  이 종목을 먼저 팔았을 때 원장 0을 "아직 안 보임"으로 읽고 없는 21주를 또 판다
+    // 시드분은 잔고에서 읽어 온 것이라 장부가 이미 인정한 보유다. false로 두면 교체 진입이
+    //  이 종목을 먼저 팔았을 때 장부 0을 "아직 안 보임"으로 읽고 없는 21주를 또 판다
     //  (09-11 001820, KIS 40240000 거부). [why D-046]
     ledger_confirmed_ = start_in_position_;
     entry_price_ = 0.0;
@@ -216,11 +216,11 @@ std::optional<OrderSignal> IntradayBreakoutStrategy::on_trade(const TradeData& t
             }
 
             // 보유수량은 시드 이후 이 객체 안에서만 줄어든다. 재기동 전에 접수된 매도가
-            //  나중에 체결되면 그 통보는 미매핑 경로로 원장에만 반영되고 여기까지 오지 않아,
+            //  나중에 체결되면 그 통보는 미매핑 경로로 장부에만 반영되고 여기까지 오지 않아,
             //  이미 판 수량을 또 판다(09-09 14:31 033790 — 14:15에 116주가 전량 체결됐는데
             //  116주를 다시 내 [40240000] "모의투자 잔고내역이 없습니다"로 거부됐다).
-            //  발주 직전에 원장을 정본으로 한 번 맞춘다. 다만 원장 0을 "이미 팔렸다"로 읽으려면
-            //  그 보유를 원장이 한 번은 인정했어야 한다. rest_price_feed 구성에서 원장은
+            //  발주 직전에 장부를 정본으로 한 번 맞춘다. 다만 장부 0을 "이미 팔렸다"로 읽으려면
+            //  그 보유를 장부가 한 번은 인정했어야 한다. rest_price_feed 구성에서 장부는
             //  fetch_interval_sec(30초) 잔고 폴링으로만 갱신되므로, 방금 낸 매수는 최대 30초
             //  동안 0으로 보인다. 그 창에서 손절이 걸리면 전략은 자기가 플랫이라 믿고, 실제
             //  보유에는 트레일도 하드손절도 15:15 마감청산도 안 붙는다 — 판 걸 또 파는 것보다
@@ -235,7 +235,7 @@ std::optional<OrderSignal> IntradayBreakoutStrategy::on_trade(const TradeData& t
 
             if (ledger_quantity <= 0 && ledger_confirmed_)
             {
-                LOG_INFO("[ITB] 청산 생략 " + tag() + why + " — 원장 보유 0 (이미 청산됨)");
+                LOG_INFO("[ITB] 청산 생략 " + tag() + why + " — 장부 보유 0 (이미 청산됨)");
                 in_position_ = false;
                 hold_quantity_ = 0;
                 position_is_seed_ = false;
@@ -246,7 +246,7 @@ std::optional<OrderSignal> IntradayBreakoutStrategy::on_trade(const TradeData& t
                 return std::nullopt;
             }
 
-            // 이번 발주 수량만 깎는다. 멤버를 깎으면 부분 반영된 원장(30초 폴링)이
+            // 이번 발주 수량만 깎는다. 멤버를 깎으면 부분 반영된 장부(30초 폴링)가
             //  hold_qty_를 영구히 내려앉히고 남은 수량은 어느 청산 경로에도 안 잡힌다.
             //  잔량 정합은 exit_pending_tick이 매 틱 맞춘다.
             const int sell_quantity = ledger_quantity > 0 ? std::min(hold_quantity_, ledger_quantity) : hold_quantity_;
@@ -254,7 +254,7 @@ std::optional<OrderSignal> IntradayBreakoutStrategy::on_trade(const TradeData& t
             if (sell_quantity < hold_quantity_)
             {
                 LOG_INFO("[ITB] 청산 수량 보정 " + tag() + " " + std::to_string(hold_quantity_) + " → " +
-                         std::to_string(sell_quantity) + "주 (원장 기준, 보유 상태는 유지)");
+                         std::to_string(sell_quantity) + "주 (장부 기준, 보유 상태는 유지)");
             }
 
             auto signal =
@@ -373,7 +373,7 @@ std::optional<OrderSignal> IntradayBreakoutStrategy::exit_pending_tick(double pr
         {
             ++exit_retries_; // 한 번만 남기고 침묵
             LOG_WARN("[ITB] 청산 재발주 상한 " + tag() + " qty=" + std::to_string(hold_quantity_) +
-                     " — 원장 잔량이 남아 있다. 수동 확인 필요");
+                     " — 장부 잔량이 남아 있다. 수동 확인 필요");
         }
 
         return std::nullopt;
@@ -405,5 +405,5 @@ OrderSignal IntradayBreakoutStrategy::make_signal(OrderSide side, int quantity, 
     signal.strategy_id = id();
     signal.reason = reason; // G4: 판단 근거(돌파/청산 사유)를 신호에 실어 영속
     signal.timestamp = timestamp;
-    return signal; // account_id="" (기본) — OrderGate 원장 시드 계좌키와 일치(C-1)
+    return signal; // account_id="" (기본) — OrderGate 장부 시드 계좌키와 일치(C-1)
 }

@@ -40,13 +40,13 @@
 //    OrderGate::check()   — 검사 항목과 순서의 정본은 Quant/src/risk/OrderGate.cpp의 check
 //       │ PASS
 //       ▼
-//    take_intent()        — 원장에 INTENT를 먼저 적고 선점을 잡는다. 못 적으면 보내지 않는다 [why D-113]
+//    take_intent()        — 장부에 INTENT를 먼저 적고 선점을 잡는다. 못 적으면 보내지 않는다 [why D-113]
 //       │
 //       ▼
 //    IOrderExecutor::submit_order_acknowledgement() — KIS 전송 → ODNO·조직번호 수신(실패면 error_code)
 //       │
-//       ├─ 성공 → ACCEPTED, 원장 ACCEPT, ZMQ publish_order(ok=true)
-//       └─ 실패 → REJECTED, 원장 REJECT, ZMQ publish_order(ok=false). 전송 타임아웃이면 되묻기 스레드를 띄운다
+//       ├─ 성공 → ACCEPTED, 장부 ACCEPT, ZMQ publish_order(ok=true)
+//       └─ 실패 → REJECTED, 장부 REJECT, ZMQ publish_order(ok=false). 전송 타임아웃이면 되묻기 스레드를 띄운다
 // ─────────────────────────────────────────────────────────────────────────────
 
 struct OrderRouterConfig
@@ -71,7 +71,7 @@ public:
 
     // ── 신규 주문을 세 토막으로 — 전송만 다른 스레드에 맡길 때 쓴다 ─────────
     //  submit의 신규 경로는 open_new → send_new → close_new를 한 스레드에서 차례로 부른 것과 같다. 주문 스레드는
-    //  open_new·close_new를, 전송 스레드는 send_new만 부른다 — 게이트·원장·이력은 주문 스레드 하나만 만진다. [why D-151]
+    //  open_new·close_new를, 전송 스레드는 send_new만 부른다 — 게이트·장부·이력은 주문 스레드 하나만 만진다. [why D-151]
     struct NewOrderSend;
     // 전송 직전까지 연다(클램프·가드·게이트·INTENT). 보낼 것이 없으면(로컬 거부, 예약매도 취소 뒤 재발주로 이미 접수)
     //  끝난 주문을 돌려준다. [inv] 주문 스레드 전용.
@@ -79,7 +79,7 @@ public:
     // KIS로 보내고 응답을 send에 담는다. kis_ 밖의 라우터 상태는 만지지 않으므로 어느 스레드에서 불러도 된다.
     //  예외는 밖으로 내지 않고 send에 적는다.
     void send_new(NewOrderSend& send) const noexcept;
-    // 응답으로 접수·거부를 확정하고 원장·이력에 적는다. [inv] 주문 스레드 전용.
+    // 응답으로 접수·거부를 확정하고 장부·이력에 적는다. [inv] 주문 스레드 전용.
     [[nodiscard]] ManagedOrder close_new(NewOrderSend&& send);
 
     // ── 취소·정정도 같은 세 토막 — 원주문 사본 → KIS 취소/정정 → 원주문 닫기 ──────────
@@ -106,15 +106,15 @@ public:
     int recover_missed_fills();
 
     // ── 잔고 대조 기록 (C-2) ────────────────────────────────────────────────
-    //  Engine이 브로커 잔고와 원장을 비교한 결과를 원장 CSV에 `RECONCILE` 행으로 남긴다.
-    //  order_quantity/order_price=원장 수량·평단, fill_quantity/fill_price=브로커 수량·평단, status=action,
+    //  Engine이 브로커 잔고와 장부를 비교한 결과를 장부 CSV에 `RECONCILE` 행으로 남긴다.
+    //  order_quantity/order_price=장부 수량·평단, fill_quantity/fill_price=브로커 수량·평단, status=action,
     //  reason에 그 종목의 살아있는 주문 수(live_orders)를 적는다 — 미체결이 있으면 불일치가
     //  체결 지연일 수 있어 사람이 어느 단계인지 가를 근거가 된다. 덮어쓰기·정리(action이 KEEP이
-    //  아닌 것)는 LOG_WARN도 낸다. 원장 자체는 바꾸지 않는다(그건 OrderGate 몫).
+    //  아닌 것)는 LOG_WARN도 낸다. 장부 자체는 바꾸지 않는다(그건 OrderGate 몫).
     using ReconcileNote = reconcile::Row;   // 필드는 core/ReconcilePlan.h. Engine의 plan() 결과를 그대로 받는다
     void record_reconcile(const ReconcileNote& note);
 
-    // ── 재기동 대조 — 원장 저널이 남긴 미결 주문 (D-113) ──────────────────────
+    // ── 재기동 대조 — 장부 저널이 남긴 미결 주문 (D-113) ──────────────────────
     //  저널 리플레이가 "INTENT는 적혔는데 닫히지 않은" 주문을 준다. KIS 미체결조회와 맞춰
     //  ① 아직 호가창에 살아 있는 것은 history_에 ACCEPTED로 되살린다 — 늦은 체결통보가 ODNO로
     //     매칭돼 전략까지 이어진다(안 되살리면 미매핑 체결로 떨어져 귀속이 "UNLINKED"가 된다).
@@ -138,7 +138,7 @@ public:
     // 내부 주문번호 문자열("ORD-000123") → 저널에 적는 정수(123). 형식이 다르면 0.
     [[nodiscard]] static uint64_t order_number_of(std::string_view order_id) noexcept;
 
-    // 살아있는 주문이 없는데 원장에 남은 선점을 푼다. 살아 있다고 치는 것은 이력의 접수·미체결 주문과,
+    // 살아있는 주문이 없는데 장부에 남은 선점을 푼다. 살아 있다고 치는 것은 이력의 접수·미체결 주문과,
     //  INTENT를 적고 KIS 답을 기다리는 주문(in_flight_symbols_)이다 — 선점은 전송 전 INTENT 때 생기고
     //  이력에는 답이 온 뒤에야 들어간다. 통보를 한 번 놓치면 선점이 슬롯을 물고 하루를 가서 정리한다.
     //  데이터 스레드가 잔고 대조와 같은 사이클에 부른다. 반환값은 푼 종목 수. [why D-113]
@@ -147,7 +147,7 @@ public:
     // ── 일별 리셋 (장 시작) — 체결 목격 기록(fill_sightings_) 정리 ─────────────
     void reset_daily();
 
-    // 재연결 뒤 재전송으로 보고 원장에 넣지 않은 체결통보 누적 수.
+    // 재연결 뒤 재전송으로 보고 장부에 넣지 않은 체결통보 누적 수.
     [[nodiscard]] uint64_t replayed_fills() const noexcept
     {
         return replayed_fills_.load(std::memory_order_relaxed);
@@ -191,12 +191,12 @@ public:
     //  그렇게 남은 주문은 엔진 장부 밖이라 보유분을 묶은 채 아무도 못 지운다. [why D-101]
     void reconcile_unknown_order_async(std::string ticker);
 
-    // 줄 세워 둔 원장 CSV·사유 줄을 부르는 스레드에서 전부 써 버린다. 쓸 것이 없으면 아무것도 안 한다.
+    // 줄 세워 둔 장부 CSV·사유 줄을 부르는 스레드에서 전부 써 버린다. 쓸 것이 없으면 아무것도 안 한다.
     //  평소에는 전담 스레드가 알아서 비우므로 부를 일이 없다 — 방금 낸 주문의 행을 곧바로 파일에서
     //  읽어 확인해야 하는 시험이 쓴다.
     void flush_file_writes();
 
-    // 되묻기 스레드·기동 취소 스레드·두 쓰기 스레드를 세우고 기다린 뒤, 남은 미결주문 스냅샷·원장 줄을 마저 쓴다.
+    // 되묻기 스레드·기동 취소 스레드·두 쓰기 스레드를 세우고 기다린 뒤, 남은 미결주문 스냅샷·장부 줄을 마저 쓴다.
     ~OrderRouter();
     // 스레드·뮤텍스를 소유한다 — 복사는 원본과 사본이 같은 자원을 두 번 닫는 길이라 막는다.
     OrderRouter(const OrderRouter&)            = delete;
@@ -222,12 +222,12 @@ private:
     //  시장가 매도를 1회 재시도한다(장중 자가 청산 정리). 성공 시 kis_order_no 채운 OrderAck,
     //  예약 없음/취소 실패 시 빈 acknowledgement. 이전 세션·수동 예약이 보유수량을 묶은 경우를 해소.
     //  취소한 예약이 이번 세션 주문이면 history_를 CANCELLED로 닫고 게이트 선점을 푼다(C-2).
-    //  reference/intent_taken: 재매도도 원장에 INTENT를 적은 뒤에만 나간다. 이미 적었으면(본 경로가 먼저 보낸 뒤
+    //  reference/intent_taken: 재매도도 장부에 INTENT를 적은 뒤에만 나간다. 이미 적었으면(본 경로가 먼저 보낸 뒤
     //  40240000으로 돌아온 경우) 다시 적지 않는다. [why D-113]
     [[nodiscard]] OrderAck reconcile_blocked_sell(const OrderSignal& signal, const OrderGate::OrderRef& reference,
                                                   bool& intent_taken);
 
-    // KIS 전송 직전 원장 기록 — 선점을 잡고 INTENT를 적는다. 거짓이면 파일에 안 적혀 주문을 보내지 않는다.
+    // KIS 전송 직전 장부 기록 — 선점을 잡고 INTENT를 적는다. 거짓이면 파일에 안 적혀 주문을 보내지 않는다.
     [[nodiscard]] bool take_intent(const OrderSignal& signal, const OrderGate::OrderRef& reference);
 
     // ── 신규 주문 단계 (new_route) ──────────────────────────────────────────
@@ -237,13 +237,13 @@ private:
     {
         OrderSignal         signal;          // 들어온 신호의 사본 — 클램프가 수량을 고친다
         ManagedOrder        managed_order;
-        OrderGate::OrderRef order_reference; // 원장 레코드 이름표 — 내부 주문번호와 주문 유형. ODNO는 접수 뒤에 붙는다
+        OrderGate::OrderRef order_reference; // 장부 레코드 이름표 — 내부 주문번호와 주문 유형. ODNO는 접수 뒤에 붙는다
         OrderAck            acknowledgement;
         std::string         reject_reason;
         int                 allowed          = 0;     // 게이트가 허락한 수량(clamp_buy_quantity)
         bool                sell_no_quantity = false; // 매도가능이 모자라 예약매도 취소부터 해 봐야 하는가
         bool                freed            = false; // 예약매도 취소 뒤 재발주가 이미 접수됐는가
-        bool                intent_taken     = false; // 원장에 INTENT를 적었는가
+        bool                intent_taken     = false; // 장부에 INTENT를 적었는가
         // 구간 계측. 게이트까지 두 구간(이력 가드·게이트)은 stamp_gate_stages가 찍는다. [why D-117] [why D-126]
         int64_t entered_ns           = 0; // new_route에 들어온 시각
         int64_t history_guard_ns     = 0; // 이력 잠금·중복 가드에 쓴 시간 합
@@ -267,7 +267,7 @@ private:
     [[nodiscard]] bool skip_duplicate_market_sell(NewRoute& route);
     // 예약매도 취소 시도와 OrderGate::check. 거부면 거부로 닫고 거짓.
     [[nodiscard]] bool pass_gate(NewRoute& route);
-    // 원장 INTENT를 적고 보낼 채비를 한다. 못 적었으면 거부로 닫고 거짓.
+    // 장부 INTENT를 적고 보낼 채비를 한다. 못 적었으면 거부로 닫고 거짓.
     [[nodiscard]] bool prepare_transmit(NewRoute& route);
     // 전송이 예외로 끝난 주문을 거부로 닫는다 — 선점을 풀고 이력에 적는다.
     void close_transport_failure(NewRoute& route);
@@ -277,7 +277,7 @@ private:
     // ── 발주 경로 공통 조각 ──────────────────────────────────────────────
     // 새 주문 항목을 PENDING으로 만들고 총 주문 수를 올린다. now는 부른 쪽이 경로에 들어온 시각이다.
     ManagedOrder make_pending_order(const OrderSignal& signal, std::chrono::system_clock::time_point now);
-    // 거부로 표시하고 거부 수를 올린다. 로그·원장·이력 기록은 부른 쪽이 한다.
+    // 거부로 표시하고 거부 수를 올린다. 로그·장부·이력 기록은 부른 쪽이 한다.
     void mark_rejected(ManagedOrder& managed_order, std::string reason);
     // 전송 전에 끝난 주문을 이력에 적는다. 이 경로의 record_us는 record() 몫뿐이다 — 접수 확정·발행은 그 밖이라
     //  따로 세지 않는다. 그래서 history_store_us도 같은 값이다. [why D-126]
@@ -287,7 +287,7 @@ private:
     // 체결을 ZMQ로 발행한다. ZMQ 없이 빌드하면 아무것도 안 한다.
     void publish_fill_result(const FillNotification& fill_notification, const std::string& strategy_id,
                              const PositionLedger::FillResult& result);
-    // 체결 한 건을 원장 CSV에 적는다. 평단을 모르는 매도면 경고를 먼저 남긴다. 락 밖에서 부른다.
+    // 체결 한 건을 장부 CSV에 적는다. 평단을 모르는 매도면 경고를 먼저 남긴다. 락 밖에서 부른다.
     void emit_fill(const ManagedOrder& fill_order, const FillNotification& fill_notification, int quantity,
                    const PositionLedger::FillResult& result);
     // KIS 취소(남은 수량 전부)를 보낸다. 예외는 부른 쪽이 잡는다. [inv] 이 경로의 kis_calls_는 여기서만 올린다(취소 3곳).
@@ -316,7 +316,7 @@ private:
     bool snapshot_live_original_locked(uint64_t client_order_number, OriginalOrder& original);
     // 취소·정정이 접수된 뒤 원주문을 CANCELLED로 닫고 그 시점 잔량만큼 선점을 푼다. 잔량은 지금 confirmed_quantity로
     //  다시 센다 — 전송 사이 체결 스레드가 올렸을 수 있어서다. 원주문이 이미 빠졌으면 release_if_gone만큼 푼다.
-    //  [inv] history_mutex_를 쥐고 부른다. [lock-order] history_mutex_ → 원장 positions_mutex_(on_fill과 같다).
+    //  [inv] history_mutex_를 쥐고 부른다. [lock-order] history_mutex_ → 장부 positions_mutex_(on_fill과 같다).
     void close_live_original_locked(const OrderSignal& signal, const OriginalOrder& original, int release_if_gone);
     // 취소·정정 한 건이 세 토막을 지나며 들고 다니는 상태.
     struct ModifyRoute
@@ -325,7 +325,7 @@ private:
         ManagedOrder        managed_order;
         OriginalOrder       original;
         int                 new_quantity = 0;    // 정정 수량. 취소는 쓰지 않는다
-        OrderGate::OrderRef order_reference;      // 정정의 원장 레코드 이름표
+        OrderGate::OrderRef order_reference;      // 정정의 장부 레코드 이름표
         OrderAck            acknowledgement;
         bool                transport_failed = false; // 전송이 예외로 끝났다
         std::string         transport_error;          // 그 예외 문구
@@ -374,14 +374,14 @@ private:
                     const fill_key::FillKey& fill_key, uint64_t order_number);
     // close_new 끝 — 보내는 중 수를 하나 내리고 붙든 체결을 다시 판정한다. history_mutex_를 쥐지 않고 부른다.
     void finish_sending_new();
-    // 이 프로세스가 낸 주문이 아닌 체결을 원장에 넣는다. [inv] lock은 history_mutex_를 쥔 채로 받고, 여기서 푼다.
+    // 이 프로세스가 낸 주문이 아닌 체결을 장부에 넣는다. [inv] lock은 history_mutex_를 쥔 채로 받고, 여기서 푼다.
     void apply_unlinked_fill(std::unique_lock<std::mutex>& lock, const FillNotification& fill_notification,
                              const fill_key::FillKey& fill_key, uint64_t order_number);
-    // 연결된 주문에 체결 incoming_quantity주를 넣고 원장·원장 CSV·미결 파일·발행까지 한다. 잔량을 넘으면 잔량으로
-    //  자른다. note가 비지 않으면 원장 CSV의 사유 칸에 적는다. [inv] lock은 history_mutex_를 쥔 채로 받고, 여기서 푼다.
+    // 연결된 주문에 체결 incoming_quantity주를 넣고 장부·장부 CSV·미결 파일·발행까지 한다. 잔량을 넘으면 잔량으로
+    //  자른다. note가 비지 않으면 장부 CSV의 사유 칸에 적는다. [inv] lock은 history_mutex_를 쥔 채로 받고, 여기서 푼다.
     void apply_linked_fill(std::unique_lock<std::mutex>& lock, ManagedOrder& managed_order,
                            const FillNotification& fill_notification, int incoming_quantity, std::string_view note);
-    // 조회로 되찾은 몫에 드는 늦은 통보면 그 수량을 몫에서 깎고 돌려준다(원장에 다시 넣지 않을 수량).
+    // 조회로 되찾은 몫에 드는 늦은 통보면 그 수량을 몫에서 깎고 돌려준다(장부에 다시 넣지 않을 수량).
     //  [inv] history_mutex_를 쥐고 부른다.
     [[nodiscard]] static int consume_recovered_credit_locked(ManagedOrder& managed_order,
                                                              const FillNotification& fill_notification);
@@ -421,7 +421,7 @@ private:
 
     // INTENT를 적기 직전부터 이력에 적힐 때까지 걸어 두는 종목 표시. 선점 정리가 이 목록도 살아 있는
     //  선점으로 친다 — 없으면 KIS 답을 기다리는 사이(수백 ms~2초)에 도는 정리가 방금 잡은 선점을 푼다.
-    //  [lock-order] in_flight_mutex_ → history_mutex_ → 원장 positions_mutex_(정리 한 곳). 거는 쪽은
+    //  [lock-order] in_flight_mutex_ → history_mutex_ → 장부 positions_mutex_(정리 한 곳). 거는 쪽은
     //  in_flight_mutex_만 잠깐 잡는다. [why D-113]
     class InFlightMark
     {
@@ -476,7 +476,7 @@ private:
     };
     // 체결통보 키 → 목격 기록 (history_mutex_로 보호).
     std::unordered_map<FillKey, FillSighting, FillKeyHash> fill_sightings_;
-    // 재연결 뒤 재전송으로 보고 원장에 넣지 않은 통보 수. 수량은 주기 잔고 대조가 맞춘다.
+    // 재연결 뒤 재전송으로 보고 장부에 넣지 않은 통보 수. 수량은 주기 잔고 대조가 맞춘다.
     std::atomic<uint64_t> replayed_fills_{0};
     // 이 통보가 재연결 뒤 재전송인지 판정하고 목격 기록을 올린다. [inv] history_mutex_를 쥐고 부른다.
     [[nodiscard]] bool is_replayed_fill_locked(const FillKey& fill_key, uint32_t session_generation);
@@ -488,7 +488,7 @@ private:
     struct UnlinkedOrder
     {
         int order_quantity     = 0; // 전문 [16]ODER_QTY. 0이면 "전문이 안 줘서 모른다"
-        int confirmed_quantity = 0; // 지금까지 원장에 반영한 수량
+        int confirmed_quantity = 0; // 지금까지 장부에 반영한 수량
     };
 
     // 주문 단위 키(거래일+ODNO, 체결 건별 칸은 0) → 그 주문의 누적 상태 (history_mutex_로 보호).
@@ -526,7 +526,7 @@ private:
     //  [lock-order] history_mutex_ → carry_mutex_. 기동 취소 스레드는 carry_mutex_를 단독으로만 잡는다.
     std::vector<CarryRow> carry_rows_;
     mutable std::mutex                      carry_mutex_;
-    // 부속 파일(미결주문·원장 CSV·주문 사유) 쓰기. 쓰기 스레드 둘을 들고 있다.
+    // 부속 파일(미결주문·장부 CSV·주문 사유) 쓰기. 쓰기 스레드 둘을 들고 있다.
     //  [inv] 라우터 스레드(stale_threshold_·transport_reconcile_·fill_recovery_)보다 앞에 선언한다 — 그 스레드들이 여기로
     //   줄을 넘기므로 기록기가 나중에 소멸해야 한다. 소멸자는 그 스레드들을 먼저 세운 뒤 journal_.stop()을 부른다.
     //  [lock-order] history_mutex_ → 기록기 io_mutex_ → append_outbox_mutex_ (정본은 Quant/include/ipc/OrderJournal.h).

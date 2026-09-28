@@ -152,7 +152,7 @@ int main(int argc, char** argv)
     signal.price       = price;
     signal.strategy_id = "MANUAL";
     signal.market      = Market::KR;
-    signal.account_id  = kis_config.account_no; // 계좌별 원장에 실제 계좌로 파티션
+    signal.account_id  = kis_config.account_no; // 계좌별 장부에 실제 계좌로 파티션
 
     // ── 주문 양식 출력 (KIS 요청 본문) ───────────────────────────────────────
     std::cout << "=== 수동 주문 (" << (kis_config.is_paper ? "모의계좌 " : "실계좌 ")
@@ -218,7 +218,7 @@ int main(int argc, char** argv)
 
     const std::string& kis_order_no = acknowledgement.kis_order_no;
 
-    gate.ledger().on_accept(signal.account_id, ticker, side, quantity, price); // 미체결 선점(원장)
+    gate.ledger().on_accept(signal.account_id, ticker, side, quantity, price); // 미체결 선점(장부)
     std::cout << "[3] 접수 완료 — ODNO=" << kis_order_no << "\n";
 
     // ── [3-1] 접수만 확인하고 거두기(--cancel) ───────────────────────────────

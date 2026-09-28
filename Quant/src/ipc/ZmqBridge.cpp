@@ -17,7 +17,7 @@ using namespace std::chrono_literals;
 
 namespace
 {
-// 송신 큐 상한(밀림 처리). 원장 정합에 직결되는 토픽(FILL/ORDER/SIGNAL)은 훨씬 크게 잡아
+// 송신 큐 상한(밀림 처리). 장부 정합에 직결되는 토픽(FILL/ORDER/SIGNAL)은 훨씬 크게 잡아
 // 구독자 지연에도 최대한 보존하고, 고빈도 TRADE/HEALTH는 작게 잡아 메모리 폭주를 막는다.
 constexpr size_t kCriticalQueueCap = 100000; // FILL/ORDER/SIGNAL 하드캡
 constexpr size_t kNormalQueueCap   = 1000;   // HEALTH 하드캡
@@ -393,7 +393,7 @@ void ZmqBridge::enqueue(Topic topic, std::string payload)
 
     {
         std::lock_guard<std::mutex> lock(queue_mutex_);
-        // (C8) 토픽별 drop 차등 — 원장 정합성에 직결되는 FILL/ORDER/SIGNAL은
+        // (C8) 토픽별 drop 차등 — 장부 정합성에 직결되는 FILL/ORDER/SIGNAL은
         // HEALTH보다 훨씬 큰 하드캡까지 보존한다. TRADE는 이 큐를 거치지 않는다(trade_queue_).
         const bool   critical = (topic == Topic::Fill || topic == Topic::Order || topic == Topic::Signal);
         const size_t capacity = critical ? kCriticalQueueCap : kNormalQueueCap;
@@ -416,7 +416,7 @@ void ZmqBridge::enqueue(Topic topic, std::string payload)
         if (critical_dropped == 1 || critical_dropped % 1000 == 0)
         {
             LOG_ERROR(std::string("[ZMQ] 치명적 메시지 drop! topic=") + topic_name(topic) + " 누적=" +
-                      std::to_string(critical_dropped) + " (발행 큐 만석 — 발행 스레드 밀림) — 원장 불일치 위험");
+                      std::to_string(critical_dropped) + " (발행 큐 만석 — 발행 스레드 밀림) — 장부 불일치 위험");
         }
 
         return;
@@ -463,7 +463,7 @@ static const char* action_string(OrderAction order_action)
 
 void ZmqBridge::publish_trade(const TradeData& trade)
 {
-    // 수신 스레드 쪽은 memcpy 한 번뿐. 링이 차면 버린다 — TRADE는 원장과 무관해 예전 큐 상한과 같은 정책이다.
+    // 수신 스레드 쪽은 memcpy 한 번뿐. 링이 차면 버린다 — TRADE는 장부와 무관해 예전 큐 상한과 같은 정책이다.
     if (!trade_queue_.push(TradeEnvelope{now_ms(), trade}))
     {
         ++trade_ring_full_drop_count_;
@@ -535,7 +535,7 @@ void ZmqBridge::publish_health(const HealthSnapshot& snapshot)
     document["ts"]     = now_ms();
     // 역할·계좌를 같이 싣는다 — 갈라 띄운 날에는 세 프로세스가 같은 health 표에 넣는데, 역할마다
     //  채우는 칸이 서로 다르다(시세는 data, 전략은 signal·샤드 큐, 주문은 order·지연). 가르는 열이
-    //  없으면 읽는 쪽이 누적 카운터가 역행한 것으로 본다. 계좌는 모의·실계좌 원장을 가르던 키와 같다. [why D-129]
+    //  없으면 읽는 쪽이 누적 카운터가 역행한 것으로 본다. 계좌는 모의·실계좌 장부를 가르던 키와 같다. [why D-129]
     document["role"]    = role_label_;
     document["account"] = account_no_;
     document["data"]   = snapshot.data_count;

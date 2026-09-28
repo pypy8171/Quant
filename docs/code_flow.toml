@@ -463,7 +463,7 @@ review = [
   [[stage.step]]
   sym = "Engine::ledger_sellable"
   file = "Quant/src/core/Engine.cpp"
-  what = "전략이 보는 보유·매도 가능 수량의 출처 — 주문 프로세스가 발행한 원장 스냅숏"
+  what = "전략이 보는 보유·매도 가능 수량의 출처 — 주문 프로세스가 발행한 장부 스냅숏"
 
   [[stage.step]]
   sym = "ipc::LedgerSnapshot::begin_optimistic_read"

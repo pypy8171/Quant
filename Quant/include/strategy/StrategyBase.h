@@ -147,7 +147,7 @@ public:
     }
 
     // 전략 번호(OrderGate::strategy_index_of(id())) — Engine이 등록 때 한 번 정한다. 신호 봉투가 이 번호를 싣고,
-    //  게이트의 서브원장·중복 신호 키가 문자열 id 대신 이 번호를 쓴다. [why D-112]
+    //  게이트의 서브장부·중복 신호 키가 문자열 id 대신 이 번호를 쓴다. [why D-112]
     strategy_table::StrategyId strategy_index() const
     {
         return strategy_index_;
@@ -196,9 +196,9 @@ public:
         account_kis_ = account_kis;
     }
 
-    // OrderGate 확정 포지션 접근자 주입 — WS/REST 양모드 공용 원장 진실원천.
-    // Engine이 원장 사본(ledger_snapshot_) 행의 position으로 바인딩한다(기동·재스캔 둘 다). 미주입 시 0 반환.
-    // (체결콜백 부재 rest 모드에서도 잔고 대조로 원장이 최신이라 이 값이 신뢰 가능)
+    // OrderGate 확정 포지션 접근자 주입 — WS/REST 양모드 공용 장부 진실원천.
+    // Engine이 장부 사본(ledger_snapshot_) 행의 position으로 바인딩한다(기동·재스캔 둘 다). 미주입 시 0 반환.
+    // (체결콜백 부재 rest 모드에서도 잔고 대조로 장부가 최신이라 이 값이 신뢰 가능)
     void set_position_provider(std::function<int(const std::string&, const std::string&)> provider)
     {
         position_provider_ = std::move(provider);
@@ -218,7 +218,7 @@ public:
 
     int confirmed_position(const std::string& account, symbol::SymbolId symbol, const std::string& ticker) const;
 
-    // 신규매수 차단 접근자 주입 — OrderGate가 발행한 원장 사본의 entry_halted를 읽는다. Engine이 바인딩한다.
+    // 신규매수 차단 접근자 주입 — OrderGate가 발행한 장부 사본의 entry_halted를 읽는다. Engine이 바인딩한다.
     //  게이트는 라우터 앞에서 매수를 거부하지만 전략은 그걸 모르고 같은 계획을 유지하므로,
     //  차단이 풀려도 분할 매수를 다시 깔지 않았다(09-10 결함 C). 전략이 계획 단계에서 읽게 한다.
     //  미주입이면 false = 차단 없음.
@@ -232,7 +232,7 @@ public:
         return entry_halt_provider_ ? entry_halt_provider_() : false;
     }
 
-    // 매수 명목 비율 접근자 주입 — OrderGate가 발행한 원장 사본의 entry_scale을 읽는다. Engine이 바인딩한다. 미주입이면 1.0.
+    // 매수 명목 비율 접근자 주입 — OrderGate가 발행한 장부 사본의 entry_scale을 읽는다. Engine이 바인딩한다. 미주입이면 1.0.
     void set_entry_scale_provider(std::function<double()> provider)
     {
         entry_scale_provider_ = std::move(provider);
@@ -243,14 +243,14 @@ public:
         return entry_scale_provider_ ? entry_scale_provider_() : 1.0;
     }
 
-    // 매도가능수량·평단 접근자 주입 — OrderGate 원장 기준(잔고 대조가 맞춘 주문가능분에서 이 세션의
+    // 매도가능수량·평단 접근자 주입 — OrderGate 장부 기준(잔고 대조가 맞춘 주문가능분에서 이 세션의
     //  미체결 매도를 뺀 값). 샤드 스레드가 잔고 REST를 동기로 부르면 한 종목의 조회(13~16초)가
     //  다른 전략 전부를 막고 체결 큐가 넘친다(09-11 15:15~15:22). [why D-055]
     //  미주입이면 nullopt — 호출측이 기존 동기 조회로 되돌아간다.
     struct SellableInfo
     {
         int    sellable = 0;   // 주
-        double average_price   = 0.0; // 원, 0=원장에 없음
+        double average_price   = 0.0; // 원, 0=장부에 없음
     };
 
     void set_sellable_provider(std::function<SellableInfo(const std::string&, const std::string&)> provider)
@@ -317,10 +317,10 @@ protected:
     KisClient* account_kis_ = nullptr; // non-owning; 계좌 조회용(미주입 시 kis_ 사용)
     std::function<int(const std::string&, const std::string&)> position_provider_; // 결제완료 확정 포지션(D2=결제일 T+2)
     // 근거: 제도 자료 — 국내 주식은 매매일 다음 둘째 영업일(T+2)에 결제한다(한국거래소 업무규정).
-    std::function<int(const std::string&, symbol::SymbolId)> position_provider_by_id_; // 같은 원장, 종목 정수 id로 [why D-105]
+    std::function<int(const std::string&, symbol::SymbolId)> position_provider_by_id_; // 같은 장부, 종목 정수 id로 [why D-105]
     std::function<bool()> entry_halt_provider_; // 신규매수 차단 여부(OrderGate). 미주입=false
     std::function<double()> entry_scale_provider_; // 매수 명목 비율(OrderGate). 미주입=1.0
-    std::function<SellableInfo(const std::string&, const std::string&)> sellable_provider_; // 원장 매도가능·평단
+    std::function<SellableInfo(const std::string&, const std::string&)> sellable_provider_; // 장부 매도가능·평단
     risk::ProtectiveOrderRegistry* protective_registry_ = nullptr; // non-owning; 보호 주문 표(Engine 소유). 미주입=표 없음
     SymbolResolver symbol_resolver_; // 종목 문자열 → id(Engine::register_symbol). 미주입=kNone
     std::atomic<bool> active_{true};      // 국면 게이트(Engine이 설정). 기본 true=통과 (G-1)

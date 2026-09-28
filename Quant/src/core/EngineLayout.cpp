@@ -20,7 +20,7 @@ using namespace std::chrono_literals;
 namespace
 {
 
-// 전략 프로세스가 공유 쪽지를 기다리는 시간. 주문 쪽은 토큰 발급·잔고 대조·원장 리플레이를 먼저 하므로
+// 전략 프로세스가 공유 쪽지를 기다리는 시간. 주문 쪽은 토큰 발급·잔고 대조·장부 리플레이를 먼저 하므로
 //  기동이 몇 초 늦을 수 있다 — 그보다 넉넉히 두되, 아예 안 뜬 경우에는 기다림이 끝나야 한다. [why D-114]
 constexpr auto kSharedRegionAttachTimeout = std::chrono::seconds(30);
 

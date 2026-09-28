@@ -1,14 +1,14 @@
-// 원장 저널 — 주문·체결·잔고 대조가 원장(PositionLedger)에 준 변경을 순서대로 남기는 append-only 파일과 그 리플레이.
+// 장부 저널 — 주문·체결·잔고 대조가 장부(PositionLedger)에 준 변경을 순서대로 남기는 append-only 파일과 그 리플레이.
 //  주문만 KIS보다 먼저 적는다: INTENT가 적힌 뒤에만 KIS로 나가고, 못 적으면 선점을 되돌려 주문을 내지 않는다.
-//  FILL·REJECT·CANCEL·SEED는 원장을 바꾼 뒤 같은 positions_mutex_ 안에서 순번을 받아, 파일 순서가 원장 갱신 순서와 같다.
+//  FILL·REJECT·CANCEL·SEED는 장부를 바꾼 뒤 같은 positions_mutex_ 안에서 순번을 받아, 파일 순서가 장부 갱신 순서와 같다.
 //  재기동은 오늘 파일을 처음부터 다시 적용해 보유·평단·선점·매도가능·현금을 되살린다. config
 //  `bootstrap_ledger_from_balance`가 참이면 그 뒤 KIS 잔고로 보유를 덮어쓰고 SEED를 적는다
 //  (`Quant/src/core/LedgerReconciler.cpp`의 bootstrap). [why D-113]
-//  쓰기는 두 단계다. 원장 잠금 안에서는 stage()로 순번을 받아 메모리 버퍼에 쌓기만 하고, 잠금을 푼 뒤 flush()가
-//  모아 쓴다 — 디스크가 느린 순간에도 주문 판정·원장 읽기가 디스크를 기다리지 않는다. 먼저 flush()에 온 스레드가
+//  쓰기는 두 단계다. 장부 잠금 안에서는 stage()로 순번을 받아 메모리 버퍼에 쌓기만 하고, 잠금을 푼 뒤 flush()가
+//  모아 쓴다 — 디스크가 느린 순간에도 주문 판정·장부 읽기가 디스크를 기다리지 않는다. 먼저 flush()에 온 스레드가
 //  뒤에 쌓인 것까지 같이 써서 fsync 한 번이 여러 건을 덮는다. 별도 스레드는 두지 않는다(주문 이벤트는 초당 수십 건).
 //  flush마다 fflush(프로세스 재기동 방어)까지가 기본이고, config `ledger_journal_fsync`가 참이면 fsync까지 한다
-//  (전원 장애 방어). 잠금 안에서 쓰던 때 fsync를 켜면 원장 읽기가 최대 77ms 막혔다(bench_gate_contention
+//  (전원 장애 방어). 잠금 안에서 쓰던 때 fsync를 켜면 장부 읽기가 최대 77ms 막혔다(bench_gate_contention
 //  journal=2, 09-25). [why CODE_REVIEW W-2]
 //  파일은 거래일마다 하나(ledger_YYYYMMDD.bin) — KIS 주문은 하루를 넘기지 않으므로 어제 선점은 오늘 의미가 없고,
 //  당일 손익도 새 파일에서 0부터 센다. 종목 id·계좌 인덱스는 기동마다 달라져(TickCapture.h와 같은 이유) 문자열로
@@ -106,8 +106,8 @@ static_assert(sizeof(Record) == 192, "레코드 크기가 바뀌면 kVersion을 
 
 void put_string(char* destination, size_t capacity, std::string_view text) noexcept;
 
-// FILL이 원장에 준 결과 — DB 적재기가 fills·positions 표를 이 파일만으로 채우려고 싣는다. FILL은 reason을 쓰지
-//  않아 그 48바이트에 이 구조를 그대로 복사한다. 리플레이는 읽지 않는다(원장은 체결가·수량으로 다시 계산한다).
+// FILL이 장부에 준 결과 — DB 적재기가 fills·positions 표를 이 파일만으로 채우려고 싣는다. FILL은 reason을 쓰지
+//  않아 그 48바이트에 이 구조를 그대로 복사한다. 리플레이는 읽지 않는다(장부는 체결가·수량으로 다시 계산한다).
 //  present가 0이면 이 칸이 생기기 전 파일이다 — 0 평단·0 수수료와 구분하려고 둔다. [why D-113]
 struct FillDetail
 {
@@ -213,11 +213,11 @@ public:
         uint16_t first_failed_kind = 0;
     };
 
-    // seq·시각·CRC를 채워 버퍼에 쌓고 seq를 돌려준다(파일이 없으면 0). 디스크는 건드리지 않는다 — 원장 잠금 안에서
-    //  불러 파일 순서를 원장 갱신 순서와 맞춘다.
+    // seq·시각·CRC를 채워 버퍼에 쌓고 seq를 돌려준다(파일이 없으면 0). 디스크는 건드리지 않는다 — 장부 잠금 안에서
+    //  불러 파일 순서를 장부 갱신 순서와 맞춘다.
     uint64_t stage(Record& record);
 
-    // 쌓인 레코드를 한 번에 쓴다. 여러 스레드가 불러도 쓰기는 한 줄로 선다. 원장 잠금을 쥔 채 부르지 않는다.
+    // 쌓인 레코드를 한 번에 쓴다. 여러 스레드가 불러도 쓰기는 한 줄로 선다. 장부 잠금을 쥔 채 부르지 않는다.
     FlushResult flush();
 
     // seq가 디스크에 남았는지. flush() 뒤에 묻는다 — 거짓이면 그 레코드는 파일에 없다. 호출자는 그 변경을 되돌리고
