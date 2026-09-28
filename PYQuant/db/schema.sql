@@ -382,6 +382,7 @@ CREATE TABLE IF NOT EXISTS ledger_events (
     tax          NUMERIC(18,4),            -- FILL — 이번 체결 거래세
     avg_price    NUMERIC(18,4),            -- FILL — 체결 뒤 평단
     net_qty      INTEGER,                  -- FILL — 체결 뒤 보유수량
+    regime       TEXT,                     -- FILL — 체결 순간 국면(RISK_ON·NEUTRAL·RISK_OFF), 옛 파일은 NULL
     PRIMARY KEY (trade_date, journal, seq)
 );
 CREATE INDEX IF NOT EXISTS ledger_events_ts        ON ledger_events (ts DESC);

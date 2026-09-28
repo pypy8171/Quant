@@ -131,6 +131,13 @@ public:
     };
     AdoptResult adopt_open_intents(const std::vector<OrderGate::OpenIntent>& intents);
 
+    // 내부 주문번호를 highest 다음부터 매긴다. 재기동하면 번호가 1부터 다시 시작해 같은 날 저널 안에서 다른 주문과
+    //  겹치므로, 리플레이가 본 가장 큰 번호를 넘긴다. 이미 그보다 크면 그대로 둔다. [inv] 스레드 시작 전에 부른다.
+    void continue_order_numbers(uint64_t highest) noexcept;
+
+    // 내부 주문번호 문자열("ORD-000123") → 저널에 적는 정수(123). 형식이 다르면 0.
+    [[nodiscard]] static uint64_t order_number_of(std::string_view order_id) noexcept;
+
     // 살아있는 주문이 없는데 원장에 남은 선점을 푼다. 살아 있다고 치는 것은 이력의 접수·미체결 주문과,
     //  INTENT를 적고 KIS 답을 기다리는 주문(in_flight_symbols_)이다 — 선점은 전송 전 INTENT 때 생기고
     //  이력에는 답이 온 뒤에야 들어간다. 통보를 한 번 놓치면 선점이 슬롯을 물고 하루를 가서 정리한다.

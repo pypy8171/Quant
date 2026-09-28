@@ -1536,6 +1536,8 @@ def journal_mirror_row(date: str) -> tuple:
     주문·체결은 원장 저널 적재기(PYQuant/tools/ledger_recorder.py)가 엔진이 주문 전에 적는 파일에서 옮긴다.
     ZMQ로 받던 때는 리코더가 죽어 있거나 대기칸이 차면 조용히 빠졌다 — 이제 정본 파일과 건수를 맞춰 본다. [why D-113]
     적재기는 2초마다 따라가므로 마지막 60초 안에 적힌 레코드는 세지 않는다.
+    건수와 함께 빈 칸도 센다 — 09-28까지 저널에 계좌 번호·내부 주문번호가 비어 fills·orders의 account, orders의
+    price가 전부 NULL이었고 positions는 한 건도 안 옮겨졌다. 주문번호가 있는 주문만 가격을 본다(옛 파일은 0이다).
     """
     import time  # noqa: PLC0415
 
@@ -1573,6 +1575,7 @@ def journal_mirror_row(date: str) -> tuple:
         return (name, False, "WARN", "psycopg2 없음 — venv(PYQuant/.venv*)로 부른다")
 
     actual: dict[str, tuple[int, int, int]] = {}
+    blanks: dict[str, tuple[int, int, int]] = {}
 
     try:
         connection = psycopg2.connect(host="localhost", port=5432, dbname="quant", user="quant",
@@ -1588,6 +1591,19 @@ def journal_mirror_row(date: str) -> tuple:
                     "   AND journal_seq <= %(last)s)",
                     {"day": date, "journal": journal, "last": last_sequence})
                 actual[journal] = cursor.fetchone()
+                cursor.execute(
+                    "SELECT (SELECT COUNT(*) FROM fills WHERE journal_date = %(day)s AND journal = %(journal)s"
+                    "   AND journal_seq <= %(last)s AND account IS NULL)"
+                    " + (SELECT COUNT(*) FROM orders WHERE journal_date = %(day)s AND journal = %(journal)s"
+                    "   AND journal_seq <= %(last)s AND account IS NULL),"
+                    " (SELECT COUNT(*) FROM orders JOIN ledger_events result ON result.trade_date = orders.journal_date"
+                    "   AND result.journal = orders.journal AND result.seq = orders.journal_seq"
+                    "  WHERE orders.journal_date = %(day)s AND orders.journal = %(journal)s"
+                    "   AND orders.journal_seq <= %(last)s AND result.order_id IS NOT NULL AND orders.price IS NULL),"
+                    " (SELECT COUNT(*) FROM fills WHERE journal_date = %(day)s AND journal = %(journal)s"
+                    "   AND journal_seq <= %(last)s AND regime IS NULL)",
+                    {"day": date, "journal": journal, "last": last_sequence})
+                blanks[journal] = cursor.fetchone()
 
         connection.close()
     except Exception as error:   # DB가 없거나 잠든 날은 판정을 미룬다
@@ -1595,6 +1611,7 @@ def journal_mirror_row(date: str) -> tuple:
 
     details = []
     short = []
+    empty = []
 
     for journal, (fill_count, order_count, _) in expected.items():
         event_fills, table_fills, table_orders = actual[journal]
@@ -1603,10 +1620,23 @@ def journal_mirror_row(date: str) -> tuple:
         if (event_fills, table_fills, table_orders) != (fill_count, fill_count, order_count):
             short.append(journal)
 
+        missing_account, missing_price, missing_regime = blanks[journal]
+
+        if missing_account or missing_price:
+            empty.append(f"{journal} 계좌 빈 행 {missing_account}·가격 빈 주문 {missing_price}")
+
+        if missing_regime:
+            details.append(f"{journal} 국면 빈 체결 {missing_regime}건")
+
     if short:
         return (name, False, "FAIL",
                 f"저널과 DB 건수가 다르다({', '.join(short)}) — 적재기(PYQuant/tools/ledger_recorder.py)가 그 폴더를"
                 f" 안 따라갔거나 옮기기가 실패했다. 저널/ledger_events/fills 순: {'; '.join(details)}")
+
+    if empty:
+        return (name, False, "FAIL",
+                f"DB로 옮긴 행에 빈 칸이 있다({'; '.join(empty)}) — 엔진이 저널에 계좌 번호·주문번호를 안 적었다"
+                " (Quant/src/risk/PositionLedger.cpp journal_append, Quant/src/ipc/OrderRouter.cpp order_number_of)")
 
     return (name, True, "FAIL", "저널/ledger_events/fills 순 " + "; ".join(details))
 

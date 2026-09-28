@@ -233,9 +233,21 @@ uint64_t PositionLedger::journal_append(ledger_journal::Record& record, std::str
         return 0;
     }
 
-    ledger_journal::put_string(record.account, sizeof(record.account), account);
+    ledger_journal::put_string(record.account, sizeof(record.account), account.empty() ? journal_account_ : account);
     ledger_journal::put_string(record.ticker, sizeof(record.ticker), ticker);
     return journal_->stage(record);
+}
+
+std::string PositionLedger::ledger_account_of(const char* journal_account) const
+{
+    const std::string_view account(journal_account);
+
+    if (!journal_account_.empty() && account == journal_account_)
+    {
+        return std::string();
+    }
+
+    return std::string(account);
 }
 
 void PositionLedger::journal_flush()
@@ -319,13 +331,14 @@ void PositionLedger::track_open_intent(const ledger_journal::Record& record)
         return;
     }
 
-    const Kind kind = static_cast<Kind>(record.kind);
+    highest_order_id_ = std::max(highest_order_id_, record.order_id);
+    const Kind kind   = static_cast<Kind>(record.kind);
 
     if (kind == Kind::INTENT)
     {
         OpenIntent& intent   = open_intents_[record.order_id];
         intent.order_id      = record.order_id;
-        intent.account       = record.account;
+        intent.account       = ledger_account_of(record.account);
         intent.ticker        = record.ticker;
         intent.strategy_name = record.strategy;
         intent.side  = record.side == static_cast<uint8_t>(OrderSide::SELL) ? OrderSide::SELL : OrderSide::BUY;
@@ -366,7 +379,7 @@ void PositionLedger::apply_record(const ledger_journal::Record& record)
 {
     using ledger_journal::Kind;
     track_open_intent(record);
-    const std::string account(record.account);
+    const std::string account = ledger_account_of(record.account);
     const std::string ticker(record.ticker);
     const OrderSide   side = record.side == static_cast<uint8_t>(OrderSide::SELL) ? OrderSide::SELL : OrderSide::BUY;
 
@@ -974,7 +987,8 @@ PositionLedger::FillResult PositionLedger::on_fill_confirmed(
                                                  .tax           = result.tax,
                                                  .average_price = result.average_price,
                                                  .net_quantity  = result.net_quantity,
-                                                 .present       = 1});
+                                                 .present       = 2,
+                                                 .regime        = regime_code_.load(std::memory_order_relaxed)});
         journal_append(record, account, ticker);
     }
 

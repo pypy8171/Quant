@@ -115,8 +115,14 @@ struct FillDetail
     double   tax           = 0.0; // 이번 체결 거래세(원, 매도만)
     double   average_price = 0.0; // 체결 뒤 평단
     int32_t  net_quantity  = 0;   // 체결 뒤 보유수량
-    uint32_t present       = 0;   // 1 = 이 구조가 채워져 있다
+    // 1 = 위 네 칸이 채워져 있다, 2 = regime까지. 1이던 때 쓴 파일은 regime 자리가 0이라 BULL과 구별이 안 되어
+    //  값 하나로 둘을 가른다.
+    uint32_t present       = 0;
+    int32_t  regime        = -1;  // 체결 순간의 국면(Regime::Value), -1 = 엔진이 아직 국면을 못 골랐다
+    uint32_t unused        = 0;   // 8바이트 정렬 — 패딩 바이트가 남지 않아야 CRC가 결정적이다
 };
+
+static_assert(sizeof(FillDetail) == 40, "FillDetail이 바뀌면 ledger_dump.py의 FILL_DETAIL_FORMAT도 같이 고친다");
 
 static_assert(sizeof(FillDetail) <= kReasonMax && std::is_trivially_copyable_v<FillDetail>,
               "FillDetail은 reason 칸에 그대로 복사된다 — ledger_dump.py의 FILL_DETAIL_FORMAT도 같이 고친다");

@@ -1354,6 +1354,17 @@ void test_recover_skips_restored_orders()
     PASS("recover_skips_restored_orders");
 }
 
+// 내부 주문번호 "ORD-000123"을 저널 정수로 — 통째로 읽으면 'O'에서 멈춰 늘 0이었다(09-28).
+void test_order_number_of_reads_digits_after_prefix()
+{
+    assert(OrderRouter::order_number_of("ORD-000123") == 123);
+    assert(OrderRouter::order_number_of("ORD-1234567") == 1234567);
+    assert(OrderRouter::order_number_of("000123") == 0);
+    assert(OrderRouter::order_number_of("ORD-12A") == 0);
+    assert(OrderRouter::order_number_of("") == 0);
+    PASS("order_number_of_reads_digits_after_prefix");
+}
+
 int main()
 {
 #ifdef _WIN32
@@ -1386,6 +1397,7 @@ int main()
             Logger::instance().path_for(std::string("order_reasons_") + buffer + ".txt"), error_code);
     }
 
+    test_order_number_of_reads_digits_after_prefix();
     test_gate_rejected();
     test_kis_accepted();
     test_kis_failed();

@@ -91,6 +91,8 @@ void Engine::apply_regime_selection(Regime regime, bool force_log)
         append(on ? active_ids : inactive_ids, strategy->id());
     }
 
+    order_gate_.ledger().set_regime(regime); // 체결 기록이 그때의 국면을 싣는다(DB fills.regime)
+
 #ifdef HAS_ZMQ
     if (zmq_bridge_)
     {

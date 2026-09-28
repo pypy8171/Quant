@@ -13,6 +13,29 @@ std::string OrderRouter::next_id()
     return std::format("ORD-{:06}", ++sequence_);
 }
 
+void OrderRouter::continue_order_numbers(uint64_t highest) noexcept
+{
+    uint64_t current = sequence_.load();
+
+    while (current < highest && !sequence_.compare_exchange_weak(current, highest))
+    {
+    }
+}
+
+uint64_t OrderRouter::order_number_of(std::string_view order_id) noexcept
+{
+    // next_id가 붙이는 머리글을 떼고 숫자만 읽는다 — 통째로 읽으면 'O'에서 멈춰 늘 0이 되었다(09-28 확인,
+    //  D-113 저널 도입부터 order_id가 전부 0이라 재기동 미결 주문 대조가 한 번도 짝을 못 찾았다).
+    constexpr std::string_view prefix = "ORD-";
+
+    if (!order_id.starts_with(prefix))
+    {
+        return 0;
+    }
+
+    return digits_to_number(order_id.substr(prefix.size()));
+}
+
 OrderRouter::InFlightMark::InFlightMark(OrderRouter& router, symbol::SymbolId symbol_id)
     : router_(router), symbol_id_(symbol_id)
 {

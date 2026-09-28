@@ -162,7 +162,8 @@ void test_journal_replay_rebuilds_ledger()
                                                   std::memcpy(&detail, record.reason, sizeof(detail));
                                               }
                                           });
-    assert(detail.present == 1);
+    assert(detail.present == 2);
+    assert(detail.regime == -1);                                     // 엔진이 국면을 안 골랐다
     assert(detail.net_quantity == 13);
     assert(detail.average_price > 70229.0 && detail.average_price < 70232.0);
     assert(detail.commission > 31.94 && detail.commission < 31.96); // 3 * 71000 * 0.015%
@@ -173,6 +174,7 @@ void test_journal_replay_rebuilds_ledger()
     assert(intents.size() == 1);
     assert(intents[0].order_id == 11 && intents[0].kis_order_number == 991);
     assert(intents[0].ticker == "005930" && intents[0].remaining == 2 && intents[0].accepted);
+    assert(restarted.highest_order_id() == 12); // 라우터가 이 다음부터 번호를 매긴다
 
     // 이어 적기 — 리플레이한 만큼 건너뛴 번호부터 붙는다(같은 번호를 두 번 쓰면 뒤 기동이 헷갈린다).
     assert(restarted.on_intent("ACC1", "005930", OrderSide::SELL, 4, 72000.0,
@@ -372,6 +374,51 @@ void test_absorb_missed_buy_after_two_observations()
     PASS("absorb_missed_buy_after_two_observations");
 }
 
+// ─── 단일 계좌 키("")는 저널에 계좌 번호로 적히고, 리플레이는 다시 ""로 읽는다 ─────────────
+//  09-28 확인: 키 ""가 그대로 적혀 DB fills·orders의 account가 전부 NULL, positions는 한 건도 안 옮겨졌다.
+void test_journal_writes_account_number_for_single_account()
+{
+    const std::filesystem::path directory = make_journal_directory("account");
+    const std::string           date      = "20260928";
+    {
+        PositionLedger ledger;
+        ledger.set_journal_account("50204275");
+        assert(ledger.set_journal(directory, date, false));
+        ledger.set_regime(Regime::NEUTRAL);
+        assert(ledger.on_intent(std::string(), "005930", OrderSide::BUY, 5, 71000.0,
+                                PositionLedger::OrderRef{7, 0, OrderType::LIMIT}));
+        ledger.on_fill_confirmed(std::string(), "005930", OrderSide::BUY, 5, 71000.0, strategy_table::kNone,
+                                 PositionLedger::OrderRef{7, 991, OrderType::LIMIT});
+    }
+
+    int                      written = 0;
+    ledger_journal::FillDetail detail;
+    ledger_journal::LedgerJournal::replay(directory / ("ledger_" + date + ".bin"),
+                                          [&](const ledger_journal::Record& record)
+                                          {
+                                              assert(std::string_view(record.account) == "50204275");
+                                              ++written;
+
+                                              if (record.kind == static_cast<uint16_t>(ledger_journal::Kind::FILL))
+                                              {
+                                                  std::memcpy(&detail, record.reason, sizeof(detail));
+                                              }
+                                          });
+    assert(written == 2);
+    assert(detail.present == 2 && detail.regime == static_cast<int32_t>(Regime::NEUTRAL));
+
+    PositionLedger restarted;
+    restarted.set_journal_account("50204275");
+    assert(restarted.set_journal(directory, date, false));
+    assert(restarted.position(std::string(), "005930") == 5);   // 원장 키는 여전히 ""
+    assert(restarted.position("50204275", "005930") == 0);
+    assert(restarted.highest_order_id() == 7);
+
+    std::error_code error_code;
+    std::filesystem::remove_all(directory, error_code);
+    PASS("journal_writes_account_number_for_single_account");
+}
+
 int main()
 {
 #ifdef _WIN32
@@ -381,6 +428,7 @@ int main()
     test_sell_clamps_position_at_zero();
     test_partial_fill_average_price();
     test_journal_replay_rebuilds_ledger();
+    test_journal_writes_account_number_for_single_account();
     test_journal_truncates_broken_tail();
     test_journal_stops_at_corrupt_record();
     test_journal_opens_on_non_codepage_path();

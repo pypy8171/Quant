@@ -173,6 +173,26 @@ public:
     //  공유하면 안 된다(파일 하나 = 원장 하나).
     [[nodiscard]] bool set_journal(const std::filesystem::path& directory, std::string_view date_yyyymmdd, bool fsync);
 
+    // 저널에 적을 계좌 번호. 단일 계좌는 원장 키가 ""라 그대로 적으면 파일·DB에서 어느 계좌인지 모른다 — 키가 ""인
+    //  레코드는 이 번호로 적고, 리플레이는 이 번호를 다시 ""로 읽는다. 이 번호를 모르던 때 쓴 파일은 "" 그대로다.
+    //  [inv] set_journal 전에 부른다(리플레이가 이 번호로 키를 되돌린다).
+    void set_journal_account(std::string account)
+    {
+        journal_account_ = std::move(account);
+    }
+
+    // 체결 기록에 싣는 지금 국면. 엔진이 국면을 고를 때마다 갱신한다. 한 번도 안 불렸으면 체결 기록에 국면이 없다.
+    void set_regime(Regime regime) noexcept
+    {
+        regime_code_.store(static_cast<int32_t>(static_cast<Regime::Value>(regime)), std::memory_order_relaxed);
+    }
+
+    // 리플레이가 본 가장 큰 내부 주문번호. 라우터가 재기동 뒤 이 다음부터 번호를 매겨 같은 날 저널 안에서 겹치지 않게 한다.
+    [[nodiscard]] uint64_t highest_order_id() const noexcept
+    {
+        return highest_order_id_;
+    }
+
     [[nodiscard]] bool journal_open() const noexcept
     {
         return journal_ && journal_->ok();
@@ -512,6 +532,8 @@ private:
     // 레코드 하나를 저널 버퍼에 쌓고(계좌·종목을 채워서) seq를 돌려준다. 디스크는 건드리지 않는다 — 원장 잠금 안에서
     //  불러 순서를 잡고, 쓰기는 잠금을 푼 뒤 journal_flush()가 한다. 리플레이 중이거나 저널이 없으면 0. [why CODE_REVIEW W-2]
     uint64_t journal_append(ledger_journal::Record& record, std::string_view account, std::string_view ticker);
+    // 저널의 계좌 칸 → 원장 키. journal_account_와 같으면 단일 계좌 키 ""로 되돌린다(journal_append의 반대).
+    std::string ledger_account_of(const char* journal_account) const;
     // 쌓인 레코드를 디스크에 쓴다. 실패는 세고 로그 한 줄. [inv] positions_mutex_를 쥔 채 부르지 않는다.
     void journal_flush();
     // seq가 디스크에 남았는지 — 먼저 쓰고 묻는다. 리플레이 중이거나 저널이 없으면 참(적을 것이 없다).
@@ -552,7 +574,10 @@ private:
     std::atomic<uint64_t>        journal_failures_{0};
     // 리플레이가 남긴 미결 주문. set_journal 안에서만 쓰이고(스레드 시작 전) 그 뒤로는 읽기만 한다.
     std::unordered_map<uint64_t, OpenIntent> open_intents_;
-    PosMap<int>    positions_;   // (account,ticker) → 실체결 순보유 수량 (양수=롱)
+    uint64_t                     highest_order_id_ = 0;  // 리플레이가 본 가장 큰 order_id. set_journal 안에서만 쓴다
+    std::string                  journal_account_;       // 키 ""를 저널에 적을 때 쓰는 계좌 번호(set_journal_account)
+    std::atomic<int32_t>         regime_code_{-1};       // Regime::Value, -1 = 아직 모름(set_regime)
+    PosMap<int>    positions_;  // (account,ticker) → 실체결 순보유 수량 (양수=롱)
     PosMap<double> average_prices_;
     PosMap<double> mark_prices_;    // (account,ticker) → 잔고 현재가(§3d 총노출 분자). 잔고 대조가 통째 갈아 끼운다
     // account:ticker -> 매도가능수량. 보유수량과 다르다: 기동 전 세션이 남긴 미체결 매도,

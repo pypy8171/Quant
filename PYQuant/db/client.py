@@ -670,6 +670,8 @@ class DbClient:
             "ALTER TABLE ledger_events ADD COLUMN IF NOT EXISTS tax NUMERIC(18,4)",
             "ALTER TABLE ledger_events ADD COLUMN IF NOT EXISTS avg_price NUMERIC(18,4)",
             "ALTER TABLE ledger_events ADD COLUMN IF NOT EXISTS net_qty INTEGER",
+            # FILL의 체결 순간 국면(RISK_ON·NEUTRAL·RISK_OFF). 이 칸이 생기기 전 파일의 FILL은 NULL이다.
+            "ALTER TABLE ledger_events ADD COLUMN IF NOT EXISTS regime TEXT",
             # 어느 저널에서 온 레코드인지 — 저널이 있는 폴더 이름(logs_paper·logs_live). 모의·실계좌가 같은 날 돌면
             #  파일 이름(ledger_YYYYMMDD.bin)과 seq가 둘 다 겹쳐, (거래일, seq)만으로는 뒤에 온 계좌의 레코드가
             #  조용히 빠졌다(09-23에 두 파일이 같이 있었다). 이 열이 생기기 전 행은 ''다.
@@ -701,7 +703,7 @@ class DbClient:
     def insert_ledger_events(self, rows: list[tuple]) -> int:
         """원장 레코드를 한 번에 넣는다. 이미 있는 (trade_date, journal, seq)는 조용히 건너뛴다.
 
-        rows 원소는 ledger_recorder가 만드는 24개 값 튜플이다. 같은 파일을 두 번 읽어도
+        rows 원소는 ledger_recorder가 만드는 25개 값 튜플이다. 같은 파일을 두 번 읽어도
         원장이 부풀지 않는 것이 이 함수의 유일한 약속 — 멱등 키가 PK다.
         """
         if not rows:
@@ -712,8 +714,8 @@ class DbClient:
                     "INSERT INTO ledger_events"
                     "(trade_date,journal,seq,ts,kind,account,ticker,side,order_type,order_id,odno,"
                     " quantity,reserved_qty,sellable,price,cash,equity,pnl,strategy,reason,"
-                    " commission,tax,avg_price,net_qty)"
-                    " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
+                    " commission,tax,avg_price,net_qty,regime)"
+                    " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
                     " ON CONFLICT (trade_date, journal, seq) DO NOTHING",
                     rows,
                 )
@@ -728,9 +730,10 @@ class DbClient:
     #  같다(fills·orders는 journal 고유 색인, positions는 덮어쓰기). 주문번호는 KIS가 주는 10자리 0 채움으로 되돌린다
     #  (저널은 정수로 적는다) — csv·체결통보와 같은 글자여야 odno로 이어 볼 수 있다. [why D-113]
     _MIRROR_FILLS = (
-        "INSERT INTO fills(ts,odno,ticker,side,filled_qty,filled_price,commission,tax,market,strategy,account,"
+        "INSERT INTO fills(ts,odno,ticker,side,filled_qty,filled_price,commission,tax,market,regime,strategy,account,"
         " journal,journal_date,journal_seq)"
-        " SELECT ts, lpad(odno::text, 10, '0'), ticker, side, quantity, price, commission, tax, 'KR', strategy, account,"
+        " SELECT ts, lpad(odno::text, 10, '0'), ticker, side, quantity, price, commission, tax, 'KR', regime, strategy,"
+        "  account,"
         "  journal, trade_date, seq"
         " FROM ledger_events WHERE trade_date = %(day)s AND journal = %(journal)s"
         "  AND seq > %(after)s AND seq <= %(through)s AND kind = 'FILL'"

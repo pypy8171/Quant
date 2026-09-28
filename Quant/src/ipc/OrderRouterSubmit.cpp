@@ -177,7 +177,7 @@ std::variant<ManagedOrder, OrderRouter::NewOrderSend> OrderRouter::open_new(cons
         return std::move(route.managed_order);
     }
 
-    route.order_reference = OrderGate::OrderRef{digits_to_number(route.managed_order.order_id), 0, route.signal.type};
+    route.order_reference = OrderGate::OrderRef{order_number_of(route.managed_order.order_id), 0, route.signal.type};
     // 여기부터 close_new의 이력 기록까지 이 종목의 선점을 정리가 풀지 못하게 건다 — INTENT 두 자리(청산 재매도,
     //  신규 전송) 모두 이 안이다. [why D-113]
     auto in_flight = std::make_unique<InFlightMark>(*this, route.signal.symbol_id != symbol::kNone
@@ -890,7 +890,7 @@ void OrderRouter::close_live_original_locked(const OrderSignal& signal, const Or
     if (release > 0)
     {
         gate_.ledger().on_cancel(original.account, original.ticker, original.side, release,
-                                 OrderGate::OrderRef{live ? digits_to_number(live->order_id) : 0,
+                                 OrderGate::OrderRef{live ? order_number_of(live->order_id) : 0,
                                                      digits_to_number(original.kis_order_no), signal.type});
     }
 }
@@ -1042,7 +1042,7 @@ std::variant<ManagedOrder, OrderRouter::ModifyOrderSend> OrderRouter::open_modif
     reserve_signal.account_id  = original.account;
     reserve_signal.side        = original.side;
     reserve_signal.quantity    = route.new_quantity;
-    route.order_reference      = OrderGate::OrderRef{digits_to_number(managed_order.order_id), 0, signal.type};
+    route.order_reference      = OrderGate::OrderRef{order_number_of(managed_order.order_id), 0, signal.type};
     // close_modify의 이력 기록까지 이 종목의 선점을 정리가 풀지 못하게 건다. [why D-113]
     auto in_flight = std::make_unique<InFlightMark>(*this, gate_.ledger().intern_symbol(original.ticker));
 
@@ -1209,7 +1209,7 @@ void OrderRouter::close_replace(ModifyRoute& route)
 
         // 정정본 선점은 위 INTENT에서 이미 잡혔다 — 여기서는 새 주문번호로 ACCEPT만 적는다.
         ledger.on_accepted(original.account, original.ticker, original.side, new_quantity,
-                           OrderGate::OrderRef{digits_to_number(managed_order.order_id),
+                           OrderGate::OrderRef{order_number_of(managed_order.order_id),
                                                digits_to_number(route.acknowledgement.kis_order_no), signal.type});
     }
 

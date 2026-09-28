@@ -40,8 +40,11 @@ HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
 RECORD_FORMAT = "<QqQQHBBiiidddd16s12s24s48sIII"
 RECORD_SIZE = struct.calcsize(RECORD_FORMAT)
 assert HEADER_SIZE == 16 and RECORD_SIZE == 192, (HEADER_SIZE, RECORD_SIZE)
-# FILL은 reason 칸에 체결 결과를 싣는다 — LedgerJournal.h의 FillDetail과 한 벌(수수료·세금·평단·보유·present).
-FILL_DETAIL_FORMAT = "<dddiI"
+# FILL은 reason 칸에 체결 결과를 싣는다 — LedgerJournal.h의 FillDetail과 한 벌(수수료·세금·평단·보유·present·
+#  국면·빈 칸). present 1은 국면 칸이 생기기 전 파일이다.
+FILL_DETAIL_FORMAT = "<dddiIiI"
+# 국면 번호(Regime::Value) → DB 라벨. 엔진 RegimeFileJudge의 label_of와 같은 어휘다(ZMQ 적재기가 쓰던 값).
+REGIME_LABELS = {0: "RISK_ON", 1: "NEUTRAL", 2: "RISK_OFF", 3: "UNKNOWN"}
 
 KIND_NAMES = {1: "SEED", 2: "INTENT", 3: "ACCEPT", 4: "REJECT", 5: "FILL",
               6: "CANCEL", 7: "ADJUST", 8: "RESET_RESERVED", 9: "CASH", 10: "DAILY_PNL",
@@ -78,6 +81,7 @@ class Record(NamedTuple):
     tax: float = 0.0
     average_price: float = 0.0
     net_quantity: int = 0
+    regime: str = ""  # 체결 순간의 국면 라벨. 빈 문자열이면 모른다(옛 파일이거나 엔진이 국면을 못 골랐다)
 
     @property
     def wall_time(self) -> dt.datetime:
@@ -130,12 +134,14 @@ def read_records(path: Path, start_offset: int = 0) -> ReadResult:
         reason, detail = _text(fields[17]), {}
 
         if kind == "FILL":
-            commission, tax, average_price, net_quantity, present = struct.unpack_from(FILL_DETAIL_FORMAT, fields[17])
+            commission, tax, average_price, net_quantity, present, regime, _ = struct.unpack_from(
+                FILL_DETAIL_FORMAT, fields[17])
             reason = ""  # FILL의 reason 칸은 글자가 아니라 FillDetail이다
 
-            if present == 1:
+            if present in (1, 2):
                 detail = dict(fill_detail=True, commission=commission, tax=tax,
-                              average_price=average_price, net_quantity=net_quantity)
+                              average_price=average_price, net_quantity=net_quantity,
+                              regime=REGIME_LABELS.get(regime, "") if present == 2 else "")
 
         records.append(Record(
             sequence=fields[0], wall_us=fields[1], order_id=fields[2], kis_order_number=fields[3],

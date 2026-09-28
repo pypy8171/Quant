@@ -62,7 +62,7 @@ def to_row(record: Record, trade_date: dt.date, journal: str) -> tuple:
         record.quantity, record.reserved_quantity, record.sellable,
         record.price, record.cash, record.equity, record.pnl,
         record.strategy or None, record.reason or None,
-        *detail,
+        *detail, record.regime or None,
     )
 
 

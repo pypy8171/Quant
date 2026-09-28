@@ -259,7 +259,7 @@ void OrderRouter::restore_from_order_reason_locked(const FillNotification& fill_
     (void)gate_.ledger().on_intent(record.signal.account_id, record.signal.ticker, record.signal.side,
                                    record.signal.quantity,
                                    record.signal.price > 0.0 ? record.signal.price : record.signal.reference_price,
-                                   OrderGate::OrderRef{digits_to_number(record.order_id), order_number, record.signal.type},
+                                   OrderGate::OrderRef{order_number_of(record.order_id), order_number, record.signal.type},
                                    record.signal.strategy_index);
     LOG_INFO("[OrderRouter] 재기동 복원 [" + record.order_id + "] ODNO=" + fill_notification.kis_order_no + " " +
              record.signal.ticker +
@@ -385,7 +385,7 @@ void OrderRouter::apply_unlinked_fill(std::unique_lock<std::mutex>& lock, const 
 
     const int unlinked_order_quantity = unlinked_order.order_quantity; // 로그용 — unlinked_orders_ 원소는 락 밖에서 안 읽는다
 
-    const OrderGate::OrderRef unlinked_reference{digits_to_number(unlinked_fill.order_id), order_number,
+    const OrderGate::OrderRef unlinked_reference{order_number_of(unlinked_fill.order_id), order_number,
                                                  unlinked_fill.signal.type};
     (void)ledger.on_intent(unlinked_fill.signal.account_id, fill_notification.ticker, fill_notification.side,
                            unlinked_quantity, fill_notification.filled_price, unlinked_reference,
@@ -433,7 +433,7 @@ void OrderRouter::apply_linked_fill(std::unique_lock<std::mutex>& lock, ManagedO
     const uint64_t order_number = digits_to_number(fill_notification.kis_order_no);
     auto result = ledger.on_fill_confirmed(managed_order.signal.account_id, fill_notification.ticker, fill_notification.side,
                                           apply_quantity, fill_notification.filled_price, managed_order.signal.strategy_index,
-                                          OrderGate::OrderRef{digits_to_number(managed_order.order_id), order_number,
+                                          OrderGate::OrderRef{order_number_of(managed_order.order_id), order_number,
                                                               managed_order.signal.type});
 
     // 락 밖에서 쓰려고 복사한다 — managed_order는 history_ 원소라 record()의 축출로 참조가 죽을 수 있다.

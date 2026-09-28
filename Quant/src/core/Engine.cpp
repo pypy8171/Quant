@@ -408,6 +408,9 @@ bool Engine::try_open_ledger_journal()
         return true;
     }
 
+    // 단일 계좌 키("")로 적히는 레코드에 실을 계좌 번호 — DB fills·orders·positions가 계좌를 가르는 칸이다.
+    ledger.set_journal_account(feed_.kis ? feed_.kis->account_no() : std::string("PAPER"));
+
     // 오늘 파일을 열고 처음부터 다시 적용한다 — 재기동 전 선점·체결·대조가 원장에 되살아난다. 못 열면 원장 없이
     //  주문이 나가는 셈이라 기동을 거부한다(감시견이 다시 띄운다). [why D-113]
     if (!ledger.set_journal(utf8::path_from_utf8(ledger_journal_directory_), kst::date_yyyymmdd(std::time(nullptr)),
@@ -428,6 +431,7 @@ bool Engine::try_open_ledger_journal()
 void Engine::resolve_open_intents()
 {
     auto& ledger = order_gate_.ledger();
+    order_router_->continue_order_numbers(ledger.highest_order_id());
 
     const auto intents = ledger.open_intents();
 
