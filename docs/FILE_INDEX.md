@@ -10,7 +10,7 @@
 - [.vscode](#vscode) — 4개
 - [PYQuant](#pyquant) — 104개
 - [Quant](#quant) — 353개
-- [docs](#docs) — 133개
+- [docs](#docs) — 135개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 245개
 - [scripts](#scripts) — 50개
@@ -708,6 +708,8 @@
 - [2026-09-21.md](market_close/2026-09-21.md) — 09-21 매매 사후검토(D-023 SEH 크래시 재발·재시도로 해소, A등급 결함 없음)
 - [2026-09-22.md](market_close/2026-09-22.md) — 09-22 매매 사후검토
 - [2026-09-23.md](market_close/2026-09-23.md) — 09-23 매매 사후검토
+- [2026-09-28.md](market_close/2026-09-28.md) — 09-28 매매 사후검토
+- [2026-09-29.md](market_close/2026-09-29.md) — 09-29 매매 사후검토
 - [README.md](market_close/README.md) — 장 마감 리뷰 색인
 
 ### docs/premarket/
