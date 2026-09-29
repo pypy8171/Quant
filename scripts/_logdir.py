@@ -17,6 +17,8 @@ logs/ 에 쓴다. 그래서 같은 날짜의 trades_YYYYMMDD.csv 가 두 폴더�
   log_sources(date, directory)   그 날짜 줄이 들어 있을 수 있는 파일 — archive/quant_trader_<날짜>.log.gz 뒤에
                      라이브 로그. maintain.py --rotate-logs 가 7일 지난 날의 줄을 gz로 옮기므로 옛 날짜는 gz에만 있다
   iter_log_lines(date, directory) 위 파일들을 차례로 열어 줄 단위로 낸다(.gz 도 보통 텍스트처럼)
+  live_date_log_lines(date, directory) 그중 부하시험 세션 줄을 뺀 것 — 그날 매매를 세는 쪽은 이것만 쓴다
+  has_date_lines(path, date)  라이브 로그에 그 날짜 줄이 있는가 — log_sources 가 옛 날에 멈춘 파일을 빼는 데 쓴다
   is_live_row(row)   원장 한 행이 실매매 행인가 — 시험·부하시험 행을 뺀다. 집계하는 쪽은 모두 이것만 쓴다
   is_live_config(path)  기동 줄의 설정 파일로 그 세션이 실매매 세션인지 가른다
 """
@@ -208,7 +210,8 @@ def log_sources(date: str | None = None, directory: Path | None = None) -> list[
         sources += sorted(archive_dir.glob(ARCHIVE_NAME.format(iso="*")))
         for role in ROLE_LOG_NAMES:
             sources += sorted(archive_dir.glob(ARCHIVE_ROLE_NAME.format(role=role, iso="*")))
-    sources += live_logs(base)
+    # 날짜를 주면 그날 줄이 있는 라이브 로그만 — 옛 날에 멈춘 역할 파일이 역할 수와 합치기에 끼지 않게
+    sources += [path for path in live_logs(base) if not date or has_date_lines(path, date)]
     return [path for path in sources if path.is_file()]
 
 
@@ -230,6 +233,44 @@ def _keyed_lines(handle) -> Iterator[tuple[str, str]]:
         yield previous, line
 
 
+def _first_date_from(handle, offset: int) -> str | None:
+    """offset 이후에 시작하는 첫 시각 줄의 날짜(YYYY-MM-DD). 시각 없는 줄은 건너뛴다. 끝까지 없으면 None."""
+    if offset > 0:
+        handle.seek(offset - 1)
+        handle.readline()   # offset 이 줄 한가운데면 그 줄을 버리고, 줄머리면 앞 줄의 개행만 먹는다
+    else:
+        handle.seek(0)
+
+    for line in handle:
+        head = line[:TIMESTAMP_WIDTH]
+        if len(head) == TIMESTAMP_WIDTH and head[4:5] == b"-" and head[10:11] == b" " and head[13:14] == b":":
+            return head[:10].decode("ascii", errors="replace")
+
+    return None
+
+
+def has_date_lines(path: Path, date: str) -> bool:
+    """라이브 로그에 그 날짜 줄이 하나라도 있는가. 줄은 시각순이라 바이트 위치로 이분 탐색한다(200MB도 수십 번 읽기).
+
+    날짜를 보지 않고 파일이 있다는 것만으로 세면, 갈라 띄운 날(09-24)에 멈춘 역할 파일 셋이 이후 모든 날짜에
+    역할 프로세스 셋으로 잡혀 통로 판정이 헛 FAIL 을 냈다(2026-09-28)."""
+    iso = _iso(date)
+    try:
+        with path.open("rb") as handle:
+            low, high = 0, handle.seek(0, os.SEEK_END)
+            while low < high:
+                middle = (low + high) // 2
+                found = _first_date_from(handle, middle)
+                if found is None or found >= iso:
+                    high = middle
+                else:
+                    low = middle + 1
+
+            return _first_date_from(handle, low) == iso
+    except OSError:
+        return False
+
+
 def iter_log_lines(date: str | None = None, directory: Path | None = None) -> Iterator[str]:
     """log_sources() 의 파일을 열어 줄을 낸다(개행 포함). 소비자는 date 로 줄을 거르는 일을 그대로 한다 —
     gz 에는 그 날짜 줄만 있지만 라이브 로그에는 여러 날이 섞여 있다.
@@ -247,3 +288,64 @@ def iter_log_lines(date: str | None = None, directory: Path | None = None) -> It
         streams = [_keyed_lines(stack.enter_context(open_log(path))) for path in sources]
         for _, line in heapq.merge(*streams, key=lambda pair: pair[0]):
             yield line
+
+
+# 세션 경계와 설정 줄. 설정 줄은 기동 줄 서너 줄 뒤에 나온다(플랫폼·역할 줄 다음).
+SESSION_START_MARK = "=== Quant Trader"
+CONFIG_LINE_MARK = "설정 로드: "
+# 기동 줄 뒤 이만큼 안에 설정 줄이 없으면 실매매로 보고 모아 둔 줄을 내보낸다 — 설정 로드 전에 죽은 기동이
+#  뒤 줄을 끝없이 붙잡지 않게.
+CONFIG_LINE_WINDOW = 50
+
+
+def live_session_lines(lines) -> Iterator[str]:
+    """줄 흐름에서 부하시험 세션의 줄을 뺀다. 기동 줄부터 다음 기동 줄 전까지를 한 세션으로 보고, 그 세션의
+    설정 줄을 is_live_config 로 가른다. 설정 줄이 나올 때까지는 모아 두었다가 판정이 난 뒤 내거나 버린다.
+    첫 기동 줄 앞의 줄(회전본이 세션 중간에서 시작한 경우)은 실매매로 본다.
+
+    부하시험 엔진은 실매매 엔진과 같은 로그에 쓴다. 장부 행은 is_live_row 로 거르지만 로그 줄에는 거름이 없어,
+    2026-09-28 매매일지 1절이 18:55 부하시험 세션의 '전일총자산 10조'를 그날 손익으로 집었다.
+    두 엔진이 같은 시각에 한 파일로 쓰면 줄이 섞여 이 방식으로는 못 가른다 — 부하시험은
+    scripts/make_load_test_config.py 가 안내하는 대로 QUANT_LOG_DIR 을 따로 주고 띄운다."""
+    pending: list[str] = []
+    live = True
+    deciding = False
+
+    for line in lines:
+        if SESSION_START_MARK in line:
+            if deciding:
+                yield from pending   # 설정 줄 없이 끝난 세션 — 실매매로 본다
+
+            pending = [line]
+            deciding = True
+            continue
+
+        if deciding:
+            pending.append(line)
+            position = line.find(CONFIG_LINE_MARK)
+            if position >= 0:
+                config_path = line[position + len(CONFIG_LINE_MARK):].split()
+                live = is_live_config(config_path[0]) if config_path else True
+            elif len(pending) <= CONFIG_LINE_WINDOW:
+                continue
+            else:
+                live = True
+
+            deciding = False
+            if live:
+                yield from pending
+
+            pending = []
+            continue
+
+        if live:
+            yield line
+
+    if deciding:
+        yield from pending
+
+
+def live_date_log_lines(date: str | None = None, directory: Path | None = None) -> Iterator[str]:
+    """iter_log_lines 에서 부하시험 세션 줄을 뺀 것. 그날 매매를 세는 쪽(마감 집계·일지·런타임 판정)은 이것만 쓴다."""
+    with contextlib.closing(iter_log_lines(date, directory)) as lines:
+        yield from live_session_lines(lines)

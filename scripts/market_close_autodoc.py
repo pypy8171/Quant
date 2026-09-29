@@ -46,7 +46,6 @@ AUTO_END = "<!-- AUTO:END -->"
 
 LINE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})\.\d+ (?:\{[^}]*\}\s+)?\[(\w+)\s*\] (.*)$")
 SESSION_RE = re.compile(r"=== Quant Trader")
-CONFIG_RE = re.compile(r"설정 로드: (\S+)")
 SIZING_RE = re.compile(r"사이징 백스톱: 종목당 명목 (\d+)원, 동시보유 (\d+)종목")
 STAGE_PASS_RE = re.compile(r"정배열 프리필터: (.*)$")
 REGIME_RE = re.compile(r"국면=(\w+)")
@@ -91,7 +90,8 @@ def scan_log(log: Path, ymd: str) -> dict:
     warns: Counter = Counter()
     current: dict | None = None
 
-    with contextlib.closing(_logdir.iter_log_lines(ymd, _logdir.dir_of(log))) as lines:
+    # 부하시험으로 띄운 엔진도 같은 로그에 쓴다. 세션 수·손익 줄·경고는 실매매 세션 줄에서만 센다.
+    with contextlib.closing(_logdir.live_date_log_lines(ymd, _logdir.dir_of(log))) as lines:
         for raw in lines:
             m = LINE_RE.match(raw.rstrip("\n"))
             if not m:
@@ -102,16 +102,13 @@ def scan_log(log: Path, ymd: str) -> dict:
 
             if SESSION_RE.search(rest):
                 current = {"at": hms, "slots": None, "cap": None, "stage_pass": None,
-                       "regime": None, "registered": None, "note": "", "live": True}
+                       "regime": None, "registered": None, "note": ""}
                 sessions.append(current)
 
             for t, n in NAME_RE.findall(rest):
                 names.setdefault(t, n)
 
             if current is not None:
-                match = CONFIG_RE.search(rest)
-                if match:
-                    current["live"] = _logdir.is_live_config(match[1])
                 match = SIZING_RE.search(rest)
                 if match and current["slots"] is None:
                     current["cap"], current["slots"] = int(match[1]), int(match[2])
@@ -136,8 +133,7 @@ def scan_log(log: Path, ymd: str) -> dict:
             if lvl in ("WARN", "ERROR"):
                 warns[NUM_RE.sub("N", rest)[:80]] += 1
 
-    # 부하시험으로 띄운 엔진도 같은 로그에 기동 줄을 쓴다. 매매일지가 세는 세션은 실매매 세션뿐이다.
-    return {"sessions": [session for session in sessions if session["live"]],
+    return {"sessions": sessions,
             "pnl": pnl, "prev_pnl": prev_pnl,
             "names": names, "warns": warns.most_common(10)}
 

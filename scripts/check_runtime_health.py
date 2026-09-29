@@ -722,6 +722,114 @@ def after_market_order_row(date: str) -> tuple:
     return (name, True, "FAIL", f"애프터마켓 주문 {after_market_orders}건, 주문구분·거래소 거부 0건")
 
 
+DUST_REASON_PREFIX = "청산:먼지 정리"
+DEVSCALE_STRATEGY_PREFIX = "DEVSCALE"
+# 원장 폴더 → 진입 마감 시각을 읽을 설정. 목록에 없는 폴더(부하시험·시험)는 판정하지 않는다.
+ENTRY_CUTOFF_CONFIG = {
+    "logs": "config_dev_paper.json",
+    "logs_live": "config_live.json",
+}
+DEFAULT_ENTRY_CUTOFF_HHMM = 1520
+
+
+def live_ledger_records(date: str):
+    """그날 원장 행을 (폴더 이름, 행) 으로 돌려준다. 시험·부하시험 행은 뺀다."""
+    date_compact = date.replace("-", "")
+
+    for ledger in sorted(REPO.glob(f"Quant/build*/logs*/trades_{date_compact}.csv")):
+        try:
+            with ledger.open(encoding="utf-8", errors="replace", newline="") as handle:
+                for record in csv.DictReader(handle):
+                    if _logdir.is_live_row(record):
+                        yield ledger.parent.name, record
+        except OSError:
+            continue
+
+
+def same_day_dust_row(date: str) -> tuple:
+    """당일 산 종목을 먼지 정리로 되팔았는지.
+
+    먼지 정리는 전날 남은 잔량을 치우는 규칙이다. 2026-09-29 분할 매수 첫 회차 체결액(약 12만원)이 dust_krw
+    (25만원) 아래라 신규 매수 11건 중 8건을 10~30초 뒤 되팔았다. 당일 진입분은 빼도록 고친 뒤 0건이어야 한다.
+    """
+    name = "당일 매수분 먼지 정리"
+    bought: set[tuple] = set()
+    resold: dict[tuple, str] = {}
+
+    for folder, record in live_ledger_records(date):
+        if record.get("event") != "FILL":
+            continue
+
+        key = (folder, record.get("ticker", ""))
+        side = record.get("side", "")
+
+        if side == "BUY":
+            bought.add(key)
+        elif side == "SELL" and key in bought and (record.get("entry_reason") or "").startswith(DUST_REASON_PREFIX):
+            # 부분 체결은 같은 주문이 여러 행이라 주문번호로 한 건으로 센다.
+            order_key = (folder, record.get("order_id", ""))
+            resold.setdefault(order_key, f"{(record.get('ts_kst') or '')[11:19]} {key[1]} [{folder}]")
+
+    if not bought:
+        return (name, True, "WARN", "당일 매수 체결이 없다 — 판정 안 함")
+
+    if resold:
+        return (name, False, "FAIL",
+                f"당일 매수 종목의 먼지 정리 매도 {len(resold)}건 — {', '.join(list(resold.values())[:3])}"
+                " (당일 진입분은 먼지 정리에서 빠져야 한다)")
+
+    return (name, True, "FAIL", f"당일 매수 {len(bought)}종목, 먼지 정리 되팔기 0건")
+
+
+def entry_cutoff_hhmm(config_name: str) -> int:
+    """설정의 DevScale no_new_entry_hhmm. 못 읽으면 엔진 기본값 1520, 0이면 꺼짐."""
+    try:
+        with (REPO / "Quant" / "config" / config_name).open(encoding="utf-8") as handle:
+            text = handle.read()
+    except OSError:
+        return DEFAULT_ENTRY_CUTOFF_HHMM
+
+    match = re.search(r'"no_new_entry_hhmm"\s*:\s*(\d+)', text)
+    return int(match.group(1)) if match else DEFAULT_ENTRY_CUTOFF_HHMM
+
+
+def entry_cutoff_buy_row(date: str) -> tuple:
+    """진입 마감 시각(no_new_entry_hhmm) 뒤에 DevScale 매수가 나갔는지.
+
+    DevScale 은 보유분을 넘기는 설정이라 마감 경로가 없어, 2026-09-29 15:30:10 봉이 닫히자 분할 매수를 다시 짜
+    매수를 냈다(세션 창 게이트가 막음). 마감 시각 뒤 새 베이스·매수 단계를 깔지 않게 고친 뒤 0건이어야 한다.
+    """
+    name = "진입 마감 뒤 DevScale 매수"
+    cutoffs = {folder: entry_cutoff_hhmm(config) for folder, config in ENTRY_CUTOFF_CONFIG.items()}
+    late: list[str] = []
+    buys = 0
+
+    for folder, record in live_ledger_records(date):
+        cutoff = cutoffs.get(folder, 0)
+
+        if not cutoff or record.get("side") != "BUY" or record.get("event") not in ("ACCEPTED", "REJECTED"):
+            continue
+
+        if not (record.get("strategy") or "").startswith(DEVSCALE_STRATEGY_PREFIX):
+            continue
+
+        buys += 1
+        stamp = (record.get("ts_kst") or "")[11:16]
+
+        if stamp.replace(":", "") >= f"{cutoff:04d}":
+            late.append(f"{stamp} {record.get('ticker', '')} [{folder}]")
+
+    if not buys:
+        return (name, True, "WARN", "DevScale 매수 주문이 없다 — 판정 안 함")
+
+    if late:
+        return (name, False, "FAIL",
+                f"DevScale 매수 {buys}건 중 마감 시각 뒤 {len(late)}건 — {', '.join(late[:3])}"
+                f" (마감 {', '.join(f'{folder} {cutoff:04d}' for folder, cutoff in cutoffs.items())})")
+
+    return (name, True, "FAIL", f"DevScale 매수 {buys}건, 마감 시각 뒤 0건")
+
+
 def restart_verify_row(date: str) -> tuple:
     """그날 배포 재기동이 기동 단계를 다 찍었는지.
 
@@ -762,6 +870,7 @@ def engine_logs() -> list:
     갈라 띄운 날에는 로그 폴더에 quant_trader.log 가 없고 역할별 파일 셋뿐이라, 파일 이름으로
     훑던 전역 판정이 통째로 비었다. 이름표는 한 프로세스면 계좌 이름, 갈라 띄웠으면 "계좌/역할" 이다 —
     어느 역할이 사유를 안 적고 내려갔는지 판정 문구에서 바로 보이게 한다. [why D-114 단계 5]
+    받는 쪽은 줄을 _logdir.live_session_lines 로 걸러 부하시험 세션 줄을 뺀다(09-28 체결통보 세션 헛 FAIL).
     """
     labelled = []
 
@@ -812,7 +921,7 @@ def shared_region_exit_row(date: str) -> tuple:
         except OSError:
             continue
 
-        for line in body.splitlines():
+        for line in _logdir.live_session_lines(body.splitlines()):
             if date not in line:
                 continue
 
@@ -899,7 +1008,7 @@ def order_answer_row(date: str) -> tuple:
         except OSError:
             continue
 
-        for line in body.splitlines():
+        for line in _logdir.live_session_lines(body.splitlines()):
             if date not in line:
                 continue
 
@@ -962,7 +1071,7 @@ def scan_registration_row(date: str) -> tuple:
         except OSError:
             continue
 
-        for line in body.splitlines():
+        for line in _logdir.live_session_lines(body.splitlines()):
             if date not in line or "정배열 프리필터" not in line:
                 continue
 
@@ -1021,7 +1130,7 @@ def rescan_duration_row(date: str) -> tuple:
         except OSError:
             continue
 
-        for line in body.splitlines():
+        for line in _logdir.live_session_lines(body.splitlines()):
             if not line.startswith(date):
                 continue
 
@@ -1062,7 +1171,7 @@ def thread_label_row(date: str) -> tuple:
         except OSError:
             continue
 
-        for line in body.splitlines():
+        for line in _logdir.live_session_lines(body.splitlines()):
             if not line.startswith(date):
                 continue
 
@@ -1117,7 +1226,7 @@ def fill_notice_session_row(date: str) -> tuple:
         #  섞여 있어(09-23 모의는 13:29부터 새 exe) 파일 단위로는 가를 수 없다.
         pending_start = ""
 
-        for line in body.splitlines():
+        for line in _logdir.live_session_lines(body.splitlines()):
             if date not in line:
                 continue
 
@@ -1175,7 +1284,7 @@ def missed_fill_recovery_row(date: str) -> tuple:
         except OSError:
             continue
 
-        for line in body.splitlines():
+        for line in _logdir.live_session_lines(body.splitlines()):
             if date not in line:
                 continue
 
@@ -1707,7 +1816,7 @@ def order_transport_row(date: str) -> tuple:
 
         previous_ms = None
 
-        for line in body.splitlines():
+        for line in _logdir.live_session_lines(body.splitlines()):
             if not line.startswith(date):
                 continue
 
@@ -1770,6 +1879,8 @@ def global_rows(date: str) -> list:
         order_transport_row(date),
         market_open_gate_row(date),
         after_market_order_row(date),
+        same_day_dust_row(date),
+        entry_cutoff_buy_row(date),
         restart_verify_row(date),
         shared_region_exit_row(date),
         order_answer_row(date),
@@ -1809,11 +1920,12 @@ def log_lines(date: str, log: Path):
     파일 하나를 주면 그 파일만 읽는다(7일 지난 날의 archive/*.log.gz 도 그대로). [why D-114]
     """
     if log.is_dir():
-        yield from _logdir.iter_log_lines(date, log)
+        yield from _logdir.live_date_log_lines(date, log)
         return
 
+    # 부하시험 세션 줄은 어느 쪽이든 뺀다 — 같은 로그에 써서 청산차단·유령주문·통로 판정이 헛 FAIL 을 냈다(09-28)
     with _logdir.open_log(log) as log_file:
-        yield from log_file
+        yield from _logdir.live_session_lines(log_file)
 
 
 def role_process_count(directory: Path, date: str) -> int:

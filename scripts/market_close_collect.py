@@ -66,7 +66,8 @@ def scan_log(log: Path, ymd: str) -> dict:
         "rescan_computed": [], "signals": [], "zone_last": {},
         "errors": Counter(), "ws_reconnects": [], "pnl_track": [], "prev_pnl_track": [],
     }
-    with contextlib.closing(_logdir.iter_log_lines(ymd, _logdir.dir_of(log))) as lines:
+    # 부하시험 세션 줄은 뺀다 — 같은 로그에 써서 세션 수·신호·ERROR/WARN 이 부풀었다(09-28: 기동 9회 중 3회)
+    with contextlib.closing(_logdir.live_date_log_lines(ymd, _logdir.dir_of(log))) as lines:
         for raw in lines:
             m = LINE_RE.match(raw.rstrip("\n"))
             if not m:

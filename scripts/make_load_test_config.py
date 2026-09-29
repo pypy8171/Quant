@@ -6,6 +6,12 @@
 기동하면서 종목 순번표(load_test.universe_out)를 적는다. 인젝터는 그 파일을 읽어 순번을 맞춘다.
 
 인증 정보는 넣지 않는다 — 이 경로는 KisClient 를 만들지 않으므로 자리만 채운 더미면 된다.
+
+받는 쪽은 QUANT_LOG_DIR 을 부하시험 폴더(Quant/build_win/bench_logs)로 주고 띄운다. 안 주면 실매매 엔진과 같은
+Quant/build_win/logs 에 로그·장부를 써서 마감 집계가 부하시험 줄을 실매매로 센다(2026-09-28: 기동 9회 중 3회,
+장부 31만 행 중 30만 행). 로그 폴더는 환경변수로만 바뀌고 config 로는 못 바꾼다(Quant/src/utils/Logger.cpp
+default_base_directory) — 그래서 이 스크립트가 띄우는 명령을 찍어 준다. 이 폴더 이름은 scripts/check_runtime_health.py 가
+계좌 폴더로 훑는 Quant/build*/logs* 에 걸리지 않게 골랐다.
 """
 
 from __future__ import annotations
@@ -20,6 +26,8 @@ _SCAN_PATH = _REPO_ROOT / "Quant" / "config" / "universe_scan.json"
 _FULL_PATH = _REPO_ROOT / "Quant" / "config" / "universe_full.json"
 _OUT_PATH = _REPO_ROOT / "Quant" / "config" / "config_load_test.json"
 _UNIVERSE_OUT = _REPO_ROOT / "Quant" / "config" / "load_test_universe.json"
+# 부하시험 로그·장부·원장 저널을 두는 폴더(저장소 루트 기준). 실매매 로그 폴더와 가른다.
+_BENCH_LOG_DIR = "Quant/build_win/bench_logs"
 
 
 def collect_tickers(symbol_count: int) -> list[str]:
@@ -114,7 +122,7 @@ def parse_arguments(argument_list: list[str] | None = None) -> argparse.Namespac
     parser.add_argument("--session-start-hhmmss", type=int, default=90000,
                         help="체결에 찍을 장중 시각 시작점. 0 이면 실제 시계")
     parser.add_argument("--cash", type=float, default=1e13, help="모의 체결기 현금")
-    parser.add_argument("--ledger-journal-dir", default="logs",
+    parser.add_argument("--ledger-journal-dir", default=_BENCH_LOG_DIR,
                         help="원장 저널(ledger_YYYYMMDD.bin) 폴더. 빈 문자열이면 안 남긴다")
     parser.add_argument("--capture-dir", default="",
                         help="체결 원본(ticks_*.bin) 폴더. 기본은 끔 — 전속력 회차에서 켜면 처리량이 달라진다")
@@ -133,6 +141,14 @@ def main(argument_list: list[str] | None = None) -> int:
 
     print(f"적었다: {out_path}  종목 {len(tickers):,}개  전략 {len(config['strategies']):,}개")
     print(f"종목 순번표는 받는 쪽이 기동하면서 적는다: {_UNIVERSE_OUT}")
+    config_argument = out_path.resolve()
+    try:
+        config_argument = config_argument.relative_to(_REPO_ROOT)
+    except ValueError:
+        pass
+
+    print("받는 쪽은 저장소 루트에서 로그 폴더를 갈라 띄운다(PowerShell):")
+    print(f'  $env:QUANT_LOG_DIR = "{_BENCH_LOG_DIR}"; ./Quant/build_win/quant_trader.exe {config_argument}')
 
     return 0
 
