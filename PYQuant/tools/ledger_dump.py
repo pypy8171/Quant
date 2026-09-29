@@ -251,6 +251,79 @@ def rebuild_open_intents(records: list[Record]) -> list[dict]:
 
 
 # ── 출력 ─────────────────────────────────────────────────────────────────────
+KIND_KOREAN = {"SEED": "잔고 시드", "INTENT": "주문 기록", "ACCEPT": "접수", "REJECT": "거부", "FILL": "체결",
+               "CANCEL": "취소", "ADJUST": "잔고 대조", "RESET_RESERVED": "선점 비움", "CASH": "현금",
+               "DAILY_PNL": "당일 손익", "RESET_DAY": "하루 리셋"}
+SIDE_KOREAN = {"BUY": "매수", "SELL": "매도", "NONE": ""}
+TYPE_KOREAN = {"MARKET": "시장가", "LIMIT": "지정가"}
+
+
+def describe(record: Record) -> str:
+    """레코드 한 건을 로그 한 줄의 본문으로 푼다."""
+    side = SIDE_KOREAN.get(record.side, record.side)
+    # 내부 주문번호를 적기 전에 쓴 파일은 order_id가 0이다 — 그때는 증권사 번호만 보인다.
+    numbers = ([f"#{record.order_id}"] if record.order_id else []) + \
+              ([f"증권사 {record.kis_order_number}"] if record.kis_order_number else [])
+    order = "주문 " + " · ".join(numbers) if numbers else "주문"
+    strategy = f" · 전략 {record.strategy}" if record.strategy else ""
+
+    if record.kind == "SEED":
+        return f"{record.ticker} 보유 {record.quantity}주 · 평단 {record.price:,.0f}원 · 매도가능 {record.sellable}주"
+
+    if record.kind == "INTENT":
+        price = f" {record.price:,.0f}원" if record.order_type == "LIMIT" else ""
+        return (f"{record.ticker} {side} {record.quantity}주 {TYPE_KOREAN.get(record.order_type, record.order_type)}"
+                f"{price} — {order} 보내기 전에 적음{strategy}")
+
+    if record.kind == "ACCEPT":
+        return f"{record.ticker} {side} {record.quantity}주 — {order} 접수됨"
+
+    if record.kind == "REJECT":
+        return f"{record.ticker} {side} {record.quantity}주 — {order} 거부 · 사유 {record.reason or '(없음)'}"
+
+    if record.kind == "FILL":
+        text = f"{record.ticker} {side} {record.quantity}주 {record.price:,.0f}원 체결 — {order}"
+
+        if record.pnl:
+            text += f" · 실현손익 {record.pnl:,.0f}원"
+
+        if record.fill_detail:
+            text += (f" · 체결 뒤 보유 {record.net_quantity}주 평단 {record.average_price:,.0f}원"
+                     f" · 수수료 {record.commission:,.0f}원 세금 {record.tax:,.0f}원")
+
+        return text
+
+    if record.kind == "CANCEL":
+        return f"{record.ticker} {side} {record.quantity}주 — {order} 남은 수량 취소"
+
+    if record.kind == "ADJUST":
+        reserved_buy = max(0, record.reserved_quantity + record.reserved_sell)
+        where = f" · {record.reason}" if record.reason else ""
+        return (f"{record.ticker} 증권사 잔고에 맞춤 — 보유 {record.quantity}주 · 평단 {record.price:,.0f}원 · "
+                f"매도가능 {record.sellable}주 · 묶인 수량 매수 {reserved_buy} 매도 {record.reserved_sell}{where}")
+
+    if record.kind == "RESET_RESERVED":
+        return "잔고 대조가 묶인 수량을 전부 비움"
+
+    if record.kind == "CASH":
+        return f"주문가능현금 {record.cash:,.0f}원 · 총평가 {record.equity:,.0f}원"
+
+    if record.kind == "DAILY_PNL":
+        return f"당일 손익 {record.pnl:,.0f}원(잔고 대조 값으로 덮어씀)"
+
+    if record.kind == "RESET_DAY":
+        return "장 시작 하루 리셋 — 묶인 수량 전부 만료"
+
+    return f"{record.ticker} {record.quantity} {record.price} {record.reason}"
+
+
+def print_log(records: list[Record]) -> None:
+    for record in records:
+        time_text = f"{record.wall_time:%H:%M:%S.%f}"[:12]
+        kind = KIND_KOREAN.get(record.kind, record.kind)
+        print(f"{time_text} #{record.sequence:<5} [{kind}] {describe(record)}")
+
+
 def print_records(records: list[Record]) -> None:
     print(f"{'sequence':>6} {'시각':<12} {'종류':<14} {'종목':<7} {'방향':<4} {'수량':>6} {'가격':>10} "
           f"{'ODNO':>10} {'전략':<16} 비고")
@@ -328,6 +401,7 @@ def main() -> int:
     parser.add_argument("--positions", action="store_true", help="종목별 보유·평단·선점 재구성")
     parser.add_argument("--open-intents", action="store_true", help="결말 못 본 주문만")
     parser.add_argument("--csv", help="CSV로 내보낼 경로")
+    parser.add_argument("--table", action="store_true", help="한글 로그 대신 열 맞춘 표로")
     arguments = parser.parse_args()
 
     path = Path(arguments.journal)
@@ -369,7 +443,11 @@ def main() -> int:
         write_csv(records, Path(arguments.csv))
         return 0
 
-    print_records(records)
+    if arguments.table:
+        print_records(records)
+    else:
+        print_log(records)
+
     return 0
 
 
