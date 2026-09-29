@@ -24,6 +24,10 @@ REPO = Path(__file__).resolve().parents[1]
 if str(REPO / "PYQuant") not in sys.path:
     sys.path.insert(0, str(REPO / "PYQuant"))
 from backtest.costs import LIVE  # noqa: E402
+
+if str(REPO / "scripts") not in sys.path:
+    sys.path.insert(0, str(REPO / "scripts"))
+from _logdir import is_live_row  # noqa: E402
 DEFAULT_LEDGER_DIR = REPO / "Quant" / "build_win" / "logs"
 DEFAULT_OUT = REPO / "research" / "studies" / "17_exit_ev"
 
@@ -97,11 +101,11 @@ def leg_key(row: dict[str, str]) -> tuple[str, ...]:
     """한 주문의 부분 체결을 합치는 키. odno(KIS 주문번호)가 정본 — order_id는 프로세스 카운터라 재기동마다 겹친다.
 
     재기동 전후로 같은 odno의 체결이 다른 라벨(DISPLACE→ORPHAN)로 남는 경우가 있어 전략·사유도 키에 넣는다(레그가 둘로 갈린다).
-    종목이 다르면 진짜 충돌이라 load_legs가 예외를 던진다.
+    모의서버는 하루 안에서 같은 odno를 다른 종목에 다시 내준다(2026-09-28 부하 시험 구간에서 확인) — 종목도 키에 넣는다.
     """
     odno = (row.get("odno") or "").strip()
     order = ("odno", odno) if odno and odno != "0000000000" else ("local", row["order_id"])
-    return order + (strategy_family(row["strategy"]), categorize(row.get("entry_reason", "")))
+    return order + (row["ticker"], strategy_family(row["strategy"]), categorize(row.get("entry_reason", "")))
 
 
 def load_legs(ledger_dir: Path, first_day: str, last_day: str) -> LoadResult:
@@ -120,7 +124,7 @@ def load_legs(ledger_dir: Path, first_day: str, last_day: str) -> LoadResult:
                 continue
 
             for row in reader:
-                if row["event"] != "FILL" or row["side"] != "SELL":
+                if row["event"] != "FILL" or row["side"] != "SELL" or not is_live_row(row):
                     continue
 
                 family = strategy_family(row["strategy"])
@@ -145,8 +149,6 @@ def load_legs(ledger_dir: Path, first_day: str, last_day: str) -> LoadResult:
                 if leg is None:
                     leg = ExitLeg(day=day, family=family, ticker=row["ticker"], category=category)
                     by_key[key] = leg
-                elif leg.ticker != row["ticker"]:
-                    raise RuntimeError(f"{path.name} {key}: 한 주문에 다른 종목이 섞임 {leg.ticker} vs {row['ticker']}")
 
                 leg.quantity += quantity
                 leg.sell_notional += notional

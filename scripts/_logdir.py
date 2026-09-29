@@ -17,6 +17,8 @@ logs/ 에 쓴다. 그래서 같은 날짜의 trades_YYYYMMDD.csv 가 두 폴더�
   log_sources(date, directory)   그 날짜 줄이 들어 있을 수 있는 파일 — archive/quant_trader_<날짜>.log.gz 뒤에
                      라이브 로그. maintain.py --rotate-logs 가 7일 지난 날의 줄을 gz로 옮기므로 옛 날짜는 gz에만 있다
   iter_log_lines(date, directory) 위 파일들을 차례로 열어 줄 단위로 낸다(.gz 도 보통 텍스트처럼)
+  is_live_row(row)   원장 한 행이 실매매 행인가 — 시험·부하시험 행을 뺀다. 집계하는 쪽은 모두 이것만 쓴다
+  is_live_config(path)  기동 줄의 설정 파일로 그 세션이 실매매 세션인지 가른다
 """
 from __future__ import annotations
 
@@ -40,6 +42,38 @@ ARCHIVE_NAME = "quant_trader_{iso}.log.gz"   # maintain.py rotate_engine_log 가
 ARCHIVE_ROLE_NAME = "quant_trader_{role}_{iso}.log.gz"   # 역할별 회전본
 # 줄머리 시각 "2026-09-23 21:33:20.986" 의 길이. 파일 여럿을 시각순으로 합칠 때 쓴다.
 TIMESTAMP_WIDTH = 23
+
+
+# 라이브 원장에 섞여 남는 시험 행의 지문. 집계하는 쪽은 is_live_row() 하나만 쓴다 — 소비자마다 다르게 거르면
+#  같은 날을 두고 다른 숫자가 나온다(09-09: 60건 +300,320원 → 58건 +188,720원).
+TEST_STRATEGY = "TEST"
+# Quant/tests/test_order_router.cpp 가 박아 넣는 고정 주문번호 둘과 그 파일이 쓰는 종목. 전략명이 실제 전략과
+#  같아 TEST 필터를 통과한다.
+TEST_ROUTER_TICKER = "047050"
+TEST_ROUTER_ORDER_NUMBERS = ("R000777", "PREV-SESSION")
+# 부하시험 하네스(Quant/config/config_load_test.json)가 쓰는 전략. 실매매 config(config.json·config_dev_paper.json)에는
+#  없고 부하시험·기동점검 config에만 있다. 2026-09-28 원장 31만 행 중 30만 행이 이것이었다
+#  — 거르지 않으면 청산 확률표 레그가 751건에서 38,471건으로 부푼다. [why docs/reports/stresstest/OVERVIEW.md 2절]
+#  기동점검(config_startup_check_paper.json)도 같은 전략 타입을 쓰지만 장부에는 STARTUP_CHECK 태그로 남아 이 지문에 걸리지 않는다.
+LOAD_TEST_STRATEGY_PREFIX = "FIXED_INTERVAL"
+# 부하시험으로 띄운 엔진은 실매매 엔진과 같은 로그에 쓴다. 세션을 가르는 지문은 기동 줄의 설정 파일 이름이다
+#  (2026-09-28: 기동 9회 중 3회가 부하시험이어서 매매일지의 세션 수가 6회 대신 9회로 나왔다).
+LOAD_TEST_CONFIG_NAME = "config_load_test.json"
+
+
+def is_live_row(row: dict) -> bool:
+    """원장 한 행이 실매매 행인가. 시험 바이너리·부하시험이 같은 원장에 남긴 행을 뺀다."""
+    strategy = (row.get("strategy") or "").strip()
+    if strategy == TEST_STRATEGY or strategy.startswith(LOAD_TEST_STRATEGY_PREFIX):
+        return False
+
+    return not ((row.get("ticker") or "").strip() == TEST_ROUTER_TICKER
+                and (row.get("odno") or "").strip() in TEST_ROUTER_ORDER_NUMBERS)
+
+
+def is_live_config(config_path: str) -> bool:
+    """기동 줄의 설정 파일 경로로 그 세션이 실매매 세션인지. 구분자가 역슬래시·슬래시 둘 다 나온다."""
+    return config_path.replace("\\", "/").rsplit("/", 1)[-1].strip() != LOAD_TEST_CONFIG_NAME
 
 
 def _ymd(date: str) -> str:

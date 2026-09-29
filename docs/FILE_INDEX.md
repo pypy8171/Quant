@@ -10,11 +10,11 @@
 - [.vscode](#vscode) — 4개
 - [PYQuant](#pyquant) — 104개
 - [Quant](#quant) — 353개
-- [docs](#docs) — 132개
+- [docs](#docs) — 133개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 245개
-- [scripts](#scripts) — 49개
-- [strategies](#strategies) — 34개
+- [scripts](#scripts) — 50개
+- [strategies](#strategies) — 36개
 - [tools](#tools) — 3개
 
 ## (루트)
@@ -169,7 +169,7 @@
 - [test_adjust_splits.py](../PYQuant/tests/test_adjust_splits.py) — 수정주가 분할 보정 회귀 테스트
 - [test_backtest_engine.py](../PYQuant/tests/test_backtest_engine.py) — 백테스트 엔진 리팩터 회귀 테스트
 - [test_costs_golden.py](../PYQuant/tests/test_costs_golden.py) — costs·ledger 골든 테스트 10케이스. C++ OrderGate 수식·원장 CSV 실제 행과 0원 오차, 상수는 C++ 소스에서 다시 읽어 대조
-- [test_db_client.py](../PYQuant/tests/test_db_client.py) — (설명 필요)
+- [test_db_client.py](../PYQuant/tests/test_db_client.py) — DbClient 검사 — COPY 텍스트 변환 규칙(NULL·구분자·줄바꿈·역슬래시·bool·시각)과 WSL 직결 주소 조회, DB가 떠 있으면 임시 표에 넣고 되읽음
 - [test_indicators.py](../PYQuant/tests/test_indicators.py) — 지표 함수 pytest 검증
 - [test_metrics.py](../PYQuant/tests/test_metrics.py) — 경로 시뮬레이션 손계산 검증
 - [test_point_in_time.py](../PYQuant/tests/test_point_in_time.py) — `as_of_join` 테스트 5건: 미래 행 차단·정정 우선·첫 공시 전 결측·max_age·왼쪽 순서 보존
@@ -182,7 +182,7 @@
 
 - [__init__.py](../PYQuant/tools/__init__.py) — 빈 패키지 초기화 파일
 - [bench_market_open.py](../PYQuant/tools/bench_market_open.py) — 개장 동시호가 부하를 재현해 틱·신호·주문·체결을 bench_* 테이블에 적재하는 벤치마크
-- [bench_recorder.py](../PYQuant/tools/bench_recorder.py) — (설명 필요)
+- [bench_recorder.py](../PYQuant/tools/bench_recorder.py) — 적재기(main.py record) 한 프로세스의 구간별 소요 시간 측정(--rows, --skip-db)
 - [compare_ws_bars.py](../PYQuant/tools/compare_ws_bars.py) — WS 1분봉과 REST 분봉 비교표 생성
 - [dart_fin_history_fill.py](../PYQuant/tools/dart_fin_history_fill.py) — DART 주요계정(fnlttMultiAcnt) 2015~ 전 상장사를 100종목 묶음으로 받아 원본·정리본 parquet(PYQuant/data/fin/)에 append-only 적재, 발효일은 rcept_no 앞 8자리
 - [dart_shares_history_fill.py](../PYQuant/tools/dart_shares_history_fill.py) — 상장주식수 시점 고정 표 적재: 2015~2019 DART stockTotqySttus 사업보고서(B) + 2020~ data.go.kr 월말 스냅샷(A) → `PYQuant/data/fin/shares_point_in_time.parquet`
@@ -796,6 +796,7 @@
 - [2026-09-26_peak30k_split_highwater.csv](reports/stresstest/data/2026-09-26_peak30k_split_highwater.csv) — 같은 회차의 큐 최고 수위·안전 계수기(역할별)
 - [2026-09-26_peak30k_split_segments.csv](reports/stresstest/data/2026-09-26_peak30k_split_segments.csv) — 09-26 peak30k_split(세 프로세스, 같은 큰 입력) 12구간 지연 요약 — peak30k_one과 짝
 - [2026-09-26_peak30k_split_status.csv](reports/stresstest/data/2026-09-26_peak30k_split_status.csv) — 같은 회차의 10초 주기 STATUS 표본
+- [2026-09-28_db_engine_writer_rows.csv](reports/stresstest/data/2026-09-28_db_engine_writer_rows.csv) — 09-28 DB 적재 부하 시험 회차의 시각별 적재 행 수 표본(time, rows_added)
 
 ## linux_practice
 
@@ -1215,6 +1216,7 @@
 - [run_claude_task.ps1](../scripts/run_claude_task.ps1) — 예약작업이 헤드리스 클로드를 부르는 래퍼(cmd 리다이렉션으로 stderr 경고를 rc=1로 만들지 않고 UTF-8 로그에 붙인다)
 - [seed_open_orders.py](../scripts/seed_open_orders.py) — 미체결 주문 상태 복구 스크립트
 - [start.sh](../scripts/start.sh) — Docker Compose 기동 스크립트
+- [startup_to_order_timeline.py](../scripts/startup_to_order_timeline.py) — 엔진 로그의 한 세션에서 기동부터 한 종목의 첫 매수 접수까지 단계별 시각(토큰·장부·잔고 시드·WS 구독·첫 체결·봉 시드·신호·접수)을 뽑고 latency_trace.csv 같은 주문 줄을 붙인다(--list, --session, --ticker)
 - [stop.sh](../scripts/stop.sh) — Docker Compose 종료 스크립트
 - [stresstest_flow_profile.py](../scripts/stresstest_flow_profile.py) — 체결 캡처(QTCAP)에서 종목별 유량을 재고 순위별 몫을 멱법칙으로 늘려 전 종목 규모의 부하 프로파일 JSON을 만든다
 - [stresstest_join_procwatch.py](../scripts/stresstest_join_procwatch.py) — 부하 회차 CSV의 `started_at`과 procwatch 로그 표본을 시각으로 맞춰 구성별 CPU 평균·최대(코어 수)·스레드 최대를 낸다
@@ -1266,6 +1268,8 @@
 - [2026-09-21.md](../strategies/DeviationScale/live/2026-09-21.md) — 09-21 라이브 매매일지
 - [2026-09-22.md](../strategies/DeviationScale/live/2026-09-22.md) — 09-22 라이브 매매일지
 - [2026-09-23.md](../strategies/DeviationScale/live/2026-09-23.md) — 09-23 라이브 매매일지
+- [2026-09-28.md](../strategies/DeviationScale/live/2026-09-28.md) — 09-28 라이브 매매일지
+- [2026-09-29.md](../strategies/DeviationScale/live/2026-09-29.md) — 09-29 라이브 매매일지
 
 ### strategies/DeviationScale/reviews/
 

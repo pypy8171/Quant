@@ -114,6 +114,8 @@ PYQuant/data/weekly/
 PYQuant/data/minute_live/
 PYQuant/data/themes/
 PYQuant/data/ticks_raw/
+PYQuant/data/ticks_raw_live/
+PYQuant/data/macro/
 PYQuant/data/research/
 PYQuant/data/consensus/
 

@@ -37,6 +37,10 @@ LOG_DIRS = [_REPO / "Quant" / "build_win" / "logs",
 STRAT = _REPO / "strategies"
 OUT = _REPO / "research" / "dashboard" / "live.json"
 
+if str(_REPO / "scripts") not in sys.path:
+    sys.path.insert(0, str(_REPO / "scripts"))
+from _logdir import is_live_row  # noqa: E402
+
 
 def rel(p: Path) -> str:
     return str(p.relative_to(_REPO)).replace("\\", "/")
@@ -68,14 +72,9 @@ def _rollup_one(p: Path, date: str):
     try:
         with open(p, encoding="utf-8-sig") as f:
             for r in csv.DictReader(f):
-                # 테스트 바이너리가 라이브 원장에 남긴 행은 세지 않는다. strategy=TEST 로 걸리는
-                #  분과 047050에 찍힌 고정 주문번호 둘(Quant/tests/test_order_router.cpp)이다.
-                #  scripts/market_close_collect.py의 필터와 같은 지문을 쓴다 — 두 집계가 갈리면 안 된다.
-                if (r.get("strategy") or "").strip() == "TEST":
-                    continue
-
-                if ((r.get("ticker") or "").strip() == "047050"
-                        and (r.get("odno") or "").strip() in ("R000777", "PREV-SESSION")):
+                # 시험 바이너리·부하시험이 라이브 원장에 남긴 행은 세지 않는다. 지문은 scripts/_logdir.py 가
+                #  정본이다 — 집계하는 쪽마다 다르게 거르면 같은 날을 두고 다른 숫자가 나온다.
+                if not is_live_row(r):
                     continue
 
                 total += 1

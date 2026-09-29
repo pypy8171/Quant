@@ -24,6 +24,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
 import _logdir  # noqa: E402
+from _logdir import is_live_row  # noqa: E402
 from log_patterns import PNL_ONLY_RE as PNL_RE, PREV_PNL_RE  # noqa: E402
 
 for _s in (sys.stdout, sys.stderr):
@@ -121,15 +122,9 @@ def scan_log(log: Path, ymd: str) -> dict:
 def scan_ledger(csv: Path) -> dict:
     import csv as _csv
     rows = list(_csv.DictReader(csv.open(encoding="utf-8", errors="replace")))
-    rows = [r for r in rows if r.get("strategy") != "TEST"]
-    # 테스트 바이너리가 라이브 원장에 남긴 행. strategy=TEST 로 걸리는 분과 달리 이쪽은
-    #  전략명이 실제 전략과 같아 위 필터를 통과한다. 지문은 Quant/tests/test_order_router.cpp가
-    #  박아 넣는 고정 주문번호 둘(R000777·PREV-SESSION)과 그 파일이 쓰는 종목 047050이다.
-    #  거르지 않으면 유령 라운드트립이 생긴다(09-09: 60건 +300,320원 → 58건 +188,720원).
-    #  바이너리 쪽은 산출물 폴더를 갈라 막았고, 이 필터는 이미 쓰인 원장을 위한 것이다.
-    rows = [r for r in rows
-            if not (r.get("ticker") == "047050"
-                    and r.get("odno") in ("R000777", "PREV-SESSION"))]
+    # 시험 바이너리·부하시험이 같은 원장에 남긴 행은 빼고 센다. 거르지 않으면 유령 라운드트립이 생기고
+    #  (09-09: 60건 +300,320원 → 58건 +188,720원) 부하시험 날은 실매매 수가 묻힌다. 지문은 _logdir 이 정본이다.
+    rows = [row for row in rows if is_live_row(row)]
     ev = Counter(r["event"] for r in rows)
     rejects = Counter()
     for r in rows:

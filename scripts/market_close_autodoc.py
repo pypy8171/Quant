@@ -46,6 +46,7 @@ AUTO_END = "<!-- AUTO:END -->"
 
 LINE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})\.\d+ (?:\{[^}]*\}\s+)?\[(\w+)\s*\] (.*)$")
 SESSION_RE = re.compile(r"=== Quant Trader")
+CONFIG_RE = re.compile(r"설정 로드: (\S+)")
 SIZING_RE = re.compile(r"사이징 백스톱: 종목당 명목 (\d+)원, 동시보유 (\d+)종목")
 STAGE_PASS_RE = re.compile(r"정배열 프리필터: (.*)$")
 REGIME_RE = re.compile(r"국면=(\w+)")
@@ -101,13 +102,16 @@ def scan_log(log: Path, ymd: str) -> dict:
 
             if SESSION_RE.search(rest):
                 current = {"at": hms, "slots": None, "cap": None, "stage_pass": None,
-                       "regime": None, "registered": None, "note": ""}
+                       "regime": None, "registered": None, "note": "", "live": True}
                 sessions.append(current)
 
             for t, n in NAME_RE.findall(rest):
                 names.setdefault(t, n)
 
             if current is not None:
+                match = CONFIG_RE.search(rest)
+                if match:
+                    current["live"] = _logdir.is_live_config(match[1])
                 match = SIZING_RE.search(rest)
                 if match and current["slots"] is None:
                     current["cap"], current["slots"] = int(match[1]), int(match[2])
@@ -132,7 +136,9 @@ def scan_log(log: Path, ymd: str) -> dict:
             if lvl in ("WARN", "ERROR"):
                 warns[NUM_RE.sub("N", rest)[:80]] += 1
 
-    return {"sessions": sessions, "pnl": pnl, "prev_pnl": prev_pnl,
+    # 부하시험으로 띄운 엔진도 같은 로그에 기동 줄을 쓴다. 매매일지가 세는 세션은 실매매 세션뿐이다.
+    return {"sessions": [session for session in sessions if session["live"]],
+            "pnl": pnl, "prev_pnl": prev_pnl,
             "names": names, "warns": warns.most_common(10)}
 
 
@@ -143,7 +149,13 @@ NON_STRATEGY = {"TEST", "STARTUP_CHECK", "STARTUP_PROBE"}   # STARTUP_PROBE 는 
 
 
 def scan_ledger(path: Path) -> dict:
-    rows = list(_csv.DictReader(path.open(encoding="utf-8-sig", errors="replace")))
+    # 시험 바이너리·부하시험이 같은 장부에 남긴 행은 읽을 때 바로 뺀다. 지문은 scripts/_logdir.py 가 정본이고,
+    #  마감 집계 세 곳(이 파일·market_close_collect·backfill_live)이 같은 판정을 써야 같은 숫자가 나온다.
+    #  아래 NON_STRATEGY 제외가 전략 태그로 가르는 것과 달리 이쪽은 체결·거부 수까지 부풀리기 때문에 모두 세기 전에 덜어낸다
+    #  (2026-09-28: 장부 31만 행 중 30만 행이 부하시험). 뺀 수는 excluded 에 얹어 3절이 "N건 제외"로 밝힌다.
+    all_rows = list(_csv.DictReader(path.open(encoding="utf-8-sig", errors="replace")))
+    rows = [row for row in all_rows if _logdir.is_live_row(row)]
+    not_live_rows = len(all_rows) - len(rows)
     if not rows:
         return {}
 
@@ -159,7 +171,7 @@ def scan_ledger(path: Path) -> dict:
                                "breason": Counter(), "sreason": Counter(),
                                "rtime": {},  # 사유 → [첫 체결, 마지막 체결] HH:MM:SS
                                "strat": Counter(), "t0": "", "t1": "", "rp": 0.0})
-    excluded = 0
+    excluded = not_live_rows
     # 그날 낸 비용을 손익 옆에 같이 적기 위해 전체 체결(점검 주문 포함)의 대금을 따로 모은다.
     cost = {"fills": 0, "buy": 0.0, "sell": 0.0, "commission": 0.0, "tax": 0.0, "sell_side": 0.0, "realized": 0.0}
     for r in rows:
