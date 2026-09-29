@@ -890,6 +890,7 @@ graph LR
   p_PYQuant_backtest --> p_PYQuant_data
   p_PYQuant_backtest --> p_PYQuant_kis
   p_PYQuant_backtest --> p_PYQuant_strategy
+  p_PYQuant_dashboard --> p_PYQuant__logdir
   p_PYQuant_dashboard --> p_PYQuant_backtest
   p_PYQuant_data -->|4| p_PYQuant_kis
   p_PYQuant_db --> p_PYQuant_core
@@ -933,6 +934,7 @@ graph LR
 | `PYQuant/backtest/metrics.py` | `backtest.costs` |
 | `PYQuant/backtest/report.py` | `backtest.engine` |
 | `PYQuant/core/proc_watch.py` | `core.logger` |
+| `PYQuant/dashboard/backfill_live.py` | `_logdir` |
 | `PYQuant/dashboard/backfill_series_a.py` | `backtest.report` |
 | `PYQuant/data/datagokr_source.py` | `kis.client` |
 | `PYQuant/data/index_source.py` | `kis.client` |
@@ -988,7 +990,7 @@ graph LR
 | `scripts/check_runtime_health.py` | `_logdir`, `capture_stats`, `log_patterns` |
 | `scripts/dashboard_server.py` | `_logdir`, `kis.client`, `naver.theme` |
 | `scripts/deploy_trader.py` | `deploy_lock`, `notify_trades`, `restart_verify` |
-| `scripts/exit_ev.py` | `backtest.costs` |
+| `scripts/exit_ev.py` | `_logdir`, `backtest.costs` |
 | `scripts/exit_ev_dashboard.py` | `_logdir`, `exit_ev`, `gen_tuning_sheet` |
 | `scripts/extract_swap_what_if.py` | `_logdir` |
 | `scripts/market_close_autodoc.py` | `_logdir`, `check_runtime_health`, `log_patterns` |
@@ -1010,7 +1012,7 @@ C++ 엔진·Python 보조 프로세스·스크립트가 파일로 주고받는 �
 | `trades_*.csv` | `Quant/src/ipc/OrderJournal.cpp`, `scripts/backfill_fills_db.py`, `scripts/exit_ev_dashboard.py` | `PYQuant/dashboard/backfill_live.py`, `PYQuant/tests/test_stats.py`, `Quant/src/ipc/OrderJournal.cpp`, `Quant/src/strategy/DevScaleLoader.cpp`, `scripts/backfill_fills_db.py`, `scripts/check_runtime_health.py`, `scripts/exit_ev.py`, `scripts/exit_ev_dashboard.py`, `scripts/parse_quant_log.py`, `scripts/trade_costs.py` | `scripts/_logdir.py`, `scripts/notify_trades.py` |
 | `universe*.json` | `PYQuant/tools/load_injector.py`, `Quant/src/universe/MarketBoard.cpp`, `scripts/make_load_test_config.py` | `PYQuant/main.py`, `PYQuant/tools/full_universe_dump.py`, `PYQuant/tools/load_injector.py`, `PYQuant/tools/universe_feed.py`, `Quant/src/strategy/DevScaleLoader.cpp`, `Quant/src/universe/UniverseCandidates.cpp`, `scripts/exit_ev_dashboard.py`, `scripts/make_load_test_config.py`, `scripts/market_close_minute_backfill.py`, `scripts/notify_trades.py` | `Quant/include/universe/MarketBoard.h`, `Quant/include/universe/UniverseScanner.h`, `Quant/src/api/KisUniverse.cpp`, `scripts/dashboard_server.py` |
 | `open_orders.txt` | `Quant/src/ipc/OrderJournal.cpp`, `scripts/seed_open_orders.py` | `Quant/src/ipc/OrderJournal.cpp`, `Quant/src/ipc/OrderRouterReconcile.cpp`, `scripts/seed_open_orders.py` |  |
-| `quant_trader.log` | `PYQuant/tools/log_report.py`, `scripts/build_review_entry.py`, `scripts/dashboard_server.py`, `scripts/summarize_trading_day.py` | `PYQuant/tools/compare_ws_bars.py`, `scripts/check_runtime_health.py`, `scripts/dashboard_server.py`, `scripts/extract_swap_what_if.py`, `scripts/notify_trades.py`, `scripts/parse_quant_log.py`, `scripts/seed_open_orders.py`, `scripts/summarize_trading_day.py` | `Quant/src/core/CommandLine.cpp`, `scripts/_logdir.py`, `scripts/exit_ev_dashboard.py` |
+| `quant_trader.log` | `PYQuant/tools/log_report.py`, `scripts/build_review_entry.py`, `scripts/dashboard_server.py`, `scripts/summarize_trading_day.py` | `PYQuant/tools/compare_ws_bars.py`, `scripts/check_runtime_health.py`, `scripts/dashboard_server.py`, `scripts/extract_swap_what_if.py`, `scripts/notify_trades.py`, `scripts/parse_quant_log.py`, `scripts/seed_open_orders.py`, `scripts/startup_to_order_timeline.py`, `scripts/summarize_trading_day.py` | `Quant/src/core/CommandLine.cpp`, `scripts/_logdir.py`, `scripts/exit_ev_dashboard.py` |
 | `kis_token_*.json` | `scripts/kis_limit_check.py` | `scripts/kis_limit_check.py` | `PYQuant/kis/client.py`, `Quant/src/api/KisAuth.cpp` |
 
 ## 영향범위 질의 · 기계 소비

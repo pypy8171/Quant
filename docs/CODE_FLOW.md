@@ -40,7 +40,8 @@ flowchart LR
   end
   subgraph ordp[주문 프로세스 --role order]
     OT[order_thread_fn] --> OR[OrderRouter::new_route] --> OG[OrderGate::check] --> KIS[KisClient::submit_order_acknowledgement]
-    FT[fill_thread_fn] --> OF[OrderRouter::on_fill] --> PL[PositionLedger::on_fill_confirmed] --> PB[OrderGate::publish_ledger]
+    FT[fill_thread_fn] --> OF[OrderRouter::on_fill] --> PL[PositionLedger::on_fill_confirmed]
+    LT[ledger_thread_fn 100ms] --> PB[OrderGate::publish_ledger]
   end
   PF --> MF --> FL
   SD --> RQ --> OT
@@ -89,7 +90,7 @@ flowchart LR
    `Quant/src/core/EngineLayout.cpp:66` · `void Engine::adopt_shared_dictionaries()`
 11. [`Engine::start`](../Quant/src/core/Engine.cpp#L561) — 도우미 호출 목록이 기동 순서다 — `setup_shards`(전략 쪽만) → [시세] `DbManager` → ZMQ·인증·폴러 → [주문] 모의 체결기·`OrderRouter`·대조기·`try_bootstrap_ledger` → [전략] `start_strategies`·`collect_watch_specifications` → [시세] `connect_feed` → `spawn_threads`  
    `Quant/src/core/Engine.cpp:561` · `void Engine::start()`
-12. [`Engine::spawn_threads`](../Quant/src/core/Engine.cpp#L501) — 역할별 스레드 — 공통 data·control, [전략] 시세 줄 스레드(`feed_lane_thread_fn`)·샤드 M·strategy, [주문] order·fill. stop_token이 첫 인자라 람다로 감싼다  
+12. [`Engine::spawn_threads`](../Quant/src/core/Engine.cpp#L501) — 역할별 스레드 — 공통 data·control, [전략] 시세 줄 스레드(`feed_lane_thread_fn`)·샤드 M·strategy, [주문] order·fill·ledger(장부 사본 발행). 주문 쪽은 스레드를 띄우기 전에 사본을 한 판 먼저 낸다. stop_token이 첫 인자라 람다로 감싼다  
    `Quant/src/core/Engine.cpp:501` · `data_thread_ = std::jthread([this] (std::stop_token stop_token) …`
 13. [`LedgerReconciler::bootstrap`](../Quant/src/core/LedgerReconciler.cpp#L20) — [주문] 기동 잔고 시드 — 브로커 잔고를 원장(`PositionLedger`) 포지션으로. 실패 재시도 횟수와 실패 시 기동 중단 여부  
    `Quant/src/core/LedgerReconciler.cpp:20` · `bool LedgerReconciler::bootstrap(int attempts, std::chrono::milliseconds retry_delay)` · 시험 [test_ledger_reconciler](../Quant/tests/test_ledger_reconciler.cpp)
@@ -267,7 +268,7 @@ flowchart LR
 
 주문 스레드가 유일한 시퀀서다(원칙 4). 요청 링에서 꺼내 값을 검사하고, 조절기(`OrderRateLimiter`)가 간격·재시도를 정하고, 라우터가 게이트 검사 뒤 KIS에 보내고 ODNO를 기억한다. 결과는 응답 링으로 전략 쪽에 돌려준다.
 
-71. [`Engine::order_thread_fn`](../Quant/src/core/EngineOrderThread.cpp#L211) — `take_due_retry` 우선 → 수동주문 → 교체 보류분 → 요청 링 pop(`is_plausible`·중복 거름·`to_signal`·오래된 신규 매수 버림) → `wait_before_send` → 신규는 `open_new` 뒤 전송 스레드로(같은 종목이 답을 기다리면 뒤에 세움, 답이 오면 `close_new`), 그 밖은 `router->submit` → 응답 링에 답 → `publish_ledger`. 갈라 띄우면 2ms 폴링  
+71. [`Engine::order_thread_fn`](../Quant/src/core/EngineOrderThread.cpp#L211) — `take_due_retry` 우선 → 수동주문 → 교체 보류분 → 요청 링 pop(`is_plausible`·중복 거름·`to_signal`·오래된 신규 매수 버림) → `wait_before_send` → 신규는 `open_new` 뒤 전송 스레드로(같은 종목이 답을 기다리면 뒤에 세움, 답이 오면 `close_new`), 그 밖은 `router->submit` → 응답 링에 답. 장부 사본 발행은 이 스레드에서 뗐다(`ledger_thread_fn`). 갈라 띄우면 2ms 폴링  
    `Quant/src/core/EngineOrderThread.cpp:211` · `void Engine::order_thread_fn(std::stop_token stop_token)`
 72. [`Engine::take_manual_order`](../Quant/src/core/EngineOpsServer.cpp#L218) — 운영단말 수동 주문(`ops_.manual_inbox`)을 이 스레드가 꺼낸다 — 전략이 멎어도 사람이 손으로 낼 수 있게(D-114). 결과는 단말에 `ORDER_RESULT_NTF`로 간다  
    `Quant/src/core/EngineOpsServer.cpp:218` · `bool Engine::take_manual_order(OrderSignal& signal)` · 시험 [test_engine](../Quant/tests/test_engine.cpp)
@@ -314,13 +315,13 @@ flowchart LR
    `Quant/src/core/EngineFeed.cpp:409` · `bool Engine::push_fill_notice(const ipc::FillNotice& notice)`
 87. [`ipc::FillChannel::push`](../Quant/src/ipc/FillChannel.cpp#L197) — 고정 크기 `FillNotice` 링. 받는 쪽은 `pop` → `is_plausible` → `to_fill`  
    `Quant/src/ipc/FillChannel.cpp:197` · `bool FillChannel::push(const FillNotice& notice) noexcept` · 시험 [test_fill_channel](../Quant/tests/test_fill_channel.cpp)
-88. [`Engine::fill_thread_fn`](../Quant/src/core/EngineFillThread.cpp#L23) — 주문 역할이면 체결 채널에서(100ms 폴링), 아니면 `fill_queue`에서 꺼낸다 → `on_fill` → `ledger_->note_fill`(대조 5초 유예, D-074) → 운영단말 `broadcast`(FILL) → 원장 발행  
+88. [`Engine::fill_thread_fn`](../Quant/src/core/EngineFillThread.cpp#L23) — 주문 역할이면 체결 채널에서(100ms 폴링), 아니면 `fill_queue`에서 꺼낸다 → `on_fill` → `ledger_->note_fill`(대조 5초 유예, D-074) → 운영단말 `broadcast`(FILL). 원장 사본 발행은 `ledger_thread_fn`이 맡는다  
    `Quant/src/core/EngineFillThread.cpp:23` · `void Engine::fill_thread_fn(std::stop_token stop_token)`
 89. [`OrderRouter::on_fill`](../Quant/src/ipc/OrderRouterFill.cpp#L103) — ODNO로 주문 찾기 → 상태 갱신 → `gate_.ledger().on_fill_confirmed` → 원장 CSV. 못 찾으면 미연결 체결 경로  
    `Quant/src/ipc/OrderRouterFill.cpp:103` · `void OrderRouter::on_fill(const FillNotification& fill_notification)` · 시험 [test_order_router](../Quant/tests/test_order_router.cpp)
 90. [`PositionLedger::on_fill_confirmed`](../Quant/src/risk/PositionLedger.cpp#L849) — 포지션·평단·실현손익 갱신, `reserved_` 해제. `FillResult`가 실현 PnL을 돌려준다  
    `Quant/src/risk/PositionLedger.cpp:849` · `PositionLedger::FillResult PositionLedger::on_fill_confirmed( …` · 시험 [test_position_ledger](../Quant/tests/test_position_ledger.cpp)
-91. [`OrderGate::publish_ledger`](../Quant/src/risk/OrderGate.cpp#L1094) — 보유·매도 가능 수량·진입 정지·배율을 원장 스냅숏에 쓴다(세대 번호를 올리며). 체결 직후·주문 직후·쉴 때 100ms마다  
+91. [`OrderGate::publish_ledger`](../Quant/src/risk/OrderGate.cpp#L1094) — 보유·매도 가능 수량·진입 정지·배율을 원장 스냅숏에 쓴다(세대 번호를 올리며). 전담 `ledger_thread_fn`이 주문 유무와 상관없이 100ms마다 낸다 — 주문마다 내던 한 판(2,700종목에 98µs)이 주문 고리의 61%를 먹어서 뗐다  
    `Quant/src/risk/OrderGate.cpp:1094` · `void OrderGate::publish_ledger(ipc::LedgerSnapshot& snapshot) const` · 시험 [test_ledger_snapshot](../Quant/tests/test_ledger_snapshot.cpp)
 
 리뷰할 때 볼 것:
@@ -369,7 +370,7 @@ SIGINT·운영단말 종료 → `request_shutdown` → `stop`. 체결 큐는 비
 
 103. [`Engine::request_shutdown`](../Quant/src/core/Engine.cpp#L763) — 시그널 핸들러에서 불려도 되는 최소 동작(플래그·깨우기)만  
    `Quant/src/core/Engine.cpp:763` · `void Engine::request_shutdown(std::string_view reason, ipc::SharedShutdownReason recorded_reason)`
-104. [`Engine::stop`](../Quant/src/core/Engine.cpp#L794) — stop_token 요청 → join 순서(control → order → 샤드 → strategy → data → WS 끊기 → fill 마지막, 큐를 비우고 끝난다) → ZMQ·운영단말·DB 정지 → 전략 `on_stop` → 통계 출력. 미체결 예약주문 기억은 여기서 사라진다(재기동 규칙, CLAUDE.md '장중 운영')  
+104. [`Engine::stop`](../Quant/src/core/Engine.cpp#L794) — stop_token 요청 → join 순서(control → order → 샤드 → strategy → data → WS 끊기 → fill(큐를 비우고 끝난다) → ledger 맨 뒤, 마지막 사본 한 판) → ZMQ·운영단말·DB 정지 → 전략 `on_stop` → 통계 출력. 미체결 예약주문 기억은 여기서 사라진다(재기동 규칙, CLAUDE.md '장중 운영')  
    `Quant/src/core/Engine.cpp:794` · `void Engine::stop()`
 105. [`ipc::SharedRegion::mark_clean_shutdown`](../Quant/src/ipc/SharedRegion.cpp#L612) — 종료 사유를 구역에 적는다 — 주인은 머리 칸, 붙은 쪽은 자기 역할 칸. 처음 적은 사유만 남는다(CAS)  
    `Quant/src/ipc/SharedRegion.cpp:612` · `void SharedRegion::mark_clean_shutdown(SharedShutdownReason reason) noexcept` · 시험 [test_shared_region](../Quant/tests/test_shared_region.cpp)

@@ -2342,6 +2342,7 @@
       "scripts/refresh_dashboard.py",
       "scripts/restart_verify.py",
       "scripts/seed_open_orders.py",
+      "scripts/startup_to_order_timeline.py",
       "scripts/stresstest_flow_profile.py",
       "scripts/stresstest_join_procwatch.py",
       "scripts/summarize_trading_day.py",
@@ -2372,6 +2373,9 @@
       ],
       "PYQuant/core/proc_watch.py": [
         "core.logger"
+      ],
+      "PYQuant/dashboard/backfill_live.py": [
+        "_logdir"
       ],
       "PYQuant/dashboard/backfill_series_a.py": [
         "backtest.report"
@@ -2594,6 +2598,7 @@
         "restart_verify"
       ],
       "scripts/exit_ev.py": [
+        "_logdir",
         "backtest.costs"
       ],
       "scripts/exit_ev_dashboard.py": [
@@ -2636,10 +2641,12 @@
     },
     "imported_by": {
       "_logdir": [
+        "PYQuant/dashboard/backfill_live.py",
         "PYQuant/tools/load_highwater_reader.py",
         "scripts/backfill_fills_db.py",
         "scripts/check_runtime_health.py",
         "scripts/dashboard_server.py",
+        "scripts/exit_ev.py",
         "scripts/exit_ev_dashboard.py",
         "scripts/extract_swap_what_if.py",
         "scripts/market_close_autodoc.py",
@@ -2943,6 +2950,11 @@
       },
       {
         "from": "PYQuant/dashboard",
+        "to": "PYQuant/_logdir",
+        "weight": 1
+      },
+      {
+        "from": "PYQuant/dashboard",
         "to": "PYQuant/backtest",
         "weight": 1
       },
@@ -3230,6 +3242,7 @@
         "scripts/notify_trades.py",
         "scripts/parse_quant_log.py",
         "scripts/seed_open_orders.py",
+        "scripts/startup_to_order_timeline.py",
         "scripts/summarize_trading_day.py"
       ],
       "mentions": [
@@ -3245,6 +3258,7 @@
         "scripts/notify_trades.py",
         "scripts/parse_quant_log.py",
         "scripts/seed_open_orders.py",
+        "scripts/startup_to_order_timeline.py",
         "scripts/summarize_trading_day.py"
       ]
     },
