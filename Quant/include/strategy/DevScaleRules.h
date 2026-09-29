@@ -1,10 +1,12 @@
 #pragma once
-// DevScale 슬리브의 순수 판정 네 개 —전략 본체(DeviationScaleStrategy.h)는 시계·잔고·REST에 묶여 있어
-//  단위 테스트가 안 되므로, 값만 받아 답하는 부분을 여기로 뺀다. 넷 다 상태 없음.
+// DevScale 슬리브의 순수 판정 —전략 본체(DeviationScaleStrategy.h)는 시계·잔고·REST에 묶여 있어
+//  단위 테스트가 안 되므로, 값만 받아 답하는 부분을 여기로 뺀다. 모두 상태 없음.
 //   • peak_trail_triggered: 무장 후 고가 트레일 청산 조건.
 //   • tickers_bought_from_ledger: 체결 장부(logs/trades_YYYYMMDD.csv)에서 이 슬리브가 산 종목 집합.
 //   • average_true_range: 전일까지 확정 일봉의 ATR(참범위 단순평균).
 //   • entry_day_allowed: 하루 단위 진입 필터 — 전일 ATR 비율·개장 이격이 허용 범위 안인가.
+//   • entry_time_closed: 그날 신규 진입 마감 시각을 지났나.
+//   • is_dust: 먼지 정리 대상인가(평가금 기준 + 당일 분할 진입 면제).
 // 테스트: Quant/tests/test_devscale_rules.cpp
 #include "core/Types.h"
 
@@ -38,5 +40,15 @@ double average_true_range(const std::vector<MarketData>& daily, int period);
 //  atr_max_percent 0은 ATR 축 끔. 1년 리플레이(09-21)에서 ATR≤5%·이격≥−3%가 비용 전 +0.10 → +0.26%/건. [why D-111]
 bool entry_day_allowed(double atr_percent, double open_deviation_percent, double atr_max_percent,
                               double open_deviation_min_percent, double open_deviation_max_percent);
+
+// no_new_entry_hhmm(KST HHMM) 이후면 true — 새 베이스와 매수 분할 단계를 깔지 않는다. 0 이하는 끔.
+//  hhmm은 같은 날 안에서만 비교한다(DevScale은 자정을 넘겨 돌지 않는다).
+bool entry_time_closed(int hhmm, int no_new_entry_hhmm);
+
+// 보유 평가금(position × current_price)이 dust_krw 아래면 먼지다. 단 오늘 이 전략이 무포지션에서 진입했고
+//  (entered_today) 아직 줄인 적이 없으면(position >= peak_position) 분할 매수 진행 중이라 먼지로 보지 않는다 —
+//  첫 회차 체결액(약 12만원)이 dust_krw(25만원) 아래라 사고 10~30초 뒤 되팔던 문제(09-29 신규 11건 중 8건).
+//  익절로 줄어든 잔량과 전날부터 넘어온 자투리는 그대로 먼지다. dust_krw 0 이하는 끔. [why D-081]
+bool is_dust(int position, double current_price, double dust_krw, bool entered_today, int peak_position);
 
 } // namespace devscale_rules

@@ -80,4 +80,21 @@ bool entry_day_allowed(double atr_percent, double open_deviation_percent, double
     return atr_ok && deviation_ok;
 }
 
+bool entry_time_closed(int hhmm, int no_new_entry_hhmm)
+{
+    return no_new_entry_hhmm > 0 && hhmm >= no_new_entry_hhmm;
+}
+
+bool is_dust(int position, double current_price, double dust_krw, bool entered_today, int peak_position)
+{
+    if (position <= 0 || dust_krw <= 0.0 || current_price <= 0.0 || position * current_price >= dust_krw)
+    {
+        return false;
+    }
+
+    const bool entry_in_progress = entered_today && position >= peak_position;
+
+    return !entry_in_progress;
+}
+
 } // namespace devscale_rules

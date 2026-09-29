@@ -415,6 +415,7 @@ DevScaleParams parse_devscale_parameters(const json& node)
     read_or_keep(node, "prefetch_jitter_pct", parameters.prefetch_jitter_percent);
     read_or_keep(node, "bar_source", parameters.bar_source); // "ws"|"rest" (D-069·D-072)
     read_or_keep(node, "market_close_exit_hhmm", parameters.market_close_hhmm);
+    read_or_keep(node, "no_new_entry_hhmm", parameters.no_new_entry_hhmm);
     read_or_keep(node, "interval_min", parameters.interval_min);
     read_or_keep(node, "min_action_ms", parameters.min_action_ms);
     read_or_keep(node, "daily_lookback", parameters.daily_lookback);

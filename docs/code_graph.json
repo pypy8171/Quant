@@ -50,7 +50,7 @@
     {
       "from": "core",
       "to": "utils",
-      "weight": 41
+      "weight": 42
     },
     {
       "from": "exchange",
@@ -724,7 +724,8 @@
     ],
     "core/LedgerReconciler.cpp": [
       "core/LedgerReconciler.h",
-      "utils/Logger.h"
+      "utils/Logger.h",
+      "utils/ThreadName.h"
     ],
     "core/LedgerReconciler.h": [
       "api/KisResult.h",
@@ -2113,6 +2114,7 @@
       "core/EngineStrategyThread.cpp",
       "core/FeedMux.cpp",
       "core/HttpQuoteFeed.cpp",
+      "core/LedgerReconciler.cpp",
       "core/PrefetchPool.h",
       "core/ReplaySource.cpp",
       "core/TickCapture.cpp",
@@ -2153,7 +2155,7 @@
     },
     {
       "header": "utils/ThreadName.h",
-      "in_degree": 29
+      "in_degree": 30
     },
     {
       "header": "core/SymbolTable.h",
@@ -3146,6 +3148,7 @@
       "writers": [
         "Quant/src/ipc/OrderJournal.cpp",
         "scripts/backfill_fills_db.py",
+        "scripts/check_runtime_health.py",
         "scripts/exit_ev_dashboard.py"
       ],
       "readers": [

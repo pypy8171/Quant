@@ -92,8 +92,8 @@ flowchart LR
    `Quant/src/core/Engine.cpp:561` · `void Engine::start()`
 12. [`Engine::spawn_threads`](../Quant/src/core/Engine.cpp#L501) — 역할별 스레드 — 공통 data·control, [전략] 시세 줄 스레드(`feed_lane_thread_fn`)·샤드 M·strategy, [주문] order·fill·ledger(장부 사본 발행). 주문 쪽은 스레드를 띄우기 전에 사본을 한 판 먼저 낸다. stop_token이 첫 인자라 람다로 감싼다  
    `Quant/src/core/Engine.cpp:501` · `data_thread_ = std::jthread([this] (std::stop_token stop_token) …`
-13. [`LedgerReconciler::bootstrap`](../Quant/src/core/LedgerReconciler.cpp#L20) — [주문] 기동 잔고 시드 — 브로커 잔고를 원장(`PositionLedger`) 포지션으로. 실패 재시도 횟수와 실패 시 기동 중단 여부  
-   `Quant/src/core/LedgerReconciler.cpp:20` · `bool LedgerReconciler::bootstrap(int attempts, std::chrono::milliseconds retry_delay)` · 시험 [test_ledger_reconciler](../Quant/tests/test_ledger_reconciler.cpp)
+13. [`LedgerReconciler::bootstrap`](../Quant/src/core/LedgerReconciler.cpp#L21) — [주문] 기동 잔고 시드 — 브로커 잔고를 원장(`PositionLedger`) 포지션으로. 실패 재시도 횟수와 실패 시 기동 중단 여부  
+   `Quant/src/core/LedgerReconciler.cpp:21` · `bool LedgerReconciler::bootstrap(int attempts, std::chrono::milliseconds retry_delay)` · 시험 [test_ledger_reconciler](../Quant/tests/test_ledger_reconciler.cpp)
 
 리뷰할 때 볼 것:
 
@@ -108,10 +108,10 @@ flowchart LR
 
 14. [`load_strategies`](../Quant/src/strategy/StrategyFactory.cpp#L500) — config `strategies[]`를 타입별 로더로 나눈다. 새 전략을 붙이는 자리(docs/ENGINE_ARCHITECTURE.md '전략 추가하기')  
    `Quant/src/strategy/StrategyFactory.cpp:500` · `void load_strategies(StrategyLoadCtx& context, const json& strategies)`
-15. [`strategy_load::load_deviation_scale`](../Quant/src/strategy/DevScaleLoader.cpp#L737) — DEVIATION_SCALE 로더 — 보유 스냅숏 → 시세판 기동 → 초기 스캔 → 종목마다 전략 등록 → 재스캔 job 등록  
-   `Quant/src/strategy/DevScaleLoader.cpp:737` · `void load_deviation_scale(LoadPass& context, const json& node)`
-16. [`start_scan_services`](../Quant/src/strategy/DevScaleLoader.cpp#L468) — `market_board:true`면 MarketBoard 스레드와 DailyWarm 스레드를 띄운다. false면 두 스레드 없이 KIS 랭킹 축과 전날 `universe_scan.json`만 쓴다  
-   `Quant/src/strategy/DevScaleLoader.cpp:468` · `void start_scan_services(const LoadPass& context, const json& node, const universe::DevScanCfg& scan_config)`
+15. [`strategy_load::load_deviation_scale`](../Quant/src/strategy/DevScaleLoader.cpp#L738) — DEVIATION_SCALE 로더 — 보유 스냅숏 → 시세판 기동 → 초기 스캔 → 종목마다 전략 등록 → 재스캔 job 등록  
+   `Quant/src/strategy/DevScaleLoader.cpp:738` · `void load_deviation_scale(LoadPass& context, const json& node)`
+16. [`start_scan_services`](../Quant/src/strategy/DevScaleLoader.cpp#L469) — `market_board:true`면 MarketBoard 스레드와 DailyWarm 스레드를 띄운다. false면 두 스레드 없이 KIS 랭킹 축과 전날 `universe_scan.json`만 쓴다  
+   `Quant/src/strategy/DevScaleLoader.cpp:469` · `void start_scan_services(const LoadPass& context, const json& node, const universe::DevScanCfg& scan_config)`
 17. [`universe::MarketBoard::run`](../Quant/src/universe/MarketBoard.cpp#L391) — KST 날짜가 바뀌면 목록을 새로 받고, 5초마다 시세 한 바퀴, 60초마다 재랭킹  
    `Quant/src/universe/MarketBoard.cpp:391` · `void MarketBoard::run()` · 시험 [test_market_board](../Quant/tests/test_market_board.cpp)
 18. [`universe::MarketBoard::refresh_listing`](../Quant/src/universe/MarketBoard.cpp#L437) — 네이버 `marketValue/{KOSPI,KOSDAQ}`로 전 종목 목록(ETF·ETN 제외). 900종목씩 묶은 폴링 URL을 만든다. data.go.kr 목록을 대신한 자리  
@@ -219,16 +219,16 @@ flowchart LR
    `Quant/include/core/StrategyShard.h:27` · `struct Emitted`
 58. [`StrategyBase::on_trade_batch`](../Quant/include/strategy/StrategyBase.h#L82) — 전략 훅의 계약(가상 함수 다섯). 기본 구현은 `on_trade` 하나를 out에 담는다. `symbol_of`·`same_symbol`도 이 헤더  
    `Quant/include/strategy/StrategyBase.h:82` · `virtual void on_trade_batch(const TradeData&, std::vector<OrderSignal>& /*out*/)`
-59. [`DeviationScaleStrategy::on_start`](../Quant/include/strategy/DeviationScaleStrategy.h#L203) — 종목 id 받기·REST 봉 시드·프리페치 스레드. 전략 하나를 끝까지 따라가는 예로 이 전략을 쓴다  
-   `Quant/include/strategy/DeviationScaleStrategy.h:203` · `void on_start() override;`
-60. [`DeviationScaleStrategy::on_trade_batch`](../Quant/include/strategy/DeviationScaleStrategy.h#L207) — 틱 → `aggregator_.on_tick` → 판단 직전 `close_stale`·`bars::resample` → 진입/청산 판단 → out. 매매 로직의 본체. 스탑·트레일 뒤 `stop_cooldown_sec`, 전량 청산 뒤 `reentry_cooldown_sec` 동안은 새 베이스를 깔지 않는다  
-   `Quant/include/strategy/DeviationScaleStrategy.h:207` · `void on_trade_batch(const TradeData& trade, std::vector<OrderSignal>& out) override;`
+59. [`DeviationScaleStrategy::on_start`](../Quant/include/strategy/DeviationScaleStrategy.h#L207) — 종목 id 받기·REST 봉 시드·프리페치 스레드. 전략 하나를 끝까지 따라가는 예로 이 전략을 쓴다  
+   `Quant/include/strategy/DeviationScaleStrategy.h:207` · `void on_start() override;`
+60. [`DeviationScaleStrategy::on_trade_batch`](../Quant/include/strategy/DeviationScaleStrategy.h#L211) — 틱 → `aggregator_.on_tick` → 판단 직전 `close_stale`·`bars::resample` → 진입/청산 판단 → out. 매매 로직의 본체. 스탑·트레일 뒤 `stop_cooldown_sec`, 전량 청산 뒤 `reentry_cooldown_sec` 동안은 새 베이스를 깔지 않는다  
+   `Quant/include/strategy/DeviationScaleStrategy.h:211` · `void on_trade_batch(const TradeData& trade, std::vector<OrderSignal>& out) override;`
 61. [`bars::BarAggregator::on_tick`](../Quant/src/core/BarAggregator.cpp#L199) — 체결 틱을 1분봉으로. `close_stale`은 틱이 없어도 시계로 지난 분을 닫는다(D-074)  
    `Quant/src/core/BarAggregator.cpp:199` · `bool BarAggregator::on_tick(const TradeData& trade)` · 시험 [test_bar_aggregator](../Quant/tests/test_bar_aggregator.cpp)
 62. [`bars::resample`](../Quant/include/core/BarAggregator.h#L59) — 1분봉 → `interval_min` 봉. 판단은 언제나 이 봉으로(D-072)  
    `Quant/include/core/BarAggregator.h:59` · `std::vector<MarketData> resample(const std::vector<MarketData>& bars_1m, int interval_min, int max_count = 0);` · 시험 [test_bar_aggregator](../Quant/tests/test_bar_aggregator.cpp)
-63. [`DeviationScaleStrategy::emit_liquidation`](../Quant/include/strategy/DeviationScaleStrategy.h#L353) — 청산 신호 조립 — 시장가면 `reference_price` 스탬프, 매도 가능 수량은 원장 접근자(`sellable_quantity`, 동기 잔고조회 금지)  
-   `Quant/include/strategy/DeviationScaleStrategy.h:353` · `bool emit_liquidation(std::vector<OrderSignal>& out, int position, …`
+63. [`DeviationScaleStrategy::emit_liquidation`](../Quant/include/strategy/DeviationScaleStrategy.h#L357) — 청산 신호 조립 — 시장가면 `reference_price` 스탬프, 매도 가능 수량은 원장 접근자(`sellable_quantity`, 동기 잔고조회 금지)  
+   `Quant/include/strategy/DeviationScaleStrategy.h:357` · `bool emit_liquidation(std::vector<OrderSignal>& out, int position, …`
 64. [`Engine::ledger_sellable`](../Quant/src/core/Engine.cpp#L716) — 전략이 보는 보유·매도 가능 수량의 출처 — 주문 프로세스가 발행한 장부 스냅숏  
    `Quant/src/core/Engine.cpp:716` · `StrategyBase::SellableInfo Engine::ledger_sellable(const std::string&, const std::string& ticker) const`
 65. [`ipc::LedgerSnapshot::begin_optimistic_read`](../Quant/src/ipc/LedgerSnapshot.cpp#L21) — 쓰는 쪽을 막지 않고 읽은 뒤 세대 번호로 그 사이에 바뀌었는지 확인한다(바뀌었으면 다시 읽음)  
@@ -354,8 +354,8 @@ flowchart LR
    `Quant/src/core/EngineUniverse.cpp:80` · `void Engine::maybe_rescan_universe()` · 시험 [test_universe_rescan](../Quant/tests/test_universe_rescan.cpp)
 101. [`UniverseRescan::run_job`](../Quant/src/core/UniverseRescan.cpp#L171) — job 주기가 되면 1절의 스캔을 다시 돌려 신규 등록·점수 교체·이탈 차단/해제를 판정한다  
    `Quant/src/core/UniverseRescan.cpp:171` · `bool UniverseRescan::run_job(Job& job, KisClient& scan_client, const ipc::LedgerSnapshot& snapshot, …` · 시험 [test_universe_rescan](../Quant/tests/test_universe_rescan.cpp)
-102. [`LedgerReconciler::reconcile`](../Quant/src/core/LedgerReconciler.cpp#L316) — [주문] 브로커 잔고 ↔ 원장. 어긋난 종목만 `RECONCILE` 행(`ReconcilePlan.h` 순수 함수). 잔고조회 서킷브레이커  
-   `Quant/src/core/LedgerReconciler.cpp:316` · `void LedgerReconciler::reconcile(bool resync_positions, std::time_t now_utc)` · 시험 [test_ledger_reconciler](../Quant/tests/test_ledger_reconciler.cpp)
+102. [`LedgerReconciler::reconcile`](../Quant/src/core/LedgerReconciler.cpp#L317) — [주문] 브로커 잔고 ↔ 원장. 어긋난 종목만 `RECONCILE` 행(`ReconcilePlan.h` 순수 함수). 잔고조회 서킷브레이커  
+   `Quant/src/core/LedgerReconciler.cpp:317` · `void LedgerReconciler::reconcile(bool resync_positions, std::time_t now_utc)` · 시험 [test_ledger_reconciler](../Quant/tests/test_ledger_reconciler.cpp)
 
 리뷰할 때 볼 것:
 

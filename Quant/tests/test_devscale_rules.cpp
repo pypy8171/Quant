@@ -97,6 +97,30 @@ int test_entry_day_allowed()
     CHECK(!entry_day_allowed(3.0, 6.0, 5.0, -3.0, 5.0));     // 상단 밖
     return 0;
 }
+
+int test_entry_time_closed()
+{
+    CHECK(!entry_time_closed(1519, 1520));
+    CHECK(entry_time_closed(1520, 1520));   // 경계 포함
+    CHECK(entry_time_closed(1530, 1520));   // 09-29 15:30:10 마감 체결 뒤 재구성
+    CHECK(!entry_time_closed(1600, 1940));  // 애프터마켓까지 사는 계좌
+    CHECK(entry_time_closed(1945, 1940));
+    CHECK(!entry_time_closed(1530, 0));     // 끔
+    return 0;
+}
+
+int test_is_dust()
+{
+    // 먼지 기준 25만원. 12만원어치(10주 × 12,000원) 보유
+    CHECK(is_dust(10, 12000.0, 250000.0, /*entered_today=*/false, 10));  // 전날 넘어온 자투리
+    CHECK(!is_dust(10, 12000.0, 250000.0, /*entered_today=*/true, 10));  // 오늘 분할 첫 회차 체결(09-29 8건)
+    CHECK(is_dust(4, 12000.0, 250000.0, /*entered_today=*/true, 10));    // 오늘 샀지만 익절로 줄어든 잔량
+    CHECK(!is_dust(30, 12000.0, 250000.0, false, 30));                   // 36만원 — 기준 위
+    CHECK(!is_dust(10, 12000.0, 0.0, false, 10));                        // 끔
+    CHECK(!is_dust(0, 12000.0, 250000.0, false, 0));                     // 보유 없음
+    CHECK(!is_dust(10, 0.0, 250000.0, false, 10));                       // 가격 모름
+    return 0;
+}
 } // namespace
 
 int main()
@@ -117,6 +141,16 @@ int main()
     }
 
     if (test_entry_day_allowed() != 0)
+    {
+        return 1;
+    }
+
+    if (test_entry_time_closed() != 0)
+    {
+        return 1;
+    }
+
+    if (test_is_dust() != 0)
     {
         return 1;
     }

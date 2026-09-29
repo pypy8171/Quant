@@ -3,6 +3,7 @@
 #include "core/LedgerReconciler.h"
 
 #include "utils/Logger.h"
+#include "utils/ThreadName.h"
 
 #include <fstream>
 #include <thread>
@@ -332,7 +333,13 @@ void LedgerReconciler::reconcile(bool resync_positions, std::time_t now_utc)
     // 조회를 뒤 스레드에 맡기고 상한만큼만 기다린다. 늦으면 이번 사이클은 여기서 끝 — 장부·게이트는 그대로.
     if (!pending_fetch_.valid())
     {
-        pending_fetch_  = std::async(std::launch::async, fetch_);
+        // 조회 스레드에도 이름을 붙인다 — 이름이 없으면 로그와 스레드별 CPU 적재에 운영체제 번호로만 찍힌다.
+        //  fetch_는 전처럼 값으로 넘긴다(람다가 사본을 쥔다).
+        pending_fetch_  = std::async(std::launch::async, [fetch = fetch_]()
+        {
+            thread_name::set_current("BalanceFetch");
+            return fetch();
+        });
         pending_since_  = std::chrono::steady_clock::now();
         pending_cycles_ = 0;
     }

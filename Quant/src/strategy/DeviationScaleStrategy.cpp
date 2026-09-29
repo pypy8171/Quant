@@ -77,6 +77,7 @@ std::string DeviationScaleStrategy::describe() const
            (parameters_.entry_open_deviation_min_percent > -99.0
                 ? " open_dev>=" + format_one_decimal(parameters_.entry_open_deviation_min_percent) + "%"
                 : "") +
+           (parameters_.no_new_entry_hhmm > 0 ? " no_entry>=" + std::to_string(parameters_.no_new_entry_hhmm) : "") +
            (parameters_.market_close_hhmm >= devscale_rules::kNoMarketCloseHhmm ? " carry" : "");
 }
 
@@ -109,6 +110,8 @@ void DeviationScaleStrategy::on_start()
     average_position_seen_ = 0;
     base_target_quantity_ = 0;
     peak_position_ = 0;
+    entry_date_.clear();
+    entry_cutoff_logged_ = false;
     hold_peak_price_ = 0.0;
     entry_filter_date_.clear();
     day_entry_allowed_ = true;
@@ -261,6 +264,23 @@ void DeviationScaleStrategy::on_trade_batch(const TradeData& trade, std::vector<
 
     const SplitPlan plan = plan_split_steps(position, current_price, simple_moving_average, warming, now);
 
+    // 신규 진입 마감: 보유가 없으면 미체결 매수만 거두고 끝낸다. 보유가 있으면 아래 entry_on을 끄는 것으로 매수 분할
+    //  단계만 걷고 익절 매도는 그대로 재구성한다. 계획 갱신(peak_position_·재진입 대기)은 위에서 이미 했다.
+    const bool entry_time_closed = devscale_rules::entry_time_closed(hhmm, parameters_.no_new_entry_hhmm);
+
+    if (entry_time_closed && !entry_cutoff_logged_)
+    {
+        LOG_INFO("[" + id() + "] " + display() + " 신규 진입 마감(" + std::to_string(parameters_.no_new_entry_hhmm) +
+                 ") — 매수 분할 단계를 깔지 않는다, pos=" + std::to_string(position));
+        entry_cutoff_logged_ = true;
+    }
+
+    if (position <= 0 && entry_time_closed)
+    {
+        cancel_all(out);
+        return;
+    }
+
     // G1 국면 게이트: 비활성 국면(regime→전략 자동선택에서 미선택)에선 매수(진입·물타기)
     //  분할 단계를 깔지 않는다. 익절 매도·청산은 국면과 무관하게 유지(is_active 계약: 진입만 차단).
     //  신규매수 차단(entry_halt)도 같은 축이다. 스탑·트레일 뒤 쿨다운과 전량 청산 뒤 재진입 대기도
@@ -268,7 +288,8 @@ void DeviationScaleStrategy::on_trade_batch(const TradeData& trade, std::vector<
     const bool cooling =
         (stop_cooldown_until_ != std::chrono::steady_clock::time_point{} && now < stop_cooldown_until_) ||
         (reentry_cooldown_until_ != std::chrono::steady_clock::time_point{} && now < reentry_cooldown_until_);
-    const bool entry_on = is_active() && !entry_halted() && !cooling && plan.entry_scale_ratio > 0.0;
+    const bool entry_on =
+        is_active() && !entry_halted() && !cooling && !entry_time_closed && plan.entry_scale_ratio > 0.0;
     std::string signal = plan_signature(plan, entry_on);
 
     if (clear_dust(plan, entry_on, position, current_price, out, now))
@@ -293,6 +314,11 @@ void DeviationScaleStrategy::on_trade_batch(const TradeData& trade, std::vector<
                                     " 현재가=" + format_one_decimal(current_price) +
                                     entry_context_text(trade, current_price);
     place_split_steps(plan, entry_on, buy_context, out);
+
+    if (position <= 0 && entry_on)
+    {
+        entry_date_ = kst_ymd(); // 오늘 무포지션에서 낸 베이스 — 체결되면 먼지 정리가 분할 진행 중으로 본다
+    }
 
     last_split_buy_reference_ = simple_moving_average;
     last_split_buy_signal_ = std::move(signal);
@@ -895,9 +921,11 @@ bool DeviationScaleStrategy::clear_dust(const SplitPlan& split_plan, bool entry_
 {
     // 먼지 정리: 보유 평가금이 dust_krw 아래인데 깔 매수 분할 단계가 없으면(베이스 끝·물타기 없음·진입 차단)
     //  이 보유는 커질 길이 없이 슬롯만 차지한다. 익절 지정가 대신 시장가로 정리한다. 매수 분할 단계가 있으면
-    //  베이스 잔량이 채워지는 중이라 둔다. 재시도 간격은 emit_liquidation 백오프가 맡는다. [why D-081]
-    if (position > 0 && parameters_.dust_krw > 0.0 && current_price > 0.0 &&
-        position * current_price < parameters_.dust_krw)
+    //  베이스 잔량이 채워지는 중이라 둔다. 오늘 진입해 아직 줄이지 않은 보유는 분할 진행 중이라 먼지로 보지 않는다
+    //  (판정은 devscale_rules::is_dust). 재시도 간격은 emit_liquidation 백오프가 맡는다. [why D-081]
+    const bool entered_today = !entry_date_.empty() && entry_date_ == kst_ymd();
+
+    if (devscale_rules::is_dust(position, current_price, parameters_.dust_krw, entered_today, peak_position_))
     {
         bool has_buy = false;
 
