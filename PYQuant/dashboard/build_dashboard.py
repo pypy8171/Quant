@@ -1302,12 +1302,21 @@ def _private_literals():
 _PRIVATE_LITERALS = _private_literals()
 
 
+def _literal_pattern(literal):
+    """숫자로만 된 낱말(계좌번호 꼴)은 앞뒤가 숫자가 아닐 때만 잡는다 — 소수점 꼬리처럼 더 긴 숫자열 안에 우연히 박힌 것은 그 낱말이 아니다."""
+    escaped = re.escape(literal)
+    return re.compile(rf"(?<!\d){escaped}(?!\d)" if literal.isdigit() else escaped)
+
+
+_PRIVATE_PATTERNS = [_literal_pattern(literal) for literal in _PRIVATE_LITERALS]
+
+
 def _mask_public(text):
     for pattern, replacement in _PUBLIC_MASKS:
         text = pattern.sub(replacement, text)
 
-    for literal in _PRIVATE_LITERALS:
-        text = text.replace(literal, "(가림)")
+    for pattern in _PRIVATE_PATTERNS:
+        text = pattern.sub("(가림)", text)
 
     return "\n".join(_BARE_ACCOUNT_NUMBER.sub("(계좌번호)", line) if "계좌" in line else line
                      for line in text.split("\n"))
@@ -1802,7 +1811,7 @@ def main():
         page = render(rows, live, reviews, premarket, rounds, study_index, variant)
         if variant == "public":
             hits = [pattern.pattern for pattern in _PUBLIC_FORBIDDEN if pattern.search(page)]
-            hits += ["(비공개 낱말)" for literal in _PRIVATE_LITERALS if literal in page][:1]
+            hits += ["(비공개 낱말)" for pattern in _PRIVATE_PATTERNS if pattern.search(page)][:1]
             if hits:
                 print(f"! 공개본에 금지 패턴 {hits} — {variant_specification['out'].name}을 쓰지 않는다", file=sys.stderr)
                 continue
