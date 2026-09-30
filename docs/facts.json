@@ -9,7 +9,7 @@
       {
         "name": "Quant Basket Targets",
         "at": "08:40",
-        "run": "py PYQuant\\main.py basket"
+        "run": "py PYQuant\\main.py basket --no-momentum --value-share 1.0"
       },
       {
         "name": "Quant Market Close AutoDoc",
@@ -51,7 +51,7 @@
       {
         "name": "Quant Basket Targets",
         "at": "08:40",
-        "run": "py PYQuant\\main.py basket"
+        "run": "py PYQuant\\main.py basket --no-momentum --value-share 1.0"
       },
       {
         "name": "Quant Market Close AutoDoc",
@@ -541,8 +541,8 @@
     {
       "file": "scripts/check_runtime_health.py",
       "symbol": "collect",
-      "lines": 835,
-      "start": 1862
+      "lines": 851,
+      "start": 1994
     },
     {
       "file": "Quant/src/core/EngineDataThread.cpp",
@@ -584,7 +584,7 @@
       "file": "scripts/market_close_autodoc.py",
       "symbol": "render",
       "lines": 215,
-      "start": 257
+      "start": 253
     },
     {
       "file": "PYQuant/backtest/devscale_replay.py",
@@ -621,6 +621,12 @@
       "symbol": "KisClient::issue_token",
       "lines": 172,
       "start": 99
+    },
+    {
+      "file": "Quant/src/strategy/DeviationScaleStrategy.cpp",
+      "symbol": "DeviationScaleStrategy::on_trade_batch",
+      "lines": 171,
+      "start": 163
     },
     {
       "file": "PYQuant/dashboard/build_dashboard.py",
@@ -663,12 +669,6 @@
       "symbol": "Engine::rebalance_websocket_slots",
       "lines": 152,
       "start": 726
-    },
-    {
-      "file": "Quant/src/strategy/DeviationScaleStrategy.cpp",
-      "symbol": "DeviationScaleStrategy::on_trade_batch",
-      "lines": 147,
-      "start": 160
     },
     {
       "file": "Quant/src/core/Engine.cpp",
@@ -719,6 +719,12 @@
       "start": 700
     },
     {
+      "file": "Quant/src/core/LedgerReconciler.cpp",
+      "symbol": "LedgerReconciler::reconcile",
+      "lines": 132,
+      "start": 317
+    },
+    {
       "file": "scripts/summarize_trading_day.py",
       "symbol": "summarize",
       "lines": 131,
@@ -734,7 +740,7 @@
       "file": "Quant/src/core/LedgerReconciler.cpp",
       "symbol": "LedgerReconciler::resync_holdings",
       "lines": 128,
-      "start": 86
+      "start": 87
     },
     {
       "file": "Quant/src/core/EngineFillThread.cpp",
@@ -747,12 +753,6 @@
       "symbol": "main",
       "lines": 126,
       "start": 598
-    },
-    {
-      "file": "Quant/src/core/LedgerReconciler.cpp",
-      "symbol": "LedgerReconciler::reconcile",
-      "lines": 126,
-      "start": 316
     },
     {
       "file": "Quant/src/ipc/OrderRouterReconcile.cpp",
@@ -824,13 +824,13 @@
       "file": "Quant/src/strategy/DeviationScaleStrategy.cpp",
       "symbol": "DeviationScaleStrategy::load_decision_bars",
       "lines": 109,
-      "start": 359
+      "start": 386
     },
     {
       "file": "scripts/check_runtime_health.py",
       "symbol": "journal_mirror_row",
       "lines": 109,
-      "start": 1533
+      "start": 1662
     },
     {
       "file": "Quant/src/api/KisMarket.cpp",
@@ -842,7 +842,7 @@
       "file": "scripts/check_runtime_health.py",
       "symbol": "feed_ledger_rows",
       "lines": 108,
-      "start": 357
+      "start": 361
     },
     {
       "file": "PYQuant/tools/walkforward.py",
@@ -974,7 +974,7 @@
       "file": "scripts/check_runtime_health.py",
       "symbol": "shared_region_exit_row",
       "lines": 89,
-      "start": 780
+      "start": 909
     },
     {
       "file": "Quant/src/strategy/ValueContraryStrategy.cpp",
@@ -1034,7 +1034,7 @@
       "file": "Quant/src/strategy/DeviationScaleStrategy.cpp",
       "symbol": "DeviationScaleStrategy::prefetch_once",
       "lines": 84,
-      "start": 1123
+      "start": 1148
     },
     {
       "file": "scripts/stresstest_flow_profile.py",

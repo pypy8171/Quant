@@ -17,7 +17,7 @@
 | 작업 이름 | 모의 (is_paper=true) | 실계좌 (is_paper=false) | 실행 |
 |---|---|---|---|
 | `QuantAutoTradeGuard` | 07:30~ 5분마다, -Until 15:35, 8.25h | 07:30~ 5분마다, -Until 20:05, 12.75h | `powershell -File scripts\market_close_timetable.ps1 -Apply` |
-| `Quant Basket Targets` | 08:40 | 08:40 | `py PYQuant\main.py basket` |
+| `Quant Basket Targets` | 08:40 | 08:40 | `py PYQuant\main.py basket --no-momentum --value-share 1.0` |
 | `Quant Market Close AutoDoc` | 16:05 | 20:30 | `py scripts\market_close_autodoc.py` |
 | `Quant Maintain Daily` | 16:20 | 20:45 | `py ..\quant-devtools\maintain.py --daily` |
 | `Quant Minute Backfill` | 16:40 | 21:00 | `py scripts\market_close_minute_backfill.py` |
