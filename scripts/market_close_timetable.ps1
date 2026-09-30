@@ -87,7 +87,7 @@ else
 $guardOpen = '07:30'
 
 $fix = @{
-    'Quant Basket Targets'  = 'py PYQuant\main.py basket'
+    'Quant Basket Targets'  = 'py PYQuant\main.py basket --no-momentum --value-share 1.0'
     'Quant Market Close AutoDoc'     = 'py scripts\market_close_autodoc.py'
     'Quant Maintain Daily'  = 'py ..\quant-devtools\maintain.py --daily'
     'Quant Minute Backfill' = 'py scripts\market_close_minute_backfill.py'
