@@ -7,6 +7,7 @@
 //   • entry_day_allowed: 하루 단위 진입 필터 — 전일 ATR 비율·개장 이격이 허용 범위 안인가.
 //   • entry_time_closed: 그날 신규 진입 마감 시각을 지났나.
 //   • is_dust: 먼지 정리 대상인가(평가금 기준 + 당일 분할 진입 면제).
+//   • zone_band: 일봉 SMA20 이격 존의 하단·상단(%) — 진입 폭과 유지 폭.
 // 테스트: Quant/tests/test_devscale_rules.cpp
 #include "core/Types.h"
 
@@ -50,5 +51,16 @@ bool entry_time_closed(int hhmm, int no_new_entry_hhmm);
 //  첫 회차 체결액(약 12만원)이 dust_krw(25만원) 아래라 사고 10~30초 뒤 되팔던 문제(09-29 신규 11건 중 8건).
 //  익절로 줄어든 잔량과 전날부터 넘어온 자투리는 그대로 먼지다. dust_krw 0 이하는 끔. [why D-081]
 bool is_dust(int position, double current_price, double dust_krw, bool entered_today, int peak_position);
+
+struct ZoneBand
+{
+    double low_percent = 0.0; // SMA20 대비 하단(음수)
+    double up_percent  = 0.0; // SMA20 대비 상단
+};
+
+// 진입 폭은 −pullback ~ +entry_upper, 유지 폭은 양쪽에 hysteresis를 더한다. widened는 직전 판정이 존 안이었거나
+//  보유가 있을 때 true다 — 보유를 넣지 않으면 재기동 직후(직전 판정 기억 없음) 이격 5~9%인 보유분이 좁은 폭으로
+//  판정돼 시장가로 팔린다(09-28~30 5건).
+ZoneBand zone_band(double entry_upper_percent, double pullback_percent, double hysteresis_percent, bool widened);
 
 } // namespace devscale_rules

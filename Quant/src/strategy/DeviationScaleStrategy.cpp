@@ -206,7 +206,8 @@ void DeviationScaleStrategy::on_trade_batch(const TradeData& trade, std::vector<
         return; // 일봉 미준비 — 프리페치 대기
     }
 
-    const ZoneJudgement zone_judgement = judge_zone(current_price, now);
+    const bool holding = confirmed_position(parameters_.account, symbol_id_, parameters_.ticker) > 0;
+    const ZoneJudgement zone_judgement = judge_zone(current_price, holding, now);
 
     if (!zone_judgement.hold_zone && exit_on_zone_loss(out, now))
     {
@@ -492,7 +493,7 @@ DeviationScaleStrategy::load_decision_bars(const TradeData& trade, double curren
     return decision_bars;
 }
 
-DeviationScaleStrategy::ZoneJudgement DeviationScaleStrategy::judge_zone(double current_price,
+DeviationScaleStrategy::ZoneJudgement DeviationScaleStrategy::judge_zone(double current_price, bool holding,
                                                                          std::chrono::steady_clock::time_point now)
 {
     // ── 일봉 존 판정(정배열 + SMA20 눌림) ────────────────────────────────
@@ -523,16 +524,12 @@ DeviationScaleStrategy::ZoneJudgement DeviationScaleStrategy::judge_zone(double 
     const double deviation20_percent = d_s20 > 0.0 ? (current_price - d_s20) / d_s20 * 100.0 : kNoDataDeviationPct;
     // 방향성 눌림 게이트: 진입은 "SMA20 이하(≤0%) ~ pullback_pct 아래"의 눌림 구간에서만.
     //   정배열 상승추세에서 SMA20 눌림(entry_upper_percent=0) 또는 SMA20 위 소폭(entry_upper_percent>0)까지 진입 허용.
-    //   히스테리시스: 활성이면 상단 +zone_hysteresis 더 여유, 하단 −(pullback+zone_hysteresis)까지 유지(경계 진동
-    //   방지).
-    const double up_threshold =
-        parameters_.entry_upper_percent +
-        (in_zone_ ? parameters_.zone_hysteresis_percent : 0.0); // 진입 상단=entry_upper, 유지=+hysteresis
-    const double down_threshold = in_zone_
-                                      ? parameters_.pullback_percent + parameters_.zone_hysteresis_percent // 유지 하단
-                                      : parameters_.pullback_percent;                                      // 진입 하단
-    // 존 하단: SMA20 아래 -down_threshold(눌림).
-    const double low_threshold = -down_threshold;
+    //   히스테리시스: 활성이거나 보유 중이면 양쪽에 zone_hysteresis를 더 둔다(경계 진동 방지·재기동 직후 오판 매도 방지).
+    const devscale_rules::ZoneBand zone_band = devscale_rules::zone_band(
+        parameters_.entry_upper_percent, parameters_.pullback_percent, parameters_.zone_hysteresis_percent,
+        in_zone_ || holding);
+    const double up_threshold = zone_band.up_percent;
+    const double low_threshold = zone_band.low_percent;
     const bool band = d_s20 > 0.0 && deviation20_percent <= up_threshold && deviation20_percent >= low_threshold;
     const bool zone = aligned && band; // 진입 게이트
     // [inv] hold_zone은 zone보다 넓어야 한다(정배열 축이 느린 쪽) — 좁아지면 막 산 걸 다음

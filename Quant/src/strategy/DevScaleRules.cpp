@@ -97,4 +97,13 @@ bool is_dust(int position, double current_price, double dust_krw, bool entered_t
     return !entry_in_progress;
 }
 
+ZoneBand zone_band(double entry_upper_percent, double pullback_percent, double hysteresis_percent, bool widened)
+{
+    const double extra = widened ? hysteresis_percent : 0.0;
+    ZoneBand band;
+    band.low_percent = -(pullback_percent + extra);
+    band.up_percent = entry_upper_percent + extra;
+    return band;
+}
+
 } // namespace devscale_rules

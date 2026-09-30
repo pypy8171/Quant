@@ -253,7 +253,7 @@ private:
     bool close_at_market_end(int hhmm, std::vector<OrderSignal>& out);
     // 일봉 스냅샷이 아직 없으면 nullopt — 프리페치를 기다린다.
     std::optional<DecisionBars> load_decision_bars(const TradeData& trade, double current_price);
-    ZoneJudgement judge_zone(double current_price, std::chrono::steady_clock::time_point now);
+    ZoneJudgement judge_zone(double current_price, bool holding, std::chrono::steady_clock::time_point now);
     bool exit_on_zone_loss(std::vector<OrderSignal>& out, std::chrono::steady_clock::time_point now);
     bool exit_on_protective_rules(double current_price, std::vector<OrderSignal>& out,
                                   std::chrono::steady_clock::time_point now);

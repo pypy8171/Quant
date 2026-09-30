@@ -96,6 +96,10 @@ BASKET_ORDER_RE = re.compile(r"\[BASKET_\w+\] 주문: (\d{6}) (매수|매도) (\
 BASKET_RUN_START_RE = re.compile(r"\[BASKET_\w+\] 오늘 집행 시작")
 BASKET_RUN_END_RE = re.compile(r"\[BASKET_\w+\] 오늘 집행 끝")
 BASKET_WINDOW_CLOSED_RE = re.compile(r"\[BASKET_\w+\] 집행 창 종료")
+# DevScale 존 판정 줄의 이격·진입밴드 상단, 그리고 보유분 존 이탈 청산 줄.
+ZONE_JUDGE_RE = re.compile(r"\[(DEVSCALE_\w+)\] .*존 판정 \S+ \| 정배열=Y .*이격=(-?[\d.]+)% \(진입밴드 -?[\d.]+%~(-?[\d.]+)%\)")
+ZONE_EXIT_SELL_RE = re.compile(r"\[(DEVSCALE_\w+)\] 존 이탈 — 취소\+청산 pos=(\d+)")
+ZONE_HYSTERESIS_PERCENT = 4.0  # DeviationScaleStrategy.h zone_hysteresis_percent 기본값(설정에서 안 바꿈)
 SIGNAL_RE = re.compile(r"\[Strategy\] 신호: \[([A-Z_+0-9]+)\] (\d{6})(?:\([^)]*\))? (BUY|SELL) (\d+)")
 ITB_ATTACH_RE = re.compile(r"\[Main\]   \+ ITB (\d{6}) ")
 # 09-20 청산선 재설정(config_dev_paper.json "//exit_09-20") — 12일 원장에서 손실을 낸 네 경로가 닫혔는지 본다:
@@ -791,6 +795,22 @@ def entry_cutoff_hhmm(config_name: str) -> int:
 
     match = re.search(r'"no_new_entry_hhmm"\s*:\s*(\d+)', text)
     return int(match.group(1)) if match else DEFAULT_ENTRY_CUTOFF_HHMM
+
+
+def basket_configured(log: Path) -> bool:
+    """이 로그 폴더의 설정 strategies 에 TARGET_BASKET 이 있는지. 매핑에 없는 폴더·못 읽는 설정은 False."""
+    config_name = ENTRY_CUTOFF_CONFIG.get(log.parent.name)
+
+    if not config_name:
+        return False
+
+    try:
+        document = json.loads((REPO / "Quant" / "config" / config_name).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+
+    return any(isinstance(strategy, dict) and strategy.get("type") == "TARGET_BASKET"
+               for strategy in document.get("strategies", []))
 
 
 def entry_cutoff_buy_row(date: str) -> tuple:
@@ -2013,6 +2033,8 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
     basket_run_end: list[int] = []
     basket_window_closed = 0
     basket_lines = 0
+    last_zone_judge: dict[str, tuple[float, float]] = {}  # 전략 id → (이격, 밴드 상단)
+    narrow_band_exits: list[tuple[int, str]] = []            # 보유 중인데 좁은 폭으로 판정돼 팔린 건
     signals: list[tuple[int, str, str, str]] = []  # (초, 전략 id, 종목, BUY|SELL)
     itb_attached: list[str] = []
     devscale_stops: list[tuple[int, str]] = []     # (초, 종목) — DEVSCALE 손절 신호
@@ -2302,6 +2324,12 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
                 basket_run_end.append(second)
             if BASKET_WINDOW_CLOSED_RE.search(line):
                 basket_window_closed += 1
+            if found := ZONE_JUDGE_RE.search(line):
+                last_zone_judge[found.group(1)] = (float(found.group(2)), float(found.group(3)))
+            if found := ZONE_EXIT_SELL_RE.search(line):
+                deviation, upper = last_zone_judge.get(found.group(1), (0.0, 0.0))
+                if upper < deviation <= upper + ZONE_HYSTERESIS_PERCENT:
+                    narrow_band_exits.append((second, f"{found.group(1)} 이격 {deviation}%"))
             if found := SIGNAL_RE.search(line):
                 signals.append((second, found.group(1), found.group(2), found.group(3)))
             if found := ITB_ATTACH_RE.search(line):
@@ -2384,11 +2412,16 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
     date_compact = date.replace("-", "")
     basket_file_ok = bool(basket_as_of) and basket_as_of[-1] == date_compact
     buy_leg_ok = basket_window_closed == 0 and (not basket_orders or (basket_run_end and max(basket_run_end) <= BASKET_BUY_LEG_DEADLINE))
-    basket_skip = basket_lines == 0   # TARGET_BASKET 미로드(배포 전 날짜) — 판정하지 않는다
+    # 설정에 없어 줄이 없으면 판정하지 않는다. 설정에 있는데 줄이 없으면 실패다 — 예전에는 이 경우도 통과로 찍어
+    #  한 번도 켜지지 않은 바스켓이 도는 것처럼 읽혔다(09-21~30).
+    basket_expected = basket_configured(log)
+    basket_skip = basket_lines == 0
 
     def basket_row(name: str, ok: bool, level: str, detail: str):
+        if basket_skip and basket_expected:
+            return (name, False, level, "설정에 TARGET_BASKET 이 있는데 로그 줄 없음(미로드)")
         if basket_skip:
-            return (name, True, level, "TARGET_BASKET 줄 없음(미로드)")
+            return (name, True, level, "설정에 TARGET_BASKET 없음 — 판정 안 함")
         return (name, ok, level, detail)
 
     # 09-20 청산선 재설정 — 네 손실 경로. 승계 직후 매도는 그 종목의 마지막 부착 시각 기준.
@@ -2800,6 +2833,9 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
         basket_row("바스켓 매수 레그 시각", buy_leg_ok, "WARN",
                    (f"집행 끝 {hhmm(max(basket_run_end))} (기한 15:05), 창 종료 이월 {basket_window_closed}회, 주문 {len(basket_orders)}건"
                     if basket_run_end else f"집행 끝 줄 없음, 창 종료 이월 {basket_window_closed}회, 주문 {len(basket_orders)}건")),
+        # 보유분은 넓은 폭(진입 상단 + 4%)으로 판정해야 한다. 재기동 직후 좁은 폭으로 판정돼 오른 종목을 팔던 문제(09-28~30 5건).
+        ("보유분 좁은 폭 존 이탈 매도", not narrow_band_exits, "FAIL",
+         f"{len(narrow_band_exits)}건 (기대 0)" + (f" — {', '.join(f"{hhmm(second)} {what}" for second, what in narrow_band_exits[:5])}" if narrow_band_exits else "")),
     ]
 
     if include_global:

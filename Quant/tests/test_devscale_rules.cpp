@@ -121,6 +121,17 @@ int test_is_dust()
     CHECK(!is_dust(10, 0.0, 250000.0, false, 10));                       // 가격 모름
     return 0;
 }
+
+int test_zone_band()
+{
+    // entry_upper 5, pullback 8, hysteresis 4 (config_dev_paper.json 값)
+    const ZoneBand entry = zone_band(5.0, 8.0, 4.0, /*widened=*/false);
+    CHECK(entry.low_percent == -8.0 && entry.up_percent == 5.0);
+    const ZoneBand hold = zone_band(5.0, 8.0, 4.0, /*widened=*/true); // 재기동 직후 보유분도 이 폭(011790 이격 6.3%)
+    CHECK(hold.low_percent == -12.0 && hold.up_percent == 9.0);
+    CHECK(6.3 <= hold.up_percent && 6.3 > entry.up_percent);
+    return 0;
+}
 } // namespace
 
 int main()
@@ -151,6 +162,11 @@ int main()
     }
 
     if (test_is_dust() != 0)
+    {
+        return 1;
+    }
+
+    if (test_zone_band() != 0)
     {
         return 1;
     }
