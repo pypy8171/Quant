@@ -70,6 +70,11 @@ int test_classify()
     CHECK(plan.kind == Retry::SELL_REJECTED && plan.delay == kDelay);
     CHECK(order_rate::classify(sell, 0, 3, OrderStatus::REJECTED, "40240000 주문가능수량 없음", kDelay).kind ==
           Retry::NONE);
+    // 시각 때문에 막힌 거부는 SELL이어도 되쏘지 않는다 — 몇 초 뒤에도 창은 닫혀 있다
+    CHECK(order_rate::classify(sell, 0, 3, OrderStatus::REJECTED, "세션 창 밖 (15:30, 허용 09:00~15:30)", kDelay).kind ==
+          Retry::NONE);
+    CHECK(order_rate::classify(sell, 0, 3, OrderStatus::REJECTED, "KIS API 거부 (빈 ODNO) [APBK0918]", kDelay).kind ==
+          Retry::NONE);
     // BUY·취소의 일반 거부는 되쏘지 않는다(빈-ODNO 중복주문 위험)
     CHECK(order_rate::classify(buy, 0, 3, OrderStatus::REJECTED, "APBK0013", kDelay).kind == Retry::NONE);
     CHECK(order_rate::classify(signal("A", OrderSide::SELL, 0, OrderAction::CANCEL), 0, 3, OrderStatus::REJECTED,

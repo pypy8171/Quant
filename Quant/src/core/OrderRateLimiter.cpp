@@ -42,6 +42,13 @@ RetryPlan classify(const OrderSignal& signal, int attempts, int max_retries, Ord
         return {};
     }
 
+    // 시각 때문에 막힌 거부는 1.2초 간격 재시도 세 번 안에 풀리지 않는다 — 우리 게이트의 매매 창 밖과 KIS의 장운영시간
+    //  아님(APBK0918). 10-01 모의는 15:30 창 밖 매도 두 건이 네 번씩, 실계좌는 프리마켓 시장가 매도가 네 번 거부됐다.
+    if (gate_reason::is_outside_session(reject_reason) || reject_reason.find(kis_error::kMarketClosed) != std::string::npos)
+    {
+        return {};
+    }
+
     // 청산 SELL 유실 방지(C-2). BUY는 제외: 빈-ODNO 응답이 실제로는 접수됐을 수 있어 재시도가 중복주문을 낳는다.
     //  40240000(주문가능분 없음)도 제외: 보유수량이 예약매도/미결제로 묶인 '지속성' 조건이라 되쏘면 매번 같은
     //  거부다. 유일 해법(예약매도 취소→시장가 재매도)은 라우터의 reconcile_blocked_sell이 이미 1회 시도했다.

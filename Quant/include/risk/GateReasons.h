@@ -10,6 +10,8 @@ inline constexpr char kRateLimit[] = "Rate limit 초과";
 // 분당 한도 표시 — 창이 비기까지 최대 60초라 재시도 지연을 길게 잡는 신호.
 inline constexpr char kPerMinute[] = "분당";
 inline constexpr char kPerSecond[] = "초당";
+// 매매 창 밖 거부의 머리. 몇 초 뒤 되쏴도 창은 그대로 닫혀 있어 재시도 분류기가 이것을 보고 되쏘지 않는다.
+inline constexpr char kOutsideSession[] = "세션 창 밖";
 
 // "Rate limit 초과 (초당 N건)" / "Rate limit 초과 (분당 N건)"
 std::string rate_limit(bool per_minute, int limit);
@@ -17,6 +19,11 @@ std::string rate_limit(bool per_minute, int limit);
 inline bool is_rate_limit(const std::string& reason)
 {
     return reason.starts_with(kRateLimit);
+}
+
+inline bool is_outside_session(const std::string& reason)
+{
+    return reason.starts_with(kOutsideSession);
 }
 
 inline bool is_per_minute(const std::string& reason)

@@ -585,6 +585,7 @@ void Engine::order_thread_fn(std::stop_token stop_token)
         //  자리가 나 풀린 교체 보류분, 없으면 신규 큐
         std::optional<OrderRateLimiter::Pending> next = rate_limiter.take_due_retry(steady_clock::now());
         int64_t                            pop_ns = 0;
+        bool                               taken_from_parked = false;
 
         if (!next)
         {
@@ -614,8 +615,9 @@ void Engine::order_thread_fn(std::stop_token stop_token)
                     break;
                 }
 
-                next   = std::move(taken.pending);
-                pop_ns = taken.pop_ns;
+                next              = std::move(taken.pending);
+                pop_ns            = taken.pop_ns;
+                taken_from_parked = true;
                 break;
             }
         }
@@ -720,8 +722,9 @@ void Engine::order_thread_fn(std::stop_token stop_token)
 
         if (transport)
         {
-            // 같은 종목이 답을 기다리는 중이면(또는 먼저 온 같은 종목이 기다리고 있으면) 뒤에 세운다.
-            if (is_sending(next->signal.symbol_id) || is_parked(next->signal.symbol_id))
+            // 같은 종목이 답을 기다리는 중이면(또는 먼저 온 같은 종목이 기다리고 있으면) 뒤에 세운다. 줄에서 꺼낸
+            //  주문은 그 종목의 맨 앞이라 줄 검사를 건너뛴다.
+            if (should_park(is_sending(next->signal.symbol_id), is_parked(next->signal.symbol_id), taken_from_parked))
             {
                 parked.push_back(ParkedOrder{std::move(*next), pop_ns});
                 continue;

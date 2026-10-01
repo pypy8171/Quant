@@ -1382,6 +1382,9 @@ def shared_region_exit_row(date: str) -> tuple:
             f"앞선 기동이 모두 사유를 적고 내려갔다 (짝 따라 내려간 것 {sum(clean_exits.values())}회)")
 
 
+ORDER_QUEUE_STUCK_DEPTH = 20   # 전략→주문 요청 큐 최고 수위가 이만큼이면 주문 스레드가 막힌 것으로 본다(평소 한 자리)
+
+
 def order_answer_row(date: str) -> tuple:
     """전략이 낸 주문 요청에 답이 돌아왔는지, 주문 쪽이 살아 있었는지.
 
@@ -1405,6 +1408,7 @@ def order_answer_row(date: str) -> tuple:
     name = "주문 답 판정"
     beat_lost: dict[str, int] = {}
     overdue: dict[str, int] = {}
+    queue_max: dict[str, int] = {}
     gap_max_ms = -1
 
     for account, engine_log in engine_logs():
@@ -1432,6 +1436,11 @@ def order_answer_row(date: str) -> tuple:
             if found:
                 gap_max_ms = max(gap_max_ms, int(found.group(1)))
 
+            found = re.search(r"\border=(\d+)/", line)
+
+            if found:
+                queue_max[account] = max(queue_max.get(account, 0), int(found.group(1)))
+
     gap_note = f", 주문 박동 최대 공백 {gap_max_ms}ms" if gap_max_ms >= 0 else ""
 
     if beat_lost:
@@ -1440,11 +1449,20 @@ def order_answer_row(date: str) -> tuple:
                 f"주문 박동이 끊긴 기동 — {detail}"
                 f" (그동안 전략이 낸 주문은 증권사로 나가지 않았다{gap_note})")
 
+    # 박동은 살아 있는데 요청 큐가 쌓이면 주문 스레드가 큐를 꺼내지 못하고 같은 자리를 돈 것이다 — 10-01 모의는
+    #  같은 종목 대기 두 건이 서로 뒤로 미뤄 10:00~15:22 큐가 81까지 찼고 그 사이 신호를 다 잃었다.
+    stuck = {account: depth for account, depth in queue_max.items() if depth >= ORDER_QUEUE_STUCK_DEPTH}
+
+    if stuck:
+        detail = ", ".join(f"{account} 최고 {depth}" for account, depth in sorted(stuck.items()))
+        return (name, False, "FAIL",
+                f"주문 요청 큐가 쌓였다 — {detail} (기준 {ORDER_QUEUE_STUCK_DEPTH}, 주문 스레드가 큐를 꺼내지 못한 것{gap_note})")
+
     total_overdue = sum(overdue.values())
 
     if total_overdue:
         detail = ", ".join(f"{account} {count}건" for account, count in sorted(overdue.items()))
-        return (name, True, "WARN",
+        return (name, False, "WARN",
                 f"시한 60초를 넘겨도 답이 안 온 요청 {total_overdue}건 — {detail}"
                 f" (시한은 증권사 왕복 상한에서 잡은 첫 값이다{gap_note})")
 
@@ -2473,9 +2491,9 @@ def buy_signal_sent_row(date: str) -> tuple:
     return (name, True, "WARN", detail)
 
 
-DEVSCALE_START_RE = re.compile(r"\[(DEVSCALE_\d{6})\] 시작 — ")
-DEVSCALE_BAR_RE = re.compile(r"\[(DEVSCALE_\d{6})\] 봉 닫힘 ")
-DEVSCALE_JUDGED_RE = re.compile(r"\[(DEVSCALE_\d{6})\] .*존 판정|신호: \[(DEVSCALE_\d{6})\]")
+JUDGING_START_RE = re.compile(r"\[(DEVSCALE_\d{6})\] 시작 — ")
+JUDGING_BAR_RE = re.compile(r"\[(DEVSCALE_\d{6})\] 봉 닫힘 ")
+JUDGING_DONE_RE = re.compile(r"\[(DEVSCALE_\d{6})\] .*존 판정|신호: \[(DEVSCALE_\d{6})\]")
 
 
 def devscale_judging_row(date: str) -> tuple:
@@ -2501,7 +2519,7 @@ def devscale_judging_row(date: str) -> tuple:
             if not line.startswith(date):
                 continue
 
-            started = DEVSCALE_START_RE.search(line)
+            started = JUDGING_START_RE.search(line)
 
             if started:
                 starts += 1
@@ -2509,13 +2527,13 @@ def devscale_judging_row(date: str) -> tuple:
                 start_clock[started.group(1)] = line[11:19]
                 continue
 
-            judged = DEVSCALE_JUDGED_RE.search(line)
+            judged = JUDGING_DONE_RE.search(line)
 
             if judged:
                 bars_since_start.pop(judged.group(1) or judged.group(2), None)
                 continue
 
-            bar = DEVSCALE_BAR_RE.search(line)
+            bar = JUDGING_BAR_RE.search(line)
 
             if bar and bar.group(1) in bars_since_start:
                 bars_since_start[bar.group(1)] += 1

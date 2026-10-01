@@ -306,7 +306,8 @@ std::string OrderGate::describe(const GateVerdict& verdict) const
     case GateReject::OutsideSession:
     {
         const int64_t now_min = verdict.amount;
-        std::string   text    = std::format("세션 창 밖 ({:02}:{:02}, 허용 {:02}:{:02}~{:02}:{:02}", now_min / 60, now_min % 60,
+        std::string   text    = std::format("{} ({:02}:{:02}, 허용 {:02}:{:02}~{:02}:{:02}", gate_reason::kOutsideSession,
+                                            now_min / 60, now_min % 60,
                                             config_.session_open_min / 60, config_.session_open_min % 60,
                                             config_.session_close_min / 60, config_.session_close_min % 60);
 

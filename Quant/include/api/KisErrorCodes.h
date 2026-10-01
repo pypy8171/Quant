@@ -18,6 +18,9 @@ inline constexpr const char* kRateLimit = "EGW00201";
 //  근거: 실측 — D-046(모의 응답 "모의투자 잔고내역이 없습니다")·D-055·DAILY_LOG.md 2026-08-12. 원인 풀이(예약매도에 묶임)는
 //  이 사례들에서 얻은 것이고 공식 샘플에는 오류코드 목록이 없다. 실계좌 응답 문구는 기록을 찾지 못했다(2026-09-27).
 inline constexpr const char* kNoSellableQty = "40240000";
+// 장운영시간 아님 — 실측 응답 msg1 "장운영시간이 아닙니다.([프리마켓] 시장가 매매 불가 시간)"
+//  (Quant/build_win/logs_live/quant_trader.log 2026-10-01 08:26, 프리마켓 시장가 매도). 시각이 바뀌기 전에는 같은 거부다.
+inline constexpr const char* kMarketClosed = "APBK0918";
 // 자체 코드 — 장부 저널에 INTENT를 못 적어 KIS로 보내지 않았다. 적히지 않은 주문은 나가지 않는다. [why D-113]
 inline constexpr const char* kLedgerWriteFailed = "E_LEDGER";
 } // namespace kis_error

@@ -198,8 +198,8 @@ def build(date: str) -> dict:
               + ", ".join(str(d) for d in _logdir.candidate_dirs()), file=sys.stderr)
         sys.exit(2)
     ymd = date[:4] + "-" + date[4:6] + "-" + date[6:]
-    pack = {"date": ymd, "ledger_path": str(csv.relative_to(REPO)),
-            "log_path": str(log.relative_to(REPO)) if log else None}
+    pack = {"date": ymd, "ledger_path": str(csv.resolve().relative_to(REPO)),
+            "log_path": str(log.resolve().relative_to(REPO)) if log else None}
     pack["ledger"] = scan_ledger(csv)
     pack["log"] = scan_log(log, ymd) if log else {}
     lg = pack["log"]

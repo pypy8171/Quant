@@ -98,6 +98,14 @@ constexpr bool is_stale_parked_entry(const OrderSignal& signal, int64_t parked_a
            && now_ns - parked_at_ns > kParkedOrderMaxWaitNs;
 }
 
+// 고른 주문을 같은 종목 줄 뒤에 다시 세워야 하는가. 같은 종목이 답을 기다리면 세운다. 줄에 같은 종목이 서 있으면
+//  새로 온 주문만 세운다 — 줄에서 꺼낸 주문은 이미 그 종목의 맨 앞이라, 다시 세우면 남은 같은 종목 건과 서로
+//  뒤로 미루며 끝없이 돈다(10-01 모의 306200 취소·매도 두 건이 10:00~15:22 주문 스레드를 묶어 다른 신호까지 잃었다). [why D-151]
+constexpr bool should_park(bool symbol_sending, bool symbol_parked, bool taken_from_parked)
+{
+    return symbol_sending || (symbol_parked && !taken_from_parked);
+}
+
 class Engine
 {
 public:

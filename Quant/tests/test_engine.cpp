@@ -532,6 +532,14 @@ int run_stale_entry_case()
     CHECK(!is_stale_parked_entry(cancel, parked_at_ns, parked_at_ns + kParkedOrderMaxWaitNs + 1));
     CHECK(!is_stale_parked_entry(buy, 0, parked_at_ns + kParkedOrderMaxWaitNs + 1));
 
+    // 줄에서 꺼낸 주문은 같은 종목이 줄에 더 있어도 다시 세우지 않는다 — 10-01 모의 306200은 취소·매도 두 건이
+    //  서로 뒤로 미루며 주문 스레드를 5시간 묶었다. 같은 종목이 답을 기다리는 중이면 어디서 왔든 세운다.
+    CHECK(!should_park(false, true, true));
+    CHECK(should_park(false, true, false));
+    CHECK(should_park(true, false, true));
+    CHECK(should_park(true, true, false));
+    CHECK(!should_park(false, false, false));
+
     std::cout << "  stale_entry OK" << std::endl;
     return 0;
 }
