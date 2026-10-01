@@ -264,7 +264,8 @@ int test_decode_open_order_page()
 
     // 실거래: psbl_qty 0 행·종목 없는 행은 버리고, 매도/매수 코드를 읽고, 커서의 끝 공백을 뗀다.
     const std::string live_page = R"({"rt_cd":"0","output":[
-        {"pdno":"005930","odno":"0000007886","ord_gno_brno":"06010","psbl_qty":"18","ord_unpr":"70100","sll_buy_dvsn_cd":"01"},
+        {"pdno":"005930","odno":"0000007886","ord_gno_brno":"06010","psbl_qty":"18","ord_unpr":"70100","sll_buy_dvsn_cd":"01",
+         "excg_id_dvsn_cd":"SOR","ord_dvsn_cd":"00"},
         {"pdno":"000660","odno":"0000007887","psbl_qty":"0","ord_unpr":"1","sll_buy_dvsn_cd":"02"},
         {"odno":"0000007888","psbl_qty":"3","sll_buy_dvsn_cd":"02"},
         {"pdno":"035420","ODNO":"0000007889","psbl_qty":"2","ord_unpr":"150000","sll_buy_dvsn_cd":"02"}],
@@ -273,7 +274,10 @@ int test_decode_open_order_page()
     CHECK(live && live->rows.size() == 2);
     CHECK(live->rows[0].kis_order_no == "0000007886" && live->rows[0].psbl_qty == 18 && live->rows[0].side == OrderSide::SELL);
     CHECK(live->rows[0].krx_forwarding_org_no == "06010" && live->rows[0].ord_unpr == 70100.0);
+    // 원주문 거래소·구분 — 애프터마켓에 정규장 SOR 주문을 취소할 때 이 값으로 낸다(09-30 016360 거부).
+    CHECK(live->rows[0].exchange == "SOR" && live->rows[0].order_division == "00");
     CHECK(live->rows[1].kis_order_no == "0000007889" && live->rows[1].side == OrderSide::BUY);
+    CHECK(live->rows[1].exchange.empty());
     CHECK(live->forward_key == "FK1" && live->next_key == "NK1");
 
     // 모의: output1·rmn_qty(잔여)를 읽고 취소된 행(cncl_yn=Y)은 버린다.

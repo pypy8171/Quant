@@ -335,6 +335,20 @@ private:
     mutable std::mutex daily_cache_mutex_;
     std::unordered_map<std::string, DailyCacheEntry> daily_cache_; // 키는 REST 인자 그대로 — 이 클라이언트는 종목 테이블을 모른다(HTTP 왕복당 한 번)
 
+    // 주문번호별로 원주문이 나간 거래소·주문구분. 취소·정정은 원주문과 같은 거래소로 내야 한다 — 정규장 SOR 주문을
+    //  애프터마켓에 KRX로 취소하면 "원주문정보가 존재하지않습니다"로 거부된다(09-29·09-30 실계좌 016360).
+    //  접수 때 적고, 재기동 뒤처럼 모르는 번호는 정정취소가능조회 응답에서 채운다.
+    struct OrderRoute
+    {
+        std::string exchange;       // EXCG_ID_DVSN_CD
+        std::string order_division; // ORD_DVSN
+    };
+    std::mutex                                  order_route_mutex_;
+    std::unordered_map<std::string, OrderRoute> order_routes_; // 키는 ODNO
+    void remember_order_route(const std::string& kis_order_no, OrderRoute route);
+    // 원주문의 거래소·주문구분. 모르면 정정취소가능조회를 한 번 부르고, 거기도 없으면 빈 값을 돌려준다.
+    OrderRoute original_order_route(const std::string& kis_order_no);
+
     // 초당 호출 한도 토큰버킷. 한도는 app_key 단위라 같은 키를 쓰는 클라이언트끼리 버킷 하나를 나눠 쥔다
     //  (share_rate_limit_with). 모든 호출이 http_get/http_post를 지나므로 여기서 재우면 우회하는 호출 경로가 없다.
     //  주문·잔고 경로는 예약분을 따로 둬, 시세 조회가 버킷을 비워도 주문이 그 뒤에 줄서지 않게 한다. [why D-138]

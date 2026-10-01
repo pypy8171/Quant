@@ -107,12 +107,60 @@ static const char* kis_session_exchange(const KisConfig& config, MarketSession s
     return session == MarketSession::AfterMarket ? "KRX" : kis_order_exchange(config);
 }
 
-// 취소·정정 구분은 부르는 시각의 구간으로 정한다 — 애프터마켓이면 41, 그 밖은 00(지정가).
-//  원주문 구분(01 시장가·06 종가)을 그대로 쓰지 않는다. 애프터마켓 주문은 41로 나갔으므로 같은
-//  구간 안에서 되부르면 41이 맞는다. [why D-122]
+// 정정 구분과, 원주문 구분을 모를 때의 취소 구분은 부르는 시각의 구간으로 정한다 — 애프터마켓이면 41, 그 밖은
+//  00(지정가). 정정은 원주문 구분(01 시장가·06 종가)을 그대로 쓰지 않는다 — 정정 단가를 실으려면 지정가여야 한다.
 static const char* kis_amend_order_division(MarketSession session)
 {
     return session == MarketSession::AfterMarket ? "41" : "00";
+}
+
+void KisClient::remember_order_route(const std::string& kis_order_no, OrderRoute route)
+{
+    if (kis_order_no.empty() || route.exchange.empty())
+    {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(order_route_mutex_);
+    order_routes_[kis_order_no] = std::move(route);
+}
+
+KisClient::OrderRoute KisClient::original_order_route(const std::string& kis_order_no)
+{
+    {
+        std::lock_guard<std::mutex> lock(order_route_mutex_);
+        const auto found = order_routes_.find(kis_order_no);
+
+        if (found != order_routes_.end())
+        {
+            return found->second;
+        }
+    }
+
+    // 재기동 전에 낸 주문이면 이 프로세스가 모른다 — 정정취소가능조회에 원주문 거래소가 온다. 취소는 드물어
+    //  조회 한 번이 hot path가 아니다. 한 번 받은 행은 모두 적어 둬 같은 날 다른 취소가 다시 묻지 않게 한다.
+    const auto open_orders = get_open_orders();
+
+    if (!open_orders)
+    {
+        return OrderRoute{};
+    }
+
+    OrderRoute matched;
+
+    for (const auto& open_order : *open_orders)
+    {
+        OrderRoute route{open_order.exchange, open_order.order_division};
+
+        if (open_order.kis_order_no == kis_order_no)
+        {
+            matched = route;
+        }
+
+        remember_order_route(open_order.kis_order_no, std::move(route));
+    }
+
+    return matched;
 }
 
 static bool kis_parse_order_response(const std::string& response, json& document, const char* what)
@@ -160,7 +208,8 @@ OrderAck KisClient::submit_order_acknowledgement(const OrderSignal& signal)
         url = base_url() + "/uapi/domestic-stock/v1/trading/order-cash";
     }
 
-    json body;
+    json       body;
+    OrderRoute route; // 국내 주문만 채운다 — 취소·정정이 같은 거래소로 나가게 접수 뒤 주문번호에 붙여 둔다
 
     if (is_us)
     {
@@ -208,6 +257,7 @@ OrderAck KisClient::submit_order_acknowledgement(const OrderSignal& signal)
                 {"ORD_QTY", std::to_string(signal.quantity)},
                 {"ORD_UNPR", std::to_string(order_price)},
                 {"EXCG_ID_DVSN_CD", order_exchange}};
+        route = OrderRoute{order_exchange, order_division};
     }
 
     std::string response = http_post(url,
@@ -246,6 +296,11 @@ OrderAck KisClient::submit_order_acknowledgement(const OrderSignal& signal)
         return OrderAck::fail(kis_error::kTransport);
     }
 
+    if (!is_us)
+    {
+        remember_order_route(acknowledgement.kis_order_no, std::move(route));
+    }
+
     LOG_INFO("[KIS] 주문 접수: " + signal.ticker +
              (signal.side == OrderSide::BUY ? " BUY " : " SELL ") +
              std::to_string(signal.quantity) + "주  ODNO=" + acknowledgement.kis_order_no +
@@ -272,18 +327,23 @@ OrderAck KisClient::cancel_order(const std::string& ticker, const std::string& o
     std::string transaction_id = config_.is_paper ? "VTTC0013U" : "TTTC0013U";
     std::string url   = base_url() + "/uapi/domestic-stock/v1/trading/order-rvsecncl";
 
-    const MarketSession session = market_session_now();
+    const MarketSession session  = market_session_now();
+    const OrderRoute    original = original_order_route(orig_odno);
+    // 원주문 거래소·구분을 모르면(모의 응답에 칸이 없을 때 등) 지금 구간 규칙으로 낸다 — 같은 구간에서 낸 주문이면 맞다.
+    const std::string exchange = original.exchange.empty() ? kis_session_exchange(config_, session) : original.exchange;
+    const std::string division =
+        original.order_division.empty() ? kis_amend_order_division(session) : original.order_division;
 
     json body = {{"CANO", config_.account_no},
                  {"ACNT_PRDT_CD", config_.account_type},
                  {"KRX_FWDG_ORD_ORGNO", krx_forwarding_org_no},              // 원주문 조직번호
                  {"ORGN_ODNO", orig_odno},                       // 원주문번호
-                 {"ORD_DVSN", kis_amend_order_division(session)}, // 지금 구간으로 정한다 — 애프터 41 · 그 밖 00
+                 {"ORD_DVSN", division},                         // 원주문 구분
                  {"RVSE_CNCL_DVSN_CD", "02"},                    // 02=취소
                  {"ORD_QTY", std::to_string(quantity)},               // 취소 수량 (QTY_ALL_ORD_YN=Y면 무시됨)
                  {"ORD_UNPR", "0"},                              // 취소는 단가 0
                  {"QTY_ALL_ORD_YN", all_remaining ? "Y" : "N"}, // 잔량 전체 취소
-                 {"EXCG_ID_DVSN_CD", kis_session_exchange(config_, session)}}; // 원주문과 같은 거래소 [why D-096]
+                 {"EXCG_ID_DVSN_CD", exchange}};                 // 원주문 거래소 [why D-096]
 
     std::string response = http_post(url,
         authentication_headers(transaction_id, {"Content-Type: application/json"}),
@@ -305,8 +365,8 @@ OrderAck KisClient::cancel_order(const std::string& ticker, const std::string& o
     if (document["rt_cd"].get_ref<const std::string&>() != "0")
     {
         // 이미 체결/취소된 주문이면 KIS가 거부 → 자가치유(호출부가 reserved 미변경). 로그만.
-        LOG_WARN("[KIS] 취소 거부: " + ticker + " ODNO=" + orig_odno + " — " +
-                 document.value("msg1", std::string("")));
+        LOG_WARN("[KIS] 취소 거부: " + ticker + " ODNO=" + orig_odno + " 거래소=" + exchange + " 구분=" + division +
+                 " — " + document.value("msg1", std::string("")));
         return OrderAck::fail(kis_reject_code(document));
     }
 
@@ -336,7 +396,10 @@ OrderAck KisClient::revise_order(const std::string& ticker, const std::string& o
     std::string transaction_id = config_.is_paper ? "VTTC0013U" : "TTTC0013U";
     std::string url   = base_url() + "/uapi/domestic-stock/v1/trading/order-rvsecncl";
 
-    const MarketSession session = market_session_now();
+    const MarketSession session  = market_session_now();
+    const OrderRoute    original = original_order_route(orig_odno);
+    const std::string   exchange =
+        original.exchange.empty() ? kis_session_exchange(config_, session) : original.exchange;
 
     json body = {{"CANO", config_.account_no},
                  {"ACNT_PRDT_CD", config_.account_type},
@@ -352,7 +415,7 @@ OrderAck KisClient::revise_order(const std::string& ticker, const std::string& o
                  // [wire] 샘플 order_rvsecncl은 QTY_ALL_ORD_YN을 "잔량전부주문여부 Y:전량, N:일부"로만 적는다. Y일 때
                  //  ORD_QTY가 무시된다는 설명은 샘플에 없다 — 근거 없음(2026-09-27).
                  {"QTY_ALL_ORD_YN", "Y"},                         // 잔량 전체 정정
-                 {"EXCG_ID_DVSN_CD", kis_session_exchange(config_, session)}}; // 원주문과 같은 거래소 [why D-096]
+                 {"EXCG_ID_DVSN_CD", exchange}};                  // 원주문 거래소 [why D-096]
 
     std::string response = http_post(url,
         authentication_headers(transaction_id, {"Content-Type: application/json"}),
@@ -386,6 +449,9 @@ OrderAck KisClient::revise_order(const std::string& ticker, const std::string& o
         LOG_ERROR("[KIS] 정정 응답에 ODNO 없음: " + ticker + " 원ODNO=" + orig_odno + " — 정정 여부 모름");
         return OrderAck::fail(kis_error::kTransport);
     }
+
+    // 정정 주문은 새 번호로 남는다 — 그 번호를 다시 취소할 때도 같은 거래소로 나가게 한다.
+    remember_order_route(new_order_no, OrderRoute{exchange, kis_amend_order_division(session)});
 
     LOG_INFO("[KIS] 정정 접수: " + ticker + " 원ODNO=" + orig_odno +
              " 새ODNO=" + new_order_no + " @" + std::to_string(static_cast<int>(new_price)));

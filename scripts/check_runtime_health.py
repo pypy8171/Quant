@@ -171,6 +171,9 @@ OPEN_ORDER_FAIL_RE = re.compile(r"\[OrderRouter\] (?:재기동 미체결 조회 
 UNTRACKED_OPEN_RE = re.compile(r"부속 파일에 없는 미체결 — 브로커 조회로 보충 (\d{6})")
 # 청산이 막혔는데 풀지 못한 채 넘어간 것. 위와 같은 뿌리이나 이쪽은 재기동 전까지 방치된다.
 BLOCKED_SELL_RE = re.compile(r"청산차단 미해소 (\d{6})")
+# 취소가 원주문과 다른 거래소로 나가 "원주문 없음"으로 거부된 것(09-29·09-30 애프터마켓 016360). 취소는 이제
+#  원주문 거래소로 나가므로 한 건이라도 나오면 그 경로가 다시 어긋난 것이다.
+CANCEL_NO_ORIGINAL_RE = re.compile(r"\[KIS\] 취소 거부: (\d{6}) .*원주문정보가 존재하지않습니다")
 # 전략 사망 마무리(D-114 단계 2) — 주문 스레드가 전략 박동 공백만 보고 낸 판정.
 BEAT_DEAD_RE = re.compile(r"\[마무리\] 전략 박동이 끊겼다")
 BEAT_BACK_RE = re.compile(r"\[마무리\] 전략 박동이 돌아왔다")
@@ -2686,6 +2689,7 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
     board_before_open: list[tuple[int, int, int, int]] = []   # (시각, 거래대금 있는 종목, 판 종목, 프리마켓 값) 08:05~09:00
     untracked_opens: list[tuple[int, str]] = []
     blocked_sells: list[tuple[int, str]] = []
+    cancel_no_original: list[tuple[int, str]] = []
     ws_fallbacks = 0
     prices_stale_ages: list[int] = []   # 전 종목 시세 낡음 경고의 초 수 — 시세판·보조 프로세스 멈춤 흔적
     board_sweep_fails = 0
@@ -2953,6 +2957,12 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
             found = BLOCKED_SELL_RE.search(line)
             if found:
                 blocked_sells.append((second, found.group(1)))
+            found = CANCEL_NO_ORIGINAL_RE.search(line)
+            # 아침 기동 때 이전 세션 줄을 지우는 거부(StaleCancel)는 뺀다 — 전일 주문이 조회에만 남은 것이라
+            #  매도가 막히지 않는다(10-01 07:56 016360 거부 뒤 주문가능 2주로 시드, 08:26 매도).
+            #  애프터마켓 재기동의 거부는 센다 — 거래소가 어긋난 경우다(10-01 16:03 138930·082270).
+            if found and ("{StaleCancel thread}" not in line or second >= 16 * 3600):
+                cancel_no_original.append((second, found.group(1)))
             if WSFALL_RE.search(line):
                 ws_fallbacks += 1
             found = PRICES_STALE_RE.search(line)
@@ -3444,6 +3454,11 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
          f"청산차단 미해소 {len(blocked_sells)}건 — 예약매도를 못 찾아 청산이 막힌 채 넘어갔다"
          + (f" — {', '.join(f'{hhmm(second)} {ticker}' for second, ticker in blocked_sells[:5])}"
             if blocked_sells else "")),
+        ("취소 원주문 거래소", not cancel_no_original, "FAIL",
+         f"\"원주문정보가 존재하지않습니다\" 취소 거부 {len(cancel_no_original)}건"
+         " — 장중 취소가 원주문과 다른 거래소로 나가 그 종목 매도가 막힌다(09-30 016360 이월, 아침 기동 정리 거부는 제외)"
+         + (f" — {', '.join(f'{hhmm(second)} {ticker}' for second, ticker in cancel_no_original[:5])}"
+            if cancel_no_original else "")),
         ("초당한도 압박", rate_hits <= MAX_RATE_HITS, "WARN",
          f"초당 거래건수 거부 {rate_hits}건 (허용 {MAX_RATE_HITS})"),
         # 유니버스 후보의 한 축이다. ETF가 섞이면 그만큼 개별주 자리가 밀리고, 요청보다 적게 오면

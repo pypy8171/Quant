@@ -46,6 +46,10 @@ struct OpenOrder
     OrderSide   side = OrderSide::NONE; // sll_buy_dvsn_cd: 01=매도, 02=매수
     // [wire] 출처: 공식 샘플 inquire_psbl_rvsecncl 응답 컬럼(ord_gno_brno·odno·pdno·prdt_name·psbl_qty·ord_unpr·
     //  sll_buy_dvsn_cd), 코드값 01 매도·02 매수는 inquire_daily_ccld 파라미터 설명, 2026-09-27 MCP 확인.
+    std::string exchange;       // excg_id_dvsn_cd — 원주문이 나간 거래소(KRX·NXT·SOR). 취소는 이 거래소로 낸다
+    std::string order_division; // ord_dvsn_cd — 원주문 주문구분(00 지정가·41 애프터마켓 지정가 등)
+    // [wire] 출처: 공식 샘플 chk_inquire_psbl_rvsecncl 응답 컬럼 excg_id_dvsn_cd(거래소ID구분코드)·ord_dvsn_cd(주문구분코드),
+    //  2026-10-01 MCP 확인. 모의(VTTC0081R) 응답에도 같은 이름이 오는지는 확인하지 못했다 — 비면 지금 구간 규칙을 쓴다.
 };
 
 // 일별주문체결조회 한 행 — 주문 하나의 오늘 누적 체결. 체결 한 건이 아니라 주문번호별 합계다.

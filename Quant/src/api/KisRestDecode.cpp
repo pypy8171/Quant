@@ -365,6 +365,8 @@ KisResult<OpenOrderPage> decode_open_order_page(std::string_view response, bool 
             open_order.krx_forwarding_org_no = node.value("ord_gno_brno", std::string());
             open_order.psbl_qty              = static_cast<int>(number(node, paper ? "rmn_qty" : "psbl_qty"));
             open_order.ord_unpr              = number(node, "ord_unpr");
+            open_order.exchange              = trim_right(node.value("excg_id_dvsn_cd", std::string()));
+            open_order.order_division        = trim_right(node.value("ord_dvsn_cd", std::string()));
             const std::string buy_sell_code  = node.value("sll_buy_dvsn_cd", std::string());
             open_order.side = buy_sell_code == "01" ? OrderSide::SELL
                               : buy_sell_code == "02" ? OrderSide::BUY
