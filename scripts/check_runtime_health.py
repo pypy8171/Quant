@@ -825,6 +825,91 @@ def basket_configured(log: Path) -> bool:
                for strategy in document.get("strategies", []))
 
 
+SLOT_REJECT_PREFIXES = ("점수 우선순위 미달", "동시 보유 종목 한도 초과")
+# 종목당 투입률이 이보다 낮으면 예산 대부분이 논다 — 50만 × 4종목과 30만 × 5종목을 고를 때 본다(10-01 사용자 결정).
+MIN_DEPLOY_RATIO = 0.5
+# 슬롯 거부가 하루 이만큼 넘으면 동시 보유 상한이 신호를 막고 있다고 본다(실계좌 09-29 15건·09-30 12건·10-01 2건).
+#  투입률은 지금 설정의 예산으로 나눈다 — 예산을 바꾸기 전 날짜는 그 날의 값과 다를 수 있다.
+MAX_SLOT_REJECTS = 10
+
+
+def devscale_notional_cap(folder: str) -> float:
+    """이 원장 폴더 설정의 DevScale 종목당 예산(notional_cap_krw). 못 읽으면 0."""
+    config_name = ENTRY_CUTOFF_CONFIG.get(folder)
+
+    if not config_name:
+        return 0.0
+
+    try:
+        document = json.loads((REPO / "Quant" / "config" / config_name).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return 0.0
+
+    for strategy in document.get("strategies", []):
+        if isinstance(strategy, dict) and strategy.get("notional_cap_krw"):
+            return float(strategy["notional_cap_krw"])
+
+    return 0.0
+
+
+def devscale_deploy_ratio_row(date: str) -> tuple:
+    """DevScale 종목당 투입률 — 당일 매수 체결액 ÷ 종목당 예산(notional_cap_krw), 폴더·종목별.
+
+    실계좌를 50만 × 4종목으로 정하면서(10-01) 30만 × 5종목과 비교할 숫자로 남기기로 했다. 정수 주로 끊고
+    분할 매수 일부만 체결되면 예산을 다 못 쓴다(10-01 016360 4주 주문 중 1주 체결).
+    """
+    name = "DevScale 종목당 투입률"
+    spent: dict[tuple, float] = {}
+
+    for folder, record in live_ledger_records(date):
+        if record.get("event") != "FILL" or record.get("side") != "BUY":
+            continue
+
+        if not (record.get("strategy") or "").startswith(DEVSCALE_STRATEGY_PREFIX):
+            continue
+
+        try:
+            amount = float(record.get("fill_qty") or 0) * float(record.get("fill_price") or 0)
+        except ValueError:
+            continue
+
+        key = (folder, record.get("ticker", ""))
+        spent[key] = spent.get(key, 0.0) + amount
+
+    ratios: list[tuple[str, float]] = []
+
+    for (folder, ticker), amount in sorted(spent.items()):
+        budget = devscale_notional_cap(folder)
+
+        if budget > 0:
+            ratios.append((f"{ticker}[{folder}]", amount / budget))
+
+    if not ratios:
+        return (name, True, "WARN", "당일 DevScale 매수 체결이 없다 — 판정 안 함")
+
+    average = sum(ratio for _, ratio in ratios) / len(ratios)
+    detail = ", ".join(f"{label} {ratio:.0%}" for label, ratio in ratios[:8])
+    return (name, average >= MIN_DEPLOY_RATIO, "WARN",
+            f"{len(ratios)}종목 평균 {average:.0%}(기준 {MIN_DEPLOY_RATIO:.0%} 이상) — {detail}")
+
+
+def slot_reject_row(date: str) -> tuple:
+    """동시 보유 상한·점수 우선순위로 막힌 매수 건수 — 상한(실계좌 4종목)이 신호를 얼마나 막는지 본다."""
+    name = "슬롯 거부 건수"
+    rejects: dict[str, list[str]] = {}
+
+    for folder, record in live_ledger_records(date):
+        reason = record.get("reason") or ""
+
+        if record.get("event") == "REJECTED" and reason.startswith(SLOT_REJECT_PREFIXES):
+            rejects.setdefault(folder, []).append(f"{(record.get('ts_kst') or '')[11:16]} {record.get('ticker', '')}")
+
+    total = sum(len(rows) for rows in rejects.values())
+    detail = "; ".join(f"[{folder}] {len(rows)}건 {', '.join(rows[:4])}" for folder, rows in sorted(rejects.items()))
+    return (name, total <= MAX_SLOT_REJECTS, "WARN",
+            f"{total}건(기준 {MAX_SLOT_REJECTS}건 이하)" + (f" — {detail}" if detail else ""))
+
+
 def entry_cutoff_buy_row(date: str) -> tuple:
     """진입 마감 시각(no_new_entry_hhmm) 뒤에 DevScale 매수가 나갔는지.
 
@@ -2576,6 +2661,8 @@ def global_rows(date: str) -> list:
         after_market_order_row(date),
         same_day_dust_row(date),
         entry_cutoff_buy_row(date),
+        devscale_deploy_ratio_row(date),
+        slot_reject_row(date),
         devscale_adverse_selection_row(date),
         devscale_exit_reason_row(date),
         restart_verify_row(date),
