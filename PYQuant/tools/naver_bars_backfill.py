@@ -15,14 +15,21 @@
 종목별 결과를 PYQuant/data/cache/bars_v2/<code>.parquet에 두고 마지막에 합친다(재실행 시 건너뜀).
 끝에 v1과 겹치는 구간의 005930 종가 일치율을 검사해 출력한다.
 
+--refresh(밤 예약작업 'Quant Daily Bars'):
+- 종목 목록은 v1 + 기존 출력에만 있는 종목(v1 뒤에 되살린 상폐 종목 등)이다.
+- 상폐가 아닌 종목은 캐시가 있어도 새로 받아 덮어쓴다. 새 응답이 비면 기존 캐시를 지우지 않는다.
+- 캐시가 없는 종목은 기존 출력의 행을 그대로 옮긴다 — 갱신 한 번에 종목이 빠지지 않게.
+
 실행(저장소 루트에서):
   py PYQuant/tools/naver_bars_backfill.py --workers 4 --sleep 0.15
+  py PYQuant/tools/naver_bars_backfill.py --refresh           # 밤 갱신
   py PYQuant/tools/naver_bars_backfill.py --limit 30          # 검증용
 """
 
 import argparse
 import ast
 import datetime as dt
+import os
 import sys
 import threading
 import time
@@ -140,19 +147,58 @@ def load_ticker_meta(limit: int) -> pd.DataFrame:
     return meta[["code", "name", "market", "delisted"]].reset_index(drop=True)
 
 
-def run(meta: pd.DataFrame, workers: int, sleep_seconds: float) -> tuple:
+def load_previous_output(out_path: Path) -> pd.DataFrame:
+    """--refresh가 기대는 기존 출력. 없으면 빈 표."""
+    if not out_path.exists():
+        return pd.DataFrame(columns=OUTPUT_COLUMNS)
+
+    return pd.read_parquet(out_path)
+
+
+def extend_meta_with_previous(meta: pd.DataFrame, previous: pd.DataFrame) -> pd.DataFrame:
+    """v1에 없고 기존 출력에만 있는 종목을 목록에 붙인다(name·market·delisted는 그 종목 마지막 행)."""
+    if previous.empty:
+        return meta
+
+    extra = previous[~previous["code"].isin(meta["code"])]
+
+    if extra.empty:
+        return meta
+
+    extra_meta = extra.sort_values("Date").groupby("code").last().reset_index()[["code", "name", "market", "delisted"]]
+    return pd.concat([meta, extra_meta], ignore_index=True).sort_values("code").reset_index(drop=True)
+
+
+def write_parquet_atomic(frame: pd.DataFrame, path: Path) -> None:
+    """같은 폴더 임시 파일에 쓰고 바꿔 끼운다 — 읽는 쪽이 반쯤 쓴 파일을 보지 않게."""
+    temporary = path.with_name(path.name + ".tmp")
+    frame.to_parquet(temporary, index=False)
+    os.replace(temporary, path)
+
+
+def run(meta: pd.DataFrame, workers: int, sleep_seconds: float, refresh: bool) -> tuple:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     failed_path = CACHE_DIR / "_failed.txt"
     end_date = dt.date.today().strftime("%Y%m%d")
-    pending = [code for code in meta["code"] if not (CACHE_DIR / f"{code}.parquet").exists()]
-    log(f"종목 {len(meta)}개 중 미수집 {len(pending)}개, workers={workers}, sleep={sleep_seconds}")
+
+    if refresh:
+        pending = list(meta.loc[~meta["delisted"].astype(bool), "code"])
+    else:
+        pending = [code for code in meta["code"] if not (CACHE_DIR / f"{code}.parquet").exists()]
+
+    log(f"종목 {len(meta)}개 중 받을 것 {len(pending)}개(refresh={refresh}), workers={workers}, sleep={sleep_seconds}")
     done = 0
     failed = 0
     empty = 0
 
     def work(code: str) -> tuple:
         frame = parse_bars(fetch_text(code, end_date, sleep_seconds))
-        frame.to_parquet(CACHE_DIR / f"{code}.parquet", index=False)
+        path = CACHE_DIR / f"{code}.parquet"
+
+        if frame.empty and path.exists():
+            return code, 0   # 빈 응답으로 받아 둔 이력을 지우지 않는다
+
+        write_parquet_atomic(frame, path)
         return code, len(frame)
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
@@ -180,13 +226,20 @@ def run(meta: pd.DataFrame, workers: int, sleep_seconds: float) -> tuple:
     return done, failed, empty
 
 
-def merge(meta: pd.DataFrame, out_path: Path) -> pd.DataFrame:
+def merge(meta: pd.DataFrame, out_path: Path, previous: pd.DataFrame) -> pd.DataFrame:
+    """캐시를 합친다. 캐시가 없는 종목은 previous(기존 출력)의 행을 그대로 쓴다."""
     frames = []
+    previous_by_code = {code: rows for code, rows in previous.groupby("code")} if not previous.empty else {}
 
     for row in meta.itertuples(index=False):
         path = CACHE_DIR / f"{row.code}.parquet"
 
         if not path.exists():
+            carried = previous_by_code.get(row.code)
+
+            if carried is not None:
+                frames.append(carried[OUTPUT_COLUMNS])
+
             continue
 
         frame = pd.read_parquet(path)
@@ -211,7 +264,7 @@ def merge(meta: pd.DataFrame, out_path: Path) -> pd.DataFrame:
         merged[column] = merged[column].astype(object)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    merged.to_parquet(out_path, index=False)
+    write_parquet_atomic(merged, out_path)
     return merged
 
 
@@ -265,12 +318,22 @@ def main() -> int:
     parser.add_argument("--sleep", type=float, default=0.15)
     parser.add_argument("--limit", type=int, default=0, help="검증용, 앞에서 N종목만")
     parser.add_argument("--out", default=str(DEFAULT_OUT))
+    parser.add_argument("--refresh", action="store_true", help="상장 종목을 새로 받고 기존 출력에만 있는 종목은 유지")
     arguments = parser.parse_args()
 
+    out_path = Path(arguments.out)
     meta = load_ticker_meta(arguments.limit)
+    previous = pd.DataFrame(columns=OUTPUT_COLUMNS)
+
+    if arguments.refresh:
+        previous = load_previous_output(out_path)
+
+        if arguments.limit <= 0:
+            meta = extend_meta_with_previous(meta, previous)
+
     started = time.time()
-    run(meta, arguments.workers, arguments.sleep)
-    merged = merge(meta, Path(arguments.out))
+    run(meta, arguments.workers, arguments.sleep, arguments.refresh)
+    merged = merge(meta, out_path, previous)
     compare_with_v1(merged, meta)
     log(f"완료 {time.time() - started:.0f}초, 출력 {arguments.out}")
     return 0

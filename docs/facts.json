@@ -7,9 +7,19 @@
         "run": "powershell -File scripts\\market_close_timetable.ps1 -Apply"
       },
       {
+        "name": "Quant Premarket Leaders",
+        "at": "08:02",
+        "run": "py research\\studies\\27_premarket_leaders\\premarket_leaders.py snapshot (08:57까지 5분마다)"
+      },
+      {
         "name": "Quant Basket Targets",
         "at": "08:40",
         "run": "py PYQuant\\main.py basket --no-momentum --value-share 1.0"
+      },
+      {
+        "name": "Quant Premarket Leaders Eval",
+        "at": "15:45",
+        "run": "py research\\studies\\27_premarket_leaders\\premarket_leaders.py evaluate"
       },
       {
         "name": "Quant Market Close AutoDoc",
@@ -25,6 +35,11 @@
         "name": "Quant Minute Backfill",
         "at": "16:40",
         "run": "py scripts\\market_close_minute_backfill.py"
+      },
+      {
+        "name": "Quant Daily Bars",
+        "at": "16:50",
+        "run": "py PYQuant\\tools\\naver_bars_backfill.py --refresh"
       },
       {
         "name": "claude_stock_study",
@@ -49,9 +64,19 @@
         "run": "powershell -File scripts\\market_close_timetable.ps1 -Apply"
       },
       {
+        "name": "Quant Premarket Leaders",
+        "at": "08:02",
+        "run": "py research\\studies\\27_premarket_leaders\\premarket_leaders.py snapshot (08:57까지 5분마다)"
+      },
+      {
         "name": "Quant Basket Targets",
         "at": "08:40",
         "run": "py PYQuant\\main.py basket --no-momentum --value-share 1.0"
+      },
+      {
+        "name": "Quant Premarket Leaders Eval",
+        "at": "15:45",
+        "run": "py research\\studies\\27_premarket_leaders\\premarket_leaders.py evaluate"
       },
       {
         "name": "Quant Market Close AutoDoc",
@@ -67,6 +92,11 @@
         "name": "Quant Minute Backfill",
         "at": "21:00",
         "run": "py scripts\\market_close_minute_backfill.py"
+      },
+      {
+        "name": "Quant Daily Bars",
+        "at": "21:05",
+        "run": "py PYQuant\\tools\\naver_bars_backfill.py --refresh"
       },
       {
         "name": "claude_stock_study",
@@ -541,8 +571,8 @@
     {
       "file": "scripts/check_runtime_health.py",
       "symbol": "collect",
-      "lines": 851,
-      "start": 1994
+      "lines": 862,
+      "start": 2651
     },
     {
       "file": "Quant/src/core/EngineDataThread.cpp",
@@ -589,8 +619,8 @@
     {
       "file": "PYQuant/backtest/devscale_replay.py",
       "symbol": "replay_day",
-      "lines": 202,
-      "start": 364
+      "lines": 205,
+      "start": 391
     },
     {
       "file": "PYQuant/main.py",
@@ -830,7 +860,7 @@
       "file": "scripts/check_runtime_health.py",
       "symbol": "journal_mirror_row",
       "lines": 109,
-      "start": 1662
+      "start": 2178
     },
     {
       "file": "Quant/src/api/KisMarket.cpp",
@@ -842,7 +872,7 @@
       "file": "scripts/check_runtime_health.py",
       "symbol": "feed_ledger_rows",
       "lines": 108,
-      "start": 361
+      "start": 370
     },
     {
       "file": "PYQuant/tools/walkforward.py",
@@ -867,6 +897,12 @@
       "symbol": "SymbolBook::match",
       "lines": 105,
       "start": 515
+    },
+    {
+      "file": "PYQuant/tools/minute_strong_open_fetch.py",
+      "symbol": "run_day",
+      "lines": 104,
+      "start": 144
     },
     {
       "file": "Quant/src/ipc/OrderRouterReconcile.cpp",
@@ -959,6 +995,12 @@
       "start": 218
     },
     {
+      "file": "Quant/src/strategy/DeviationScaleStrategy.cpp",
+      "symbol": "DeviationScaleStrategy::prefetch_once",
+      "lines": 92,
+      "start": 1148
+    },
+    {
       "file": "Quant/src/core/BarAggregator.cpp",
       "symbol": "BarAggregator::on_tick",
       "lines": 91,
@@ -974,7 +1016,7 @@
       "file": "scripts/check_runtime_health.py",
       "symbol": "shared_region_exit_row",
       "lines": 89,
-      "start": 909
+      "start": 1294
     },
     {
       "file": "Quant/src/strategy/ValueContraryStrategy.cpp",
@@ -1029,12 +1071,6 @@
       "symbol": "OrderRouter::finalize_new_order",
       "lines": 84,
       "start": 520
-    },
-    {
-      "file": "Quant/src/strategy/DeviationScaleStrategy.cpp",
-      "symbol": "DeviationScaleStrategy::prefetch_once",
-      "lines": 84,
-      "start": 1148
     },
     {
       "file": "scripts/stresstest_flow_profile.py",
