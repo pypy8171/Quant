@@ -98,6 +98,11 @@ class Params:
     entry_atr_max_percent: float = 0.0       # >0이면 전일 ATR14/SMA20(%)가 이 값을 넘는 날은 새로 사지 않는다(변동 큰 종목 회피)
     entry_open_deviation_min_percent: float = -99.0  # 개장 봉 종가의 SMA20 이격(%)이 이 범위 밖인 날은 새로 사지 않는다
     entry_open_deviation_max_percent: float = 99.0
+    # 보유 중이면 존 밴드를 히스테리시스만큼 넓힌다 — 엔진 zone_band(..., in_zone_ || holding)과 같다(4847074).
+    #  False(옛 동작)면 넘긴 보유의 다음 날 첫 봉을 진입 폭(좁은 쪽)으로 판정해 존 이탈로 판다.
+    hold_widens_zone: bool = False
+    entry_price_min: float = 0.0         # >0이면 이 가격 밖에서는 새로 사지 않는다(라이브 min_price·max_price)
+    entry_price_max: float = 0.0
 
 
 VARIANTS = {
@@ -273,6 +278,28 @@ def _carry_fine_grid() -> dict[str, Params]:
 
 
 CARRY_FINE_VARIANTS = _carry_fine_grid()
+
+
+def _zone_width_grid() -> dict[str, Params]:
+    """존 폭 × 익절 격자(18개, 스터디 28) — 10-01 실계좌(config_live.json)에 맞춘 기준 위에서 존 하한·상한·익절만 바꾼다.
+    고정: 넘김·손절 6.5·ATR≤4.5·개장 이격≥−1·종목당 50만 한 방·그날 같은 종목 재진입 없음(43200초)·가격 2,000~100,000·
+    보유 중 밴드 넓힘(엔진과 같게). ref_* 둘은 대조용 — 옛 하네스 동작(보유 중 좁은 밴드)과 D-111 칸 재현."""
+    live_now = replace(_LIVE, carry_overnight=True, stop_loss_pct=6.5, entry_atr_max_percent=4.5,
+                       entry_open_deviation_min_percent=-1.0, notional_krw=500_000.0, base_pct=0.25, max_pct=0.25,
+                       reentry_cooldown_bars=200, stop_cooldown_bars=200, hold_widens_zone=True,
+                       entry_price_min=2000.0, entry_price_max=100_000.0)
+    out = {}
+    for lower in (3.0, 5.0, 8.0):
+        for upper in (3.0, 5.0):
+            for take in (3.0, 5.0, 6.0):
+                out[f"z_lo{lower:g}_up{upper:g}_tp{take:g}"] = replace(live_now, pullback_percent=lower,
+                                                                       entry_upper_pct=upper, dev_sell_pct=take)
+    out["ref_lo8_up5_tp5_narrowhold"] = replace(live_now, dev_sell_pct=5.0, hold_widens_zone=False)
+    out["ref_d111_fine_take3_stop6.5_atr4.5"] = CARRY_FINE_VARIANTS["f_take3.0_stop6.5_atr4.5_dev-1.0"]
+    return out
+
+
+ZONE_WIDTH_VARIANTS = _zone_width_grid()
 
 
 LIVE_VARIANTS = _live_grid()
@@ -461,11 +488,12 @@ def replay_day(bars: pd.DataFrame, moving_averages: dict, parameters: Params, co
             continue
         # 2) 존 게이트 — 전일 확정 SMA, 현재가는 봉 종가
         deviation = (c - average_20) / average_20 * 100.0
-        up_threshold = parameters.entry_upper_pct + (parameters.zone_hyst_pct if in_zone else 0.0)
+        widen = in_zone or (parameters.hold_widens_zone and position > 0)
+        up_threshold = parameters.entry_upper_pct + (parameters.zone_hyst_pct if widen else 0.0)
         if parameters.entry_lower_pct > 0.0:
-            low_threshold = parameters.entry_lower_pct - (parameters.zone_hyst_pct if in_zone else 0.0)
+            low_threshold = parameters.entry_lower_pct - (parameters.zone_hyst_pct if widen else 0.0)
         else:                                          # 눌림 슬리브: SMA20 아래 −pullback(유지는 −(pullback+hyst))
-            low_threshold = -(parameters.pullback_percent + (parameters.zone_hyst_pct if in_zone else 0.0))
+            low_threshold = -(parameters.pullback_percent + (parameters.zone_hyst_pct if widen else 0.0))
         band = low_threshold <= deviation <= up_threshold
         zone = al and band
         hold_zone = zone
@@ -524,7 +552,9 @@ def replay_day(bars: pd.DataFrame, moving_averages: dict, parameters: Params, co
             confirmed = len(closes) >= need and all(
                 closes[-split_step_index] > closes[-split_step_index - 1] for split_step_index in range(1, parameters.entry_confirm_bars + 1))
         if (position <= 0 and not in_cooldown and confirmed and i >= reentry_until and hhmm >= parameters.entry_from_hhmm
-                and entry_allowed):
+                and entry_allowed
+                and (parameters.entry_price_min <= 0.0 or c >= parameters.entry_price_min)
+                and (parameters.entry_price_max <= 0.0 or c <= parameters.entry_price_max)):
             buy_price = round_tick(c if parameters.base_on_price else min(simple_moving_average, c), "BUY")
             if buy_price >= c:
                 buy_price = round_tick(c - tick_size(c), "BUY")
@@ -680,7 +710,7 @@ def main() -> int:
     ap.add_argument("--since", default="00000000")
     ap.add_argument("--until", default="99999999")
     ap.add_argument("--variant", default=None, help="하나만 돌릴 때")
-    ap.add_argument("--set", dest="vset", default="base", choices=("base", "exec", "live", "entry", "carry", "carry_filter", "notional", "carry_wide", "carry_wide2", "carry_wide3", "carry_fine"),
+    ap.add_argument("--set", dest="vset", default="base", choices=("base", "exec", "live", "entry", "carry", "carry_filter", "notional", "carry_wide", "carry_wide2", "carry_wide3", "carry_fine", "zone_width"),
                     help="base=v1~v4, exec=16_trendx_execution 격자(ATR 스탑·진입 지연), live=09-21 눌림 슬리브 손절·익절·트레일 격자")
     ap.add_argument("--jobs", type=int, default=1, help="프로세스 수(종목 단위로 나눈다)")
     args = ap.parse_args()
@@ -688,7 +718,8 @@ def main() -> int:
              "notional": NOTIONAL_VARIANTS, "carry_wide": CARRY_WIDE_VARIANTS,
              "carry_wide2": CARRY_WIDE2_VARIANTS,
              "carry_wide3": CARRY_WIDE3_VARIANTS,
-             "carry_fine": CARRY_FINE_VARIANTS}[args.vset]
+             "carry_fine": CARRY_FINE_VARIANTS,
+             "zone_width": ZONE_WIDTH_VARIANTS}[args.vset]
     variants = table if not args.variant else {args.variant: table[args.variant]}
     pairs = load_pairs(Path(args.pairs))
     df = run(pairs, variants, args.since.replace("-", ""), args.until.replace("-", ""), args.jobs)

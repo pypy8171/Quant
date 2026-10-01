@@ -12,9 +12,9 @@
 - [Quant](#quant) — 353개
 - [docs](#docs) — 136개
 - [linux_practice](#linux_practice) — 2개
-- [research](#research) — 262개
+- [research](#research) — 294개
 - [scripts](#scripts) — 50개
-- [strategies](#strategies) — 37개
+- [strategies](#strategies) — 38개
 - [tools](#tools) — 3개
 
 ## (루트)
@@ -1173,6 +1173,53 @@
 - [rescue_grid_summary.txt](../research/studies/25_devscale_open_dev_rescue/rescue_grid_summary.txt) — 구제 시점 격자 요약 — 09:03 단독 대비 구제안 차이는 잡음 수준
 - [summarize_rescue.py](../research/studies/25_devscale_open_dev_rescue/summarize_rescue.py) — rescue_grid.tsv와 짝 _days.tsv를 읽어 변형별 지표를 요약한다
 
+### research/studies/26_regime_threshold_history/
+
+- [README.md](../research/studies/26_regime_threshold_history/README.md) — 국면 점수 과거 복원 스터디 요약 — 청산선 −5~−12별 보유 대비 초과수익, 정지선 판정
+- [daily_scores.tsv](../research/studies/26_regime_threshold_history/daily_scores.tsv) — 일봉 근사로 복원한 2015~ 일별 국면 점수(2,882일)
+- [halt_grid.tsv](../research/studies/26_regime_threshold_history/halt_grid.tsv) — 정지선 X별 당일·다음날 수익률 격자
+- [hourly_scores.tsv](../research/studies/26_regime_threshold_history/hourly_scores.tsv) — 1시간봉으로 복원한 2024-05~ 국면 점수(581일)
+- [liquidate_grid.tsv](../research/studies/26_regime_threshold_history/liquidate_grid.tsv) — 청산선 X별 되사기 방식·기간별 보유 대비 초과수익 격자
+- [live_check.tsv](../research/studies/26_regime_threshold_history/live_check.tsv) — 복원 점수와 엔진 실측(logs/regime_history.jsonl) 10일 대조
+- [metrics.json](../research/studies/26_regime_threshold_history/metrics.json) — 스터디 26 핵심 수치
+- [replay_regime_score.py](../research/studies/26_regime_threshold_history/replay_regime_score.py) — RegimeFeed 표 규칙을 과거 시세로 재현하고 정지·청산 격자를 계산
+- [score_bins.tsv](../research/studies/26_regime_threshold_history/score_bins.tsv) — 하루 최저 점수 구간별 코스피·코스닥 당일·장중 저점·다음날 수익률
+
+### research/studies/27_premarket_leaders/
+
+- [README.md](../research/studies/27_premarket_leaders/README.md) — 프리마켓 주도주 포착기 설명
+- [industry_map.json](../research/studies/27_premarket_leaders/industry_map.json) — 네이버 업종 분류 캐시(7일)
+- [premarket_leaders.py](../research/studies/27_premarket_leaders/premarket_leaders.py) — NXT 프리마켓 주도 업종·테마 포착기 — snapshot·evaluate·kis-check
+
+### research/studies/27_premarket_leaders/daily/
+
+- [2026-10-01.jsonl](../research/studies/27_premarket_leaders/daily/2026-10-01.jsonl) — 10-01 프리마켓 스냅숏(철강 업종 동반 강세 1위)
+
+### research/studies/28_devscale_zone_width/
+
+- [.gitignore](../research/studies/28_devscale_zone_width/.gitignore) — 79MB 종목일 표·실행 로그 제외 규칙
+- [README.md](../research/studies/28_devscale_zone_width/README.md) — DevScale 존 폭 × 익절 격자 리플레이 요약 — 존·익절 현행 유지 쪽
+- [metrics.json](../research/studies/28_devscale_zone_width/metrics.json) — 스터디 28 핵심 수치
+- [summarize_zone.py](../research/studies/28_devscale_zone_width/summarize_zone.py) — zone_grid 종목일 표를 변형별·기간 반별 요약표로 묶는다
+- [zone_grid.tsv](../research/studies/28_devscale_zone_width/zone_grid.tsv) — 격자 18칸 + 대조 2칸 변형별 결과
+- [zone_grid_halves.tsv](../research/studies/28_devscale_zone_width/zone_grid_halves.tsv) — 앞/뒤 반 기간별 변형 결과
+- [zone_grid_summary.tsv](../research/studies/28_devscale_zone_width/zone_grid_summary.tsv) — 변형별 매수·건당 세후·총액·존 이탈 비중 요약
+
+### research/studies/29_regime_score_refit/
+
+- [README.md](../research/studies/29_regime_score_refit/README.md) — (설명 필요)
+- [build_minute_panel.py](../research/studies/29_regime_score_refit/build_minute_panel.py) — (설명 필요)
+- [compare.tsv](../research/studies/29_regime_score_refit/compare.tsv) — (설명 필요)
+- [deciles.tsv](../research/studies/29_regime_score_refit/deciles.tsv) — (설명 필요)
+- [ic_single.tsv](../research/studies/29_regime_score_refit/ic_single.tsv) — (설명 필요)
+- [metrics.json](../research/studies/29_regime_score_refit/metrics.json) — (설명 필요)
+- [model_weights.json](../research/studies/29_regime_score_refit/model_weights.json) — (설명 필요)
+- [proposal.tsv](../research/studies/29_regime_score_refit/proposal.tsv) — (설명 필요)
+- [refit_regime_score.py](../research/studies/29_regime_score_refit/refit_regime_score.py) — (설명 필요)
+- [tnx_sign.tsv](../research/studies/29_regime_score_refit/tnx_sign.tsv) — (설명 필요)
+- [today_like.tsv](../research/studies/29_regime_score_refit/today_like.tsv) — (설명 필요)
+- [walkforward.tsv](../research/studies/29_regime_score_refit/walkforward.tsv) — (설명 필요)
+
 ### research/studies/30_strong_stock_strategies/
 
 - [CRITERIA_REVIEW.md](../research/studies/30_strong_stock_strategies/CRITERIA_REVIEW.md) — 스터디 30 백테스트 합격선 재점검(검정력 모의실험·비용 정의·B 기준 판정)
@@ -1295,6 +1342,7 @@
 - [2026-09-28.md](../strategies/DeviationScale/live/2026-09-28.md) — 09-28 라이브 매매일지
 - [2026-09-29.md](../strategies/DeviationScale/live/2026-09-29.md) — 09-29 라이브 매매일지
 - [2026-09-30.md](../strategies/DeviationScale/live/2026-09-30.md) — 09-30 라이브 매매일지
+- [2026-10-01.md](../strategies/DeviationScale/live/2026-10-01.md) — 10-01 라이브 매매일지
 
 ### strategies/DeviationScale/reviews/
 
