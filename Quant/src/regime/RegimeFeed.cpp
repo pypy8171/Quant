@@ -458,9 +458,10 @@ bool write_with_parent(const std::string& path, const std::string& text)
 
 } // namespace
 
-std::map<std::string, Change> parse_naver_index(std::string_view body)
+std::map<std::string, Change> parse_naver_index(std::string_view body, std::time_t now_utc)
 {
     std::map<std::string, Change> indexes;
+    const std::string             today = kst::datetime(now_utc).substr(0, 10);
     const nlohmann::json document = nlohmann::json::parse(body, nullptr, false);
     const nlohmann::json* datas   = child(document, "datas");
 
@@ -480,13 +481,18 @@ std::map<std::string, Change> parse_naver_index(std::string_view body)
             continue;
         }
 
-        const auto status = child(row, "marketStatus");
-        const bool open   = status != nullptr && status->is_string() && status->get<std::string>() == "OPEN";
+        const auto status      = child(row, "marketStatus");
+        const auto traded_at   = child(row, "localTradedAt");
+        const bool open        = status != nullptr && status->is_string() && status->get<std::string>() == "OPEN";
+        // 마감(CLOSE)은 개장 전과 장 마감 뒤에 같이 온다. 마감 뒤의 등락은 오늘 것인데 0으로 지워 애프터마켓
+        //  내내 코스피·코스닥 표가 빠졌다(10-01 15:47~ 0.000%). 마지막 거래 날짜로 둘을 가른다.
+        const bool traded_today = traded_at != nullptr && traded_at->is_string() &&
+                                  traded_at->get<std::string>().starts_with(today);
         Change     change;
         change.price  = price;
         change.source = "naver";
 
-        if (open)
+        if (open || traded_today)
         {
             change.percent = percent;
         }
@@ -1117,7 +1123,8 @@ Changes RegimeFeed::fetch_changes()
 {
     Changes                             changes;
     const std::time_t                   now     = std::time(nullptr);
-    const std::map<std::string, Change> indexes = parse_naver_index(http::get(std::string(kNaverIndexUrl), naver_headers()));
+    const std::map<std::string, Change> indexes =
+        parse_naver_index(http::get(std::string(kNaverIndexUrl), naver_headers()), now);
 
     for (const VotingSymbol& symbol : kVotingSymbols)
     {
@@ -1149,6 +1156,24 @@ Changes RegimeFeed::fetch_changes()
         else
         {
             change = parse_yahoo_chart(body, now);
+        }
+
+        // 미국 지표는 새 세션이 열리기 전까지 직전 세션 등락으로 표를 낸다. Yahoo는 미국 자정(한국 13~14시)에
+        //  거래 시간대를 다음 날로 넘겨, 그때부터 개장까지 0으로 빠졌다(10-01 14:00 VIX·TNX10 0.000%, 그 전에는
+        //  같은 직전 세션 등락 1.87%·0.72%로 표를 냈다). 코스피·코스닥의 개장 전 0은 그대로 둔다(09-15).
+        if (change.premarket && symbol.naver_code.empty() && symbol.cash_reference.empty())
+        {
+            const std::optional<double> last_session = parse_last_session_percent(
+                http::get("https://query1.finance.yahoo.com/v8/finance/chart/" + encode_symbol(symbol.yahoo) +
+                              "?range=10d&interval=1d",
+                          browser_headers()),
+                now);
+
+            if (last_session)
+            {
+                change.percent          = *last_session;
+                change.previous_percent = last_session;
+            }
         }
 
         // 현물 직전 세션 + 선물 정산 뒤 변동. 현물을 못 받으면 선물 변동만으로 표를 낸다.

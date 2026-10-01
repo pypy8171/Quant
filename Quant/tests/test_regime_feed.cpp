@@ -36,15 +36,23 @@ void check_naver_index()
         {"itemCode":"KOSDAQ","marketStatus":"CLOSE","fluctuationsRatioRaw":0.8,"closePriceRaw":850.2},
         {"itemCode":"KPI200","marketStatus":"OPEN","closePriceRaw":"400"}
     ]})";
-    const auto indexes = parse_naver_index(body);
+    const auto indexes = parse_naver_index(body, kEvening0923);
     assert(indexes.size() == 2); // 등락 없는 줄은 뺀다
     const Change& kospi = indexes.at("KOSPI");
     assert(near(*kospi.percent, -1.25) && near(*kospi.price, 3401.5) && !kospi.premarket && kospi.source == "naver");
     const Change& kosdaq = indexes.at("KOSDAQ");
     assert(near(*kosdaq.percent, 0.0) && near(*kosdaq.previous_percent, 0.8) && kosdaq.premarket);
 
-    assert(parse_naver_index("").empty());
-    assert(parse_naver_index("<html>").empty());
+    // 마감 뒤: 마지막 거래가 오늘이면 표시 등락이 오늘 것이다. 다음 날 아침에는 어제 것이라 0이다.
+    const std::string closed = R"({"datas":[{"itemCode":"KOSPI","marketStatus":"CLOSE","fluctuationsRatioRaw":"1.95",
+        "closePriceRaw":"6971.35","localTradedAt":"2026-09-23T15:30:00+09:00"}]})";
+    const Change after_close = parse_naver_index(closed, kEvening0923).at("KOSPI");
+    assert(near(*after_close.percent, 1.95) && !after_close.premarket);
+    const Change next_morning = parse_naver_index(closed, kMorning0924).at("KOSPI");
+    assert(near(*next_morning.percent, 0.0) && near(*next_morning.previous_percent, 1.95) && next_morning.premarket);
+
+    assert(parse_naver_index("", kEvening0923).empty());
+    assert(parse_naver_index("<html>", kEvening0923).empty());
 }
 
 void check_yahoo_chart()

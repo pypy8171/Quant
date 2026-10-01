@@ -346,8 +346,8 @@ flowchart LR
    `Quant/src/core/EngineRegime.cpp:186` · `void Engine::poll_regime_file()` · 시험 [test_regime_file_judge](../Quant/tests/test_regime_file_judge.cpp)
 97. [`Engine::apply_regime_selection`](../Quant/src/core/EngineRegime.cpp#L28) — 국면 → `regime_strategies` 집합으로 전략 활성/비활성. 청산은 하지 않는다  
    `Quant/src/core/EngineRegime.cpp:28` · `void Engine::apply_regime_selection(Regime regime, bool force_log)`
-98. [`regime_feed::RegimeFeed::run`](../Quant/src/regime/RegimeFeed.cpp#L1050) — [전략] 엔진 안 국면 판정 스레드. `interval_sec`마다 `cycle` — 네이버 지수·야후·FRED를 받아 `build_regime`. 결과는 `regime_feed.out`(`regime.json`)에 쓰고, 같은 파일을 다른 프로세스가 주기 안에 썼으면 그 회차는 쉰다  
-   `Quant/src/regime/RegimeFeed.cpp:1050` · `void RegimeFeed::run()` · 시험 [test_regime_feed](../Quant/tests/test_regime_feed.cpp)
+98. [`regime_feed::RegimeFeed::run`](../Quant/src/regime/RegimeFeed.cpp#L1056) — [전략] 엔진 안 국면 판정 스레드. `interval_sec`마다 `cycle` — 네이버 지수·야후·FRED를 받아 `build_regime`. 결과는 `regime_feed.out`(`regime.json`)에 쓰고, 같은 파일을 다른 프로세스가 주기 안에 썼으면 그 회차는 쉰다  
+   `Quant/src/regime/RegimeFeed.cpp:1056` · `void RegimeFeed::run()` · 시험 [test_regime_feed](../Quant/tests/test_regime_feed.cpp)
 99. [`OrderGate::set_manual_halt`](../Quant/include/risk/OrderGate.h#L220) — 운영단말 HALT_REQ의 수동 정지 — 신규 매수·전략 매도를 따로 끈다. 국면의 `entry_halt_`와는 다른 플래그고 `is_entry_halted`에서만 OR로 합친다(D-091)  
    `Quant/include/risk/OrderGate.h:220` · `void set_manual_halt(OrderSide side, bool on);` · 시험 [test_order_gate](../Quant/tests/test_order_gate.cpp)
 100. [`Engine::maybe_rescan_universe`](../Quant/src/core/EngineUniverse.cpp#L80) — [전략] 유니버스 재스캔 — 빠진 보유 종목은 40초에 신규매수 차단, 600초에 전략 해제(`UniverseExit.h`, D-077). 청산 관리 보유(`exit_managed_tickers`)는 스캔 신규매수에서 뺀다  
