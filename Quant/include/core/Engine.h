@@ -262,6 +262,12 @@ public:
         feed_.capture_directory = directory;
     }
 
+    // 시세판 1분 표본의 기본 폴더로 쓴다(DevScaleLoader). 실계좌·모의가 캡처 폴더를 따로 둬서 파일이 겹치지 않는다.
+    const std::string& capture_directory() const
+    {
+        return feed_.capture_directory;
+    }
+
     // 캡처에 담을 종목만 고른다(비면 전부). [why D-138]
     void set_capture_tickers(const std::vector<std::string>& tickers)
     {

@@ -479,6 +479,12 @@ void start_scan_services(const LoadPass& context, const json& node, const univer
     read_or_keep(node, "market_board_n_turnover", board_config.n_turnover);
     read_or_keep(node, "market_board_min_turnover", board_config.min_turnover);
     board_config.universe_out = scan_config.universe_file; // 알림·대시보드·백필 스크립트가 이 파일을 읽는다
+    // 장중 1분 표본(board_YYYYMMDD.csv). 기본은 켬, 폴더는 틱 캡처 폴더(capture_dir) — 비면 저장하지 않는다.
+    bool        save_minute      = true;
+    std::string minute_directory = context.engine.capture_directory();
+    read_or_keep(node, "market_board_minute_save", save_minute);
+    read_or_keep(node, "market_board_minute_dir", minute_directory);
+    board_config.minute_directory = save_minute ? minute_directory : std::string();
     universe::MarketBoard::instance().start(board_config);
 
     if (scan_config.daily_warm_until_hhmm > 0 && context.has_quote_kis)

@@ -141,6 +141,43 @@ void check_universe_file_schema()
 
 } // namespace
 
+// 1분 표본 판정 — 매매 시간(09:00~20:00 KST, 마감 분 포함)이고 같은 분에 두 번 쓰지 않는다.
+void check_minute_due_window()
+{
+    const std::time_t open_kst = 1790812800; // 2026-10-01 09:00:00 KST(= 00:00:00 UTC)
+    const std::int64_t open_minute = static_cast<std::int64_t>(open_kst) / 60;
+
+    assert(board_minute_due(open_kst, -1));                    // 개장 분, 아직 저장 없음
+    assert(!board_minute_due(open_kst + 55, open_minute));     // 같은 분 안의 다음 판
+    assert(board_minute_due(open_kst + 60, open_minute));      // 다음 분
+    assert(!board_minute_due(open_kst - 1, -1));               // 08:59:59
+    assert(board_minute_due(open_kst + 8 * 3600, -1));         // 17:00 애프터마켓도 담는다
+    assert(board_minute_due(open_kst + 660 * 60 + 59, -1));    // 20:00:59 — 마감 분까지 담는다
+    assert(!board_minute_due(open_kst + 661 * 60, -1));        // 20:01:00
+    assert(board_minute_file_name(open_kst) == "board_20261001.csv");
+    assert(board_minute_file_name(open_kst - 9 * 3600) == "board_20261001.csv"); // 00:00 KST도 같은 날
+}
+
+// 줄 형식 — 종목마다 한 줄, 판의 종목 수·실패 묶음·전체 묶음을 끝 열에 반복한다.
+void check_minute_rows_format()
+{
+    BoardSnapshot board;
+    board.received_at     = 1790812800 + 3 * 60 + 7; // 09:03:07 KST
+    board.request_count   = 3;
+    board.failed_requests = 1;
+    board.quotes          = {BoardQuote{"005930", "삼성전자", 84500.0, 12000000.0, 1014000000000.0, 504000000000000.0, 1.234},
+                             BoardQuote{"0096B0", "새코드", 1234.4, 0.0, 0.0, 0.0, -29.999}};
+    const std::string rows = board_minute_rows(board);
+    assert(rows == "09:03:07,005930,84500,12000000,1014000000000,1.23,504000000000000,2,1,3\n"
+                   "09:03:07,0096B0,1234,0,0,-30.00,0,2,1,3\n");
+
+    const std::string header = board_minute_header();
+    assert(header.find("고가") != std::string::npos); // 고가·저가가 없다는 것을 머리에 적는다
+    assert(header.substr(header.rfind('\n', header.size() - 2) + 1) ==
+           "kst_time,code,price,volume,turnover,change_pct,market_cap,board_count,failed_batches,batches\n");
+    assert(board_minute_rows(BoardSnapshot{}).empty());
+}
+
 int main()
 {
     check_polling_reads_top_level_only();
@@ -148,6 +185,8 @@ int main()
     check_rank_per_market_union();
     check_turnover_filled_half_rule();
     check_universe_file_schema();
+    check_minute_due_window();
+    check_minute_rows_format();
     std::puts("test_market_board: ok");
     return 0;
 }

@@ -1,5 +1,6 @@
 // universe/MarketBoard.h — 전 종목 시세판. 엔진 안의 스레드 하나가 네이버에서 종목 목록(하루 한 번)과 전 종목
 //  시세(몇 초마다)를 받아 들고 있고, 1분마다 시장별 시총 상위 ∪ 거래대금 상위로 유니버스를 다시 뽑는다.
+//  장중에는 1분마다 받은 판 하나를 날짜별 csv에 덧붙인다(리플레이에서 그 시점 전 종목 순위를 다시 보려고).
 //  왜 있나: 이 일을 하던 파이썬 보조 프로세스 둘(시세 파일 전달·PYQuant/tools/universe_feed.py 재랭킹, 09-26 걷음)이
 //  파일로 값을 넘겼다. 엔진 밖 프로세스가 죽으면 판정이 조용히 전일 값으로 얼어붙었고, 엔진은 같은 값을 파일
 //  파싱으로 다시 읽었다. 여기서 받으면 파일도 파싱 왕복도 없다. [why D-147]
@@ -50,6 +51,8 @@ struct BoardSnapshot
 {
     std::time_t             received_at = 0; // 이 판을 다 받은 시각
     std::vector<BoardQuote> quotes;
+    size_t                  request_count   = 0; // 이 판을 받으려고 보낸 시세 요청 수(묶음 수)
+    size_t                  failed_requests = 0; // 그중 빈 본문·깨진 본문으로 빠진 묶음 수
 };
 
 // 재랭킹 결과 한 줄. universe_scan.json의 universe 배열 한 칸과 같은 모양이다.
@@ -90,6 +93,19 @@ bool turnover_filled(const BoardSnapshot& board);
 // universe_scan.json 문서(파이썬 피드와 같은 스키마 — 알림·대시보드·백필 스크립트가 읽는다).
 std::string universe_file_text(const RankedUniverse& ranked, const std::string& source_label);
 
+// 1분 표본 저장 판정. received_at이 KST 09:00~20:00(엔진 매매 시간, 마감 분 포함) 안이고, 마지막으로 저장한 분(epoch 분,
+//  아직 없으면 -1)과 다른 분이면 true. 분 경계는 UTC·KST가 같으므로 epoch 초 / 60을 분 번호로 쓴다.
+bool board_minute_due(std::time_t received_at, std::int64_t last_saved_minute);
+
+// 1분 표본 파일 이름(board_YYYYMMDD.csv, KST 날짜).
+std::string board_minute_file_name(std::time_t received_at);
+
+// 1분 표본 파일 머리(주석 세 줄 + 열 이름). 새 파일에만 쓴다.
+std::string board_minute_header();
+
+// 판 하나를 csv 줄로 — 종목마다 한 줄, 판의 종목 수·실패 묶음 수를 열로 반복한다.
+std::string board_minute_rows(const BoardSnapshot& board);
+
 class MarketBoard
 {
 public:
@@ -102,6 +118,7 @@ public:
         int         n_turnover       = 100;  // 시장별 거래대금 상위 N
         double      min_turnover     = 1e9;  // 원, 재랭킹 후보의 거래대금 하한
         std::string universe_out;            // 비어 있지 않으면 재랭킹마다 이 경로에 universe_scan.json을 쓴다
+        std::string minute_directory;        // 비어 있지 않으면 장중 1분마다 판 하나를 이 폴더의 board_YYYYMMDD.csv에 덧붙인다
     };
 
     // 프로세스에 하나. 슬리브 여럿이 켜도 같은 판을 본다.
@@ -142,6 +159,7 @@ private:
     bool refresh_listing();
     bool sweep();
     void rerank();
+    void save_minute(const BoardSnapshot& board); // 시세판 스레드만. 실패는 로그만 남기고 판 갱신은 그대로 간다
 
     Config                                config_;
     std::atomic<bool>                     running_{false};
@@ -149,6 +167,7 @@ private:
     std::vector<ListedStock>              listing_;      // 시세판 스레드 전용
     std::string                           listing_date_; // 목록을 받은 KST 날짜
     std::vector<std::string>              request_urls_; // 목록이 바뀔 때만 다시 만든다
+    std::int64_t                          last_minute_saved_ = -1; // epoch 분, 시세판 스레드 전용
     mutable std::mutex                              mutex_;        // 아래 세 포인터만 지킨다
     std::shared_ptr<const BoardSnapshot>            snapshot_;
     std::shared_ptr<const RankedUniverse>           ranked_;

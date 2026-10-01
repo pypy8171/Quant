@@ -49,7 +49,7 @@ graph LR
   strategy -->|9| utils
   universe -->|2| api
   universe -->|16| core
-  universe -->|23| utils
+  universe -->|24| utils
   utils --> core
 ```
 
@@ -794,6 +794,7 @@ graph LR
   n_universe_MarketBoard_cpp --> n_utils_AtomicFile_h
   n_universe_MarketBoard_cpp --> n_utils_Logger_h
   n_universe_MarketBoard_cpp --> n_utils_ThreadName_h
+  n_universe_MarketBoard_cpp --> n_utils_Utf8_h
   n_universe_ScoreWeight_cpp --> n_universe_ScoreWeight_h
   n_universe_ScoreWeight_h --> n_core_SymbolTable_h
   n_universe_UniverseCandidates_cpp --> n_core_KstTime_h

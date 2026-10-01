@@ -146,7 +146,7 @@ note = "한 세션 구독 상한 40(문서 41). 넘치는 종목은 DataPoller �
 
 [[code_value_group]]
 name = "엔진 안 시세판 — Quant/src/universe/MarketBoard.h"
-note = "전략 프로세스 안 시세판 스레드가 네이버 종목 목록·벌크 시세를 받아 스캐너에 메모리로 넘기고, 재랭킹 결과를 universe_scan.json 에 쓴다(D-147). 값은 기본값이고 config market_board_* 키가 덮어쓴다."
+note = "전략 프로세스 안 시세판 스레드가 네이버 종목 목록·벌크 시세를 받아 스캐너에 메모리로 넘기고, 재랭킹 결과를 universe_scan.json 에 쓴다(D-147). 장중(09:00~15:30) 1분마다 판 하나를 capture_dir/board_YYYYMMDD.csv 에 덧붙인다(market_board_minute_save 기본 true, market_board_minute_dir 로 폴더 변경). 값은 기본값이고 config market_board_* 키가 덮어쓴다."
 
 [[code_value_group]]
 name = "data.go.kr 유니버스 피드(손 실행·PIT 백필) — universe_feed.py"

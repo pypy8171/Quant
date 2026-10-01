@@ -6,11 +6,16 @@
 #include "utils/AtomicFile.h"
 #include "utils/Logger.h"
 #include "utils/ThreadName.h"
+#include "utils/Utf8.h"
 
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <filesystem>
+#include <format>
+#include <fstream>
 #include <future>
+#include <iterator>
 #include <nlohmann/json.hpp>
 #include <unordered_map>
 #include <unordered_set>
@@ -27,6 +32,7 @@ constexpr std::string_view kListingEndpoint = "https://m.stock.naver.com/api/sto
 constexpr std::string_view kPollingEndpoint = "https://polling.finance.naver.com/api/realtime/domestic/stock/";
 constexpr int              kListingPageSize = 100;
 constexpr int              kListingMaxPages = 60; // 코스피 25쪽·코스닥 19쪽(09-26). 응답이 어긋나도 끝없이 돌지 않게
+constexpr std::int64_t     kSecondsPerMinute = 60;
 
 // 웹페이지가 보내는 것과 같은 헤더. 없으면 폴링 주소가 빈 본문으로 200을 준다.
 //  [wire] 2026-09-27 실측에서는 헤더 없이도 같은 본문(3종목 7,275바이트)이 왔다(2026-09-27 확인으로 고침 — 빈 본문은 재현되지 않음).
@@ -312,6 +318,53 @@ std::string universe_file_text(const RankedUniverse& ranked, const std::string& 
     return document.dump(1);
 }
 
+bool board_minute_due(std::time_t received_at, std::int64_t last_saved_minute)
+{
+    const std::int64_t minute = static_cast<std::int64_t>(received_at) / kSecondsPerMinute;
+
+    if (minute == last_saved_minute)
+    {
+        return false;
+    }
+
+    const int minute_of_day = kst::sec_of_day(received_at) / static_cast<int>(kSecondsPerMinute);
+    return minute_of_day >= kst::kKrMarketOpenMinute && minute_of_day <= kst::kKrAfterMarketCloseMinute;
+}
+
+std::string board_minute_file_name(std::time_t received_at)
+{
+    return "board_" + kst::date_yyyymmdd(received_at) + ".csv";
+}
+
+std::string board_minute_header()
+{
+    return "# 시세판 1분 표본 - 네이버 전 종목 5초 폴링 판 중 분마다 한 판(09:00~20:00, 엔진 매매 시간). 시각은 판을 다 받은 KST.\n"
+           "# 16:00 뒤 값이 애프터마켓 시세를 담는지는 확인 전이다 - check_runtime_health.py 시세판 행이 15:30 대비 바뀐 종목 수로 판정한다.\n"
+           "# 5초 표본이라 고가·저가는 없다. board_count=그 판의 종목 수, failed_batches/batches=그 판의 실패 요청 묶음/전체 묶음.\n"
+           "kst_time,code,price,volume,turnover,change_pct,market_cap,board_count,failed_batches,batches\n";
+}
+
+std::string board_minute_rows(const BoardSnapshot& board)
+{
+    const std::string      digits = kst::hhmmss(board.received_at); // "HHMMSS"
+    const std::string_view digit_view(digits);
+    const std::string      time_text =
+        std::format("{}:{}:{}", digit_view.substr(0, 2), digit_view.substr(2, 2), digit_view.substr(4, 2));
+    const std::string board_tail =
+        std::format(",{},{},{}\n", board.quotes.size(), board.failed_requests, board.request_count);
+    std::string rows;
+    rows.reserve(board.quotes.size() * 96); // 한 줄 80바이트 안팎
+
+    for (const BoardQuote& quote : board.quotes)
+    {
+        std::format_to(std::back_inserter(rows), "{},{},{:.0f},{:.0f},{:.0f},{:.2f},{:.0f}", time_text, quote.code,
+                       quote.price, quote.volume, quote.value, quote.change_percent, quote.market_value);
+        rows.append(board_tail);
+    }
+
+    return rows;
+}
+
 MarketBoard& MarketBoard::instance()
 {
     static MarketBoard board;
@@ -345,7 +398,8 @@ void MarketBoard::start(const Config& config)
     });
     LOG_INFO("[MarketBoard] 시작 — 시세 " + std::to_string(config_.period_sec) + "초·재랭킹 " +
              std::to_string(config_.rerank_sec) + "초 주기, 시장별 시총 top" + std::to_string(config_.n_market_value) +
-             " ∪ 거래대금 top" + std::to_string(config_.n_turnover) + (config_.universe_out.empty() ? "" : " → " + config_.universe_out));
+             " ∪ 거래대금 top" + std::to_string(config_.n_turnover) + (config_.universe_out.empty() ? "" : " → " + config_.universe_out) +
+             (config_.minute_directory.empty() ? ", 1분 표본 끔" : ", 1분 표본 → " + config_.minute_directory));
 }
 
 void MarketBoard::stop()
@@ -408,6 +462,17 @@ void MarketBoard::run()
 
         if (!listing_.empty() && sweep())
         {
+            if (!config_.minute_directory.empty())
+            {
+                const std::shared_ptr<const BoardSnapshot> board = snapshot();
+
+                if (board && board_minute_due(board->received_at, last_minute_saved_))
+                {
+                    last_minute_saved_ = static_cast<std::int64_t>(board->received_at) / kSecondsPerMinute;
+                    save_minute(*board);
+                }
+            }
+
             const auto now = std::chrono::steady_clock::now();
 
             if (now >= next_rerank_at)
@@ -537,7 +602,9 @@ bool MarketBoard::sweep()
         return false;
     }
 
-    board->received_at = std::time(nullptr);
+    board->received_at     = std::time(nullptr);
+    board->request_count   = request_urls_.size();
+    board->failed_requests = failed;
     const auto took_ms =
         std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();
 
@@ -609,6 +676,39 @@ void MarketBoard::rerank()
 
     std::lock_guard<std::mutex> lock(mutex_);
     ranked_ = std::move(ranked);
+}
+
+void MarketBoard::save_minute(const BoardSnapshot& board)
+{
+    // 파일은 분마다 열고 닫는다 — 날짜가 바뀌면 이름이 바뀌고, 재기동해도 같은 날 파일에 이어 붙는다.
+    //  실패해도 예외를 밖으로 내지 않는다: 시세판 스레드가 죽으면 스캐너가 판을 못 받는다.
+    try
+    {
+        const std::filesystem::path directory = utf8::path_from_utf8(config_.minute_directory);
+        const std::filesystem::path file      = directory / board_minute_file_name(board.received_at);
+        std::error_code             error;
+        std::filesystem::create_directories(directory, error);
+        const bool is_new = !std::filesystem::exists(file, error) || std::filesystem::file_size(file, error) == 0;
+        std::ofstream out(file, std::ios::binary | std::ios::app);
+
+        if (is_new)
+        {
+            out << board_minute_header();
+        }
+
+        out << board_minute_rows(board);
+        out.flush();
+
+        if (!out)
+        {
+            LOG_WARN("[MarketBoard] 1분 표본 쓰기 실패 - 파일(" + config_.minute_directory + "/" +
+                     board_minute_file_name(board.received_at) + ")");
+        }
+    }
+    catch (const std::exception& error)
+    {
+        LOG_WARN(std::string("[MarketBoard] 1분 표본 쓰기 예외 - 내용(") + error.what() + ")");
+    }
 }
 
 } // namespace universe

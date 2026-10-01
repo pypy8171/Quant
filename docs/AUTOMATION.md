@@ -236,7 +236,7 @@ powershell -ExecutionPolicy Bypass -File scripts\quant_procs.ps1 -KillAll # 전�
 | 제어 스레드 | `Engine::control_thread_fn` | 상시 | 5초 주기: 시세 끊김이면 재연결, 안 되면 REST 대체, 그것도 안 되면 kill switch. 토큰 선갱신·큐 고수위 기록·마감 자기 종료 판정(잔고 대조·손익 갱신 감시는 데이터 스레드) |
 | 증분 로그 감시 | `scripts/parse_quant_log.py --watch` | 15~20분 | 유의미한 창일 때만 출력. 조용하면 토큰 0 |
 | 실행 건전성 점검 | `scripts/check_runtime_health.py` | 세션 종료마다(감시견)·마감 뒤 하루 전체 | 유령주문·조기 사망·재기동 투매·회전·초당한도·WS 폴백·주문 접수 지연·잔고 조회 지연·전략 박동(끊김·여유)·주문 통로 무결·시세 통로(못 넘긴 시세·값이 이상해 버린 시세)를 PASS/WARN/FAIL로 판정. 같은 표를 `market_close_autodoc.py`가 매매일지 4절에 싣는다 — 고친 뒤 "다음 날 확인할 것"은 사람이 아니라 여기 행으로 만든다 |
-| 전 종목 시세·유니버스 재랭킹(엔진 안) | 시세판 스레드 `Quant/src/universe/MarketBoard.cpp`(config `market_board: true`, 지금 모의·실계좌 둘 다) | 시세 5초·재랭킹 1분·종목 목록 하루 한 번 | 네이버 종목 목록과 벌크 시세(900종목씩 요청 3개 병렬)를 엔진 안에서 받아 스캐너에 넘기고, 1분마다 시장별 거래대금 상위 100을 `Quant/config/universe_scan.json`에 쓴다. 이 일을 하던 파이썬 보조 프로세스 둘(시세 파일 전달·`universe_feed.py` 1분 재랭킹)은 09-26에 걷었다(D-147) |
+| 전 종목 시세·유니버스 재랭킹(엔진 안) | 시세판 스레드 `Quant/src/universe/MarketBoard.cpp`(config `market_board: true`, 지금 모의·실계좌 둘 다) | 시세 5초·재랭킹 1분·종목 목록 하루 한 번 | 네이버 종목 목록과 벌크 시세(900종목씩 요청 3개 병렬)를 엔진 안에서 받아 스캐너에 넘기고, 1분마다 시장별 거래대금 상위 100을 `Quant/config/universe_scan.json`에 쓴다. 장중(09:00~15:30)에는 1분마다 받은 판 하나(전 종목 현재가·누적 거래량·거래대금·등락률·시총, 고가·저가 없음)를 `capture_dir`의 `board_YYYYMMDD.csv`에 덧붙인다(리플레이 입력, `check_runtime_health.py` "시세판 1분 저장" 행). 이 일을 하던 파이썬 보조 프로세스 둘(시세 파일 전달·`universe_feed.py` 1분 재랭킹)은 09-26에 걷었다(D-147) |
 | 매매 알림 | `scripts/notify_trades.py` | 체결 즉시 / 요약 30분 | 당일 체결 원장 CSV를 증분으로 읽어 체결을 바로 보내고, 평단·손익 표는 KIS 잔고조회로 주기 발송 |
 
 ### 매매 알림 보조 프로세스

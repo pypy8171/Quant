@@ -502,7 +502,7 @@
 ### Quant/src/universe/
 
 - [MaAlign.cpp](../Quant/src/universe/MaAlign.cpp) — MaAlign.h 구현 — 일봉 이동평균 정배열 판정 공용 함수(D-005)
-- [MarketBoard.cpp](../Quant/src/universe/MarketBoard.cpp) — 시세판 구현: 목록 하루 한 번·시세 5초·재랭킹 1분·universe_scan.json 원자적 쓰기
+- [MarketBoard.cpp](../Quant/src/universe/MarketBoard.cpp) — 시세판 구현: 목록 하루 한 번·시세 5초·재랭킹 1분·universe_scan.json 원자적 쓰기·장중 1분 표본 board_YYYYMMDD.csv 덧붙이기
 - [ScoreWeight.cpp](../Quant/src/universe/ScoreWeight.cpp) — ScoreWeight.h 구현 — 종합 점수 → 종목별 비중 배수 변환
 - [UniverseCandidates.cpp](../Quant/src/universe/UniverseCandidates.cpp) — DevScale 스캔 2단 — 후보 합집합 수집(랭킹·업종·유니버스 파일·전 종목, D-028)
 - [UniverseFeatures.cpp](../Quant/src/universe/UniverseFeatures.cpp) — DevScale 스캔 3단 — 일봉 요약 캐시·정배열 프리필터·지표 산출

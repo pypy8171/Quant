@@ -165,7 +165,7 @@
     {
       "from": "universe",
       "to": "utils",
-      "weight": 23
+      "weight": 24
     },
     {
       "from": "utils",
@@ -1280,7 +1280,8 @@
       "universe/MarketBoard.h",
       "utils/AtomicFile.h",
       "utils/Logger.h",
-      "utils/ThreadName.h"
+      "utils/ThreadName.h",
+      "utils/Utf8.h"
     ],
     "universe/ScoreWeight.cpp": [
       "universe/ScoreWeight.h"
@@ -2137,6 +2138,7 @@
       "core/Engine.cpp",
       "core/EngineFeed.cpp",
       "exchange/ZmqOrderFeed.cpp",
+      "universe/MarketBoard.cpp",
       "utils/Utf8.cpp"
     ]
   },

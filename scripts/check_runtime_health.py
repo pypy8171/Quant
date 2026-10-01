@@ -2035,6 +2035,137 @@ def pinned_capture_row(date: str) -> tuple:
     return (name, True, "WARN", f"캡처 {len(files)}개 — {'; '.join(details)}")
 
 
+def board_minute_folders() -> list:
+    """시세판을 켠 설정마다 1분 표본 폴더 — market_board_minute_dir, 없으면 capture_dir(MarketBoard 기본값과 같다)."""
+    folders: dict[Path, str] = {}
+
+    for config_path in sorted((REPO / "Quant" / "config").glob("config*.json")):
+        try:
+            document = json.loads(config_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+
+        for node in document.get("strategies") or []:
+            if not isinstance(node, dict) or not node.get("market_board"):
+                continue
+
+            if node.get("market_board_minute_save") is False:
+                continue
+
+            folder = node.get("market_board_minute_dir") or document.get("capture_dir")
+
+            if folder:
+                folders.setdefault(REPO / folder, config_path.name)
+
+    return sorted(folders.items())
+
+
+def board_minute_summary(csv_path: Path) -> tuple:
+    """(분 수, 판마다 종목 수 평균, 실패 묶음 합, 16:00 뒤 15:30 대비 가격이 바뀐 종목 수 또는 None).
+
+    한 판은 같은 kst_time 줄 묶음이다. 마지막 값은 16:00 뒤 판이 애프터마켓 시세를 담는지 보는 데 쓴다 —
+    0이면 그 시간 값이 정규장 종가에 멈춰 있다는 뜻이다. 16:00 뒤 판이 없으면 None.
+    """
+    minutes: set[str] = set()
+    board_counts: list[int] = []
+    failed_total = 0
+    last_time = ""
+    regular_close_prices: dict[str, str] = {}
+    after_market_prices: dict[str, str] = {}
+
+    with csv_path.open(encoding="utf-8") as handle:
+        for line in handle:
+            if line.startswith("#") or line.startswith("kst_time"):
+                continue
+
+            fields = line.rstrip("\n").split(",")
+
+            if len(fields) < 10:
+                continue
+
+            if fields[0] <= "15:30:59":
+                regular_close_prices[fields[1]] = fields[2]
+            elif fields[0] >= "16:00:00":
+                after_market_prices[fields[1]] = fields[2]
+
+            if fields[0] == last_time:
+                continue
+
+            last_time = fields[0]
+            minutes.add(last_time[:5])
+            board_counts.append(int(fields[7]))
+            failed_total += int(fields[8])
+
+    average = sum(board_counts) / len(board_counts) if board_counts else 0.0
+    after_market_changed = None
+
+    if after_market_prices:
+        after_market_changed = sum(
+            1 for code, price in after_market_prices.items()
+            if code in regular_close_prices and regular_close_prices[code] != price
+        )
+
+    return len(minutes), average, failed_total, after_market_changed
+
+
+def board_minute_row(date: str) -> tuple:
+    """시세판 1분 표본(board_YYYYMMDD.csv)이 장중 분마다 남았는지 센다.
+
+    당일 강한 종목·테마 전략을 리플레이로 검증하려면 그 시점의 전 종목 등락률·거래대금 순위가 필요하다.
+    엔진 매매 시간 09:00~20:00은 661분(마감 분 포함)이다. 재기동 한 번이면 1~2분이 빠지므로 95% 아래만 경고로 둔다.
+    16:00 뒤 판에서 15:30 대비 가격이 바뀐 종목 수를 같이 적는다 — 애프터마켓 시세가 담기는지 판정용.
+    """
+    name = "시세판 1분 저장"
+    folders = board_minute_folders()
+
+    if not folders:
+        return (name, True, "WARN", "시세판(market_board)을 켜고 저장 폴더가 있는 설정이 없다 — 판정 안 함")
+
+    day = dt.date.fromisoformat(date)
+    expected = 661
+
+    if day == dt.date.today():
+        now = dt.datetime.now()
+        expected = max(0, min(expected, (now.hour * 60 + now.minute) - 9 * 60 + 1))
+
+    if day.weekday() >= 5 or expected == 0:
+        return (name, True, "WARN", f"{date} 장 시간이 아니다 — 판정 안 함")
+
+    details = []
+    short = []
+    missing = []
+
+    for folder, config_name in folders:
+        csv_path = folder / f"board_{day:%Y%m%d}.csv"
+
+        if not csv_path.exists():
+            missing.append(config_name)
+            continue
+
+        try:
+            minute_count, average, failed_total, after_market_changed = board_minute_summary(csv_path)
+        except (OSError, ValueError) as error:
+            short.append(config_name)
+            details.append(f"{config_name} 읽기 실패({error})")
+            continue
+
+        detail = f"{config_name} {minute_count}/{expected}분 · 평균 {average:.0f}종목 · 실패 묶음 {failed_total}"
+
+        if after_market_changed is not None:
+            detail += f" · 16시 뒤 15:30 대비 가격 바뀐 종목 {after_market_changed}"
+
+        details.append(detail)
+
+        if minute_count < expected * 0.95:
+            short.append(config_name)
+
+    if missing:
+        details.append(f"파일 없음: {', '.join(missing)}(엔진이 안 떴거나 저장 기능 전 exe)")
+
+    ok = not short and not missing
+    return (name, ok, "WARN", "; ".join(details))
+
+
 def journal_mirror_row(date: str) -> tuple:
     """원장 저널의 주문 결과·체결이 DB(ledger_events → orders·fills)에 빠짐없이 옮겨졌는지 저널마다 센다.
 
@@ -2285,6 +2416,7 @@ def global_rows(date: str) -> list:
         fill_notice_session_row(date),
         missed_fill_recovery_row(date),
         pinned_capture_row(date),
+        board_minute_row(date),
         scan_registration_row(date),
         rescan_duration_row(date),
         thread_label_row(date),

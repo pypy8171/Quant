@@ -10,7 +10,7 @@
 
 ### 스레드 모델
 
-<!-- sync: Quant/include/core/Engine.h@3705c0e Quant/src/core/Engine.cpp@c933a62 Quant/include/core/DataPoller.h@ff8f3ca Quant/include/core/SignalDispatcher.h@beada4c Quant/include/core/OrderRateLimiter.h@2650fb2 Quant/include/core/LedgerReconciler.h@6ebdf62 Quant/include/core/WakeGate.h@a9c7f38 Quant/include/core/BarAggregator.h@dabda6f Quant/include/core/LatencyTrace.h@cd2a5a5 Quant/include/core/ReconcilePlan.h@023d414 -->
+<!-- sync: Quant/include/core/Engine.h@74b756d Quant/src/core/Engine.cpp@c933a62 Quant/include/core/DataPoller.h@ff8f3ca Quant/include/core/SignalDispatcher.h@beada4c Quant/include/core/OrderRateLimiter.h@2650fb2 Quant/include/core/LedgerReconciler.h@6ebdf62 Quant/include/core/WakeGate.h@a9c7f38 Quant/include/core/BarAggregator.h@dabda6f Quant/include/core/LatencyTrace.h@cd2a5a5 Quant/include/core/ReconcilePlan.h@023d414 -->
 스레드는 여섯 개(데이터·전략·주문·체결·제어·장부)에 전략 샤드 M개(config `strategy_shards`, 기본 1, 상한 64), 소켓마다
 수신 스레드 하나, 프리페치 풀(코어/4, 2~8개)을 더한다. `database.enabled`면 시세 쪽에 DB 적재 워커 M개가 더 붙는다(D-148). 주문 쪽에는 신규 주문의 KIS 왕복을 맡는 전송 스레드 N개(`risk.order_transport_threads`, 기본 4, 0이면 없음, D-151)가 붙는다. 설정에 따라 보조 스레드가 더 뜬다 — 시세판(`MarketBoard`, `market_board`, D-147), 장 전 일봉 데우기(`DailyWarm`, 08:00까지), 국면 판정(`RegimeFeed`), REST 폴러(`RestPoller`), ZMQ 발행(`ZmqBridge`), 운영 서버(`OpsServer`), 틱 캡처(`TickCapture`), 로그 기록(`LogWriter`). 스레드끼리는 락 없는 큐로만 넘긴다. 각 스레드는 기동 직후
 `thread_name::set_current`(`Quant/include/utils/ThreadName.h`)로 이름을 붙여 procwatch와 디버거에 그 이름으로 보인다.
