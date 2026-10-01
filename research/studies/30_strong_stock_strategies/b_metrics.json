@@ -1,0 +1,141 @@
+{
+ "study": "30_strong_stock_strategies / B 52주 신고가 근접",
+ "spec": "research/studies/30_strong_stock_strategies/SPEC.md §3 (사전등록, 바꾸지 않음)",
+ "seed": 0,
+ "period": {
+  "signals": "2006-12-28~2026-08-31",
+  "validation": "2010-01~2026-09-29",
+  "panel_last": "2026-09-29"
+ },
+ "costs": {
+  "main": {
+   "name": "spec_0.31+0.10x2",
+   "commission": 0.00055,
+   "sell_tax": 0.002,
+   "slippage": 0.001,
+   "historical_tax": false
+  },
+  "buy_side_pct": 0.155,
+  "sell_side_pct": 0.355
+ },
+ "walk_forward": {
+  "months": 201,
+  "ann_excess_arith_pct": 3.71,
+  "cagr_net_pct": 3.366,
+  "cagr_bench_pct": -0.431,
+  "cagr_gross_pct": 6.918,
+  "nw_t_excess": 1.092,
+  "mdd_net_pct": -47.58,
+  "mdd_bench_pct": -47.37,
+  "turnover_mean_pct": 55.23,
+  "names_replaced_mean_pct": 54.58,
+  "cost_ann_pct": 3.388,
+  "held_mean": 37.3,
+  "universe_mean": 577.6,
+  "delisted_exits": 9,
+  "bench_delisted_exits": 71,
+  "frozen_position_months": 26,
+  "outlier_contribution_ann_pct": 0.0
+ },
+ "correlations": {
+  "excess_vs_mom12_1": 0.062,
+  "excess_vs_mom_live": 0.133,
+  "excess_vs_mom_live_regime_on": 0.338,
+  "net_vs_mom12_1_net": 0.66,
+  "net_vs_mom_live_net": 0.706,
+  "net_vs_mom_live_on_net": 0.594
+ },
+ "momentum_wf_ann_excess_pct": {
+  "mom12_1": -6.312,
+  "mom_live": -6.038
+ },
+ "gates": {
+  "1_excess_ann_ge_3pp": {
+   "value": 3.71,
+   "cagr_diff_pct": 3.797,
+   "pass": true
+  },
+  "2_nw_t_ge_2": {
+   "value": 1.092,
+   "pass": false
+  },
+  "3_windows_ge_10_of_16": {
+   "value": 11,
+   "pass": true
+  },
+  "4_neighbors_ge_2_of_3": {
+   "value": 3,
+   "neighbors": [
+    "N20/F10",
+    "N50/F10",
+    "N30/F30"
+   ],
+   "pass": true
+  },
+  "5_mdd_le_bench_plus_5pp": {
+   "value": -47.58,
+   "bench": -47.37,
+   "pass": true
+  },
+  "6_corr_mom12_1_lt_0.7": {
+   "value": 0.062,
+   "pass": true,
+   "b_minus_mom_ann_excess_pp": 10.022
+  },
+  "7_turnover_le_40pct": {
+   "value": 55.23,
+   "pass": false
+  }
+ },
+ "gates_passed": 5,
+ "base_cell": {
+  "cell": "N30/F10",
+  "months": 201,
+  "ann_excess_arith_pct": 3.284,
+  "cagr_net_pct": 4.948,
+  "cagr_bench_pct": 1.524,
+  "cagr_gross_pct": 9.293,
+  "nw_t_excess": 0.938,
+  "mdd_net_pct": -49.41,
+  "mdd_bench_pct": -41.6,
+  "turnover_mean_pct": 66.39,
+  "names_replaced_mean_pct": 66.08,
+  "cost_ann_pct": 4.075,
+  "held_mean": 30.1,
+  "universe_mean": 856.8,
+  "delisted_exits": 15,
+  "bench_delisted_exits": 114,
+  "frozen_position_months": 29,
+  "outlier_contribution_ann_pct": 0.0
+ },
+ "inputs": [
+  {
+   "path": "PYQuant/data/bars_all_pit_v2.parquet",
+   "bytes": 259524522,
+   "sha256": "9cace189f3c905fcc7c4dcb6bf8341211d38723ef209d4162d7bcb8e40ecdb0d"
+  },
+  {
+   "path": "PYQuant/data/universe/membership.parquet",
+   "bytes": 120749,
+   "sha256": "36f03ff46abcb4bbf97fdade01b593d18ad9ceec1ef6e96cc0dadbf5d9c0c797"
+  },
+  {
+   "path": "PYQuant/data/universe/kind_delisted.parquet",
+   "bytes": 68715,
+   "sha256": "a801341c8e9b7a7ed2bdd06147fa77fc05a7632aff654c3ea8f3a3a55b63620b"
+  },
+  {
+   "path": "PYQuant/.index_cache/idx__KS11_1985-01-01_2026-08-15_adj.parquet",
+   "bytes": 290568,
+   "sha256": "7bf73c0a3eecdb8eb2769df563811322af5c9e0d782fb3f4294d0b252ed451df"
+  },
+  {
+   "path": "research/studies/26_regime_threshold_history/daily_scores.tsv",
+   "bytes": 329020,
+   "sha256": "cfe17a532c63a5777989f255e24570c9815a953d97f17d47ae28feecae1c5482"
+  }
+ ],
+ "datagokr_files": 80,
+ "git_commit": "3000c311298eff9ab5b7a8236a08db8713f4c65b",
+ "rerun": "py -X utf8 research/studies/30_strong_stock_strategies/backtest_b.py"
+}

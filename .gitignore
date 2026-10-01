@@ -136,3 +136,5 @@ PYQuant/data/universe/kind_name_to_code.json
 # 스터디 24 리플레이 종목일 표(수십~수백 MB, 요약 *_summary.txt·월 표만 남긴다)
 research/studies/24_devscale_exit_lines/*_days.tsv
 research/studies/25_devscale_open_dev_rescue/*_days.tsv
+# 스터디 30 분봉 적재(종목일 parquet·적재 로그, 다시 받을 수 있다)
+research/studies/30_strong_stock_strategies/data/

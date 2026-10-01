@@ -8,11 +8,11 @@
 
 - [(루트)](#루트) — 11개
 - [.vscode](#vscode) — 4개
-- [PYQuant](#pyquant) — 104개
+- [PYQuant](#pyquant) — 105개
 - [Quant](#quant) — 353개
 - [docs](#docs) — 136개
 - [linux_practice](#linux_practice) — 2개
-- [research](#research) — 245개
+- [research](#research) — 262개
 - [scripts](#scripts) — 50개
 - [strategies](#strategies) — 37개
 - [tools](#tools) — 3개
@@ -198,6 +198,7 @@
 - [macro_ingest.py](../PYQuant/tools/macro_ingest.py) — FRED(ALFRED 판본, A)·ECOS(B)·관세청 10일 잠정치(B) 거시 시계열을 시점 고정 스키마로 PYQuant/data/macro/<source>_<series>.parquet에 append-only 적재
 - [minute_backfill.py](../PYQuant/tools/minute_backfill.py) — 거래일별 1분봉 백필 도구
 - [minute_backfill_pairs.py](../PYQuant/tools/minute_backfill_pairs.py) — 리플레이용 1분봉 백필 — (종목, 날짜) 짝 목록(json)을 받아 없는 날만 KIS에서 받아 parquet에 붙인다
+- [minute_strong_open_fetch.py](../PYQuant/tools/minute_strong_open_fetch.py) — 스터디 30-A용 1분봉 2단계 적재(09:30 1콜 → 상위 40만 하루치, 모의 앱키 전용)
 - [naver_bars_backfill.py](../PYQuant/tools/naver_bars_backfill.py) — 네이버 siseJson 일봉 1990~ 전량 백필 → bars_all_pit_v2.parquet(v1 스키마 + 외인보유율), 끝에 005930 종가 v1 일치 검사
 - [naver_flow_backfill.py](../PYQuant/tools/naver_flow_backfill.py) — 네이버 모바일 trend API 수급 이력(외인·기관·개인 순매수 주식수·외인보유율) 백필 → investor_flow_pit.parquet, 종목별 캐시로 재실행 안전
 - [naver_research_fetch.py](../PYQuant/tools/naver_research_fetch.py) — 네이버 증권 리서치 목록·PDF 본문·컨센서스를 받아 PYQuant/data/research/·consensus/에 저장(장중 대시보드 리서치 패널 입력, 등급 B·C)
@@ -1171,6 +1172,26 @@
 - [rescue_grid.tsv](../research/studies/25_devscale_open_dev_rescue/rescue_grid.tsv) — 구제 시점 격자(09:03 단독·10:00·10:30·11:00·12:00·13:30·이격 조건 끔) 월 표
 - [rescue_grid_summary.txt](../research/studies/25_devscale_open_dev_rescue/rescue_grid_summary.txt) — 구제 시점 격자 요약 — 09:03 단독 대비 구제안 차이는 잡음 수준
 - [summarize_rescue.py](../research/studies/25_devscale_open_dev_rescue/summarize_rescue.py) — rescue_grid.tsv와 짝 _days.tsv를 읽어 변형별 지표를 요약한다
+
+### research/studies/30_strong_stock_strategies/
+
+- [CRITERIA_REVIEW.md](../research/studies/30_strong_stock_strategies/CRITERIA_REVIEW.md) — 스터디 30 백테스트 합격선 재점검(검정력 모의실험·비용 정의·B 기준 판정)
+- [DATA.md](../research/studies/30_strong_stock_strategies/DATA.md) — 스터디 30 데이터 판정(A 1분봉 적재 범위, B 일봉 상폐 포함)
+- [IMPLEMENTATION_GUIDE.md](../research/studies/30_strong_stock_strategies/IMPLEMENTATION_GUIDE.md) — 첫 VWAP 눌림(VWAPPB) 구현 가이드 — 파일 배치·사이드 이펙트 차단·판정 행
+- [README.md](../research/studies/30_strong_stock_strategies/README.md) — 스터디 30 개요와 B 결과(5/7, 슬리브 추가 안 함)
+- [SPEC.md](../research/studies/30_strong_stock_strategies/SPEC.md) — 스터디 30 사전등록 — A 첫 VWAP 눌림·B 52주 신고가 규칙·격자·합격선(10-01 개정)
+- [a_power.tsv](../research/studies/30_strong_stock_strategies/a_power.tsv) — A 합격선 검정력 모의실험(효과 크기별 통과 확률, 첫 판·개정안)
+- [b_checks.json](../research/studies/30_strong_stock_strategies/b_checks.json) — B 합격선 7개 판정
+- [b_grid.tsv](../research/studies/30_strong_stock_strategies/b_grid.tsv) — B 격자 결과
+- [b_metrics.json](../research/studies/30_strong_stock_strategies/b_metrics.json) — B 기본 칸 성과 지표
+- [b_periods.tsv](../research/studies/30_strong_stock_strategies/b_periods.tsv) — B 기간별 성과
+- [b_stitched_vs_index.tsv](../research/studies/30_strong_stock_strategies/b_stitched_vs_index.tsv) — B 이어붙인 수익과 코스피 지수 대비
+- [b_variants.tsv](../research/studies/30_strong_stock_strategies/b_variants.tsv) — B 변형(비용 전·회전 제한 등) 성과
+- [b_walkforward.tsv](../research/studies/30_strong_stock_strategies/b_walkforward.tsv) — B 워크포워드 구간별 성과
+- [backtest_b.py](../research/studies/30_strong_stock_strategies/backtest_b.py) — B 52주 신고가 근접 바스켓 백테스트
+- [build_minute_pairs.py](../research/studies/30_strong_stock_strategies/build_minute_pairs.py) — A 1분봉 적재 대상(날짜·종목 쌍) 생성
+- [criteria_review.json](../research/studies/30_strong_stock_strategies/criteria_review.json) — 합격선 재점검 모의실험 수치
+- [criteria_review.py](../research/studies/30_strong_stock_strategies/criteria_review.py) — 합격선 재점검 모의실험(검정력·비용·회전)
 
 ## scripts
 

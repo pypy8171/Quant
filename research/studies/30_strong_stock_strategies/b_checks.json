@@ -1,0 +1,253 @@
+{
+ "dropped_rows_off_calendar": 0,
+ "delisting_by_year": [
+  {
+   "year": 2005,
+   "kind_delisted_common": 64,
+   "kind_with_bars": 3,
+   "panel_ended": 0
+  },
+  {
+   "year": 2006,
+   "kind_delisted_common": 15,
+   "kind_with_bars": 2,
+   "panel_ended": 0
+  },
+  {
+   "year": 2007,
+   "kind_delisted_common": 19,
+   "kind_with_bars": 4,
+   "panel_ended": 3
+  },
+  {
+   "year": 2008,
+   "kind_delisted_common": 35,
+   "kind_with_bars": 34,
+   "panel_ended": 30
+  },
+  {
+   "year": 2009,
+   "kind_delisted_common": 83,
+   "kind_with_bars": 83,
+   "panel_ended": 81
+  },
+  {
+   "year": 2010,
+   "kind_delisted_common": 104,
+   "kind_with_bars": 104,
+   "panel_ended": 101
+  },
+  {
+   "year": 2011,
+   "kind_delisted_common": 73,
+   "kind_with_bars": 73,
+   "panel_ended": 70
+  },
+  {
+   "year": 2012,
+   "kind_delisted_common": 68,
+   "kind_with_bars": 68,
+   "panel_ended": 68
+  },
+  {
+   "year": 2013,
+   "kind_delisted_common": 48,
+   "kind_with_bars": 48,
+   "panel_ended": 48
+  },
+  {
+   "year": 2014,
+   "kind_delisted_common": 31,
+   "kind_with_bars": 31,
+   "panel_ended": 31
+  },
+  {
+   "year": 2015,
+   "kind_delisted_common": 37,
+   "kind_with_bars": 36,
+   "panel_ended": 35
+  },
+  {
+   "year": 2016,
+   "kind_delisted_common": 22,
+   "kind_with_bars": 22,
+   "panel_ended": 21
+  },
+  {
+   "year": 2017,
+   "kind_delisted_common": 44,
+   "kind_with_bars": 44,
+   "panel_ended": 41
+  },
+  {
+   "year": 2018,
+   "kind_delisted_common": 36,
+   "kind_with_bars": 35,
+   "panel_ended": 34
+  },
+  {
+   "year": 2019,
+   "kind_delisted_common": 18,
+   "kind_with_bars": 18,
+   "panel_ended": 15
+  },
+  {
+   "year": 2020,
+   "kind_delisted_common": 35,
+   "kind_with_bars": 34,
+   "panel_ended": 38
+  },
+  {
+   "year": 2021,
+   "kind_delisted_common": 38,
+   "kind_with_bars": 38,
+   "panel_ended": 38
+  },
+  {
+   "year": 2022,
+   "kind_delisted_common": 43,
+   "kind_with_bars": 43,
+   "panel_ended": 44
+  },
+  {
+   "year": 2023,
+   "kind_delisted_common": 43,
+   "kind_with_bars": 43,
+   "panel_ended": 47
+  },
+  {
+   "year": 2024,
+   "kind_delisted_common": 55,
+   "kind_with_bars": 55,
+   "panel_ended": 52
+  },
+  {
+   "year": 2025,
+   "kind_delisted_common": 70,
+   "kind_with_bars": 70,
+   "panel_ended": 74
+  },
+  {
+   "year": 2026,
+   "kind_delisted_common": 71,
+   "kind_with_bars": 71,
+   "panel_ended": 68
+  }
+ ],
+ "terminal_price_mismatch": {
+  "checked": 939,
+  "mismatch": 0
+ },
+ "outlier_days_since_2010": 705,
+ "split_checks": [
+  {
+   "code": "005930",
+   "note": "삼성전자 2018-05 50:1 분할",
+   "max_abs_daily_return_pct": 26.81,
+   "on": "2026-07-31",
+   "factor_2020_01": 1.0,
+   "factor_2026_08": 1.0
+  },
+  {
+   "code": "035420",
+   "note": "NAVER 2018-10 5:1 분할",
+   "max_abs_daily_return_pct": 17.92,
+   "on": "2025-06-18",
+   "factor_2020_01": 1.0,
+   "factor_2026_08": 1.0
+  },
+  {
+   "code": "035720",
+   "note": "카카오 2021-04 5:1 분할",
+   "max_abs_daily_return_pct": 16.28,
+   "on": "2026-03-04",
+   "factor_2020_01": 4.9823,
+   "factor_2026_08": 1.0
+  },
+  {
+   "code": "000660",
+   "note": "SK하이닉스",
+   "max_abs_daily_return_pct": 29.95,
+   "on": "2026-07-31",
+   "factor_2020_01": 1.0,
+   "factor_2026_08": 1.0
+  }
+ ],
+ "factor": {
+  "months": "2020-01~2026-08 (80개월)",
+  "codes_with_factor_not_1": 1202,
+  "examples": [
+   {
+    "code": "000040",
+    "factor_first": 0.0171,
+    "factor_last": 1.0
+   },
+   {
+    "code": "000070",
+    "factor_first": 1.4986,
+    "factor_last": 1.0
+   },
+   {
+    "code": "000100",
+    "factor_first": 5.9638,
+    "factor_last": 1.0
+   },
+   {
+    "code": "000105",
+    "factor_first": 5.7525,
+    "factor_last": 1.0
+   },
+   {
+    "code": "000180",
+    "factor_first": 0.2,
+    "factor_last": 1.0
+   },
+   {
+    "code": "000210",
+    "factor_first": 1.1067,
+    "factor_last": 1.0
+   },
+   {
+    "code": "000215",
+    "factor_first": 1.1641,
+    "factor_last": 1.0
+   },
+   {
+    "code": "000220",
+    "factor_first": 1.9266,
+    "factor_last": 1.0
+   },
+   {
+    "code": "000225",
+    "factor_first": 2.0,
+    "factor_last": 1.0
+   },
+   {
+    "code": "000227",
+    "factor_first": 1.979,
+    "factor_last": 1.0
+   },
+   {
+    "code": "000230",
+    "factor_first": 1.0482,
+    "factor_last": 1.0
+   },
+   {
+    "code": "000300",
+    "factor_first": 0.0574,
+    "factor_last": 1.0
+   }
+  ]
+ },
+ "factor_effect_2020_plus": {
+  "F10": {
+   "mean_universe": 1120.2,
+   "mean_changed": 143.4
+  },
+  "F30": {
+   "mean_universe": 719.1,
+   "mean_changed": 96.5
+  }
+ },
+ "halt_days_score_close_le_-7": 187
+}

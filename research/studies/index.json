@@ -454,5 +454,30 @@
       "research/studies/24_devscale_exit_lines/carry_wide2_grid_summary.txt",
       "research/studies/24_devscale_exit_lines/carry_wide3_grid_summary.txt"
     ]
+  },
+  {
+    "number": "30",
+    "title": "강한 종목 전략 — A 첫 VWAP 눌림(1분봉)·B 52주 신고가 근접(일봉 바스켓)",
+    "series": "장중 · 신호",
+    "period": "A 2025-09-18~2026-09-29(학습 ~2026-03, 검증 2026-04~09) · B 2010~2026-09(상폐 939 포함)",
+    "status": "B 결과 · A 사전등록(적재 중)",
+    "question": "DevScale 정배열·과확장 필터가 빼는 강한 종목을 따로 사는 전략이 비용 뒤에도 남는가.",
+    "method": "SPEC.md에 규칙·격자·합격선을 결과 전에 등록. B는 30종목 바스켓 월 교체, A는 09:30 강세 종목의 첫 VWAP 되밀림 재돌파를 1분봉으로 리플레이(대조군 09:31 추격·무작위 시각). 합격선은 CRITERIA_REVIEW.md 검정력 모의실험으로 10-01 개정(결과 전).",
+    "data": "A KIS 1분봉 FHKST03010230(PYQuant/tools/minute_strong_open_fetch.py) · B PYQuant/data/bars_all_pit_v2.parquet",
+    "result": "B 합격선 7개 중 5개 통과 — 날짜 t 1.09, 회전 55.2%가 미달. CAGR 3.37%(비교 기준 −0.43%, 비용 전 6.92%), 코스피 대비 연 −5.02%p. A는 적재 뒤 판정.",
+    "verdict": "B 슬리브 추가 안 함, 같은 구간 재판정 없음. A는 개정 합격선으로 판정 예정.",
+    "why": "B는 효과가 작아 30종목·17년으로도 구분이 안 되고, 비용과 회전이 차이를 먹는다.",
+    "followup": "A 백테스트·편향 감사 → 합격 시 그림자 모드(워크트리 wt/vwappb 구현 완료, 미머지).",
+    "files": [
+      "research/studies/30_strong_stock_strategies/SPEC.md",
+      "research/studies/30_strong_stock_strategies/README.md",
+      "research/studies/30_strong_stock_strategies/CRITERIA_REVIEW.md",
+      "research/studies/30_strong_stock_strategies/DATA.md",
+      "research/studies/30_strong_stock_strategies/IMPLEMENTATION_GUIDE.md",
+      "research/studies/30_strong_stock_strategies/backtest_b.py",
+      "research/studies/30_strong_stock_strategies/criteria_review.py",
+      "research/studies/30_strong_stock_strategies/b_checks.json",
+      "research/studies/30_strong_stock_strategies/b_metrics.json"
+    ]
   }
 ]
