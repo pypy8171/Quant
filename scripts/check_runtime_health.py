@@ -64,9 +64,18 @@ DAILY_WARM_FAIL_RE = re.compile(r"\[DailyWarm\] .*(2분 안에 못 받아|인증
 # 거래대금 랭킹: 축·ETF드롭·생존 행수. ETF드롭이 0이 아니면 API단 제외 마스크가 안 먹는 것이다.
 VALUE_RANK_DIAG_RE = re.compile(r"거래대금랭킹 진단\(축=(\d).*?ETF드롭=(\d+).*?생존=(\d+)")
 VALUE_RANK_DONE_RE = re.compile(r"거래대금 랭킹 조회 완료: (\d+)종목 \(요청 count=(\d+)\)")
-# 시세 표 거래대금 상위 축(D-146): 재스캔마다 몇 종목을 뽑았나. 시세 파일이 비거나 낡으면 0으로 떨어진다.
-TURNOVER_AXIS_RE = re.compile(r"DEVSCALE 거래대금 상위 축: 상위 (\d+)종목")
-TURNOVER_AXIS_MIN = 100   # 가격·거래대금 하한을 넘는 종목이 09-25 마감 기준 632개라 200을 다 채우는 게 보통이다
+# 시세 표 거래대금 상위 축(D-146): 재스캔마다 순위에 오른 종목 수(가격·거래대금 하한 통과). 시세판이 비거나 낡으면
+#  0으로 떨어진다. 문구는 UniverseCandidates.cpp take_turnover_top의 "신규 N union (시세 M종목에서)"(b187e00부터 —
+#  그 전 "상위 N종목" 정규식은 10-01까지 한 줄도 못 읽어 이 행이 늘 "로그 없음"이었다).
+#  기동 직후 스캔(Main thread)은 시세판 첫 판 전이라 0이 정상이고, 09:30 전은 누적 거래대금이 하한 밑이라 세지 않는다.
+TURNOVER_AXIS_RE = re.compile(r"\{DataThread thread\}.*DEVSCALE 거래대금 상위 축: 신규 \d+ union \(시세 (\d+)종목에서\)")
+TURNOVER_AXIS_FROM = 9 * 3600 + 30 * 60
+TURNOVER_AXIS_MIN = 100   # 09-28 09:32 실측: 모의 373·실계좌 262종목. 하루가 지나며 600개 안팎까지 는다
+# 정규장 전 시세판(MarketBoard.cpp log_before_open): 09:00 첫 재스캔이 이 판으로 거래대금 축을 뽑는다. KRX 칸 거래대금은
+#  정규장 전 빈 칸이라, NXT 프리마켓 값을 대신 읽지 못하면 08:59 판의 거래대금 있는 종목이 0이 된다.
+#  NXT 프리마켓은 08:00~08:50이라 08:05 뒤 판만 본다.
+BOARD_BEFORE_OPEN_RE = re.compile(r"\[MarketBoard\] 정규장 전 판 - 거래대금 있는 종목\((\d+)/(\d+)\) 프리마켓 값\((\d+)\)")
+BOARD_BEFORE_OPEN_FROM = 8 * 3600 + 5 * 60
 # 주문 접수·거부 한 줄의 왕복 시간. 버킷대기는 09-19 이후 바이너리만 찍는다(없으면 None).
 RTT_RE = re.compile(r"\[OrderRouter\] (?:접수|KIS 거부) .*?RTT=(\d+)ms(?: 버킷대기=(\d+)ms)?")
 # D-100 — 잔고 조회가 한 사이클(500ms)을 넘겨 뒤 사이클에서 적용된 건
@@ -2593,7 +2602,8 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
     rate_hits = 0
     value_rank_etf_drops = 0          # 랭킹 응답에 ETF가 섞여 들어온 행수
     value_rank_short: list[tuple[int, int]] = []   # (받은 행수, 요청 행수) — 요청보다 모자랐던 회차
-    turnover_axis_taken: list[int] = []   # 재스캔마다 거래대금 상위 축이 뽑은 종목 수
+    turnover_axis_taken: list[int] = []   # 09:30 뒤 재스캔마다 거래대금 상위 축 순위에 오른 종목 수
+    board_before_open: list[tuple[int, int, int, int]] = []   # (시각, 거래대금 있는 종목, 판 종목, 프리마켓 값) 08:05~09:00
     untracked_opens: list[tuple[int, str]] = []
     blocked_sells: list[tuple[int, str]] = []
     ws_fallbacks = 0
@@ -2852,8 +2862,11 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
             if found and int(found.group(1)) < int(found.group(2)):
                 value_rank_short.append((int(found.group(1)), int(found.group(2))))
             found = TURNOVER_AXIS_RE.search(line)
-            if found:
+            if found and second >= TURNOVER_AXIS_FROM:
                 turnover_axis_taken.append(int(found.group(1)))
+            found = BOARD_BEFORE_OPEN_RE.search(line)
+            if found and second >= BOARD_BEFORE_OPEN_FROM:
+                board_before_open.append((second, int(found.group(1)), int(found.group(2)), int(found.group(3))))
             found = UNTRACKED_OPEN_RE.search(line)
             if found:
                 untracked_opens.append((second, found.group(1)))
@@ -3366,6 +3379,13 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
          (f"재스캔 {len(turnover_axis_taken)}회, 뽑은 종목 최소 {min(turnover_axis_taken)} · 최대 {max(turnover_axis_taken)}"
           f" (기대 최소 {TURNOVER_AXIS_MIN} 이상)") if turnover_axis_taken
          else "거래대금 상위 축 로그 없음 — turnover_top_n 설정이 빠졌거나 DEVSCALE 스캔이 안 돌았다"),
+        # 09:00 첫 재스캔이 쓰는 판(마지막 정규장 전 판)에 거래대금이 있는 종목이 있어야 그 축이 0종목으로 시작하지 않는다.
+        #  08:05~09:00에 엔진이 떠 있지 않았으면 판정할 판이 없어 통과로 둔다.
+        ("정규장 전 거래대금 축", not board_before_open or board_before_open[-1][1] > 0, "WARN",
+         (f"{hhmm(board_before_open[-1][0])} 판 거래대금 있는 종목 {board_before_open[-1][1]}/{board_before_open[-1][2]}"
+          f" (프리마켓 값 {board_before_open[-1][3]}, 08:05 뒤 최대 {max(row[3] for row in board_before_open)})"
+          " — 0이면 NXT 프리마켓 값을 못 읽어 09:00 첫 재스캔의 거래대금 상위 축이 비어 시작한다")
+         if board_before_open else "08:05~09:00 시세판 로그 없음 — 그 시간에 엔진이 떠 있지 않았다(판정 없음)"),
         ("HTTP 연결 재사용", curl_giveups <= MAX_CURL_GIVEUPS, "WARN",
          f"제한 시간 초과로 버린 요청 {curl_giveups}건 (허용 {MAX_CURL_GIVEUPS}, 09-22 21건)"
          " — 넘으면 스레드별 상주 핸들이 안 살아 매 요청이 TCP+TLS를 다시 맺는 것"),

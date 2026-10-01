@@ -40,6 +40,65 @@ void check_polling_reads_top_level_only()
     assert(parse_polling(R"({"datas":{}})").empty());
 }
 
+// 정규장 전 응답 — KRX 칸 거래대금이 빈 문자열이고 시간외 칸이 NXT 프리마켓이다. 본문은 2026-10-01 실측 응답
+//  (08:56 005490 값, 09:13 응답의 칸 구성)에서 필요한 칸만 남겼다. 프리마켓에 거래가 있는 종목만 그 값으로 바뀐다.
+void check_polling_uses_premarket_before_open()
+{
+    const std::string body = R"({"pollingInterval":7000,"datas":[
+        {"itemCode":"005490","stockName":"POSCO홀딩스","marketStatus":"PREOPEN",
+         "closePrice":"306,000","fluctuationsRatioRaw":"0","accumulatedTradingVolumeRaw":"",
+         "accumulatedTradingValueRaw":"","marketValueFullRaw":"24168665735000","closePriceRaw":"306000",
+         "overMarketPriceInfo":{"tradingSessionType":"PRE_MARKET","overMarketStatus":"OPEN","overPrice":"310,500",
+            "compareToPreviousPrice":{"code":"2","text":"상승","name":"RISING"},"fluctuationsRatio":"1.47",
+            "accumulatedTradingVolume":"28,180","accumulatedTradingValue":"87억",
+            "accumulatedTradingVolumeRaw":"28180","accumulatedTradingValueRaw":"8749000000"},
+         "integratedPriceInfo":{"accumulatedTradingVolumeRaw":"28180","accumulatedTradingValueRaw":"8749000000"}},
+        {"itemCode":"000001","stockName":"부호없는하락","closePriceRaw":"10000","accumulatedTradingValueRaw":"",
+         "overMarketPriceInfo":{"tradingSessionType":"PRE_MARKET","overPrice":"9,800",
+            "compareToPreviousPrice":{"code":"5"},"fluctuationsRatio":"2.00",
+            "accumulatedTradingVolumeRaw":"100","accumulatedTradingValueRaw":"980000"}},
+        {"itemCode":"000002","stockName":"프리마켓거래없음","closePriceRaw":"50000","accumulatedTradingValueRaw":"",
+         "overMarketPriceInfo":{"tradingSessionType":"PRE_MARKET","overPrice":"50,000","fluctuationsRatio":"0.00",
+            "accumulatedTradingVolumeRaw":"","accumulatedTradingValueRaw":""}},
+        {"itemCode":"000003","stockName":"정규장첫체결전","closePriceRaw":"7000","accumulatedTradingValueRaw":"",
+         "overMarketPriceInfo":{"tradingSessionType":"REGULAR_MARKET","overPrice":"7,100","fluctuationsRatio":"1.43",
+            "accumulatedTradingVolumeRaw":"10","accumulatedTradingValueRaw":"71000"}},
+        {"itemCode":"000004","stockName":"애프터마켓","closePriceRaw":"20000","fluctuationsRatioRaw":"-1.00",
+         "accumulatedTradingVolumeRaw":"500","accumulatedTradingValueRaw":"10000000",
+         "overMarketPriceInfo":{"tradingSessionType":"AFTER_MARKET","overPrice":"21,000","fluctuationsRatio":"3.95",
+            "accumulatedTradingVolumeRaw":"9","accumulatedTradingValueRaw":"189000"}},
+        {"itemCode":"000005","stockName":"KRX값있음","closePriceRaw":"3000","accumulatedTradingVolumeRaw":"1",
+         "accumulatedTradingValueRaw":"3000",
+         "overMarketPriceInfo":{"tradingSessionType":"PRE_MARKET","overPrice":"3,100","fluctuationsRatio":"3.33",
+            "accumulatedTradingVolumeRaw":"1000","accumulatedTradingValueRaw":"3100000"}}
+    ]})";
+    const std::vector<BoardQuote> quotes = parse_polling(body);
+    assert(quotes.size() == 6);
+
+    const BoardQuote& posco = quotes[0];
+    assert(posco.code == "005490" && posco.premarket);
+    assert(posco.price == 310500.0);              // 쉼표 든 표시용 가격을 읽는다
+    assert(posco.value == 8749000000.0);
+    assert(posco.volume == 28180.0);
+    assert(posco.change_percent == 1.47);
+    assert(posco.market_value == 24168665735000.0); // 시총은 맨 위 칸 그대로
+
+    assert(quotes[1].premarket && quotes[1].price == 9800.0);
+    assert(quotes[1].change_percent == -2.0);     // 방향 코드 5(하락)면 부호를 붙인다
+
+    assert(!quotes[2].premarket);                 // 프리마켓 거래가 없으면 KRX 값(전일 종가) 그대로
+    assert(quotes[2].price == 50000.0 && quotes[2].value == 0.0);
+
+    assert(!quotes[3].premarket);                 // 정규장 세션 칸은 대신 쓰지 않는다
+    assert(quotes[3].price == 7000.0 && quotes[3].value == 0.0);
+
+    assert(!quotes[4].premarket);                 // 애프터마켓은 기존 동작 — KRX 정규장 값
+    assert(quotes[4].price == 20000.0 && quotes[4].value == 10000000.0 && quotes[4].change_percent == -1.0);
+
+    assert(!quotes[5].premarket);                 // KRX 값이 있으면 프리마켓 칸이 있어도 KRX
+    assert(quotes[5].price == 3000.0 && quotes[5].value == 3000.0);
+}
+
 void check_listing_keeps_stocks_only()
 {
     const std::string body = R"({"totalCount":2412,"stocks":[
@@ -181,6 +240,7 @@ void check_minute_rows_format()
 int main()
 {
     check_polling_reads_top_level_only();
+    check_polling_uses_premarket_before_open();
     check_listing_keeps_stocks_only();
     check_rank_per_market_union();
     check_turnover_filled_half_rule();

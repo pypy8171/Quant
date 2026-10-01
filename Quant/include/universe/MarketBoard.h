@@ -36,6 +36,8 @@ struct ListedStock
 };
 
 // 시세 한 줄. 값은 정규장(KRX) 누적치다 — 대체거래소(NXT) 합산치는 쓰지 않는다(파이썬 피드와 같은 기준).
+//  예외는 정규장 전이다: KRX 거래대금이 비어 있고 NXT 프리마켓에 거래가 있으면 가격·거래량·거래대금·등락률이
+//  프리마켓 값이고 premarket이 true다(parse_polling).
 struct BoardQuote
 {
     std::string code;
@@ -45,6 +47,7 @@ struct BoardQuote
     double      value        = 0.0; // 원, 누적 거래대금
     double      market_value = 0.0; // 원, 시가총액
     double      change_percent = 0.0; // %, 전일 종가 대비 등락률
+    bool        premarket      = false; // 위 값이 NXT 프리마켓 값인가
 };
 
 struct BoardSnapshot
@@ -80,6 +83,8 @@ std::vector<ListedStock> parse_listing_page(std::string_view body, const std::st
 // 네이버 시세 폴링 응답. 가격이 0 이하인 종목은 뺀다. 표시용 필드("5조 5,043억")가 아니라 Raw 필드를 읽는다.
 // [wire] 근거: 2026-09-27 실측 응답(polling.finance.naver.com, 공식 문서 없음) — accumulatedTradingValue "5조 5,043억"과
 //  accumulatedTradingValueRaw "5504265000000"이 같이 온다.
+// 정규장 전(KRX 거래대금 빈 칸)에는 overMarketPriceInfo의 NXT 프리마켓 값을 쓴다 — 09:00 첫 재스캔의 거래대금 축이
+//  0종목으로 시작하지 않게. 애프터마켓 칸은 읽지 않는다.
 std::vector<BoardQuote> parse_polling(std::string_view body);
 
 // 시장별로 거래대금 ≥ min_turnover 이고 시총 > 0 인 종목 중 시총 상위 n_market_value ∪ 거래대금 상위 n_turnover.
@@ -160,6 +165,7 @@ private:
     bool sweep();
     void rerank();
     void save_minute(const BoardSnapshot& board); // 시세판 스레드만. 실패는 로그만 남기고 판 갱신은 그대로 간다
+    void log_before_open(const BoardSnapshot& board); // 시세판 스레드만. 09:00 전 분마다 한 줄
 
     Config                                config_;
     std::atomic<bool>                     running_{false};
@@ -168,6 +174,7 @@ private:
     std::string                           listing_date_; // 목록을 받은 KST 날짜
     std::vector<std::string>              request_urls_; // 목록이 바뀔 때만 다시 만든다
     std::int64_t                          last_minute_saved_ = -1; // epoch 분, 시세판 스레드 전용
+    std::int64_t                          last_before_open_logged_ = -1; // epoch 분, 시세판 스레드 전용
     mutable std::mutex                              mutex_;        // 아래 세 포인터만 지킨다
     std::shared_ptr<const BoardSnapshot>            snapshot_;
     std::shared_ptr<const RankedUniverse>           ranked_;

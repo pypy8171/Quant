@@ -77,6 +77,67 @@ std::string text_field(const nlohmann::json& row, const char* key)
     return (found != row.end() && found->is_string()) ? found->get<std::string>() : std::string();
 }
 
+// 표시용 숫자("310,500")를 읽는다. 시간외 칸에는 가격 Raw 필드가 없어 이것을 쓴다. 못 읽으면 0.
+// [wire] 근거: 2026-10-01 실측 응답 — overMarketPriceInfo.overPrice "310,500", overPriceRaw 칸은 없다.
+double comma_number(const nlohmann::json& row, const char* key)
+{
+    std::string text = text_field(row, key);
+    std::erase(text, ',');
+    char*        end   = nullptr;
+    const double value = std::strtod(text.c_str(), &end);
+    return (!text.empty() && end != text.c_str() && std::isfinite(value)) ? value : 0.0;
+}
+
+// 정규장 전에는 맨 위(KRX) 칸의 누적 거래대금이 빈 문자열이라 0으로 읽힌다. 그때 NXT 프리마켓 칸에 거래가 있으면
+//  가격·등락률·거래량·거래대금을 그 칸 값으로 바꾼다. KRX 값이 있으면(정규장 중·마감 뒤) 손대지 않는다.
+//  애프터마켓(AFTER_MARKET) 칸은 쓰지 않는다 — 그때는 KRX 칸에 정규장 값이 있다.
+// [wire] 근거: 2026-10-01 08:56 실측(005490) — marketStatus "PREOPEN", 맨 위 accumulatedTradingValueRaw "",
+//  overMarketPriceInfo.tradingSessionType "PRE_MARKET"·overPrice "310,500"·fluctuationsRatio "1.47"·
+//  accumulatedTradingValueRaw "8749000000". 같은 날 09:13 응답은 tradingSessionType "REGULAR_MARKET". 공식 문서 없음.
+void use_premarket_when_regular_empty(const nlohmann::json& row, BoardQuote& quote)
+{
+    if (quote.value > 0.0)
+    {
+        return;
+    }
+
+    const auto over = row.find("overMarketPriceInfo");
+
+    if (over == row.end() || !over->is_object() || text_field(*over, "tradingSessionType") != "PRE_MARKET")
+    {
+        return;
+    }
+
+    const double over_price = comma_number(*over, "overPrice");
+    const double over_value = raw_number(*over, "accumulatedTradingValueRaw");
+
+    if (over_price <= 0.0 || over_value <= 0.0)
+    {
+        return; // 프리마켓에서 거래가 없던 종목 — KRX 값(전일 종가, 거래대금 0)을 그대로 둔다
+    }
+
+    // 등락률이 부호 없이 올 때를 대비해 방향 코드(4 하한·5 하락)로 부호를 붙인다(프로토타입
+    //  research/studies/27_premarket_leaders/premarket_leaders.py signed_ratio와 같은 규칙).
+    double     change    = comma_number(*over, "fluctuationsRatio");
+    const auto direction = over->find("compareToPreviousPrice");
+
+    if (change > 0.0 && direction != over->end() && direction->is_object())
+    {
+        const std::string code = text_field(*direction, "code");
+
+        if (code == "4" || code == "5")
+        {
+            change = -change;
+        }
+    }
+
+    quote.price          = over_price;
+    quote.value          = over_value;
+    quote.volume         = raw_number(*over, "accumulatedTradingVolumeRaw");
+    quote.change_percent = change;
+    quote.premarket      = true;
+}
+
 } // namespace
 
 std::vector<ListedStock> parse_listing_page(std::string_view body, const std::string& market, int& total_count)
@@ -153,13 +214,17 @@ std::vector<BoardQuote> parse_polling(std::string_view body)
             continue;
         }
 
-        // 맨 위 칸만 읽는다. 같은 이름의 Raw 필드가 시간외(overMarketPriceInfo)·통합(integratedPriceInfo)
-        //  안에도 있어 본문을 문자열로 훑으면 그쪽 값을 잡는다.
+        // 맨 위 칸(KRX)을 읽는다. 같은 이름의 Raw 필드가 시간외(overMarketPriceInfo)·통합(integratedPriceInfo)
+        //  안에도 있어 본문을 문자열로 훑으면 그쪽 값을 잡는다. 시간외 칸은 정규장 전 프리마켓 값일 때만 따로 읽는다.
         //  [wire] 근거: 2026-09-27 실측 응답 2종목에서 accumulatedTradingVolumeRaw·accumulatedTradingValueRaw가 종목마다 세 번
         //  (맨 위·overMarketPriceInfo·integratedPriceInfo) 나왔다. 공식 문서 없음.
         BoardQuote quote;
-        quote.code  = text_field(row, "itemCode");
-        quote.price = raw_number(row, "closePriceRaw");
+        quote.code           = text_field(row, "itemCode");
+        quote.price          = raw_number(row, "closePriceRaw");
+        quote.volume         = raw_number(row, "accumulatedTradingVolumeRaw");
+        quote.value          = raw_number(row, "accumulatedTradingValueRaw");
+        quote.change_percent = raw_number(row, "fluctuationsRatioRaw");
+        use_premarket_when_regular_empty(row, quote);
 
         if (quote.code.empty() || quote.price <= 0.0)
         {
@@ -167,10 +232,7 @@ std::vector<BoardQuote> parse_polling(std::string_view body)
         }
 
         quote.name         = text_field(row, "stockName");
-        quote.volume       = raw_number(row, "accumulatedTradingVolumeRaw");
-        quote.value        = raw_number(row, "accumulatedTradingValueRaw");
         quote.market_value = raw_number(row, "marketValueFullRaw");
-        quote.change_percent = raw_number(row, "fluctuationsRatioRaw");
         quotes.push_back(std::move(quote));
     }
 
@@ -605,6 +667,7 @@ bool MarketBoard::sweep()
     board->received_at     = std::time(nullptr);
     board->request_count   = request_urls_.size();
     board->failed_requests = failed;
+    log_before_open(*board);
     const auto took_ms =
         std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();
 
@@ -623,6 +686,32 @@ bool MarketBoard::sweep()
 
     board_arrived_.notify_all();
     return true;
+}
+
+// 09:00 전 판의 거래대금 상태를 분에 한 줄 남긴다. 09:00 첫 재스캔이 이 판으로 거래대금 상위 축을 뽑으므로,
+//  여기서 0이면 그 축이 비어 시작한다. 문구는 scripts/check_runtime_health.py "정규장 전 거래대금 축" 행이 읽는다.
+void MarketBoard::log_before_open(const BoardSnapshot& board)
+{
+    const std::int64_t minute        = static_cast<std::int64_t>(board.received_at) / kSecondsPerMinute;
+    const int          minute_of_day = kst::sec_of_day(board.received_at) / static_cast<int>(kSecondsPerMinute);
+
+    if (minute_of_day >= kst::kKrMarketOpenMinute || minute == last_before_open_logged_)
+    {
+        return;
+    }
+
+    last_before_open_logged_ = minute;
+    size_t valued    = 0;
+    size_t premarket = 0;
+
+    for (const BoardQuote& quote : board.quotes)
+    {
+        valued += quote.value > 0.0 ? 1 : 0;
+        premarket += quote.premarket ? 1 : 0;
+    }
+
+    LOG_INFO("[MarketBoard] 정규장 전 판 - 거래대금 있는 종목(" + std::to_string(valued) + "/" +
+             std::to_string(board.quotes.size()) + ") 프리마켓 값(" + std::to_string(premarket) + ")");
 }
 
 void MarketBoard::rerank()

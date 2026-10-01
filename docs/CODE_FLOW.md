@@ -112,14 +112,14 @@ flowchart LR
    `Quant/src/strategy/DevScaleLoader.cpp:769` · `void load_deviation_scale(LoadPass& context, const json& node)`
 16. [`start_scan_services`](../Quant/src/strategy/DevScaleLoader.cpp#L468) — `market_board:true`면 MarketBoard 스레드와 DailyWarm 스레드를 띄운다. false면 두 스레드 없이 KIS 랭킹 축과 전날 `universe_scan.json`만 쓴다  
    `Quant/src/strategy/DevScaleLoader.cpp:468` · `void start_scan_services(const LoadPass& context, const json& node, const universe::DevScanCfg& scan_config)`
-17. [`universe::MarketBoard::run`](../Quant/src/universe/MarketBoard.cpp#L445) — KST 날짜가 바뀌면 목록을 새로 받고, 5초마다 시세 한 바퀴, 60초마다 재랭킹  
-   `Quant/src/universe/MarketBoard.cpp:445` · `void MarketBoard::run()` · 시험 [test_market_board](../Quant/tests/test_market_board.cpp)
-18. [`universe::MarketBoard::refresh_listing`](../Quant/src/universe/MarketBoard.cpp#L502) — 네이버 `marketValue/{KOSPI,KOSDAQ}`로 전 종목 목록(ETF·ETN 제외). 900종목씩 묶은 폴링 URL을 만든다. data.go.kr 목록을 대신한 자리  
-   `Quant/src/universe/MarketBoard.cpp:502` · `bool MarketBoard::refresh_listing()` · 시험 [test_market_board](../Quant/tests/test_market_board.cpp)
-19. [`universe::MarketBoard::sweep`](../Quant/src/universe/MarketBoard.cpp#L565) — 폴링 URL을 동시에 불러 현재가·누적 거래대금·시총 판(`BoardSnapshot`)을 만든다  
-   `Quant/src/universe/MarketBoard.cpp:565` · `bool MarketBoard::sweep()` · 시험 [test_market_board](../Quant/tests/test_market_board.cpp)
-20. [`universe::MarketBoard::rerank`](../Quant/src/universe/MarketBoard.cpp#L628) — 거래대금이 잡힌 종목이 절반 미만이면 보류, 아니면 `rank_universe`(시장별 시총·거래대금 상위 N)로 순위를 매기고 `Quant/config/universe_scan.json`에도 쓴다  
-   `Quant/src/universe/MarketBoard.cpp:628` · `void MarketBoard::rerank()` · 시험 [test_market_board](../Quant/tests/test_market_board.cpp)
+17. [`universe::MarketBoard::run`](../Quant/src/universe/MarketBoard.cpp#L507) — KST 날짜가 바뀌면 목록을 새로 받고, 5초마다 시세 한 바퀴, 60초마다 재랭킹  
+   `Quant/src/universe/MarketBoard.cpp:507` · `void MarketBoard::run()` · 시험 [test_market_board](../Quant/tests/test_market_board.cpp)
+18. [`universe::MarketBoard::refresh_listing`](../Quant/src/universe/MarketBoard.cpp#L564) — 네이버 `marketValue/{KOSPI,KOSDAQ}`로 전 종목 목록(ETF·ETN 제외). 900종목씩 묶은 폴링 URL을 만든다. data.go.kr 목록을 대신한 자리  
+   `Quant/src/universe/MarketBoard.cpp:564` · `bool MarketBoard::refresh_listing()` · 시험 [test_market_board](../Quant/tests/test_market_board.cpp)
+19. [`universe::MarketBoard::sweep`](../Quant/src/universe/MarketBoard.cpp#L627) — 폴링 URL을 동시에 불러 현재가·누적 거래대금·시총 판(`BoardSnapshot`)을 만든다  
+   `Quant/src/universe/MarketBoard.cpp:627` · `bool MarketBoard::sweep()` · 시험 [test_market_board](../Quant/tests/test_market_board.cpp)
+20. [`universe::MarketBoard::rerank`](../Quant/src/universe/MarketBoard.cpp#L717) — 거래대금이 잡힌 종목이 절반 미만이면 보류, 아니면 `rank_universe`(시장별 시총·거래대금 상위 N)로 순위를 매기고 `Quant/config/universe_scan.json`에도 쓴다  
+   `Quant/src/universe/MarketBoard.cpp:717` · `void MarketBoard::rerank()` · 시험 [test_market_board](../Quant/tests/test_market_board.cpp)
 21. [`start_daily_warm`](../Quant/src/universe/UniverseFeatures.cpp#L675) — 장 전에 시세판 목록을 기다렸다가 전 종목 일봉을 KIS에서 미리 받아 캐시에 둔다  
    `Quant/src/universe/UniverseFeatures.cpp:675` · `void start_daily_warm(const KisConfig& kis_config, const DevScanCfg& config)`
 22. [`universe::scan_devscale`](../Quant/src/universe/UniverseScanner.cpp#L40) — 스캔 본체 — 시세 표 → 지수 게이트 → 후보 수집 → 일봉 필터 → 점수 → 자르기. 아래 걸음이 이 함수 안의 순서다  
