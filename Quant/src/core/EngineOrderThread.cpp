@@ -600,10 +600,16 @@ void Engine::order_thread_fn(std::stop_token stop_token)
                 ParkedOrder taken = std::move(*iterator);
                 parked.erase(iterator);
 
-                // 기다리는 사이에 낡은 신규 매수는 큐에서 꺼낼 때와 같은 기준으로 버린다. [why D-127]
-                if (taken.pending.attempts == 0 && is_stale_entry(taken.pending.signal, trace::now_ns()))
+                // 앞 주문 답을 너무 오래 기다린 신규 매수만 버린다. 기다린 시간은 우리 쪽 순서 보장 때문이라 1초
+                //  기준(D-127)으로 재지 않는다 — 그러면 취소 뒤 다시 까는 매수가 버려진다. [why D-151]
+                const int64_t parked_now_ns = trace::now_ns();
+
+                if (taken.pending.attempts == 0 && is_stale_parked_entry(taken.pending.signal, taken.pop_ns, parked_now_ns))
                 {
-                    pipeline_.order_stale.fetch_add(1, std::memory_order_relaxed);
+                    const auto waited_ms = (parked_now_ns - taken.pop_ns) / kNanosecondsPerMillisecond;
+                    const auto count     = pipeline_.order_stale.fetch_add(1, std::memory_order_relaxed) + 1;
+                    LOG_WARN("[주문] 앞 주문 답을 " + std::to_string(waited_ms) + "ms 기다린 신규 매수를 버린다 " +
+                             taken.pending.signal.ticker + " (누적 " + std::to_string(count) + ")");
                     answer(taken.pending.signal.sequence, ipc::OrderResult::kStale, 0, "앞 주문 답을 기다리다 낡아 버림");
                     break;
                 }

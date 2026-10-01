@@ -2389,6 +2389,81 @@ def order_transport_row(date: str) -> tuple:
             f" 접수 답 전에 와서 붙든 체결 {early_fills}건")
 
 
+BUY_SIGNAL_RE = re.compile(r"\[Strategy\] 신호: \[[^\]]+\] (\d{6})\([^)]*\) BUY (\d+) \|")
+BUY_ACCEPT_RE = re.compile(r"(?:\[KIS\] 주문 (?:접수|거부)[^:]*: |\[OrderRouter\] (?:KIS )?거부 \[ORD-\d+\] (?:ODNO=\S+ )?)(\d{6})")
+GATE_DROP_RE = re.compile(r"(\d{6}).*(?:봉쇄|차단|거부|버린다|kStale)")
+
+
+def buy_signal_sent_row(date: str) -> tuple:
+    """전략이 낸 신규 매수 신호가 KIS까지 나갔는지 — 접수·거부 줄이 15초 안에 없으면 사라진 것으로 센다.
+
+    10-01 실계좌 082270은 부분 체결 뒤 남은 32주를 다시 까는 BUY가 같은 종목 취소 답(1.1초)을 기다리다
+    1초 낡음 기준에 걸려 로그 없이 버려졌고, 전략은 걸려 있는 줄 알고 다시 내지 않아 13주만 샀다.
+    게이트가 막은 것은 그 종목의 봉쇄·버림 줄이 있으면 사라짐에서 뺀다. [why D-151]
+    """
+    name = "매수 신호 발주"
+    window_ms = 15_000
+    signals = 0
+    lost = []
+    parked_drops = 0
+
+    for _account, engine_log in engine_logs():
+        try:
+            body = engine_log.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+
+        pending = []   # (시각 ms, 종목, 수량, 신호 시각)
+
+        for line in _logdir.live_session_lines(body.splitlines()):
+            if not line.startswith(date):
+                continue
+
+            try:
+                clock = dt.datetime.strptime(line[11:23], "%H:%M:%S.%f")
+            except ValueError:
+                continue
+
+            now_ms = (clock.hour * 3600 + clock.minute * 60 + clock.second) * 1000 + clock.microsecond // 1000
+
+            if "[주문] 앞 주문 답을" in line:
+                parked_drops += 1
+
+            expired = [entry for entry in pending if now_ms - entry[0] > window_ms]
+
+            for entry in expired:
+                lost.append(f"{entry[3]} {entry[1]} BUY {entry[2]}")
+                pending.remove(entry)
+
+            signal = BUY_SIGNAL_RE.search(line)
+
+            if signal:
+                signals += 1
+                pending.append((now_ms, signal.group(1), signal.group(2), line[11:19]))
+                continue
+
+            accepted = BUY_ACCEPT_RE.search(line)
+
+            if accepted:
+                pending = [entry for entry in pending if entry[1] != accepted.group(1)]
+                continue
+
+            dropped = GATE_DROP_RE.search(line)
+
+            if dropped and "[Strategy] 신호" not in line:
+                pending = [entry for entry in pending if entry[1] != dropped.group(1)]
+
+    if signals == 0:
+        return (name, True, "WARN", f"{date} 매수 신호 없음 — 판정 안 함")
+
+    detail = f"매수 신호 {signals}건 중 15초 안에 접수·거부·봉쇄 줄이 없는 것 {len(lost)}건, 앞 주문 대기로 버린 것 {parked_drops}건"
+
+    if lost:
+        return (name, False, "WARN", detail + " — 예: " + ", ".join(lost[:3]))
+
+    return (name, True, "WARN", detail)
+
+
 def global_rows(date: str) -> list:
     """계좌와 무관한 판정 — 하루에 한 번만 낸다.
 
@@ -2404,6 +2479,7 @@ def global_rows(date: str) -> list:
         role_publish_row(date),
         order_latency_breakdown_row(date),
         order_transport_row(date),
+        buy_signal_sent_row(date),
         market_open_gate_row(date),
         after_market_order_row(date),
         same_day_dust_row(date),

@@ -85,6 +85,19 @@ constexpr bool is_stale_entry(const OrderSignal& signal, int64_t popped_at_ns)
            && popped_at_ns - signal.signal_at_ns > kOrderSignalMaxAgeNs;
 }
 
+// 같은 종목 앞 주문(취소·정정·신규)의 답을 기다린 신규 매수는 이 시간을 넘길 때만 버린다. 그 대기는 우리 쪽 순서
+//  보장 때문에 생긴 것이라 1초 기준(kOrderSignalMaxAgeNs)으로 재면 취소 뒤 다시 까는 매수가 거의 다 버려진다
+//  (10-01 실계좌 082270: 취소 왕복 1.1초 뒤 BUY 32 소실). KIS 주문 왕복 p90 약 4.5초를 넉넉히 덮는 값. [why D-151]
+inline constexpr int64_t kParkedOrderMaxWaitNs = 10'000'000'000; // 10초
+
+// 앞 주문 답을 기다리다 너무 오래 선 신규 매수인가. 큐에서 꺼낸 시각(parked_at_ns)부터 잰다 — 큐에서 꺼낼 때
+//  이미 1초 기준을 통과했다. 시각이 없으면(0) 보낸다.
+constexpr bool is_stale_parked_entry(const OrderSignal& signal, int64_t parked_at_ns, int64_t now_ns)
+{
+    return signal.action == OrderAction::NEW && signal.side == OrderSide::BUY && parked_at_ns != 0
+           && now_ns - parked_at_ns > kParkedOrderMaxWaitNs;
+}
+
 class Engine
 {
 public:

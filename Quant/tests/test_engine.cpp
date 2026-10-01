@@ -523,6 +523,15 @@ int run_stale_entry_case()
     unstamped.signal_at_ns = 0;
     CHECK(!is_stale_entry(unstamped, stale_ns));
 
+    // 같은 종목 앞 주문(취소) 답을 기다린 시간은 1초 기준으로 재지 않는다 — 10-01 실계좌 082270은 취소 왕복
+    //  1.1초 뒤 다시 까는 BUY 32가 버려졌다. 큐에서 꺼낸 시각부터 10초를 넘길 때만 버린다. [why D-151]
+    const int64_t parked_at_ns = emitted_ns + kOrderSignalMaxAgeNs / 2;
+    CHECK(!is_stale_parked_entry(buy, parked_at_ns, parked_at_ns + 1'100'000'000));
+    CHECK(is_stale_parked_entry(buy, parked_at_ns, parked_at_ns + kParkedOrderMaxWaitNs + 1));
+    CHECK(!is_stale_parked_entry(sell, parked_at_ns, parked_at_ns + kParkedOrderMaxWaitNs + 1));
+    CHECK(!is_stale_parked_entry(cancel, parked_at_ns, parked_at_ns + kParkedOrderMaxWaitNs + 1));
+    CHECK(!is_stale_parked_entry(buy, 0, parked_at_ns + kParkedOrderMaxWaitNs + 1));
+
     std::cout << "  stale_entry OK" << std::endl;
     return 0;
 }
