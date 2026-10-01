@@ -850,6 +850,382 @@ def entry_cutoff_buy_row(date: str) -> tuple:
     return (name, True, "FAIL", f"DevScale 매수 {buys}건, 마감 시각 뒤 0건")
 
 
+# DevScale 매수 체결 뒤 가격 경로를 그날 등록 종목 전체와 견준다. 존은 일봉으로 고르고 매수는 3분봉 기준선
+#  아래 지정가라, 떨어지는 종목만 체결되는 쪽으로 치우칠 수 있다(9월 모의계좌: 후보 당일 평균 +1.17%, 산 종목 −0.47%).
+DEVSCALE_TAG_RE = re.compile(r"\[DEVSCALE_(\d{6})\]")
+DEVSCALE_BAR_RE = re.compile(
+    r"\[DEVSCALE_(\d{6})\] 봉 닫힘 src=\w+ t=(\d{3,4}) o=([\d.]+) h=[\d.]+ l=[\d.]+ c=([\d.]+)")
+FOLLOW_MINUTES = 30              # 체결 뒤 이만큼 지난 가격을 본다
+ADVERSE_GAP_PERCENT = -0.5       # 산 종목 종가 수익률 − 후보 평균이 이 값 이하인 날을 '낮은 날'로 센다
+ADVERSE_MIN_SAMPLES = 5          # 매수 건수가 이보다 적으면 정보로만 낸다
+MIN_CANDIDATES = 3               # 같은 시각 가격이 있는 후보가 이보다 적은 매수는 비교에서 뺀다
+PREVIOUS_DAY_LOOKBACK = 7        # 앞 거래일 원장을 찾는 범위(일)
+EXIT_REASON_LABEL_RE = re.compile(r"[가-힣 ]+")
+ZONE_EXIT_LABEL = "존 이탈"
+
+
+def devscale_ledgers(date: str) -> dict:
+    """그날 원장 폴더별 DevScale 체결 행. 진입 마감 설정이 있는 폴더(모의·실계좌)만 보고 시험 행은 뺀다."""
+    date_compact = date.replace("-", "")
+    by_folder: dict = {}
+
+    for ledger in sorted(REPO.glob(f"Quant/build*/logs*/trades_{date_compact}.csv")):
+        if ledger.parent.name not in ENTRY_CUTOFF_CONFIG:
+            continue
+
+        try:
+            with ledger.open(encoding="utf-8", errors="replace", newline="") as handle:
+                for record in csv.DictReader(handle):
+                    if (record.get("event") == "FILL"
+                            and (record.get("strategy") or "").startswith(DEVSCALE_STRATEGY_PREFIX)
+                            and _logdir.is_live_row(record)):
+                        by_folder.setdefault(ledger.parent, []).append(record)
+        except OSError:
+            continue
+
+    return by_folder
+
+
+def date_log_lines(date: str, directory: Path):
+    """그 폴더 로그에서 그날 줄만 낸다. 라이브 로그는 줄이 시각순이라 그날 첫 줄 위치를 이분 탐색으로 찾아
+    거기서부터 읽는다 — 200MB 넘는 파일을 처음부터 훑지 않으려고. 회전본(.gz)은 그날 줄만 들어 있어 통째로 읽는다."""
+    for source in _logdir.log_sources(date, directory):
+        if source.suffix == ".gz":
+            with _logdir.open_log(source) as handle:
+                yield from handle
+            continue
+
+        try:
+            with source.open("rb") as handle:
+                low, high = 0, handle.seek(0, 2)
+
+                while low < high:
+                    middle = (low + high) // 2
+                    found = _logdir._first_date_from(handle, middle)
+
+                    if found is None or found >= date:
+                        high = middle
+                    else:
+                        low = middle + 1
+
+                handle.seek(max(low - 1, 0))
+
+                if low > 0:
+                    handle.readline()   # 줄 한가운데면 그 줄을 버린다
+
+                for raw in handle:
+                    line = raw.decode("utf-8", errors="replace")
+
+                    if TS_RE.match(line) and line[:10] > date:
+                        break
+
+                    yield line
+        except OSError:
+            continue
+
+
+def minute_of_day(hhmm: int) -> int:
+    return hhmm // 100 * 60 + hhmm % 100
+
+
+def devscale_log_scan(date: str, directory: Path) -> tuple:
+    """그날 로그의 DevScale 등록 종목(전략 이름표가 찍힌 종목)과 종목별 1분봉(로그의 '봉 닫힘' 줄)을 모은다."""
+    candidates: set = set()
+    logged_bars: dict = {}
+
+    for line in _logdir.live_session_lines(date_log_lines(date, directory)):
+        if "[DEVSCALE_" not in line or not line.startswith(date):
+            continue
+
+        bar = DEVSCALE_BAR_RE.search(line)
+
+        if bar:
+            ticker = bar.group(1)
+            logged_bars.setdefault(ticker, {})[minute_of_day(int(bar.group(2)))] = (float(bar.group(3)),
+                                                                                    float(bar.group(4)))
+            candidates.add(ticker)
+            continue
+
+        tag = DEVSCALE_TAG_RE.search(line)
+
+        if tag:
+            candidates.add(tag.group(1))
+
+    return candidates, logged_bars
+
+
+def minute_bars(date: str, ticker: str, logged_bars: dict) -> tuple:
+    """(분, 시가, 종가) 목록과 출처. 1분봉 파일(16:40 백필 뒤 생김)을 먼저 보고, 없으면 로그의 봉 닫힘 줄을 쓴다."""
+    path = REPO / "PYQuant" / "data" / "minute" / ticker / f"{date.replace('-', '')}.parquet"
+
+    if path.is_file():
+        try:
+            import pandas as pd
+            frame = pd.read_parquet(path, columns=["time", "open", "close"])
+            bars = sorted((minute_of_day(int(time)), float(open_price), float(close_price))
+                          for time, open_price, close_price in frame.itertuples(index=False, name=None))
+
+            if bars:
+                return bars, "1분봉"
+        except (ImportError, OSError, ValueError, KeyError):
+            pass
+
+    logged = logged_bars.get(ticker)
+
+    if logged:
+        return sorted((minute, open_price, close_price)
+                      for minute, (open_price, close_price) in logged.items()), "로그"
+
+    return [], ""
+
+
+def price_before(bars: list, minute: int):
+    """그 분이 시작하기 전 마지막 봉의 종가. 첫 봉 안이면 그 봉 시가. 없으면 None."""
+    price = None
+
+    for bar_minute, _, close_price in bars:
+        if bar_minute >= minute:
+            break
+
+        price = close_price
+
+    if price is None and bars and bars[0][0] == minute:
+        price = bars[0][1]
+
+    return price
+
+
+def price_path(bars: list, start_price: float, start_minute: int):
+    """시작 가격 대비 +30분 가격·그날 종가 수익률(%). 가격이 없으면 None."""
+    later = price_before(bars, start_minute + FOLLOW_MINUTES)
+
+    if not bars or later is None or not start_price:
+        return None
+
+    return (later / start_price - 1) * 100, (bars[-1][2] / start_price - 1) * 100
+
+
+def devscale_selection(date: str, directory: Path, records: list) -> dict:
+    """한 원장 폴더의 그날 매수 주문마다 체결 뒤 수익률을 같은 시각 후보 평균과 견준다.
+
+    반환 buys(매수 주문 수), compared([(산 종목 +30분, 후보 +30분, 산 종목 종가, 후보 종가)]), skipped(뺀 이유),
+    sources(가격 출처별 종목 수). 부분 체결은 주문번호로 묶어 가중 평균가를 쓴다.
+    """
+    orders: dict = {}
+
+    for record in records:
+        if record.get("side") != "BUY":
+            continue
+
+        try:
+            quantity = int(record.get("fill_qty") or 0)
+            price = float(record.get("fill_price") or 0)
+        except ValueError:
+            continue
+
+        if quantity <= 0 or price <= 0:
+            continue
+
+        order = orders.setdefault(record.get("order_id", ""),
+                                  {"ticker": record.get("ticker", ""),
+                                   "stamp": (record.get("ts_kst") or "")[11:16],
+                                   "quantity": 0, "notional": 0.0})
+        order["quantity"] += quantity
+        order["notional"] += quantity * price
+
+    result = {"buys": len(orders), "compared": [], "skipped": [], "sources": {}}
+
+    if not orders:
+        return result
+
+    candidates, logged_bars = devscale_log_scan(date, directory)
+    bars_by_ticker: dict = {}
+
+    def bars_of(ticker: str) -> list:
+        if ticker not in bars_by_ticker:
+            bars, source = minute_bars(date, ticker, logged_bars)
+            bars_by_ticker[ticker] = bars
+
+            if source:
+                result["sources"][source] = result["sources"].get(source, 0) + 1
+
+        return bars_by_ticker[ticker]
+
+    for order in orders.values():
+        hour_text, _, minute_text = order["stamp"].partition(":")
+
+        if not minute_text:
+            result["skipped"].append(f"{order['ticker']} 체결 시각 없음")
+            continue
+
+        minute = int(hour_text) * 60 + int(minute_text)
+        own = price_path(bars_of(order["ticker"]), order["notional"] / order["quantity"], minute)
+
+        if own is None:
+            result["skipped"].append(f"{order['ticker']} 가격 없음")
+            continue
+
+        candidate_paths = []
+
+        for ticker in candidates:
+            bars = bars_of(ticker)
+            path = price_path(bars, price_before(bars, minute), minute)
+
+            if path is not None:
+                candidate_paths.append(path)
+
+        if len(candidate_paths) < MIN_CANDIDATES:
+            result["skipped"].append(f"{order['ticker']} 후보 가격 {len(candidate_paths)}종목")
+            continue
+
+        result["compared"].append((own[0], sum(path[0] for path in candidate_paths) / len(candidate_paths),
+                                   own[1], sum(path[1] for path in candidate_paths) / len(candidate_paths)))
+
+    return result
+
+
+def close_gap(selection: dict):
+    """산 종목 종가 수익률 − 후보 평균의 그날 평균(%p). 비교한 매수가 없으면 None."""
+    compared = selection["compared"]
+    return sum(own - candidate for _, _, own, candidate in compared) / len(compared) if compared else None
+
+
+def previous_ledger_date(date: str, directory: Path):
+    """그 폴더에서 date 앞의 가장 최근 원장 날짜(YYYY-MM-DD). 범위 안에 없으면 None."""
+    day = dt.date.fromisoformat(date)
+
+    for back in range(1, PREVIOUS_DAY_LOOKBACK + 1):
+        earlier = day - dt.timedelta(days=back)
+
+        if (directory / f"trades_{earlier:%Y%m%d}.csv").is_file():
+            return earlier.isoformat()
+
+    return None
+
+
+def devscale_adverse_selection_row(date: str) -> tuple:
+    """DevScale 이 산 종목의 체결 뒤 가격이 그날 등록 종목 전체보다 뒤처지는지.
+
+    매수 주문마다 체결가 대비 +30분 가격·종가 수익률을, 같은 시각 등록 종목 전체의 같은 기간 평균과 견준다.
+    산 종목 종가 수익률이 후보 평균보다 0.5%p 이상 낮은 날이 전 거래일에 이어 또 나오면 WARN, 하루뿐이거나
+    매수가 5건 미만이면 INFO 로 수치만 낸다. 가격은 1분봉 파일을 먼저, 없으면 로그의 봉 닫힘 줄을 쓴다.
+    """
+    name = "DevScale 매수 역선택"
+    ledgers = devscale_ledgers(date)
+    texts: list[str] = []
+    level = "PASS"
+
+    for directory, records in ledgers.items():
+        selection = devscale_selection(date, directory, records)
+
+        if not selection["buys"]:
+            continue
+
+        compared = selection["compared"]
+        skipped = f", 뺀 매수 {'·'.join(selection['skipped'][:3])}" if selection["skipped"] else ""
+
+        if not compared:
+            texts.append(f"{directory.name} 판정 불가 — 매수 {selection['buys']}건 모두 비교 못 함{skipped}")
+            level = "WARN" if level == "WARN" else "INFO"
+            continue
+
+        count = len(compared)
+        own_follow = sum(row[0] for row in compared) / count
+        candidate_follow = sum(row[1] for row in compared) / count
+        own_close = sum(row[2] for row in compared) / count
+        candidate_close = sum(row[3] for row in compared) / count
+        gap = close_gap(selection)
+        sources = "·".join(f"{source} {total}종목" for source, total in sorted(selection["sources"].items()))
+        text = (f"{directory.name} 매수 {count}/{selection['buys']}건 +30분 {own_follow:+.2f}% (후보 {candidate_follow:+.2f}%),"
+                f" 종가 {own_close:+.2f}% (후보 {candidate_close:+.2f}%), 차 {gap:+.2f}%p [가격 {sources}]{skipped}")
+
+        if count < ADVERSE_MIN_SAMPLES:
+            texts.append(f"{text} — 표본 {ADVERSE_MIN_SAMPLES}건 미만")
+            level = "WARN" if level == "WARN" else "INFO"
+            continue
+
+        if gap > ADVERSE_GAP_PERCENT:
+            texts.append(text)
+            continue
+
+        previous_date = previous_ledger_date(date, directory)
+        previous_records = devscale_ledgers(previous_date).get(directory, []) if previous_date else []
+        previous_selection = devscale_selection(previous_date, directory, previous_records) if previous_date else None
+        previous_gap = close_gap(previous_selection) if previous_selection else None
+
+        if (previous_gap is not None and previous_gap <= ADVERSE_GAP_PERCENT
+                and len(previous_selection["compared"]) >= ADVERSE_MIN_SAMPLES):
+            texts.append(f"{text} — 전 거래일 {previous_date} {previous_gap:+.2f}%p 에 이어 이틀째 0.5%p 넘게 낮다")
+            level = "WARN"
+        else:
+            previous = "없음" if previous_gap is None else f"{previous_gap:+.2f}%p"
+            texts.append(f"{text} — 오늘만 0.5%p 넘게 낮다(전 거래일 {previous})")
+            level = "WARN" if level == "WARN" else "INFO"
+
+    if not texts:
+        return (name, False, "INFO", "판정 불가 — 그날 DevScale 매수 체결이 없다")
+
+    return (name, level == "PASS", "WARN" if level == "PASS" else level, "; ".join(texts))
+
+
+def exit_reason_label(text: str) -> str:
+    """원장 entry_reason 에서 청산 사유 이름만 뗀다 — '청산:손절(평단 …)' → '손절', '익절밴드 지정가=…' → '익절밴드 지정가'."""
+    match = EXIT_REASON_LABEL_RE.match(text.removeprefix("청산:"))
+    label = match.group(0).strip() if match else ""
+    return label or "사유 없음"
+
+
+def devscale_exit_reason_row(date: str) -> tuple:
+    """DevScale 매도 체결을 청산 사유별로 묶어 건수(주문 기준)와 실현손익 합계를 낸다.
+
+    사유는 원장 entry_reason 에 전략이 적은 문구다 — 존 이탈·손절·트레일·장 마감·먼지 정리는 '청산:' 뒤,
+    익절은 '익절밴드 지정가='. 존 이탈은 시장가로 나가 손실 후보라, 5건 이상인데 합계가 손실이면 WARN.
+    """
+    name = "DevScale 존 이탈 매도 손익"
+    texts: list[str] = []
+    level = "PASS"
+
+    for directory, records in devscale_ledgers(date).items():
+        by_reason: dict = {}
+
+        for record in records:
+            if record.get("side") != "SELL":
+                continue
+
+            label = exit_reason_label(record.get("entry_reason") or "")
+            orders, profit = by_reason.get(label, (set(), 0.0))
+            orders.add(record.get("order_id", ""))
+
+            try:
+                profit += float(record.get("realized_pnl") or 0)
+            except ValueError:
+                pass
+
+            by_reason[label] = (orders, profit)
+
+        if not by_reason:
+            continue
+
+        summary = " · ".join(f"{label} {len(orders)}건 {profit:+,.0f}원"
+                             for label, (orders, profit) in sorted(by_reason.items(),
+                                                                   key=lambda item: item[1][1]))
+        zone_orders, zone_profit = by_reason.get(ZONE_EXIT_LABEL, (set(), 0.0))
+
+        if len(zone_orders) < ADVERSE_MIN_SAMPLES:
+            texts.append(f"{directory.name} {summary} — 존 이탈 표본 {ADVERSE_MIN_SAMPLES}건 미만")
+            level = "WARN" if level == "WARN" else "INFO"
+        elif zone_profit < 0:
+            texts.append(f"{directory.name} {summary} — 존 이탈 {len(zone_orders)}건 합계 손실")
+            level = "WARN"
+        else:
+            texts.append(f"{directory.name} {summary}")
+
+    if not texts:
+        return (name, False, "INFO", "판정 불가 — 그날 DevScale 매도 체결이 없다")
+
+    return (name, level == "PASS", "WARN" if level == "PASS" else level, "; ".join(texts))
+
+
 def restart_verify_row(date: str) -> tuple:
     """그날 배포 재기동이 기동 단계를 다 찍었는지.
 
@@ -1901,6 +2277,8 @@ def global_rows(date: str) -> list:
         after_market_order_row(date),
         same_day_dust_row(date),
         entry_cutoff_buy_row(date),
+        devscale_adverse_selection_row(date),
+        devscale_exit_reason_row(date),
         restart_verify_row(date),
         shared_region_exit_row(date),
         order_answer_row(date),
