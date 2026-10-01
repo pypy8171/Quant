@@ -1,5 +1,8 @@
 #include "strategy/DevScaleRules.h"
 
+#include <charconv>
+#include <system_error>
+
 namespace devscale_rules
 {
 bool peak_trail_triggered(double peak, double average, double current, double arm_percent, double trail_percent)
@@ -14,18 +17,27 @@ bool peak_trail_triggered(double peak, double average, double current, double ar
     return armed && current <= peak * (1.0 - trail_percent / 100.0);
 }
 
-std::set<std::string> tickers_bought_from_ledger(std::istream& ledger, const std::string& id_prefix)
+void add_net_quantity_from_ledger(std::istream& ledger, const std::string& id_prefix,
+                                  std::map<std::string, long long>& net_quantity)
 {
-    std::set<std::string> bought;
+    // 열 위치 — Quant/src/ipc/OrderJournal.cpp kTradeHeader. 열은 끝에만 붙이므로 앞 11칸은 움직이지 않는다.
+    constexpr size_t kEventColumn        = 1;
+    constexpr size_t kStrategyColumn     = 4;
+    constexpr size_t kTickerColumn       = 5;
+    constexpr size_t kSideColumn         = 6;
+    constexpr size_t kFillQuantityColumn = 10;
+    constexpr size_t kColumnsNeeded      = kFillQuantityColumn + 1;
+
     const std::string strategy_prefix = id_prefix + "_";
-    std::string line;
+    std::string       line;
+    std::vector<std::string_view> fields;
 
     while (std::getline(ledger, line))
     {
-        std::vector<std::string_view> fields;
+        fields.clear();
         std::string_view rest = line;
 
-        while (fields.size() < 7)
+        while (fields.size() < kColumnsNeeded)
         {
             const size_t comma = rest.find(',');
             fields.push_back(rest.substr(0, comma));
@@ -38,15 +50,31 @@ std::set<std::string> tickers_bought_from_ledger(std::istream& ledger, const std
             rest.remove_prefix(comma + 1);
         }
 
-        if (fields.size() < 7 || fields[1] != "FILL" || fields[6] != "BUY" || !fields[4].starts_with(strategy_prefix))
+        if (fields.size() < kColumnsNeeded || fields[kEventColumn] != "FILL" ||
+            !fields[kStrategyColumn].starts_with(strategy_prefix))
         {
             continue;
         }
 
-        bought.emplace(fields[5]);
-    }
+        const std::string_view side = fields[kSideColumn];
+        const std::string_view quantity_text = fields[kFillQuantityColumn];
+        long long quantity = 0;
+        const auto [end, error] = std::from_chars(quantity_text.data(), quantity_text.data() + quantity_text.size(), quantity);
 
-    return bought;
+        if (error != std::errc{} || end != quantity_text.data() + quantity_text.size() || quantity <= 0 ||
+            (side != "BUY" && side != "SELL"))
+        {
+            continue;
+        }
+
+        long long& net = net_quantity[std::string(fields[kTickerColumn])];
+        net += side == "BUY" ? quantity : -quantity;
+    }
+}
+
+bool devscale_owns_holding(long long net_quantity, int held_quantity)
+{
+    return held_quantity > 0 && net_quantity > 0 && net_quantity >= held_quantity;
 }
 
 double average_true_range(const std::vector<MarketData>& daily, int period)

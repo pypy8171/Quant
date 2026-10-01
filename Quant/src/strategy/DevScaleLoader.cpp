@@ -12,7 +12,6 @@
 #include <map>
 #include <memory>
 #include <mutex>
-#include <set>
 #include <string>
 #include <vector>
 
@@ -548,15 +547,16 @@ DevScaleSizing parse_sizing(const json& node, const DevScaleParams& parameters)
     return sizing;
 }
 
-// 이 슬리브(id_prefix)가 오늘부터 lookback_days일 전(달력일)까지 산 종목 — 체결 장부 logs/trades_YYYYMMDD.csv
-//  (OrderRouter가 쓴다)의 FILL·BUY 행. lookback_days 0이면 오늘 장부 하나만 본다.
+// 이 슬리브(id_prefix)의 종목별 순수량 — 오늘부터 lookback_days일 전(달력일)까지 체결 장부 logs/trades_YYYYMMDD.csv
+//  (OrderRouter가 쓴다)의 FILL 행을 매수 +, 매도 −로 더한다. 0 이하(샀다가 다 판 종목)는 뺀다.
+//  lookback_days 0이면 오늘 장부 하나만 본다.
 //  재기동 때 보유분을 전부 청산 관리(ITB)로 넘기면 당일 매수분도 익절선 없이 트레일에만 걸린다(09-04~18 승계 매도
 //  725체결 −190만). 분할 매수가 없으면(buy_split_steps 0) 명목 상한 초과 위험이 없어 DevScale이 그대로 맡는다.
-//  파일이 없거나(첫 기동) 못 읽으면 빈 집합 — 그때는 기존대로 청산 관리가 맡는다.
+//  파일이 없거나(첫 기동) 못 읽으면 빈 map — 그때는 기존대로 청산 관리가 맡는다.
 //  넘김 모드(market_close_exit_hhmm 2400)는 전날 산 것도 DevScale 보유라 호출자가 lookback_days 20을 준다.
-std::set<std::string> tickers_bought_recently(const std::string& id_prefix, int lookback_days)
+std::map<std::string, long long> net_quantity_bought_recently(const std::string& id_prefix, int lookback_days)
 {
-    std::set<std::string> bought;
+    std::map<std::string, long long> net_quantity;
     const std::time_t now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
 
     constexpr std::time_t kSecondsPerDay = 86400;
@@ -565,10 +565,14 @@ std::set<std::string> tickers_bought_recently(const std::string& id_prefix, int 
     {
         const std::string date = kst::date_yyyymmdd(now - static_cast<std::time_t>(day_offset) * kSecondsPerDay);
         std::ifstream ledger(Logger::instance().path_for("trades_" + date + ".csv"));
-        bought.merge(devscale_rules::tickers_bought_from_ledger(ledger, id_prefix));
+        devscale_rules::add_net_quantity_from_ledger(ledger, id_prefix, net_quantity);
     }
 
-    return bought;
+    std::erase_if(net_quantity, [](const auto& entry)
+    {
+        return entry.second <= 0;
+    });
+    return net_quantity;
 }
 
 bool manage_holdings_enabled(const json& node)
@@ -606,6 +610,7 @@ HeldSnapshot snapshot_holdings(const LoadPass& context, const DevScaleParams& pa
     }
 
     size_t                          held_count = 0;
+    std::map<std::string, int>      held_quantity; // 잔고 티커 → 보유 수량(재인수 판정용)
     const KisResult<AccountBalance> balance    = held_kis.get_balance();
 
     if (!balance)
@@ -617,28 +622,48 @@ HeldSnapshot snapshot_holdings(const LoadPass& context, const DevScaleParams& pa
         for (const Holding& holding : balance->holdings)
         {
             mark_symbol(snapshot.held, engine.symbols().intern(holding.ticker), symbol_capacity); // 잔고 티커는 문자열
+            held_quantity[holding.ticker] += holding.quantity;
             ++held_count;
         }
     }
 
     // 당일 매수분은 DevScale이 다시 맡는다(재인수). 분할 매수가 있으면 기존대로 청산 관리에 넘긴다.
     //  넘김 모드면 최근 20일 장부까지 봐서 전날 넘긴 보유도 되찾는다.
+    //  장부 순수량이 잔고보다 적으면(수동·다른 전략 몫이 섞임) 재인수하지 않고 청산 관리에 둔다 — 포지션 장부가
+    //  (계좌, 종목) 한 칸이라 DevScale 손절·존 이탈 매도가 남의 몫까지 판다.
     const bool carry_over = parameters.market_close_hhmm >= devscale_rules::kNoMarketCloseHhmm;
 
     if (parameters.buy_split_steps == 0)
     {
         const int lookback_days = carry_over ? 20 : 0;
 
-        for (const std::string& ticker : tickers_bought_recently(parameters.id_prefix, lookback_days))
+        for (const auto& [ticker, net_quantity] : net_quantity_bought_recently(parameters.id_prefix, lookback_days))
         {
+            const auto held_iterator = held_quantity.find(ticker);
+
+            if (held_iterator == held_quantity.end())
+            {
+                continue;
+            }
+
             const symbol::SymbolId symbol = engine.symbols().intern(ticker); // 장부 CSV의 문자열 티커 — 여기서 id가 된다
 
-            if (has_symbol(snapshot.held, symbol) && !has_symbol(context.basket_owned, symbol)) // 바스켓 것은 바스켓이 인수한다 [why D-109]
+            if (!has_symbol(snapshot.held, symbol) || has_symbol(context.basket_owned, symbol)) // 바스켓 것은 바스켓이 인수한다 [why D-109]
             {
-                snapshot.held[symbol] = false;
-                --held_count;
-                snapshot.reinstated.push_back(symbol);
+                continue;
             }
+
+            if (!devscale_rules::devscale_owns_holding(net_quantity, held_iterator->second))
+            {
+                LOG_WARN("[Main] " + parameters.id_prefix + " 재인수 안 함 " + ticker + " — 장부 순수량 " +
+                         std::to_string(net_quantity) + "주 < 잔고 " + std::to_string(held_iterator->second) +
+                         "주(나머지는 수동·다른 전략 몫), 청산 관리가 맡는다");
+                continue;
+            }
+
+            snapshot.held[symbol] = false;
+            --held_count;
+            snapshot.reinstated.push_back(symbol);
         }
     }
 

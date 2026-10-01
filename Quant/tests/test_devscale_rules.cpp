@@ -1,12 +1,14 @@
 // DevScale 순수 판정(strategy/DevScaleRules.h) 단위 테스트 — 무장 후 고가 트레일의 무장·발동·미발동 경계,
-//  체결 원장에서 당일 매수 종목을 고르는 규칙(FILL·BUY·슬리브 접두어·짧은 행), 일봉 ATR과 하루 단위 진입 필터를
+//  체결 원장에서 종목별 순수량을 더하는 규칙(FILL만·슬리브 접두어·짧은 행·MANUAL 제외)과 재인수 판정, 일봉 ATR과 하루 단위 진입 필터를
 //  고정한다. 헤더 전용이라 파일·로그 없이 돈다.
 // 빌드: cmake --build <directory> --target test_devscale_rules
 #include "strategy/DevScaleRules.h"
 
 #include <cmath>
 #include <iostream>
+#include <map>
 #include <sstream>
+#include <string>
 #include <vector>
 
 using namespace devscale_rules;
@@ -42,26 +44,67 @@ int test_peak_trail()
 
 int test_ledger_reader()
 {
+    // 열은 Quant/src/ipc/OrderJournal.cpp kTradeHeader와 같다. fill_qty(11번째 칸)를 더한다.
     std::istringstream ledger(
-        "ts_kst,event,order_id,odno,strategy,ticker,side,type,price,qty\n"
-        "09:00:01,ACCEPTED,1,A1,DEVSCALE_005930,005930,BUY,LIMIT,70000,10\n"
-        "09:00:02,FILL,1,A1,DEVSCALE_005930,005930,BUY,LIMIT,70000,10\n"
-        "09:10:00,FILL,2,A2,DEVSCALE_000660,000660,SELL,LIMIT,120000,5\n"   // 매도만 있는 종목
-        "09:20:00,FILL,3,A3,ITB_035420,035420,BUY,LIMIT,200000,3\n"         // 다른 슬리브
-        "09:30:00,FILL,4,A4,DEVSCALEX_051910,051910,BUY,LIMIT,300000,1\n"   // 접두어가 다르다(DEVSCALEX_)
-        "09:40:00,CANCELLED,5,A5,DEVSCALE_068270,068270,BUY,LIMIT,150000,2\n"
+        "ts_kst,event,order_id,odno,strategy,ticker,side,type,order_qty,order_price,fill_qty,fill_price,status\n"
+        "09:00:01,ACCEPTED,1,A1,DEVSCALE_005930,005930,BUY,LIMIT,10,70000,0,0,ACCEPTED\n"
+        "09:00:02,FILL,1,A1,DEVSCALE_005930,005930,BUY,LIMIT,10,70000,6,70000,ACCEPTED\n"   // 부분 체결 두 번
+        "09:00:03,FILL,1,A1,DEVSCALE_005930,005930,BUY,LIMIT,10,70000,4,70000,FILLED\n"
+        "09:10:00,FILL,2,A2,DEVSCALE_000660,000660,SELL,LIMIT,5,120000,5,120000,FILLED\n"   // 매도만 있는 종목
+        "09:20:00,FILL,3,A3,ITB_035420,035420,BUY,LIMIT,3,200000,3,200000,FILLED\n"         // 다른 전략
+        "09:30:00,FILL,4,A4,DEVSCALEX_051910,051910,BUY,LIMIT,1,300000,1,300000,FILLED\n"   // 접두어가 다르다(DEVSCALEX_)
+        "09:40:00,CANCELLED,5,A5,DEVSCALE_068270,068270,BUY,LIMIT,2,150000,0,0,CANCELLED\n"
+        "09:41:00,REJECTED,7,,DEVSCALE_068270,068270,BUY,LIMIT,9,150000,0,0,REJECTED\n"
         "short,line\n"
-        "09:50:00,FILL,6,A6,DEVSCALE_068270,068270,BUY,LIMIT,150000,2\n");
-    const std::set<std::string> bought = tickers_bought_from_ledger(ledger, "DEVSCALE");
-    CHECK(bought.size() == 2);
-    CHECK(bought.count("005930") == 1);
-    CHECK(bought.count("068270") == 1);
-    CHECK(bought.count("000660") == 0);
-    CHECK(bought.count("035420") == 0);
-    CHECK(bought.count("051910") == 0);
+        "09:50:00,FILL,6,A6,DEVSCALE_068270,068270,BUY,LIMIT,2,150000,2,150000,FILLED\n");
+    std::map<std::string, long long> net_quantity;
+    add_net_quantity_from_ledger(ledger, "DEVSCALE", net_quantity);
+    CHECK(net_quantity.size() == 3);
+    CHECK(net_quantity["005930"] == 10);
+    CHECK(net_quantity["068270"] == 2);   // 취소·거부 행은 세지 않는다
+    CHECK(net_quantity["000660"] == -5);  // 음수도 남긴다 — 여러 날을 더한 뒤 거른다
+    CHECK(net_quantity.count("035420") == 0);
+    CHECK(net_quantity.count("051910") == 0);
 
     std::istringstream empty("");
-    CHECK(tickers_bought_from_ledger(empty, "DEVSCALE").empty());
+    std::map<std::string, long long> none;
+    add_net_quantity_from_ledger(empty, "DEVSCALE", none);
+    CHECK(none.empty());
+    return 0;
+}
+
+// 매수 뒤 전량 매도한 종목은 순수량 0이라 재인수하지 않는다. 날을 넘겨 더해도 같다.
+int test_net_quantity_sold_out()
+{
+    std::map<std::string, long long> net_quantity;
+    std::istringstream yesterday(
+        "09:00:02,FILL,1,A1,DEVSCALE_005930,005930,BUY,LIMIT,10,70000,10,70000,FILLED\n");
+    std::istringstream today(
+        "10:00:00,FILL,2,A2,DEVSCALE_005930,005930,SELL,MARKET,10,0,7,71000,ACCEPTED\n"
+        "10:00:01,FILL,2,A2,DEVSCALE_005930,005930,SELL,MARKET,10,0,3,71000,FILLED\n");
+    add_net_quantity_from_ledger(yesterday, "DEVSCALE", net_quantity);
+    add_net_quantity_from_ledger(today, "DEVSCALE", net_quantity);
+    CHECK(net_quantity["005930"] == 0);
+    CHECK(!devscale_owns_holding(net_quantity["005930"], 10)); // 같은 종목을 수동으로 10주 들고 있어도 안 맡는다
+    return 0;
+}
+
+// 수동(MANUAL) 매수는 순수량에 넣지 않는다 — 순수량이 잔고보다 적으면 청산 관리에 둔다.
+int test_net_quantity_ignores_manual()
+{
+    std::map<std::string, long long> net_quantity;
+    std::istringstream ledger(
+        "09:00:02,FILL,1,A1,DEVSCALE_005930,005930,BUY,LIMIT,10,70000,10,70000,FILLED\n"
+        "09:30:00,FILL,2,A2,MANUAL,005930,BUY,MARKET,20,0,20,70500,FILLED\n"
+        "09:40:00,FILL,3,A3,MANUAL,000660,BUY,MARKET,5,0,5,120000,FILLED\n");
+    add_net_quantity_from_ledger(ledger, "DEVSCALE", net_quantity);
+    CHECK(net_quantity.size() == 1);
+    CHECK(net_quantity["005930"] == 10);
+    CHECK(!devscale_owns_holding(net_quantity["005930"], 30)); // 잔고 30주 중 20주는 수동 몫
+    CHECK(devscale_owns_holding(net_quantity["005930"], 10));  // 잔고가 전부 DevScale 몫이면 맡는다
+    CHECK(devscale_owns_holding(net_quantity["005930"], 6));   // 수동으로 일부 판 뒤라 잔고가 더 적어도 맡는다
+    CHECK(!devscale_owns_holding(0, 10));
+    CHECK(!devscale_owns_holding(10, 0));
     return 0;
 }
 
@@ -142,6 +185,16 @@ int main()
     }
 
     if (test_ledger_reader() != 0)
+    {
+        return 1;
+    }
+
+    if (test_net_quantity_sold_out() != 0)
+    {
+        return 1;
+    }
+
+    if (test_net_quantity_ignores_manual() != 0)
     {
         return 1;
     }
