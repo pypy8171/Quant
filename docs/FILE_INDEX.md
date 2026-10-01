@@ -12,7 +12,7 @@
 - [Quant](#quant) — 353개
 - [docs](#docs) — 136개
 - [linux_practice](#linux_practice) — 2개
-- [research](#research) — 294개
+- [research](#research) — 295개
 - [scripts](#scripts) — 50개
 - [strategies](#strategies) — 38개
 - [tools](#tools) — 3개
@@ -1194,6 +1194,7 @@
 ### research/studies/27_premarket_leaders/daily/
 
 - [2026-10-01.jsonl](../research/studies/27_premarket_leaders/daily/2026-10-01.jsonl) — 10-01 프리마켓 스냅숏(철강 업종 동반 강세 1위)
+- [2026-10-01_eval.json](../research/studies/27_premarket_leaders/daily/2026-10-01_eval.json) — 10-01 장 마감 판정(후보 20개 중 주도주 0, 철강은 프리마켓 급등 뒤 꺾임)
 
 ### research/studies/28_devscale_zone_width/
 

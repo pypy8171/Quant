@@ -57,7 +57,9 @@ $modeLabel = if ($paper) { '모의' } else { '실계좌' }
 if ($paper)
 {
     $plan = [ordered]@{
+        'Quant Premarket Leaders' = '08:02'
         'Quant Basket Targets'  = '08:40'
+        'Quant Premarket Leaders Eval' = '15:45'
         'Quant Market Close AutoDoc'     = '16:05'
         'Quant Maintain Daily'  = '16:20'
         'Quant Minute Backfill' = '16:40'
@@ -71,7 +73,9 @@ if ($paper)
 else
 {
     $plan = [ordered]@{
+        'Quant Premarket Leaders' = '08:02'
         'Quant Basket Targets'  = '08:40'
+        'Quant Premarket Leaders Eval' = '15:45'
         'Quant Market Close AutoDoc'     = '20:30'
         'Quant Maintain Daily'  = '20:45'
         'Quant Minute Backfill' = '21:00'
@@ -87,7 +91,9 @@ else
 $guardOpen = '07:30'
 
 $fix = @{
+    'Quant Premarket Leaders' = 'py research\studies\27_premarket_leaders\premarket_leaders.py snapshot (08:57까지 5분마다)'
     'Quant Basket Targets'  = 'py PYQuant\main.py basket --no-momentum --value-share 1.0'
+    'Quant Premarket Leaders Eval' = 'py research\studies\27_premarket_leaders\premarket_leaders.py evaluate'
     'Quant Market Close AutoDoc'     = 'py scripts\market_close_autodoc.py'
     'Quant Maintain Daily'  = 'py ..\quant-devtools\maintain.py --daily'
     'Quant Minute Backfill' = 'py scripts\market_close_minute_backfill.py'

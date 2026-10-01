@@ -17,7 +17,9 @@
 | 작업 이름 | 모의 (is_paper=true) | 실계좌 (is_paper=false) | 실행 |
 |---|---|---|---|
 | `QuantAutoTradeGuard` | 07:30~ 5분마다, -Until 15:35, 8.25h | 07:30~ 5분마다, -Until 20:05, 12.75h | `powershell -File scripts\market_close_timetable.ps1 -Apply` |
+| `Quant Premarket Leaders` | 08:02 | 08:02 | `py research\studies\27_premarket_leaders\premarket_leaders.py snapshot (08:57까지 5분마다)` |
 | `Quant Basket Targets` | 08:40 | 08:40 | `py PYQuant\main.py basket --no-momentum --value-share 1.0` |
+| `Quant Premarket Leaders Eval` | 15:45 | 15:45 | `py research\studies\27_premarket_leaders\premarket_leaders.py evaluate` |
 | `Quant Market Close AutoDoc` | 16:05 | 20:30 | `py scripts\market_close_autodoc.py` |
 | `Quant Maintain Daily` | 16:20 | 20:45 | `py ..\quant-devtools\maintain.py --daily` |
 | `Quant Minute Backfill` | 16:40 | 21:00 | `py scripts\market_close_minute_backfill.py` |
@@ -29,6 +31,7 @@
 | 작업 이름 | 산출물 |
 |---|---|
 | `QuantAutoTradeGuard` | 워치독이 없으면 하루 루프 기동 (§4). 5분마다 도는 시간 폭(`-Hours`)이 매매 끝 시각을 정한다 |
+| `Quant Premarket Leaders` · `Quant Premarket Leaders Eval` | 08:02~08:57 5분마다 네이버 시세판의 NXT 프리마켓 값을 업종·테마로 묶어 동반 강세를 `research/studies/27_premarket_leaders/daily/<날짜>.jsonl`에 남기고, 15:45에 포착 종목이 정규장 주도주가 됐는지 `<날짜>_eval.json`에 적는다(주문 없음, 앱키 안 씀). 2026-10-01 등록 |
 | `Quant Basket Targets` | 장 전 08:40, 바스켓 두 슬리브(가치 기울임·모멘텀)의 목표 비중표를 `Quant/config/basket_targets.json`에 쓴다(전일 종가 기준, 주문 없음). 엔진 `TARGET_BASKET`이 14:40~15:00에 원장과의 차이만 낸다(D-109). 파일이 없거나 `as_of`가 오늘이 아니면 엔진은 아무것도 안 낸다 — 판정은 `check_runtime_health.py` "바스켓 파일 당일" 행 |
 | `Quant Market Close AutoDoc` | 매매일지 사실 구간 · 리뷰 탭 항목 · `live.json` 백필 · `dashboard.html` |
 | `Quant Maintain Daily` | `장 마감 AutoDoc` 뒤. 먼저 로그 정리(`rotate_logs` — 엔진 로그에서 7일 지난 날의 줄을 `logs/archive/quant_trader_<날짜>.log.gz`로 떼어내고(갈라 띄운 엔진은 역할별 `quant_trader.order.log`·`quant_trader.strategy.log`·`quant_trader.feed.log`를 각각 돌려 `quant_trader_order_<날짜>.log.gz`로 간다), 감시견 로그는 7일 지나면 gz·90일 지나면 삭제. 엔진이 떠 있으면 엔진 로그는 건너뛴다. 원장 `trades_*.csv`는 손대지 않는다. 옮긴 gz는 잃는 게 아니다 — 날짜를 받는 스크립트(`market_close_autodoc`·`market_close_collect`·`parse_quant_log --full`·`summarize_trading_day`·`extract_swap_what_if`)는 `_logdir.log_sources()`로 그 날짜 gz와 라이브 로그를 이어서 읽으니 지난 날 재생성은 그대로 된다), 이어서 생성물 갱신 — `gen_facts` · `gen_code_graph` · `sync_ledgers` · `gen_automation_hub`(`_private/AUTOMATION_HUB.md`) · `gen_tuning_sheet`(`_private/TUNING_SHEET.md`). 대시보드는 부르지 않는다. 손으로는 `py ../quant-devtools/maintain.py --rotate-logs [--dry-run]` |

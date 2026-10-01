@@ -1,0 +1,245 @@
+{
+ "date": "2026-10-01",
+ "snapshot_time": "2026-10-01T08:59:08",
+ "market_median_change": 1.03,
+ "candidates": [
+  {
+   "code": "460860",
+   "name": "동국제강",
+   "nxt_change": 20.63,
+   "nxt_value_eok": 437.2,
+   "via": "철강 주요종목",
+   "krx_change": 3.81,
+   "value_rank": 114,
+   "change_rank": 506,
+   "leader": false
+  },
+  {
+   "code": "306200",
+   "name": "세아제강",
+   "nxt_change": 9.92,
+   "nxt_value_eok": 147.0,
+   "via": "철강 주요종목",
+   "krx_change": -3.33,
+   "value_rank": 310,
+   "change_rank": 2540,
+   "leader": false
+  },
+  {
+   "code": "002240",
+   "name": "고려제강",
+   "nxt_change": 15.71,
+   "nxt_value_eok": 107.5,
+   "via": "철강 주요종목",
+   "krx_change": 4.05,
+   "value_rank": 504,
+   "change_rank": 454,
+   "leader": false
+  },
+  {
+   "code": "084010",
+   "name": "대한제강",
+   "nxt_change": 29.91,
+   "nxt_value_eok": 95.3,
+   "via": "철강 주요종목",
+   "krx_change": 17.2,
+   "value_rank": 139,
+   "change_rank": 13,
+   "leader": false
+  },
+  {
+   "code": "004020",
+   "name": "현대제철",
+   "nxt_change": 3.5,
+   "nxt_value_eok": 74.3,
+   "via": "철강 주요종목",
+   "krx_change": 1.0,
+   "value_rank": 197,
+   "change_rank": 1326,
+   "leader": false
+  },
+  {
+   "code": "104700",
+   "name": "한국철강",
+   "nxt_change": 11.06,
+   "nxt_value_eok": 46.6,
+   "via": "철강 주요종목",
+   "krx_change": 1.83,
+   "value_rank": 732,
+   "change_rank": 1004,
+   "leader": false
+  },
+  {
+   "code": "001430",
+   "name": "세아베스틸지주",
+   "nxt_change": 2.22,
+   "nxt_value_eok": 13.8,
+   "via": "철강 주요종목",
+   "krx_change": 4.78,
+   "value_rank": 292,
+   "change_rank": 359,
+   "leader": false
+  },
+  {
+   "code": "002710",
+   "name": "TCC스틸",
+   "nxt_change": 9.91,
+   "nxt_value_eok": 905.9,
+   "via": "철강",
+   "krx_change": -1.0,
+   "value_rank": 133,
+   "change_rank": 2297,
+   "leader": false
+  },
+  {
+   "code": "003030",
+   "name": "세아제강지주",
+   "nxt_change": 2.81,
+   "nxt_value_eok": 8.5,
+   "via": "철강",
+   "krx_change": -4.93,
+   "value_rank": 356,
+   "change_rank": 2585,
+   "leader": false
+  },
+  {
+   "code": "034020",
+   "name": "두산에너빌리티",
+   "nxt_change": 2.82,
+   "nxt_value_eok": 1199.0,
+   "via": "원자력발전",
+   "krx_change": 0.61,
+   "value_rank": 18,
+   "change_rank": 1530,
+   "leader": false
+  },
+  {
+   "code": "052690",
+   "name": "한전기술",
+   "nxt_change": 4.89,
+   "nxt_value_eok": 413.6,
+   "via": "원자력발전",
+   "krx_change": 2.69,
+   "value_rank": 111,
+   "change_rank": 739,
+   "leader": false
+  },
+  {
+   "code": "000720",
+   "name": "현대건설",
+   "nxt_change": 2.98,
+   "nxt_value_eok": 197.6,
+   "via": "원자력발전",
+   "krx_change": -0.43,
+   "value_rank": 66,
+   "change_rank": 2136,
+   "leader": false
+  },
+  {
+   "code": "083650",
+   "name": "비에이치아이",
+   "nxt_change": 3.83,
+   "nxt_value_eok": 150.2,
+   "via": "원자력발전",
+   "krx_change": 0.17,
+   "value_rank": 183,
+   "change_rank": 1784,
+   "leader": false
+  },
+  {
+   "code": "044490",
+   "name": "태웅",
+   "nxt_change": 3.82,
+   "nxt_value_eok": 120.2,
+   "via": "원자력발전",
+   "krx_change": 0.66,
+   "value_rank": 397,
+   "change_rank": 1507,
+   "leader": false
+  },
+  {
+   "code": "114190",
+   "name": "강원에너지",
+   "nxt_change": 6.97,
+   "nxt_value_eok": 114.6,
+   "via": "원자력발전",
+   "krx_change": 5.05,
+   "value_rank": 672,
+   "change_rank": 323,
+   "leader": false
+  },
+  {
+   "code": "014620",
+   "name": "성광벤드",
+   "nxt_change": 4.54,
+   "nxt_value_eok": 60.4,
+   "via": "원자력발전",
+   "krx_change": 0.81,
+   "value_rank": 313,
+   "change_rank": 1419,
+   "leader": false
+  },
+  {
+   "code": "023160",
+   "name": "태광",
+   "nxt_change": 3.25,
+   "nxt_value_eok": 37.5,
+   "via": "원자력발전",
+   "krx_change": 3.61,
+   "value_rank": 355,
+   "change_rank": 550,
+   "leader": false
+  },
+  {
+   "code": "056190",
+   "name": "SFA",
+   "nxt_change": 3.85,
+   "nxt_value_eok": 27.9,
+   "via": "핵융합에너지",
+   "krx_change": 4.9,
+   "value_rank": 329,
+   "change_rank": 338,
+   "leader": false
+  },
+  {
+   "code": "051600",
+   "name": "한전KPS",
+   "nxt_change": 2.06,
+   "nxt_value_eok": 12.2,
+   "via": "원자력발전소 해체",
+   "krx_change": 0.8,
+   "value_rank": 364,
+   "change_rank": 1421,
+   "leader": false
+  },
+  {
+   "code": "012450",
+   "name": "한화에어로스페이스",
+   "nxt_change": 2.38,
+   "nxt_value_eok": 91.3,
+   "via": "항공기부품",
+   "krx_change": 2.38,
+   "value_rank": 44,
+   "change_rank": 829,
+   "leader": false
+  }
+ ],
+ "hit_rate": 0.0,
+ "premarket_leading_industries": [
+  "철강",
+  "전기유틸리티",
+  "에너지장비및서비스"
+ ],
+ "day_top10_industries_by_median": [
+  "반도체와반도체장비",
+  "생물공학",
+  "우주항공과국방",
+  "전자장비와기기",
+  "디스플레이장비및부품",
+  "제약",
+  "전기제품",
+  "건강관리장비와용품",
+  "생명과학도구및서비스",
+  "건축제품"
+ ]
+}
