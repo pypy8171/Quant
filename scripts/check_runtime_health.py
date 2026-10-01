@@ -2473,6 +2473,67 @@ def buy_signal_sent_row(date: str) -> tuple:
     return (name, True, "WARN", detail)
 
 
+DEVSCALE_START_RE = re.compile(r"\[(DEVSCALE_\d{6})\] 시작 — ")
+DEVSCALE_BAR_RE = re.compile(r"\[(DEVSCALE_\d{6})\] 봉 닫힘 ")
+DEVSCALE_JUDGED_RE = re.compile(r"\[(DEVSCALE_\d{6})\] .*존 판정|신호: \[(DEVSCALE_\d{6})\]")
+
+
+def devscale_judging_row(date: str) -> tuple:
+    """DevScale 전략이 시작한 뒤 봉이 3개 닫히도록 한 번도 판단(존 판정·신호)하지 않은 기동이 있는지.
+
+    10-01 실계좌는 16:03 애프터마켓 재기동 뒤 일봉 미리 받기가 정규장 창(08:50~15:35) 밖이라 돌지 않아, 다시 맡은
+    082270 45주·016360 4주에 익절 매도가 14분 동안 걸리지 않았다. 체결은 들어와 봉은 닫히는데 판단이 없는 것이 그 모양이다.
+    """
+    name = "DevScale 판단 시작"
+    starts = 0
+    stuck = []
+
+    for _account, engine_log in engine_logs():
+        try:
+            body = engine_log.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+
+        bars_since_start = {}   # 전략 id → 시작 뒤 닫힌 봉 수(판단이 나오면 지운다)
+        start_clock = {}
+
+        for line in _logdir.live_session_lines(body.splitlines()):
+            if not line.startswith(date):
+                continue
+
+            started = DEVSCALE_START_RE.search(line)
+
+            if started:
+                starts += 1
+                bars_since_start[started.group(1)] = 0
+                start_clock[started.group(1)] = line[11:19]
+                continue
+
+            judged = DEVSCALE_JUDGED_RE.search(line)
+
+            if judged:
+                bars_since_start.pop(judged.group(1) or judged.group(2), None)
+                continue
+
+            bar = DEVSCALE_BAR_RE.search(line)
+
+            if bar and bar.group(1) in bars_since_start:
+                bars_since_start[bar.group(1)] += 1
+
+                if bars_since_start[bar.group(1)] == 3:
+                    stuck.append(f"{start_clock[bar.group(1)]} {bar.group(1)}")
+
+    if starts == 0:
+        return (name, True, "WARN", f"{date} DevScale 시작 없음 — 판정 안 함")
+
+    detail = f"DevScale 시작 {starts}건 중 봉 3개가 닫히도록 판단이 없던 것 {len(stuck)}건"
+
+    if stuck:
+        return (name, False, "WARN", detail + " — 예: " + ", ".join(stuck[:3]))
+
+    return (name, True, "WARN", detail)
+
+
 def global_rows(date: str) -> list:
     """계좌와 무관한 판정 — 하루에 한 번만 낸다.
 
@@ -2489,6 +2550,7 @@ def global_rows(date: str) -> list:
         order_latency_breakdown_row(date),
         order_transport_row(date),
         buy_signal_sent_row(date),
+        devscale_judging_row(date),
         market_open_gate_row(date),
         after_market_order_row(date),
         same_day_dust_row(date),

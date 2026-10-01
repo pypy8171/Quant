@@ -63,7 +63,7 @@ def processes() -> list[dict]:
     """이 트리의 트레이더와 감시견. [{"pid", "name", "path", "command"}]"""
     script = ("[Console]::OutputEncoding=[Text.Encoding]::UTF8; "
               "Get-CimInstance Win32_Process | Where-Object { $_.Name -like 'quant_trader*' -or "
-              "$_.CommandLine -like '*auto_trade_day*' } | "
+              "$_.CommandLine -like '*auto_trade_*' } | "
               "Select-Object ProcessId, Name, ExecutablePath, CommandLine | ConvertTo-Json -Compress")
     done = subprocess.run(["powershell", "-NoProfile", "-Command", script], capture_output=True,
                           text=True, encoding="utf-8", errors="replace", timeout=60)
@@ -84,10 +84,11 @@ def traders(rows: list[dict]) -> list[dict]:
 
 
 def watchdogs(rows: list[dict]) -> list[dict]:
-    # 감시견은 PowerShell 이 auto_trade_day.ps1 을 파일로 돌리는 것뿐이다. 명령줄에 그 이름이 글자로만 들어 있는
+    # 감시견은 PowerShell 이 auto_trade_day.ps1(실계좌는 그것을 같은 프로세스로 부르는 auto_trade_live.ps1)을
+    #  파일로 돌리는 것뿐이다. 명령줄에 그 이름이 글자로만 들어 있는
     #  셸(이 조회 자신, 다른 세션의 bash)은 뺀다.
     return [row for row in rows if row["name"].lower() in ("powershell.exe", "pwsh.exe")
-            and re.search(r"-File\s+\S*auto_trade_day\.ps1", row["command"], re.IGNORECASE)]
+            and re.search(r"-File\s+\S*auto_trade_(day|live)\.ps1", row["command"], re.IGNORECASE)]
 
 
 def guard_log(line: str) -> None:

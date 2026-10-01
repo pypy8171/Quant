@@ -592,7 +592,8 @@ bool manage_holdings_enabled(const json& node)
 // 이미 보유 중인 종목은 신규 스캔에서 제외 → 청산 관리가 전담(윈드다운).
 //  시드/전일 물린 보유분에 DevScale 분할 매수가 겹치면 종목당 명목상한(max_percent)을
 //  초과해 CANCEL 거부·과주문이 난다(073240 사례). 보유분=청산 관리, 신규만=DevScale로 분리.
-//  manage_holdings.enabled일 때만 잔고를 본다(청산 관리가 있어야 보유분을 인수하므로).
+//  잔고는 manage_holdings와 무관하게 본다 — 꺼져 있어도 DevScale 자기 매수분은 재인수해야 재기동 뒤 익절·손절이
+//  다시 걸린다(10-01 실계좌 재기동 뒤 082270 45주·016360 4주가 매도 조건 없이 남았다).
 //  바스켓 소유 종목은 그와 무관하게 처음부터 이 슬리브의 후보가 아니다 [why D-109].
 HeldSnapshot snapshot_holdings(const LoadPass& context, const DevScaleParams& parameters, bool manage_holdings)
 {
@@ -601,11 +602,6 @@ HeldSnapshot snapshot_holdings(const LoadPass& context, const DevScaleParams& pa
     HeldSnapshot snapshot;
     snapshot.held = context.basket_owned;
     snapshot.held.resize(std::max(snapshot.held.size(), symbol_capacity), false);
-
-    if (!manage_holdings)
-    {
-        return snapshot;
-    }
 
     KisClient held_kis(context.kis_config);
 
@@ -673,7 +669,8 @@ HeldSnapshot snapshot_holdings(const LoadPass& context, const DevScaleParams& pa
         }
     }
 
-    LOG_INFO("[Main] DEVSCALE: 보유분 " + std::to_string(held_count) + "종목 스캔 제외(청산 관리 전담), " +
+    LOG_INFO("[Main] DEVSCALE: 보유분 " + std::to_string(held_count) + "종목 스캔 제외(" +
+             (manage_holdings ? "청산 관리 전담" : "청산 관리 꺼짐 — 매도 조건 없음") + "), " +
              (carry_over ? "최근 매수분 " : "당일 매수분 ") + std::to_string(snapshot.reinstated.size()) + "종목 재인수");
     return snapshot;
 }

@@ -108,8 +108,8 @@ flowchart LR
 
 14. [`load_strategies`](../Quant/src/strategy/StrategyFactory.cpp#L500) — config `strategies[]`를 타입별 로더로 나눈다. 새 전략을 붙이는 자리(docs/ENGINE_ARCHITECTURE.md '전략 추가하기')  
    `Quant/src/strategy/StrategyFactory.cpp:500` · `void load_strategies(StrategyLoadCtx& context, const json& strategies)`
-15. [`strategy_load::load_deviation_scale`](../Quant/src/strategy/DevScaleLoader.cpp#L769) — DEVIATION_SCALE 로더 — 보유 스냅숏 → 시세판 기동 → 초기 스캔 → 종목마다 전략 등록 → 재스캔 job 등록  
-   `Quant/src/strategy/DevScaleLoader.cpp:769` · `void load_deviation_scale(LoadPass& context, const json& node)`
+15. [`strategy_load::load_deviation_scale`](../Quant/src/strategy/DevScaleLoader.cpp#L766) — DEVIATION_SCALE 로더 — 보유 스냅숏 → 시세판 기동 → 초기 스캔 → 종목마다 전략 등록 → 재스캔 job 등록  
+   `Quant/src/strategy/DevScaleLoader.cpp:766` · `void load_deviation_scale(LoadPass& context, const json& node)`
 16. [`start_scan_services`](../Quant/src/strategy/DevScaleLoader.cpp#L468) — `market_board:true`면 MarketBoard 스레드와 DailyWarm 스레드를 띄운다. false면 두 스레드 없이 KIS 랭킹 축과 전날 `universe_scan.json`만 쓴다  
    `Quant/src/strategy/DevScaleLoader.cpp:468` · `void start_scan_services(const LoadPass& context, const json& node, const universe::DevScanCfg& scan_config)`
 17. [`universe::MarketBoard::run`](../Quant/src/universe/MarketBoard.cpp#L507) — KST 날짜가 바뀌면 목록을 새로 받고, 5초마다 시세 한 바퀴, 60초마다 재랭킹  

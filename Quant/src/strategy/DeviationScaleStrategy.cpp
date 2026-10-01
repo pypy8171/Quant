@@ -1154,10 +1154,18 @@ void DeviationScaleStrategy::prefetch_once()
     //  근거: 한도 초과가 500으로 오는 것은 실측 — DAILY_LOG.md 2026-09-04 항목(분봉 호출량이 실전 한도의 70%).
     const int hhmm = kst_hhmm();
     const int wday = kst_tm().tm_wday;
-    const bool in_session =
-        (wday >= 1 && wday <= 5) && hhmm >= kPrefetchWindowOpenHhmm && hhmm <= kPrefetchWindowCloseHhmm;
+    const bool weekday = wday >= 1 && wday <= 5;
+    const bool in_session = weekday && hhmm >= kPrefetchWindowOpenHhmm && hhmm <= kPrefetchWindowCloseHhmm;
 
-    if (kis_ && in_session)
+    // 창 밖이라도 스냅샷이 아직 없으면 한 번은 받는다. 애프터마켓(16:00~20:00)에 재기동하면 창 안에서 받을 기회가
+    //  없어 일봉 미준비로 판단을 계속 건너뛰고, 다시 맡은 보유분에 익절·손절이 걸리지 않았다(10-01 실계좌 082270·016360).
+    bool first_snapshot_missing;
+    {
+        std::lock_guard<std::mutex> lock(snap_mutex_);
+        first_snapshot_missing = !snap_daily_ || !snap_bars_;
+    }
+
+    if (kis_ && weekday && (in_session || first_snapshot_missing))
     {
         // 일봉·자본: 날짜 바뀌면 1회 갱신(장중엔 사실상 1일 1회).
         std::string today = kst_ymd();
