@@ -539,5 +539,50 @@
       "research/studies/30_strong_stock_strategies/b_checks.json",
       "research/studies/30_strong_stock_strategies/b_metrics.json"
     ]
+  },
+  {
+    "number": "33",
+    "title": "급등 뒤 눌림 매수 — 하루 +10% 오른 종목을 며칠 지켜보다 되돌림에서 산다(일봉)",
+    "series": "강한 종목",
+    "period": "개발 2010-01~2022-12 · 검증 2023-01~2025-09 · 최근 1년 2025-10~2026-09-29 (시총·회전율 구간은 2020-02 이후)",
+    "status": "결과",
+    "question": "스터디 30 A(당일 VWAP 눌림)가 당일이라 지는 것인지 보려고, 같은 생각을 일봉으로 옮겼다. 하루에 +10% 넘게 오른 종목을 3·5·10일 지켜보다 급등일 몸통 중간값까지 거래량이 줄며 내려왔다가 다시 오르기 시작하면 사서 5·10일 들고 있으면 돈을 버는가.",
+    "method": "급등일: 전일 대비 +10%(비교 칸 +15%), 거래대금 100억 이상, 2,000원 이상 보통주. 눌림: 종가가 급등일 (시가+종가)/2의 ±2% 안, 거래량은 급등일의 절반 이하, 저가가 급등일 시가 밑으로 가면 버림. 매수: 종가가 전일 고가를 넘은 다음 날 시가+1호가. 매도: 눌림 최저가 −1% 손절, 급등일 고가 익절, 5·10일 시간 청산. 비용 왕복 0.23%+호가 1칸. 거래대금 100억~2,000억(100·200억 단위)·시가총액·회전율(거래대금÷시총) 구간별로도 나눴다. 규칙은 결과 전에 SPEC.md에 적었다.",
+    "data": "PYQuant/data/bars_all_pit_v2.parquet(상장폐지 포함 일봉), PYQuant/data/cache/datagokr_shares/univ_*.parquet(월말 상장주식수·시총)",
+    "result": "기본 칸(+10%·5일 지켜보기·10일 보유) 건당 순손익 개발 −0.92%(1,676건, t −3.09)·검증 −1.08%(818건)·최근 1년 −1.21%(334건). 12칸 전부 음수, 13년 중 이익 난 해는 2017년 하나. 거래대금·시총·회전율 어느 구간도 개발과 검증이 같이 양수인 곳 없음. 급등 다음 날 그냥 사면 −1.42%로 더 나쁘다. 후속(10-02): 40–60% 되돌림 자리에서 바로 사도 개발 −0.66%(20,239건)·검증 −0.61%·최근 1년 −1.11%.",
+    "verdict": "기각. 합격선 6개 모두 미달. 검증·최근 1년 구간을 이미 열었으므로 같은 데이터로 손절 폭 등을 고쳐 다시 재지 않는다.",
+    "why": "손절 폭이 평균 9%로 넓어 손절 676건 평균 −8.9%가 익절 665건 평균 +4.7%를 넘는다. 하루 급등한 종목은 그 뒤 1~2주 평균적으로 밀리고, 눌림을 기다리면 손실이 조금 줄 뿐이다. 매수가가 이미 급등일 고가 위인 건이 25%(평균 −1.9%).",
+    "followup": "급등 전 바닥권 + 거래량 10배 묶음만 세 구간 플러스(사후 탐색) → 스터디 34에서 개발 구간만으로 다시 고름. DevScale 급등 제외 필터 안은 철회(10-01).",
+    "files": [
+      "research/studies/33_post_surge_pullback/README.md",
+      "research/studies/33_post_surge_pullback/SPEC.md",
+      "research/studies/33_post_surge_pullback/backtest.py",
+      "research/studies/33_post_surge_pullback/grid.tsv",
+      "research/studies/33_post_surge_pullback/bands.tsv",
+      "research/studies/33_post_surge_pullback/metrics.json",
+      "research/studies/33_post_surge_pullback/backtest_zone.py",
+      "research/studies/33_post_surge_pullback/build_replay.py"
+    ]
+  },
+  {
+    "number": "34",
+    "title": "바닥권 거래량 급등 뒤 40–60% 되돌림 매수 — 위치·거래량 경계를 개발 구간에서만 다시 고른다(일봉)",
+    "series": "강한 종목",
+    "period": "개발 2010-01–2022-12(판정) · 검증 2023-01–2025-09 · 최근 1년 2025-10–2026-09-29(둘 다 이미 본 구간, 참고)",
+    "status": "보류",
+    "question": "스터디 33 후속에서 사후 탐색으로 보인 '1년 고점 대비 −50% 이하 + 거래량 10배 이상' 묶음의 플러스가, 경계를 개발 구간만으로 고르고 '급등 뒤 위로 5% 넘게 뻗으면 버림'을 더해도 남는가.",
+    "method": "스터디 33 zone 칸(몸통 40% 자리 지정가 매수, 급등일 시가 × 0.99 손절, 급등일 고가 익절, 10일)에 급등 전 위치 ≤ D, 거래량 배수 ≥ V, 지켜보는 날 고가 ≥ 급등일 종가 × 1.05면 버림을 더했다. D 4개 × V 5개 = 20칸을 개발 구간에서만 보고 건수 300 이상 중 t 최대 칸을 고른다. 통과: t ≥ 2.0이고 하위 구간 셋 중 둘 플러스. 규칙은 SPEC.md에 격자 전에 적었다.",
+    "data": "PYQuant/data/bars_all_pit_v2.parquet, PYQuant/data/cache/datagokr_shares/univ_*.parquet(스터디 33과 같음)",
+    "result": "고른 칸 −50%·10배: 개발 +0.35%(696건, t 0.95), 하위 구간 −2.09 / +0.05 / +0.65%. 20칸 중 t 1을 넘는 칸 없음. 참고로 검증 +0.21%(396건)·최근 1년 +0.35%(100건). '위로 뻗으면 버림'은 걸러낸 매매가 남긴 매매보다 나쁘지 않았다(개발 전체 −0.58 vs −0.69%, 묶음 +0.39 vs +0.35%).",
+    "verdict": "보류 — t 0.95로 통과선 2.0 미달. 그림자 기록은 걸지 않았다.",
+    "why": "익절이 급등일 고가에 묶여 이긴 매매(+8%)와 진 매매(−9%)의 크기가 비슷하고 승률이 44–46%라, 위치·거래량으로 골라도 건당 +0.4% 안팎이 한계다.",
+    "followup": "추세 전환을 노리려면 청산 규칙(익절 없이 더 오래 보유 등)을 바꾼 새 사전등록이 필요하다. 사용자 결정 대기.",
+    "files": [
+      "research/studies/34_bottom_surge_zone/README.md",
+      "research/studies/34_bottom_surge_zone/SPEC.md",
+      "research/studies/34_bottom_surge_zone/backtest.py",
+      "research/studies/34_bottom_surge_zone/grid.tsv",
+      "research/studies/34_bottom_surge_zone/result.tsv"
+    ]
   }
 ]

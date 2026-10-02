@@ -261,15 +261,18 @@ def report(merged: pd.DataFrame, codes: list, since: dt.date) -> None:
 
 
 def main() -> int:
+    global CACHE_DIR
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--since", default="2019-01-01")
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--sleep", type=float, default=0.15)
     parser.add_argument("--limit", type=int, default=0, help="검증용, 앞에서 N종목만")
     parser.add_argument("--out", default=str(DEFAULT_OUT))
+    parser.add_argument("--cache", default=str(CACHE_DIR), help="종목별 캐시 폴더. 시작일을 바꿔 다시 받을 때는 새 폴더(받은 종목은 건너뛰므로)")
     arguments = parser.parse_args()
 
     since = dt.date.fromisoformat(arguments.since)
+    CACHE_DIR = Path(arguments.cache)
     codes = load_codes(arguments.limit)
     started = time.time()
     run(codes, since, arguments.workers, arguments.sleep)

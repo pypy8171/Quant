@@ -12,7 +12,7 @@
 - [Quant](#quant) — 353개
 - [docs](#docs) — 137개
 - [linux_practice](#linux_practice) — 2개
-- [research](#research) — 295개
+- [research](#research) — 322개
 - [scripts](#scripts) — 50개
 - [strategies](#strategies) — 38개
 - [tools](#tools) — 3개
@@ -1241,6 +1241,45 @@
 - [build_minute_pairs.py](../research/studies/30_strong_stock_strategies/build_minute_pairs.py) — A 1분봉 적재 대상(날짜·종목 쌍) 생성
 - [criteria_review.json](../research/studies/30_strong_stock_strategies/criteria_review.json) — 합격선 재점검 모의실험 수치
 - [criteria_review.py](../research/studies/30_strong_stock_strategies/criteria_review.py) — 합격선 재점검 모의실험(검정력·비용·회전)
+
+### research/studies/33_post_surge_pullback/
+
+- [.gitignore](../research/studies/33_post_surge_pullback/.gitignore) — 매매 원장 tsv 3개(events·trades·trades_zone, 종목명 포함·재실행으로 다시 만듦) 커밋 제외
+- [README.md](../research/studies/33_post_surge_pullback/README.md) — 스터디 33 급등 뒤 눌림 매수 결과 — 기본 칸 기각, 후속 40–60% 되돌림 매수도 기각
+- [SPEC.md](../research/studies/33_post_surge_pullback/SPEC.md) — 스터디 33 사전등록 규칙(급등일·눌림·재상승 신호·손절·익절·구간)
+- [backtest.py](../research/studies/33_post_surge_pullback/backtest.py) — 스터디 33 백테스트 — 급등 뒤 눌림·재상승 신호 매수 12칸, 대조군·구간표
+- [backtest_zone.py](../research/studies/33_post_surge_pullback/backtest_zone.py) — 스터디 33 후속 — 급등일 몸통 40–60% 되돌림 자리에 닿으면 사는 칸 백테스트
+- [bands.tsv](../research/studies/33_post_surge_pullback/bands.tsv) — 스터디 33 기본 칸 거래대금·시총·회전율 구간표
+- [build_replay.py](../research/studies/33_post_surge_pullback/build_replay.py) — 스터디 33 리플레이 화면 자료 생성(--rule zone은 40–60% 칸, 차트 묶음 분할)
+- [grid.tsv](../research/studies/33_post_surge_pullback/grid.tsv) — 스터디 33 12칸 × 구간 수치
+- [location.tsv](../research/studies/33_post_surge_pullback/location.tsv) — 스터디 33 급등 전 위치·거래량 배수별 묶음(사후 탐색)
+- [location_zone.tsv](../research/studies/33_post_surge_pullback/location_zone.tsv) — 스터디 33 후속 40–60% 칸 위치·거래량 배수별 묶음(사후 탐색)
+- [metrics.json](../research/studies/33_post_surge_pullback/metrics.json) — 스터디 33 구간별 건수·수치·합격선 대조·재현 정보
+- [metrics_zone.tsv](../research/studies/33_post_surge_pullback/metrics_zone.tsv) — 스터디 33 후속 40–60% 칸 구간·거래량 조건별 건수·건당·승률·t
+- [portfolio.tsv](../research/studies/33_post_surge_pullback/portfolio.tsv) — 스터디 33 기본 칸 동시 10종목 일별 평가 곡선
+- [regime_year.tsv](../research/studies/33_post_surge_pullback/regime_year.tsv) — 스터디 33 기본 칸 국면·연도별 수치
+
+### research/studies/33_post_surge_pullback/replay/
+
+- [.gitignore](../research/studies/33_post_surge_pullback/replay/.gitignore) — 40–60% 칸 리플레이 자료(zone_*.json·zone/, 약 100MB) 커밋 제외
+
+### research/studies/34_bottom_surge_zone/
+
+- [.gitignore](../research/studies/34_bottom_surge_zone/.gitignore) — candidates.tsv(18MB, 재실행으로 다시 만듦) 커밋 제외
+- [README.md](../research/studies/34_bottom_surge_zone/README.md) — 스터디 34 바닥권 거래량 급등 뒤 되돌림 매수 결과 — 보류(t 0.95)
+- [SPEC.md](../research/studies/34_bottom_surge_zone/SPEC.md) — 스터디 34 사전등록 — 위치·거래량 격자, 위로 뻗으면 버림, 통과 조건, 그림자 기록 조건
+- [backtest.py](../research/studies/34_bottom_surge_zone/backtest.py) — 스터디 34 백테스트 — 개발 구간 20칸 격자와 고른 칸 구간별 수치
+- [build_replay.py](../research/studies/34_bottom_surge_zone/build_replay.py) — 스터디 34 리플레이 자료 — 고른 칸 매매마다 캔들·근거(스터디 33 리플레이 화면 세 번째 탭)
+- [grid.tsv](../research/studies/34_bottom_surge_zone/grid.tsv) — 스터디 34 개발 구간 위치 × 거래량 20칸
+- [result.tsv](../research/studies/34_bottom_surge_zone/result.tsv) — 스터디 34 고른 칸 구간·하위 구간별 수치(종가·고가 기준·버림 없음)
+
+### research/studies/35_surge_box_breakout/
+
+- [.gitignore](../research/studies/35_surge_box_breakout/.gitignore) — 매매 원장·차트 자료(trades.json·kinds/·candles/, 수백 MB, 재실행으로 다시 만듦)와 ma_sweep.parquet 커밋 제외
+- [backtest.py](../research/studies/35_surge_box_breakout/backtest.py) — 스터디 35 백테스트 — 급등 묶음 뒤 횡보 범위 돌파·눌림·이평선 매수, 손절×익절 격자, 다시 사기 사슬
+- [ma_sweep.py](../research/studies/35_surge_box_breakout/ma_sweep.py) — 스터디 35 이평선 3–21일 × 지정가·종가 확인 매수와 소화 끝 지표(거래량 마름·저가 멈춤) 전수 비교
+- [summarize.py](../research/studies/35_surge_box_breakout/summarize.py) — 스터디 35 범위·매수 방식별 상위 손절·익절 칸 요약 출력
+- [summary.txt](../research/studies/35_surge_box_breakout/summary.txt) — summarize.py 출력(범위·매수 방식별 상위 칸)
 
 ## scripts
 

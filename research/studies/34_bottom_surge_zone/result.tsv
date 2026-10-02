@@ -1,0 +1,19 @@
+runup_base	slice	count	average	win_rate	t
+close	development	696	0.347	44.0	0.95
+close	validation	396	0.211	43.4	0.41
+close	recent_1y	100	0.349	43.0	0.35
+close	development 2010–2013	43	-2.088	37.2	-2.16
+close	development 2014–2017	153	0.052	43.1	0.07
+close	development 2018–2022	500	0.647	44.8	1.45
+high	development	804	0.388	44.9	1.11
+high	validation	481	0.653	44.7	1.35
+high	recent_1y	113	0.702	43.4	0.73
+high	development 2010–2013	43	-2.088	37.2	-2.16
+high	development 2014–2017	170	-0.053	42.9	-0.07
+high	development 2018–2022	591	0.695	46.0	1.65
+off	development	944	0.359	46.2	1.11
+off	validation	582	0.653	46.4	1.48
+off	recent_1y	140	0.611	44.3	0.71
+off	development 2010–2013	62	-1.753	40.3	-2.27
+off	development 2014–2017	195	-0.257	43.1	-0.37
+off	development 2018–2022	687	0.724	47.6	1.86

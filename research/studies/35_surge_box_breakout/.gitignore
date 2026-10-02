@@ -1,0 +1,5 @@
+trades.json
+candles/
+kinds/
+ma_sweep.parquet
+__pycache__/
