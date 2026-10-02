@@ -1,0 +1,13 @@
+branch	group	rows	days	ic_tnx_vs_target	mean_target_tnx_ge_+1.5	n_ge	mean_target_tnx_le_-1.5	n_le
+daily	all	2882	2882	-0.0768	-0.248	620	0.044	586
+daily	nq_down(<=-0.5%)	735	735	-0.1122	-0.253	149	0.149	217
+daily	nq_flat(-0.5~0.5)	1148	1148	-0.0762	-0.265	214	-0.02	197
+daily	nq_up(>=0.5%)	999	999	-0.0327	-0.231	257	-0.013	172
+daily	growth_scare(tnx<0 & nq<0)	670	670	-0.0188		0	0.083	309
+daily	rate_shock(tnx>0 & nq<0)	571	571	-0.0344	-0.199	248		0
+hourly	all	3480	581	0.0427	-0.051	312	-0.246	282
+hourly	nq_down(<=-0.5%)	877	169	-0.0091	0.095	110	-0.342	111
+hourly	nq_flat(-0.5~0.5)	1179	256	0.0872	-0.193	101	-0.214	48
+hourly	nq_up(>=0.5%)	1424	273	0.0529	-0.07	101	-0.172	123
+hourly	growth_scare(tnx<0 & nq<0)	640	118	0.0679		0	-0.359	130
+hourly	rate_shock(tnx>0 & nq<0)	782	155	0.0043	0.007	155		0

@@ -12,9 +12,9 @@
 - [Quant](#quant) — 353개
 - [docs](#docs) — 137개
 - [linux_practice](#linux_practice) — 2개
-- [research](#research) — 322개
+- [research](#research) — 389개
 - [scripts](#scripts) — 50개
-- [strategies](#strategies) — 38개
+- [strategies](#strategies) — 39개
 - [tools](#tools) — 3개
 
 ## (루트)
@@ -1196,6 +1196,8 @@
 
 - [2026-10-01.jsonl](../research/studies/27_premarket_leaders/daily/2026-10-01.jsonl) — 10-01 프리마켓 스냅숏(철강 업종 동반 강세 1위)
 - [2026-10-01_eval.json](../research/studies/27_premarket_leaders/daily/2026-10-01_eval.json) — 10-01 장 마감 판정(후보 20개 중 주도주 0, 철강은 프리마켓 급등 뒤 꺾임)
+- [2026-10-02.jsonl](../research/studies/27_premarket_leaders/daily/2026-10-02.jsonl) — 10-02 장 전 주도 후보 기록
+- [2026-10-02_eval.json](../research/studies/27_premarket_leaders/daily/2026-10-02_eval.json) — 10-02 장 전 주도 후보의 장중 성적 평가
 
 ### research/studies/28_devscale_zone_width/
 
@@ -1209,18 +1211,18 @@
 
 ### research/studies/29_regime_score_refit/
 
-- [README.md](../research/studies/29_regime_score_refit/README.md) — (설명 필요)
-- [build_minute_panel.py](../research/studies/29_regime_score_refit/build_minute_panel.py) — (설명 필요)
-- [compare.tsv](../research/studies/29_regime_score_refit/compare.tsv) — (설명 필요)
-- [deciles.tsv](../research/studies/29_regime_score_refit/deciles.tsv) — (설명 필요)
-- [ic_single.tsv](../research/studies/29_regime_score_refit/ic_single.tsv) — (설명 필요)
-- [metrics.json](../research/studies/29_regime_score_refit/metrics.json) — (설명 필요)
-- [model_weights.json](../research/studies/29_regime_score_refit/model_weights.json) — (설명 필요)
-- [proposal.tsv](../research/studies/29_regime_score_refit/proposal.tsv) — (설명 필요)
-- [refit_regime_score.py](../research/studies/29_regime_score_refit/refit_regime_score.py) — (설명 필요)
-- [tnx_sign.tsv](../research/studies/29_regime_score_refit/tnx_sign.tsv) — (설명 필요)
-- [today_like.tsv](../research/studies/29_regime_score_refit/today_like.tsv) — (설명 필요)
-- [walkforward.tsv](../research/studies/29_regime_score_refit/walkforward.tsv) — (설명 필요)
+- [README.md](../research/studies/29_regime_score_refit/README.md) — 스터디 29 국면 점수 다시 맞추기 — 현행 표 점수와 연속 특징 선형 점수 비교 결과
+- [build_minute_panel.py](../research/studies/29_regime_score_refit/build_minute_panel.py) — 1분봉 백필에서 결정 시각별 종목 패널(시장 폭·눌림 후보) 생성
+- [compare.tsv](../research/studies/29_regime_score_refit/compare.tsv) — 현행 점수와 새 점수의 검증 구간 비교
+- [deciles.tsv](../research/studies/29_regime_score_refit/deciles.tsv) — 점수 10분위별 당일 종가까지 수익
+- [ic_single.tsv](../research/studies/29_regime_score_refit/ic_single.tsv) — 특징 하나씩의 IC(학습 구간)
+- [metrics.json](../research/studies/29_regime_score_refit/metrics.json) — 스터디 29 요약 수치·기간 분리
+- [model_weights.json](../research/studies/29_regime_score_refit/model_weights.json) — 선형 점수 가중치(학습 구간에서 고름)
+- [proposal.tsv](../research/studies/29_regime_score_refit/proposal.tsv) — 새 점수 제안안 비교
+- [refit_regime_score.py](../research/studies/29_regime_score_refit/refit_regime_score.py) — 국면 점수 다시 맞추기 본 스크립트(daily·hourly·breadth 갈래)
+- [tnx_sign.tsv](../research/studies/29_regime_score_refit/tnx_sign.tsv) — 미국 10년물 금리 등락 부호별 결과
+- [today_like.tsv](../research/studies/29_regime_score_refit/today_like.tsv) — 2026-10-01과 비슷한 날들의 결과
+- [walkforward.tsv](../research/studies/29_regime_score_refit/walkforward.tsv) — 연 단위·확장 창 walk-forward 결과
 
 ### research/studies/30_strong_stock_strategies/
 
@@ -1229,7 +1231,12 @@
 - [IMPLEMENTATION_GUIDE.md](../research/studies/30_strong_stock_strategies/IMPLEMENTATION_GUIDE.md) — 첫 VWAP 눌림(VWAPPB) 구현 가이드 — 파일 배치·사이드 이펙트 차단·판정 행
 - [README.md](../research/studies/30_strong_stock_strategies/README.md) — 스터디 30 개요와 B 결과(5/7, 슬리브 추가 안 함)
 - [SPEC.md](../research/studies/30_strong_stock_strategies/SPEC.md) — 스터디 30 사전등록 — A 첫 VWAP 눌림·B 52주 신고가 규칙·격자·합격선(10-01 개정)
+- [a_candidates.tsv](../research/studies/30_strong_stock_strategies/a_candidates.tsv) — 전략 A 후보 종목 목록(backtest_a.py 산출)
+- [a_grid.tsv](../research/studies/30_strong_stock_strategies/a_grid.tsv) — 전략 A 칸별 성적 격자
+- [a_metrics.json](../research/studies/30_strong_stock_strategies/a_metrics.json) — 전략 A 요약 수치·기간
 - [a_power.tsv](../research/studies/30_strong_stock_strategies/a_power.tsv) — A 합격선 검정력 모의실험(효과 크기별 통과 확률, 첫 판·개정안)
+- [a_trades.tsv](../research/studies/30_strong_stock_strategies/a_trades.tsv) — 전략 A 매매 원장
+- [a_variants.tsv](../research/studies/30_strong_stock_strategies/a_variants.tsv) — 전략 A 변형 비교표
 - [b_checks.json](../research/studies/30_strong_stock_strategies/b_checks.json) — B 합격선 7개 판정
 - [b_grid.tsv](../research/studies/30_strong_stock_strategies/b_grid.tsv) — B 격자 결과
 - [b_metrics.json](../research/studies/30_strong_stock_strategies/b_metrics.json) — B 기본 칸 성과 지표
@@ -1237,10 +1244,33 @@
 - [b_stitched_vs_index.tsv](../research/studies/30_strong_stock_strategies/b_stitched_vs_index.tsv) — B 이어붙인 수익과 코스피 지수 대비
 - [b_variants.tsv](../research/studies/30_strong_stock_strategies/b_variants.tsv) — B 변형(비용 전·회전 제한 등) 성과
 - [b_walkforward.tsv](../research/studies/30_strong_stock_strategies/b_walkforward.tsv) — B 워크포워드 구간별 성과
+- [backtest_a.py](../research/studies/30_strong_stock_strategies/backtest_a.py) — 전략 A(강한 종목 분봉) 백테스트, 개발 구간 기본
 - [backtest_b.py](../research/studies/30_strong_stock_strategies/backtest_b.py) — B 52주 신고가 근접 바스켓 백테스트
 - [build_minute_pairs.py](../research/studies/30_strong_stock_strategies/build_minute_pairs.py) — A 1분봉 적재 대상(날짜·종목 쌍) 생성
 - [criteria_review.json](../research/studies/30_strong_stock_strategies/criteria_review.json) — 합격선 재점검 모의실험 수치
 - [criteria_review.py](../research/studies/30_strong_stock_strategies/criteria_review.py) — 합격선 재점검 모의실험(검정력·비용·회전)
+
+### research/studies/31_devscale_slot_cap/
+
+- [README.md](../research/studies/31_devscale_slot_cap/README.md) — DevScale 동시 보유 상한 N × 종목 예산 포트폴리오 리플레이 요약 — 4 유지, 5·6 기각, 3은 잡음 범위
+- [metrics.json](../research/studies/31_devscale_slot_cap/metrics.json) — 스터디 31 N별 요약 수치·기간·pairs 해시
+- [pairs_100.json](../research/studies/31_devscale_slot_cap/pairs_100.json) — 날짜별 유니버스(전 거래일 시총∪거래대금 상위 100, 스터디 28 입력과 같은 해시)
+- [slot_cap_daily.tsv](../research/studies/31_devscale_slot_cap/slot_cap_daily.tsv) — N별 일말 현금·평가금·보유 수·못 산 종목일(우선순위 거래대금 순)
+- [slot_cap_replay.py](../research/studies/31_devscale_slot_cap/slot_cap_replay.py) — devscale_replay 실계좌 칸을 전 종목 같은 3분봉 시각에 돌리고 슬롯 상한·예산·현금을 얹는 포트폴리오 리플레이
+- [slot_cap_runs.tsv](../research/studies/31_devscale_slot_cap/slot_cap_runs.tsv) — N × 우선순위(거래대금 순·무작위 30회) 실행 156개의 지표
+- [slot_cap_summary.tsv](../research/studies/31_devscale_slot_cap/slot_cap_summary.tsv) — N별 순손익·MDD·놓친 신호·투입률·앞/뒤 구간·N=4 대비 부트스트랩 요약
+- [slot_cap_trades.tsv](../research/studies/31_devscale_slot_cap/slot_cap_trades.tsv) — N별 왕복 거래 원장(진입·청산 시각·수량·세후 손익·청산 사유)
+
+### research/studies/32_index_drawdown_guard/
+
+- [README.md](../research/studies/32_index_drawdown_guard/README.md) — 지수 장중 낙폭 규칙(전일 종가·당일 고점 대비 X%) 청산·정지를 국면 점수 −11과 비교·병행한 스터디 요약과 판정
+- [crash_days.tsv](../research/studies/32_index_drawdown_guard/crash_days.tsv) — 보유 기준 최악 15일과 규칙별(점수 −11·prev·high) 매도 값
+- [devscale_events.tsv](../research/studies/32_index_drawdown_guard/devscale_events.tsv) — DevScale 실계좌 칸 종목·발동일별 지수 규칙 적용 차이(원)
+- [devscale_grid.tsv](../research/studies/32_index_drawdown_guard/devscale_grid.tsv) — DevScale 1년 표본에 규칙별 청산(다음날 시가·그날 종가)·정지를 대입한 손익 차이 합
+- [halt_grid.tsv](../research/studies/32_index_drawdown_guard/halt_grid.tsv) — 규칙 발동 지점 매수의 그날·다음날 종가 수익과 전체 날 평균, 앞 70%·뒤 30%
+- [index_drawdown_guard.py](../research/studies/32_index_drawdown_guard/index_drawdown_guard.py) — 스터디 26 복원을 불러 지수 낙폭 규칙 청산·정지·점수 병행 격자와 DevScale 적용을 계산
+- [liquidate_grid.tsv](../research/studies/32_index_drawdown_guard/liquidate_grid.tsv) — 규칙·되사기·기간별 지수 보유 대비 초과수익·MDD·놓친 반등 격자(일봉 경로 감도 포함)
+- [metrics.json](../research/studies/32_index_drawdown_guard/metrics.json) — 스터디 32 기간 경계와 next_open 초과수익 요약
 
 ### research/studies/33_post_surge_pullback/
 
@@ -1277,9 +1307,58 @@
 
 - [.gitignore](../research/studies/35_surge_box_breakout/.gitignore) — 매매 원장·차트 자료(trades.json·kinds/·candles/, 수백 MB, 재실행으로 다시 만듦)와 ma_sweep.parquet 커밋 제외
 - [backtest.py](../research/studies/35_surge_box_breakout/backtest.py) — 스터디 35 백테스트 — 급등 묶음 뒤 횡보 범위 돌파·눌림·이평선 매수, 손절×익절 격자, 다시 사기 사슬
+- [daily_watch.py](../research/studies/35_surge_box_breakout/daily_watch.py) — 스터디 35 앞으로의 기록 — 장 마감 뒤 밤 일봉으로 급등 사건·관찰·6개 규칙(base·c1–c5) 신호와 청산을 날짜별로 적고 규칙별 판정(2026-10-02 이후 50건·평균>0·t≥2)을 낸다. 예약작업 Quant Study35 Watch
+- [flow_test.py](../research/studies/35_surge_box_breakout/flow_test.py) — 1번 칸·기준선을 외국인+기관 순매수 여부로 나눠 비교하는 수급 시험
+- [flow_test.txt](../research/studies/35_surge_box_breakout/flow_test.txt) — 수급 시험 결과(차이 t −1.42, 기각)
 - [ma_sweep.py](../research/studies/35_surge_box_breakout/ma_sweep.py) — 스터디 35 이평선 3–21일 × 지정가·종가 확인 매수와 소화 끝 지표(거래량 마름·저가 멈춤) 전수 비교
+- [miss_322000.py](../research/studies/35_surge_box_breakout/miss_322000.py) — HD현대에너지솔루션 2026-02 구간을 규칙별로 왜 사거나 놓쳤는지 추적
+- [miss_322000.txt](../research/studies/35_surge_box_breakout/miss_322000.txt) — 322000 추적 결과(날짜별 탈락 사유·가격 흐름)
+- [optimize.py](../research/studies/35_surge_box_breakout/optimize.py) — 28,800칸 조합 탐색·2겹 교차검증·무작위 최대 t
+- [optimize.txt](../research/studies/35_surge_box_breakout/optimize.txt) — 조합 탐색 결과(1번 칸 +3.52% t4.32 n264)
+- [rebuy.py](../research/studies/35_surge_box_breakout/rebuy.py) — 청산 뒤 추세가 살아 있으면 이평선에서 다시 사는 규칙 72칸 시험
+- [rebuy.txt](../research/studies/35_surge_box_breakout/rebuy.txt) — 다시 사기 결과(통과 0칸, 기각)
+- [strength.py](../research/studies/35_surge_box_breakout/strength.py) — 급등일 거래량·뒤 거래량 감소·되돌림 크기로 나눈 강한 종목 시험
+- [strength.txt](../research/studies/35_surge_box_breakout/strength.txt) — 강한 종목 시험 결과(되돌림 작음만 효과)
 - [summarize.py](../research/studies/35_surge_box_breakout/summarize.py) — 스터디 35 범위·매수 방식별 상위 손절·익절 칸 요약 출력
 - [summary.txt](../research/studies/35_surge_box_breakout/summary.txt) — summarize.py 출력(범위·매수 방식별 상위 칸)
+- [sweep_view.py](../research/studies/35_surge_box_breakout/sweep_view.py) — sweep.json 을 만드는 스크립트
+
+### research/studies/35_surge_box_breakout/live/
+
+- [2026-09-03.jsonl](../research/studies/35_surge_box_breakout/live/2026-09-03.jsonl) — 09-03 기록 — 새 사건 5, 관찰 중 55, 신호 0(첫 줄 day 요약, 이어서 surge·observe·end·signal·position 줄)
+- [2026-09-04.jsonl](../research/studies/35_surge_box_breakout/live/2026-09-04.jsonl) — 09-04 기록 — 새 사건 10, 관찰 중 48, 신호 0(첫 줄 day 요약, 이어서 surge·observe·end·signal·position 줄)
+- [2026-09-07.jsonl](../research/studies/35_surge_box_breakout/live/2026-09-07.jsonl) — 09-07 기록 — 새 사건 9, 관찰 중 52, 신호 0(첫 줄 day 요약, 이어서 surge·observe·end·signal·position 줄)
+- [2026-09-08.jsonl](../research/studies/35_surge_box_breakout/live/2026-09-08.jsonl) — 09-08 기록 — 새 사건 7, 관찰 중 56, 신호 0(첫 줄 day 요약, 이어서 surge·observe·end·signal·position 줄)
+- [2026-09-09.jsonl](../research/studies/35_surge_box_breakout/live/2026-09-09.jsonl) — 09-09 기록 — 새 사건 11, 관찰 중 54, 신호 1(첫 줄 day 요약, 이어서 surge·observe·end·signal·position 줄)
+- [2026-09-10.jsonl](../research/studies/35_surge_box_breakout/live/2026-09-10.jsonl) — 09-10 기록 — 새 사건 3, 관찰 중 64, 신호 0(첫 줄 day 요약, 이어서 surge·observe·end·signal·position 줄)
+- [2026-09-11.jsonl](../research/studies/35_surge_box_breakout/live/2026-09-11.jsonl) — 09-11 기록 — 새 사건 7, 관찰 중 65, 신호 1(첫 줄 day 요약, 이어서 surge·observe·end·signal·position 줄)
+- [2026-09-14.jsonl](../research/studies/35_surge_box_breakout/live/2026-09-14.jsonl) — 09-14 기록 — 새 사건 9, 관찰 중 66, 신호 0(첫 줄 day 요약, 이어서 surge·observe·end·signal·position 줄)
+- [2026-09-15.jsonl](../research/studies/35_surge_box_breakout/live/2026-09-15.jsonl) — 09-15 기록 — 새 사건 12, 관찰 중 63, 신호 0(첫 줄 day 요약, 이어서 surge·observe·end·signal·position 줄)
+- [2026-09-16.jsonl](../research/studies/35_surge_box_breakout/live/2026-09-16.jsonl) — 09-16 기록 — 새 사건 7, 관찰 중 70, 신호 0(첫 줄 day 요약, 이어서 surge·observe·end·signal·position 줄)
+- [2026-09-17.jsonl](../research/studies/35_surge_box_breakout/live/2026-09-17.jsonl) — 09-17 기록 — 새 사건 9, 관찰 중 68, 신호 0(첫 줄 day 요약, 이어서 surge·observe·end·signal·position 줄)
+- [2026-09-18.jsonl](../research/studies/35_surge_box_breakout/live/2026-09-18.jsonl) — 09-18 기록 — 새 사건 7, 관찰 중 75, 신호 0(첫 줄 day 요약, 이어서 surge·observe·end·signal·position 줄)
+- [2026-09-21.jsonl](../research/studies/35_surge_box_breakout/live/2026-09-21.jsonl) — 09-21 기록 — 새 사건 8, 관찰 중 68, 신호 0(첫 줄 day 요약, 이어서 surge·observe·end·signal·position 줄)
+- [2026-09-22.jsonl](../research/studies/35_surge_box_breakout/live/2026-09-22.jsonl) — 09-22 기록 — 새 사건 4, 관찰 중 72, 신호 0(첫 줄 day 요약, 이어서 surge·observe·end·signal·position 줄)
+- [2026-09-23.jsonl](../research/studies/35_surge_box_breakout/live/2026-09-23.jsonl) — 09-23 기록 — 새 사건 3, 관찰 중 74, 신호 0(첫 줄 day 요약, 이어서 surge·observe·end·signal·position 줄)
+- [2026-09-28.jsonl](../research/studies/35_surge_box_breakout/live/2026-09-28.jsonl) — 09-28 기록 — 새 사건 8, 관찰 중 69, 신호 0(첫 줄 day 요약, 이어서 surge·observe·end·signal·position 줄)
+- [2026-09-29.jsonl](../research/studies/35_surge_box_breakout/live/2026-09-29.jsonl) — 09-29 기록 — 새 사건 9, 관찰 중 67, 신호 0(첫 줄 day 요약, 이어서 surge·observe·end·signal·position 줄)
+- [2026-09-30.jsonl](../research/studies/35_surge_box_breakout/live/2026-09-30.jsonl) — 09-30 기록 — 새 사건 2, 관찰 중 72, 신호 0(첫 줄 day 요약, 이어서 surge·observe·end·signal·position 줄)
+- [2026-10-01.jsonl](../research/studies/35_surge_box_breakout/live/2026-10-01.jsonl) — 10-01 기록 — 새 사건 11, 관찰 중 64, 신호 0(첫 줄 day 요약, 이어서 surge·observe·end·signal·position 줄)
+- [2026-10-02.jsonl](../research/studies/35_surge_box_breakout/live/2026-10-02.jsonl) — 10-02 기록 — daily_watch.py 산출
+- [ledger.tsv](../research/studies/35_surge_box_breakout/live/ledger.tsv) — daily_watch.py 규칙별 매매 원장(신호일·매수·청산·수익률, 기록 열은 실시간/따라잡기)
+- [summary.txt](../research/studies/35_surge_box_breakout/live/summary.txt) — daily_watch.py 규칙별 누적 성적과 백테스트 대비·판정 요약
+
+### research/studies/36_cluster_momentum/
+
+- [.gitignore](../research/studies/36_cluster_momentum/.gitignore) — 매매 원장·일별 평가액·주별 선택(trades·nav·picks.parquet, 재실행으로 다시 만듦) 커밋 제외
+- [README.md](../research/studies/36_cluster_momentum/README.md) — 스터디 36 업종 묶음 모멘텀 결과 — 기각(32칸 모두 동일가중 대비 월 초과 0 미만)
+- [SPEC.md](../research/studies/36_cluster_momentum/SPEC.md) — 스터디 36 사전등록 — 대상 종목(시장 거래대금 비중 0.02%), Ward 묶음, 주간 교체·12주 × 손절·익절 32칸, 비교 기준 B0·B1·B2, 판정선
+- [backtest.py](../research/studies/36_cluster_momentum/backtest.py) — 스터디 36 백테스트 — 주마다 상관 Ward 군집 10개씩 묶음, 상위 묶음 대표 매수, 32칸 × 묶음·B1·B2 포트폴리오와 MAE·MFE
+- [grid.tsv](../research/studies/36_cluster_momentum/grid.tsv) — 스터디 36 묶음·B1·B2 × 32칸 연복리·낙폭·월 초과(t)·두 구간·건수·판정
+- [mae_mfe.tsv](../research/studies/36_cluster_momentum/mae_mfe.tsv) — 스터디 36 가격 청산 없는 두 칸의 MAE·MFE 백분위와 선 도달 비율
+- [metrics.json](../research/studies/36_cluster_momentum/metrics.json) — 스터디 36 대상 종목 수·B0·감도(매도세 0.30%, 대표 거래대금 1위)·재현 정보
+- [result.txt](../research/studies/36_cluster_momentum/result.txt) — 스터디 36 결과 요약 — 원안 두 칸, 비교 기준 대비, 연도별, MAE·MFE, 32칸 표
+- [yearly.tsv](../research/studies/36_cluster_momentum/yearly.tsv) — 스터디 36 연도별 B0 수익과 원안 두 칸 수익·초과
 
 ## scripts
 
@@ -1384,6 +1463,7 @@
 - [2026-09-29.md](../strategies/DeviationScale/live/2026-09-29.md) — 09-29 라이브 매매일지
 - [2026-09-30.md](../strategies/DeviationScale/live/2026-09-30.md) — 09-30 라이브 매매일지
 - [2026-10-01.md](../strategies/DeviationScale/live/2026-10-01.md) — 10-01 라이브 매매일지
+- [2026-10-02.md](../strategies/DeviationScale/live/2026-10-02.md) — 10-02 라이브 매매일지
 
 ### strategies/DeviationScale/reviews/
 

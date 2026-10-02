@@ -258,11 +258,13 @@ def main() -> int:
     parser.add_argument("--quiet", default="0800-2005", help="이 시각 안에서는 쉰다(HHMM-HHMM, none 이면 안 쉼)")
     parser.add_argument("--max-candidates", type=int, default=0, help="기동 점검용: 하루 후보를 앞에서 N개로 자른다")
     parser.add_argument("--config", default="Quant/config/config_dev_paper.json")
+    parser.add_argument("--allow-live-key", action="store_true",
+                        help="실계좌 앱키 허용(시세 조회만 한다). 실계좌 매매 시간과 겹치지 않게 --quiet 로 07:20~20:05 를 비운다")
     arguments = parser.parse_args()
 
     config = json.loads((ROOT / arguments.config).read_text(encoding="utf-8"))
-    if not config.get("kis", {}).get("is_paper"):
-        print("[중단] 모의 계정(is_paper=true) 절이 아니다 — 실계좌 앱키로는 돌리지 않는다")
+    if not config.get("kis", {}).get("is_paper") and not arguments.allow_live_key:
+        print("[중단] 모의 계정(is_paper=true) 절이 아니다 — 실계좌 앱키는 --allow-live-key 를 줄 때만 쓴다")
         return 2
     client = from_config(str(ROOT / arguments.config), "kis")
     if not client.authenticate():

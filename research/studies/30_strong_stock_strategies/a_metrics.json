@@ -1,0 +1,123 @@
+{
+ "study": "30_strong_stock_strategies / A 강한 종목 첫 VWAP 눌림",
+ "spec": "research/studies/30_strong_stock_strategies/SPEC.md §2 (사전등록, 바꾸지 않음). 합격 판정은 이 파일에 쓰지 않는다.",
+ "status": "분봉 적재 중 — 있는 날짜만 썼다. 수치는 잠정값이다.",
+ "seed": 0,
+ "periods": {
+  "development": "20250918~20260331"
+ },
+ "holdout_opened": false,
+ "coverage": {
+  "development": {
+   "trading_days": 127,
+   "no_open30_json": 102,
+   "in_progress_skipped": 0,
+   "used": 25,
+   "stage1_failed_codes": 0,
+   "base_candidates": 247,
+   "base_missing_minute_file": 0,
+   "base_bad_minute_file": {
+    "long_gap_or_30min_file": 1
+   }
+  }
+ },
+ "usable_days_range": {
+  "development": "20250918~20251029"
+ },
+ "costs": {
+  "commission_percent_per_side": 0.015,
+  "sell_tax_percent": 0.2,
+  "slippage": "체결 규칙 틱만 — 진입 시가 + 1틱, 시간 청산 시가 − 1틱, 손절 min(S, 시가) − 2틱"
+ },
+ "base_cell": "G6|B0.5|K10|paper_1억",
+ "summary": {
+  "development": {
+   "base": {
+    "trades": 36,
+    "days_with_trades": 21,
+    "usable_days": 25,
+    "trades_per_usable_day": 1.44,
+    "net_bp_mean": -125.73,
+    "gross_bp_mean": -102.95,
+    "net_r_mean": -0.7389,
+    "net_r_median": -1.2861,
+    "win_rate": 0.1389,
+    "avg_win_r": 2.5959,
+    "avg_loss_r": -1.2767,
+    "profit_factor_krw": 0.345,
+    "net_krw_total": -4065994.0,
+    "day_t_days_with_trades": -2.45,
+    "day_t_all_usable_days": -2.403,
+    "mdd_r": 26.599,
+    "net_r_sum": -26.599,
+    "net_r_sum_without_top5": -39.579,
+    "net_r_sum_without_best_month": -13.828,
+    "best_month": "202509",
+    "exit_reasons": {
+     "stop": 30,
+     "time": 6
+    }
+   },
+   "base_portfolio_rejects": {
+    "accepted": 36,
+    "daily_entry_cap": 1
+   },
+   "neighbors_net_r_mean": {
+    "G5|B0.5|K10|paper_1억": -0.3356,
+    "G8|B0.5|K10|paper_1억": -1.2127,
+    "G6|B0.3|K10|paper_1억": -0.8719,
+    "G6|B0.8|K10|paper_1억": -0.8897,
+    "G6|B0.5|K5|paper_1억": -0.2405,
+    "G6|B0.5|K20|paper_1억": -0.6207
+   }
+  }
+ },
+ "machine_counts_base": {
+  "development": {
+   "machine_end": {
+    "below_vwap": 11,
+    "late": 141,
+    "long_gap_or_30min_file": 1,
+    "signal": 38,
+    "timeout": 2,
+    "vi": 54
+   },
+   "fill": {
+    "filled": 37,
+    "stop_too_wide": 1
+   },
+   "cpp_stop_too_wide_on_signal": 2,
+   "stop_widened_to_0.6pct": 0
+  }
+ },
+ "controls_base": {
+  "development": {
+   "paired_trades": 36,
+   "a_net_bp_mean": -125.73,
+   "a_net_r_mean": -0.7389,
+   "c1_net_bp_mean": -65.55,
+   "c1_net_r_mean": -0.3385,
+   "a_minus_c1_bp": -60.17,
+   "a_minus_c1_r": -0.4004,
+   "c3_net_bp_mean": -88.84,
+   "c3_net_r_mean": -0.5024,
+   "a_minus_c3_bp": -36.89,
+   "a_minus_c3_r": -0.2365,
+   "a_percentile_in_c3_draws": 9.0,
+   "c2_triggered": 19,
+   "c2_net_bp_mean": -58.73,
+   "c2_profit_factor_bp": 0.6,
+   "note": "C1·C2의 R은 진입 × 1.9%를 R로 쓴다. A와 같은 단위 비교는 bp로 본다."
+  }
+ },
+ "raw_factor": {
+  "datagokr_files": 14,
+  "codes_with_factor_not_1": 462
+ },
+ "inputs": {
+  "files": 495,
+  "sha256_of_list": "5c66121f32cbb6390b776adf4391e05611851177f7567619f4c67770280e3a07"
+ },
+ "git_commit": "546f2d416d7e1c7cd9412ff96528941a5505230c",
+ "rerun": "py -X utf8 research/studies/30_strong_stock_strategies/backtest_a.py"
+}

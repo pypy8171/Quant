@@ -1,0 +1,825 @@
+{
+ "periods": {
+  "daily_kospi": {
+   "all": [
+    "2015-01-02",
+    "2026-09-30",
+    2882
+   ],
+   "front70": [
+    "2015-01-02",
+    "2023-03-13",
+    2017
+   ],
+   "back30": [
+    "2023-03-14",
+    "2026-09-30",
+    865
+   ]
+  },
+  "daily_kosdaq": {
+   "all": [
+    "2015-01-02",
+    "2026-09-30",
+    2882
+   ],
+   "front70": [
+    "2015-01-02",
+    "2023-03-13",
+    2017
+   ],
+   "back30": [
+    "2023-03-14",
+    "2026-09-30",
+    865
+   ]
+  },
+  "hourly_kospi": {
+   "all": [
+    "2024-05-09",
+    "2026-09-30",
+    581
+   ],
+   "front70": [
+    "2024-05-09",
+    "2026-01-09",
+    406
+   ],
+   "back30": [
+    "2026-01-12",
+    "2026-09-30",
+    175
+   ]
+  },
+  "hourly_kosdaq": {
+   "all": [
+    "2024-05-09",
+    "2026-09-30",
+    581
+   ],
+   "front70": [
+    "2024-05-09",
+    "2026-01-09",
+    406
+   ],
+   "back30": [
+    "2026-01-12",
+    "2026-09-30",
+    175
+   ]
+  }
+ },
+ "round_trip_cost": 0.00215,
+ "score_line": -11,
+ "drops": [
+  -1.5,
+  -2.0,
+  -2.5,
+  -3.0,
+  -4.0,
+  -5.0
+ ],
+ "devscale_variant": "z_lo8_up5_tp5",
+ "edge_next_open_summary": {
+  "daily|kosdaq|high-1.5": {
+   "all": 2.41,
+   "back30": 4.4,
+   "front70": 1.55
+  },
+  "daily|kosdaq|high-1.5|score-11": {
+   "all": 1.27,
+   "back30": 4.12,
+   "front70": 0.03
+  },
+  "daily|kosdaq|high-2.0": {
+   "all": 1.72,
+   "back30": -3.23,
+   "front70": 3.84
+  },
+  "daily|kosdaq|high-2.0|score-11": {
+   "all": -0.12,
+   "back30": -5.49,
+   "front70": 2.18
+  },
+  "daily|kosdaq|high-2.5": {
+   "all": 1.25,
+   "back30": -6.92,
+   "front70": 4.76
+  },
+  "daily|kosdaq|high-2.5|score-11": {
+   "all": -0.06,
+   "back30": -8.47,
+   "front70": 3.55
+  },
+  "daily|kosdaq|high-3.0": {
+   "all": 1.11,
+   "back30": -5.14,
+   "front70": 3.79
+  },
+  "daily|kosdaq|high-3.0|score-11": {
+   "all": -0.43,
+   "back30": -9.37,
+   "front70": 3.41
+  },
+  "daily|kosdaq|high-4.0": {
+   "all": 0.16,
+   "back30": -1.48,
+   "front70": 0.87
+  },
+  "daily|kosdaq|high-4.0|score-11": {
+   "all": -1.28,
+   "back30": -6.59,
+   "front70": 1.0
+  },
+  "daily|kosdaq|high-5.0": {
+   "all": -1.92,
+   "back30": -5.49,
+   "front70": -0.39
+  },
+  "daily|kosdaq|high-5.0|score-11": {
+   "all": -3.29,
+   "back30": -11.25,
+   "front70": 0.13
+  },
+  "daily|kosdaq|prev-1.5": {
+   "all": -9.47,
+   "back30": -9.64,
+   "front70": -9.4
+  },
+  "daily|kosdaq|prev-1.5|score-11": {
+   "all": -10.07,
+   "back30": -10.03,
+   "front70": -10.09
+  },
+  "daily|kosdaq|prev-2.0": {
+   "all": -5.65,
+   "back30": -6.36,
+   "front70": -5.36
+  },
+  "daily|kosdaq|prev-2.0|score-11": {
+   "all": -6.5,
+   "back30": -7.16,
+   "front70": -6.23
+  },
+  "daily|kosdaq|prev-2.5": {
+   "all": -3.6,
+   "back30": -5.56,
+   "front70": -2.76
+  },
+  "daily|kosdaq|prev-2.5|score-11": {
+   "all": -4.59,
+   "back30": -6.73,
+   "front70": -3.68
+  },
+  "daily|kosdaq|prev-3.0": {
+   "all": -3.38,
+   "back30": -4.76,
+   "front70": -2.79
+  },
+  "daily|kosdaq|prev-3.0|score-11": {
+   "all": -4.18,
+   "back30": -5.72,
+   "front70": -3.52
+  },
+  "daily|kosdaq|prev-4.0": {
+   "all": -3.21,
+   "back30": -4.78,
+   "front70": -2.53
+  },
+  "daily|kosdaq|prev-4.0|score-11": {
+   "all": -4.64,
+   "back30": -7.82,
+   "front70": -3.27
+  },
+  "daily|kosdaq|prev-5.0": {
+   "all": -4.28,
+   "back30": -9.19,
+   "front70": -2.18
+  },
+  "daily|kosdaq|prev-5.0|score-11": {
+   "all": -5.11,
+   "back30": -12.89,
+   "front70": -1.78
+  },
+  "daily|kosdaq|score-11": {
+   "all": -1.04,
+   "back30": -6.65,
+   "front70": 1.36
+  },
+  "daily|kospi|high-1.5": {
+   "all": -1.67,
+   "back30": -0.13,
+   "front70": -2.33
+  },
+  "daily|kospi|high-1.5|score-11": {
+   "all": -2.59,
+   "back30": -0.87,
+   "front70": -3.32
+  },
+  "daily|kospi|high-2.0": {
+   "all": -0.91,
+   "back30": -0.56,
+   "front70": -1.05
+  },
+  "daily|kospi|high-2.0|score-11": {
+   "all": -2.66,
+   "back30": -4.43,
+   "front70": -1.9
+  },
+  "daily|kospi|high-2.5": {
+   "all": 0.37,
+   "back30": -1.21,
+   "front70": 1.05
+  },
+  "daily|kospi|high-2.5|score-11": {
+   "all": -1.63,
+   "back30": -4.49,
+   "front70": -0.4
+  },
+  "daily|kospi|high-3.0": {
+   "all": -1.89,
+   "back30": -7.62,
+   "front70": 0.56
+  },
+  "daily|kospi|high-3.0|score-11": {
+   "all": -3.54,
+   "back30": -10.3,
+   "front70": -0.64
+  },
+  "daily|kospi|high-4.0": {
+   "all": -1.43,
+   "back30": -7.02,
+   "front70": 0.97
+  },
+  "daily|kospi|high-4.0|score-11": {
+   "all": -2.99,
+   "back30": -10.05,
+   "front70": 0.03
+  },
+  "daily|kospi|high-5.0": {
+   "all": 1.24,
+   "back30": 3.06,
+   "front70": 0.46
+  },
+  "daily|kospi|high-5.0|score-11": {
+   "all": -0.74,
+   "back30": -3.12,
+   "front70": 0.28
+  },
+  "daily|kospi|prev-1.5": {
+   "all": -8.29,
+   "back30": -6.07,
+   "front70": -9.24
+  },
+  "daily|kospi|prev-1.5|score-11": {
+   "all": -8.75,
+   "back30": -6.38,
+   "front70": -9.76
+  },
+  "daily|kospi|prev-2.0": {
+   "all": -3.76,
+   "back30": -4.73,
+   "front70": -3.34
+  },
+  "daily|kospi|prev-2.0|score-11": {
+   "all": -4.52,
+   "back30": -5.92,
+   "front70": -3.91
+  },
+  "daily|kospi|prev-2.5": {
+   "all": -2.02,
+   "back30": -1.72,
+   "front70": -2.15
+  },
+  "daily|kospi|prev-2.5|score-11": {
+   "all": -2.77,
+   "back30": -2.51,
+   "front70": -2.87
+  },
+  "daily|kospi|prev-3.0": {
+   "all": -2.26,
+   "back30": -2.27,
+   "front70": -2.26
+  },
+  "daily|kospi|prev-3.0|score-11": {
+   "all": -2.95,
+   "back30": -3.24,
+   "front70": -2.83
+  },
+  "daily|kospi|prev-4.0": {
+   "all": -2.21,
+   "back30": -4.35,
+   "front70": -1.3
+  },
+  "daily|kospi|prev-4.0|score-11": {
+   "all": -2.61,
+   "back30": -5.26,
+   "front70": -1.48
+  },
+  "daily|kospi|prev-5.0": {
+   "all": -1.29,
+   "back30": -3.51,
+   "front70": -0.33
+  },
+  "daily|kospi|prev-5.0|score-11": {
+   "all": -2.54,
+   "back30": -7.89,
+   "front70": -0.25
+  },
+  "daily|kospi|score-11": {
+   "all": -1.82,
+   "back30": -6.45,
+   "front70": 0.16
+  },
+  "daily_high_first|kosdaq|high-1.5": {
+   "all": -45.95,
+   "back30": -50.35,
+   "front70": -44.07
+  },
+  "daily_high_first|kosdaq|high-2.0": {
+   "all": -34.19,
+   "back30": -47.19,
+   "front70": -28.62
+  },
+  "daily_high_first|kosdaq|high-2.5": {
+   "all": -26.57,
+   "back30": -39.17,
+   "front70": -21.16
+  },
+  "daily_high_first|kosdaq|high-3.0": {
+   "all": -20.0,
+   "back30": -33.68,
+   "front70": -14.13
+  },
+  "daily_high_first|kosdaq|high-4.0": {
+   "all": -13.87,
+   "back30": -27.24,
+   "front70": -8.13
+  },
+  "daily_high_first|kosdaq|high-5.0": {
+   "all": -10.34,
+   "back30": -22.03,
+   "front70": -5.32
+  },
+  "daily_high_first|kosdaq|prev-1.5": {
+   "all": -9.47,
+   "back30": -9.64,
+   "front70": -9.4
+  },
+  "daily_high_first|kosdaq|prev-2.0": {
+   "all": -5.65,
+   "back30": -6.36,
+   "front70": -5.36
+  },
+  "daily_high_first|kosdaq|prev-2.5": {
+   "all": -3.6,
+   "back30": -5.56,
+   "front70": -2.76
+  },
+  "daily_high_first|kosdaq|prev-3.0": {
+   "all": -3.38,
+   "back30": -4.76,
+   "front70": -2.79
+  },
+  "daily_high_first|kosdaq|prev-4.0": {
+   "all": -3.21,
+   "back30": -4.78,
+   "front70": -2.53
+  },
+  "daily_high_first|kosdaq|prev-5.0": {
+   "all": -4.28,
+   "back30": -9.19,
+   "front70": -2.18
+  },
+  "daily_high_first|kospi|high-1.5": {
+   "all": -33.36,
+   "back30": -46.93,
+   "front70": -27.64
+  },
+  "daily_high_first|kospi|high-2.0": {
+   "all": -19.25,
+   "back30": -30.58,
+   "front70": -14.39
+  },
+  "daily_high_first|kospi|high-2.5": {
+   "all": -11.22,
+   "back30": -23.5,
+   "front70": -5.96
+  },
+  "daily_high_first|kospi|high-3.0": {
+   "all": -10.67,
+   "back30": -25.7,
+   "front70": -4.22
+  },
+  "daily_high_first|kospi|high-4.0": {
+   "all": -8.32,
+   "back30": -25.06,
+   "front70": -1.15
+  },
+  "daily_high_first|kospi|high-5.0": {
+   "all": -5.28,
+   "back30": -14.82,
+   "front70": -1.18
+  },
+  "daily_high_first|kospi|prev-1.5": {
+   "all": -8.29,
+   "back30": -6.07,
+   "front70": -9.24
+  },
+  "daily_high_first|kospi|prev-2.0": {
+   "all": -3.76,
+   "back30": -4.73,
+   "front70": -3.34
+  },
+  "daily_high_first|kospi|prev-2.5": {
+   "all": -2.02,
+   "back30": -1.72,
+   "front70": -2.15
+  },
+  "daily_high_first|kospi|prev-3.0": {
+   "all": -2.26,
+   "back30": -2.27,
+   "front70": -2.26
+  },
+  "daily_high_first|kospi|prev-4.0": {
+   "all": -2.21,
+   "back30": -4.35,
+   "front70": -1.3
+  },
+  "daily_high_first|kospi|prev-5.0": {
+   "all": -1.29,
+   "back30": -3.51,
+   "front70": -0.33
+  },
+  "daily_low_first|kosdaq|high-1.5": {
+   "all": -6.07,
+   "back30": -11.33,
+   "front70": -3.82
+  },
+  "daily_low_first|kosdaq|high-2.0": {
+   "all": -2.68,
+   "back30": -11.44,
+   "front70": 1.07
+  },
+  "daily_low_first|kosdaq|high-2.5": {
+   "all": -1.68,
+   "back30": -12.79,
+   "front70": 3.08
+  },
+  "daily_low_first|kosdaq|high-3.0": {
+   "all": -1.28,
+   "back30": -8.99,
+   "front70": 2.03
+  },
+  "daily_low_first|kosdaq|high-4.0": {
+   "all": -1.05,
+   "back30": -3.42,
+   "front70": -0.03
+  },
+  "daily_low_first|kosdaq|high-5.0": {
+   "all": -2.13,
+   "back30": -4.79,
+   "front70": -0.98
+  },
+  "daily_low_first|kosdaq|prev-1.5": {
+   "all": -9.47,
+   "back30": -9.64,
+   "front70": -9.4
+  },
+  "daily_low_first|kosdaq|prev-2.0": {
+   "all": -5.65,
+   "back30": -6.36,
+   "front70": -5.36
+  },
+  "daily_low_first|kosdaq|prev-2.5": {
+   "all": -3.6,
+   "back30": -5.56,
+   "front70": -2.76
+  },
+  "daily_low_first|kosdaq|prev-3.0": {
+   "all": -3.38,
+   "back30": -4.76,
+   "front70": -2.79
+  },
+  "daily_low_first|kosdaq|prev-4.0": {
+   "all": -3.21,
+   "back30": -4.78,
+   "front70": -2.53
+  },
+  "daily_low_first|kosdaq|prev-5.0": {
+   "all": -4.28,
+   "back30": -9.19,
+   "front70": -2.18
+  },
+  "daily_low_first|kospi|high-1.5": {
+   "all": -6.7,
+   "back30": -14.65,
+   "front70": -3.29
+  },
+  "daily_low_first|kospi|high-2.0": {
+   "all": -4.05,
+   "back30": -11.19,
+   "front70": -0.99
+  },
+  "daily_low_first|kospi|high-2.5": {
+   "all": -1.42,
+   "back30": -6.4,
+   "front70": 0.72
+  },
+  "daily_low_first|kospi|high-3.0": {
+   "all": -3.12,
+   "back30": -12.84,
+   "front70": 1.06
+  },
+  "daily_low_first|kospi|high-4.0": {
+   "all": -0.8,
+   "back30": -6.06,
+   "front70": 1.46
+  },
+  "daily_low_first|kospi|high-5.0": {
+   "all": 0.42,
+   "back30": 0.05,
+   "front70": 0.58
+  },
+  "daily_low_first|kospi|prev-1.5": {
+   "all": -8.29,
+   "back30": -6.07,
+   "front70": -9.24
+  },
+  "daily_low_first|kospi|prev-2.0": {
+   "all": -3.76,
+   "back30": -4.73,
+   "front70": -3.34
+  },
+  "daily_low_first|kospi|prev-2.5": {
+   "all": -2.02,
+   "back30": -1.72,
+   "front70": -2.15
+  },
+  "daily_low_first|kospi|prev-3.0": {
+   "all": -2.26,
+   "back30": -2.27,
+   "front70": -2.26
+  },
+  "daily_low_first|kospi|prev-4.0": {
+   "all": -2.21,
+   "back30": -4.35,
+   "front70": -1.3
+  },
+  "daily_low_first|kospi|prev-5.0": {
+   "all": -1.29,
+   "back30": -3.51,
+   "front70": -0.33
+  },
+  "hourly|kosdaq|high-1.5": {
+   "all": 0.83,
+   "back30": 21.56,
+   "front70": -8.11
+  },
+  "hourly|kosdaq|high-1.5|score-11": {
+   "all": 0.51,
+   "back30": 26.58,
+   "front70": -10.72
+  },
+  "hourly|kosdaq|high-2.0": {
+   "all": -8.74,
+   "back30": -3.08,
+   "front70": -11.17
+  },
+  "hourly|kosdaq|high-2.0|score-11": {
+   "all": -7.23,
+   "back30": 7.9,
+   "front70": -13.76
+  },
+  "hourly|kosdaq|high-2.5": {
+   "all": -14.54,
+   "back30": -33.57,
+   "front70": -6.33
+  },
+  "hourly|kosdaq|high-2.5|score-11": {
+   "all": -11.0,
+   "back30": -16.73,
+   "front70": -8.53
+  },
+  "hourly|kosdaq|high-3.0": {
+   "all": -7.95,
+   "back30": -6.14,
+   "front70": -8.73
+  },
+  "hourly|kosdaq|high-3.0|score-11": {
+   "all": -7.49,
+   "back30": -2.45,
+   "front70": -9.67
+  },
+  "hourly|kosdaq|high-4.0": {
+   "all": -5.83,
+   "back30": -17.21,
+   "front70": -0.93
+  },
+  "hourly|kosdaq|high-4.0|score-11": {
+   "all": -7.26,
+   "back30": -8.95,
+   "front70": -6.53
+  },
+  "hourly|kosdaq|high-5.0": {
+   "all": -10.44,
+   "back30": -30.89,
+   "front70": -1.62
+  },
+  "hourly|kosdaq|high-5.0|score-11": {
+   "all": -14.8,
+   "back30": -33.89,
+   "front70": -6.57
+  },
+  "hourly|kosdaq|prev-1.5": {
+   "all": -11.4,
+   "back30": -7.55,
+   "front70": -13.06
+  },
+  "hourly|kosdaq|prev-1.5|score-11": {
+   "all": -12.24,
+   "back30": -8.93,
+   "front70": -13.67
+  },
+  "hourly|kosdaq|prev-2.0": {
+   "all": -10.26,
+   "back30": -7.09,
+   "front70": -11.63
+  },
+  "hourly|kosdaq|prev-2.0|score-11": {
+   "all": -11.74,
+   "back30": -6.84,
+   "front70": -13.85
+  },
+  "hourly|kosdaq|prev-2.5": {
+   "all": -4.36,
+   "back30": -2.21,
+   "front70": -5.28
+  },
+  "hourly|kosdaq|prev-2.5|score-11": {
+   "all": -5.68,
+   "back30": -5.91,
+   "front70": -5.59
+  },
+  "hourly|kosdaq|prev-3.0": {
+   "all": -3.22,
+   "back30": -6.62,
+   "front70": -1.75
+  },
+  "hourly|kosdaq|prev-3.0|score-11": {
+   "all": -3.54,
+   "back30": -5.98,
+   "front70": -2.49
+  },
+  "hourly|kosdaq|prev-4.0": {
+   "all": -6.42,
+   "back30": -22.43,
+   "front70": 0.48
+  },
+  "hourly|kosdaq|prev-4.0|score-11": {
+   "all": -4.88,
+   "back30": -4.88,
+   "front70": -4.88
+  },
+  "hourly|kosdaq|prev-5.0": {
+   "all": -8.97,
+   "back30": -27.66,
+   "front70": -0.92
+  },
+  "hourly|kosdaq|prev-5.0|score-11": {
+   "all": -6.42,
+   "back30": -6.55,
+   "front70": -6.36
+  },
+  "hourly|kosdaq|score-11": {
+   "all": -4.06,
+   "back30": 5.06,
+   "front70": -7.99
+  },
+  "hourly|kospi|high-1.5": {
+   "all": -15.9,
+   "back30": -27.75,
+   "front70": -10.79
+  },
+  "hourly|kospi|high-1.5|score-11": {
+   "all": -14.75,
+   "back30": -18.22,
+   "front70": -13.25
+  },
+  "hourly|kospi|high-2.0": {
+   "all": -8.75,
+   "back30": -11.58,
+   "front70": -7.53
+  },
+  "hourly|kospi|high-2.0|score-11": {
+   "all": -9.49,
+   "back30": -7.39,
+   "front70": -10.39
+  },
+  "hourly|kospi|high-2.5": {
+   "all": -5.28,
+   "back30": -6.58,
+   "front70": -4.72
+  },
+  "hourly|kospi|high-2.5|score-11": {
+   "all": -9.49,
+   "back30": -9.12,
+   "front70": -9.64
+  },
+  "hourly|kospi|high-3.0": {
+   "all": -15.28,
+   "back30": -38.82,
+   "front70": -5.14
+  },
+  "hourly|kospi|high-3.0|score-11": {
+   "all": -17.81,
+   "back30": -36.95,
+   "front70": -9.56
+  },
+  "hourly|kospi|high-4.0": {
+   "all": -11.6,
+   "back30": -29.22,
+   "front70": -4.0
+  },
+  "hourly|kospi|high-4.0|score-11": {
+   "all": -14.22,
+   "back30": -26.12,
+   "front70": -9.09
+  },
+  "hourly|kospi|high-5.0": {
+   "all": 1.54,
+   "back30": 8.43,
+   "front70": -1.44
+  },
+  "hourly|kospi|high-5.0|score-11": {
+   "all": -6.47,
+   "back30": 1.12,
+   "front70": -9.74
+  },
+  "hourly|kospi|prev-1.5": {
+   "all": -6.01,
+   "back30": 13.84,
+   "front70": -14.57
+  },
+  "hourly|kospi|prev-1.5|score-11": {
+   "all": -6.66,
+   "back30": 13.47,
+   "front70": -15.33
+  },
+  "hourly|kospi|prev-2.0": {
+   "all": -4.79,
+   "back30": 11.6,
+   "front70": -11.86
+  },
+  "hourly|kospi|prev-2.0|score-11": {
+   "all": -6.54,
+   "back30": 7.19,
+   "front70": -12.45
+  },
+  "hourly|kospi|prev-2.5": {
+   "all": -0.79,
+   "back30": 6.05,
+   "front70": -3.74
+  },
+  "hourly|kospi|prev-2.5|score-11": {
+   "all": -4.31,
+   "back30": 3.1,
+   "front70": -7.51
+  },
+  "hourly|kospi|prev-3.0": {
+   "all": -1.12,
+   "back30": 6.86,
+   "front70": -4.56
+  },
+  "hourly|kospi|prev-3.0|score-11": {
+   "all": -3.73,
+   "back30": 5.92,
+   "front70": -7.88
+  },
+  "hourly|kospi|prev-4.0": {
+   "all": -5.53,
+   "back30": -13.03,
+   "front70": -2.3
+  },
+  "hourly|kospi|prev-4.0|score-11": {
+   "all": -7.93,
+   "back30": -9.79,
+   "front70": -7.13
+  },
+  "hourly|kospi|prev-5.0": {
+   "all": -3.83,
+   "back30": -3.59,
+   "front70": -3.94
+  },
+  "hourly|kospi|prev-5.0|score-11": {
+   "all": -5.07,
+   "back30": 4.92,
+   "front70": -9.38
+  },
+  "hourly|kospi|score-11": {
+   "all": -5.76,
+   "back30": 0.15,
+   "front70": -8.3
+  }
+ }
+}

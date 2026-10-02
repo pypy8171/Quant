@@ -867,7 +867,8 @@ def render_live(live, public=False):
     stamp = live.get("generated") or ""
     tail = (f' <span class="win">갱신 {esc(stamp)} · 일지 {len(journals)}건 · '
             f'원장 {len(order_log)}일</span>' if stamp else "")
-    out = ['<section class="fam"><h2>라이브(모의) 매매 기록</h2>'
+    out = ['<section class="fam"><h2>'
+           + ('라이브(모의) 매매 기록' if public else '라이브 매매 기록(모의·실계좌)') + '</h2>'
            '<p class="fdesc">KIS 모의계좌(paper) 실증. <b>주문 로그</b>는 <code>logs/trades_*.csv</code> 일자별 롤업 — '
            '체결 열은 최종 상태가 체결인 주문 수, 실현손익은 원장 체결 행의 합(매도측 수수료·거래세를 뺀 값)이고 '
            '평가손익은 넣지 않는다. '
@@ -919,45 +920,58 @@ def render_live(live, public=False):
 
     # 주문 로그 롤업
     if order_log:
-        rows = []
-        for o in sorted(order_log, key=lambda x: x["date"], reverse=True):
-            tot = o.get("total", 0) or 1
-            seg = []
-            for k, cls in (("accepted", "pos"), ("cancelled", "zero"), ("rejected", "neg")):
-                v = o.get(k, 0)
-                if v:
-                    seg.append(f'<span class="seg {cls}" style="width:{v/tot*100:.1f}%" '
-                               f'title="{k} {v}"></span>')
-            strat = " · ".join(f'{esc(k)} {v}' for k, v in
-                               list(o.get("by_strategy", {}).items())[:3])
-            rows.append(
-                f'<tr><td class="k-left">{esc(o.get("date",""))}</td>'
-                f'<td class="k-int">{num(o.get("total"),0)}</td>'
-                f'<td class="k-int"><span class="pos">{num(o.get("accepted"),0)}</span></td>'
-                f'<td class="k-int"><span class="zero">{num(o.get("cancelled"),0)}</span></td>'
-                f'<td class="k-int"><span class="neg">{num(o.get("rejected"),0)}</span></td>'
-                f'<td class="k-int"><span class="{"pos" if o.get("filled") else "zero"}">'
-                f'{num(o.get("filled"),0)}</span></td>'
-                f'<td class="k-int">{num(o.get("n_tickers"),0)}</td>'
-                + (f'<td class="k-int"><span class="{"pos" if o["realized_pnl"] >= 0 else "neg"}">'
-                   f'{num(o["realized_pnl"],0)}</span></td>'
-                   f'<td class="k-int">{num((o.get("buy_notional",0)+o.get("sell_notional",0))/1e6,1)}</td>'
-                   if o.get("realized_pnl") is not None else '<td class="k-int">–</td><td class="k-int">–</td>')
-                + f'<td class="k-bar"><span class="stack">{"".join(seg)}</span></td>'
-                f'<td class="k-left cstrat">{strat}</td></tr>')
-        out.append(
-            '<div class="grp"><h3>주문 로그 요약 <span class="win">'
-            '(접수=초록·취소=회색·거부=빨강)</span></h3>'
-            '<div class="tw"><table><thead><tr>'
-            '<th>일자</th><th>총주문</th><th>접수</th><th>취소</th><th>거부</th>'
-            '<th>체결</th><th>종목수</th><th>실현손익(원)</th><th>매매대금(백만)</th><th>상태 비율</th><th>전략</th></tr></thead>'
-            f'<tbody>{"".join(rows)}</tbody></table></div></div>')
+        out.append(_order_log_table(order_log, "주문 로그 요약"))
+
+    # 실계좌 원장은 모의와 섞지 않고 따로 싣는다. 공개본에는 넣지 않는다.
+    live_account_log = [] if public else live.get("order_log_live_account", [])
+    if live_account_log:
+        live_pnl = sum(day.get("realized_pnl") or 0 for day in live_account_log)
+        out.append(f'<p class="fdesc">실계좌 실현손익 누계 <b class="{"pos" if live_pnl >= 0 else "neg"}">'
+                   f'{num(live_pnl, 0)}원</b> · {len(live_account_log)}일 '
+                   '(<code>Quant/build_win/logs_live/trades_*.csv</code>, 모의 누계와 별개)</p>')
+        out.append(_order_log_table(live_account_log, "실계좌 주문 로그 요약"))
 
     if not journals and not order_log:
         out.append('<p class="empty">라이브 기록이 없습니다. '
                    '<code>python PYQuant/dashboard/backfill_live.py</code>로 생성.</p>')
     out.append('</section>')
     return "".join(out)
+
+
+def _order_log_table(order_log, title):
+    """원장 일자별 롤업 표 한 장. 모의·실계좌가 같은 모양이라 함께 쓴다."""
+    rows = []
+    for day in sorted(order_log, key=lambda x: x["date"], reverse=True):
+        total = day.get("total", 0) or 1
+        segments = []
+        for key, cls in (("accepted", "pos"), ("cancelled", "zero"), ("rejected", "neg")):
+            count = day.get(key, 0)
+            if count:
+                segments.append(f'<span class="seg {cls}" style="width:{count/total*100:.1f}%" '
+                           f'title="{key} {count}"></span>')
+        strategies = " · ".join(f'{esc(name)} {count}' for name, count in
+                           list(day.get("by_strategy", {}).items())[:3])
+        rows.append(
+            f'<tr><td class="k-left">{esc(day.get("date",""))}</td>'
+            f'<td class="k-int">{num(day.get("total"),0)}</td>'
+            f'<td class="k-int"><span class="pos">{num(day.get("accepted"),0)}</span></td>'
+            f'<td class="k-int"><span class="zero">{num(day.get("cancelled"),0)}</span></td>'
+            f'<td class="k-int"><span class="neg">{num(day.get("rejected"),0)}</span></td>'
+            f'<td class="k-int"><span class="{"pos" if day.get("filled") else "zero"}">'
+            f'{num(day.get("filled"),0)}</span></td>'
+            f'<td class="k-int">{num(day.get("n_tickers"),0)}</td>'
+            + (f'<td class="k-int"><span class="{"pos" if day["realized_pnl"] >= 0 else "neg"}">'
+               f'{num(day["realized_pnl"],0)}</span></td>'
+               f'<td class="k-int">{num((day.get("buy_notional",0)+day.get("sell_notional",0))/1e6,1)}</td>'
+               if day.get("realized_pnl") is not None else '<td class="k-int">–</td><td class="k-int">–</td>')
+            + f'<td class="k-bar"><span class="stack">{"".join(segments)}</span></td>'
+            f'<td class="k-left cstrat">{strategies}</td></tr>')
+    return ('<div class="grp"><h3>' + esc(title) + ' <span class="win">'
+            '(접수=초록·취소=회색·거부=빨강)</span></h3>'
+            '<div class="tw"><table><thead><tr>'
+            '<th>일자</th><th>총주문</th><th>접수</th><th>취소</th><th>거부</th>'
+            '<th>체결</th><th>종목수</th><th>실현손익(원)</th><th>매매대금(백만)</th><th>상태 비율</th><th>전략</th></tr></thead>'
+            f'<tbody>{"".join(rows)}</tbody></table></div></div>')
 
 
 # ── 리뷰 탭 (사후검토) ─────────────────────────────────────────────────────────

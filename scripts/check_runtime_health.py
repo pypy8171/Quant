@@ -2432,6 +2432,45 @@ def regime_feed_row(date: str) -> tuple:
     return (name, True, "WARN", detail)
 
 
+STUDY35_LIVE = REPO / "research" / "studies" / "35_surge_box_breakout" / "live"
+STUDY35_STALE_DAYS = 5   # 주말·하루 휴장을 넘겨도 이보다 오래되면 예약작업이 멈춘 것
+
+
+def study35_watch_row(date: str) -> tuple:
+    """스터디 35 앞으로의 기록(예약작업 'Quant Study35 Watch')의 가장 최근 날 요약 한 줄.
+
+    기록은 밤 일봉 갱신 뒤에 돌아 장 마감 직후 일지에는 전 거래일 자료가 실린다. 가장 최근 파일이
+    STUDY35_STALE_DAYS 보다 오래됐으면 기록이 멈춘 것이다.
+    """
+    name = "스터디 35 기록"
+    files = sorted(STUDY35_LIVE.glob("????-??-??.jsonl")) if STUDY35_LIVE.exists() else []
+
+    if not files:
+        return (name, False, "WARN", "research/studies/35_surge_box_breakout/live/ 에 날짜 파일이 없다 — daily_watch.py 가 돈 적이 없다")
+
+    latest = files[-1]
+
+    try:
+        with latest.open(encoding="utf-8") as file:
+            head = json.loads(file.readline())
+    except (OSError, ValueError):
+        return (name, False, "WARN", f"{latest.name} 첫 줄을 읽지 못했다")
+
+    signals = head.get("signals", {})
+    closed = head.get("cumulative_closed", {}).get("base", {})
+    closed_live = head.get("cumulative_closed_live", {}).get("base", {})
+    mean_text = f"평균 {closed['mean']:+.2f}%" if closed.get("n") else "평균 –"
+    by_rule = " ".join(f"{rule}{count}" for rule, count in signals.items() if count) or "없음"
+    detail = (f"{latest.stem} 자료: 새 사건 {head.get('surges', 0)}, 신호 {sum(signals.values())}({by_rule}), "
+              f"base 누적 청산 {closed.get('n', 0)}건 {mean_text}(실시간 {closed_live.get('n', 0)}건)")
+    age = (dt.date.fromisoformat(date) - dt.date.fromisoformat(latest.stem)).days
+
+    if age > STUDY35_STALE_DAYS:
+        return (name, False, "WARN", detail + f" — {age}일 전 기록이 마지막이다(예약작업 'Quant Study35 Watch' 확인)")
+
+    return (name, True, "WARN", detail)
+
+
 TRANSPORT_THREADS_RE = re.compile(r"\[OrderThread\] 전송 스레드 (\d+)개")
 
 
@@ -2651,6 +2690,7 @@ def global_rows(date: str) -> list:
         *feed_ledger_rows(date),
         journal_mirror_row(date),
         regime_feed_row(date),
+        study35_watch_row(date),
         queue_latency_row(date),
         role_publish_row(date),
         order_latency_breakdown_row(date),

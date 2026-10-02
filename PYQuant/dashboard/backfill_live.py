@@ -34,6 +34,8 @@ _REPO = _HERE.parents[2]
 LOG_DIRS = [_REPO / "Quant" / "build_win" / "logs",
             _REPO / "Quant" / "logs",
             _REPO / "logs"]
+# 실계좌 감시견(scripts/auto_trade_live.ps1)은 원장을 따로 쓴다. 모의와 합치면 손익이 섞이므로 별도 목록으로 낸다.
+LIVE_ACCOUNT_LOG_DIRS = [_REPO / "Quant" / "build_win" / "logs_live"]
 STRAT = _REPO / "strategies"
 OUT = _REPO / "research" / "dashboard" / "live.json"
 
@@ -47,15 +49,15 @@ def rel(p: Path) -> str:
 
 
 # ── 주문로그 롤업 ─────────────────────────────────────────────────────────────
-def rollup_trades():
+def rollup_trades(log_dirs=LOG_DIRS):
     best = {}
-    for d in LOG_DIRS:
-        if not d.is_dir():
+    for directory in log_dirs:
+        if not directory.is_dir():
             continue
-        for p in sorted(d.glob("trades_*.csv")):
-            m = re.search(r"trades_(\d{4})(\d{2})(\d{2})", p.name)
-            date = f"{m.group(1)}-{m.group(2)}-{m.group(3)}" if m else p.stem
-            row = _rollup_one(p, date)
+        for log_path in sorted(directory.glob("trades_*.csv")):
+            date_match = re.search(r"trades_(\d{4})(\d{2})(\d{2})", log_path.name)
+            date = f"{date_match.group(1)}-{date_match.group(2)}-{date_match.group(3)}" if date_match else log_path.stem
+            row = _rollup_one(log_path, date)
             if row is None:
                 continue
             if date not in best or row["total"] > best[date]["total"]:
@@ -162,11 +164,13 @@ def main():
         "generated": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
         "journals": scan_journals(),
         "order_log": rollup_trades(),
+        "order_log_live_account": rollup_trades(LIVE_ACCOUNT_LOG_DIRS),
     }
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"✅ 라이브 요약 저장: {rel(OUT)} "
-          f"(일지 {len(payload['journals'])} · 주문로그일 {len(payload['order_log'])})")
+          f"(일지 {len(payload['journals'])} · 주문로그일 {len(payload['order_log'])}"
+          f" · 실계좌 {len(payload['order_log_live_account'])}일)")
     # 원장은 있는데 서술 일지가 없는 날 — /dashboard-sync 가 이 목록을 보고 일지를 채운다.
     have = {c["date"] for c in payload["journals"]}
     missing = sorted((o["date"] for o in payload["order_log"] if o["date"] not in have),

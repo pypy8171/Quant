@@ -24,6 +24,7 @@
 | `Quant Maintain Daily` | 16:20 | 20:45 | `py ..\quant-devtools\maintain.py --daily` |
 | `Quant Minute Backfill` | 16:40 | 21:00 | `py scripts\market_close_minute_backfill.py` |
 | `Quant Daily Bars` | 16:50 | 21:05 | `py PYQuant\tools\naver_bars_backfill.py --refresh` |
+| `Quant Study35 Watch` | 17:00 | 21:15 | `py research\studies\35_surge_box_breakout\daily_watch.py --wait-minutes 45 (일봉 갱신을 기다림)` |
 | `claude_stock_study` | 20:30 | 21:10 | `/stock-study` |
 | `claude_dashboard_sync` | 21:10 | 21:40 | `/dashboard-sync` |
 | `Quant Maintain Weekly` | 21:20 | 21:50 | `py ..\quant-devtools\maintain.py --weekly` |
@@ -38,6 +39,7 @@
 | `Quant Maintain Daily` | `장 마감 AutoDoc` 뒤. 먼저 로그 정리(`rotate_logs` — 엔진 로그에서 7일 지난 날의 줄을 `logs/archive/quant_trader_<날짜>.log.gz`로 떼어내고(갈라 띄운 엔진은 역할별 `quant_trader.order.log`·`quant_trader.strategy.log`·`quant_trader.feed.log`를 각각 돌려 `quant_trader_order_<날짜>.log.gz`로 간다), 감시견 로그는 7일 지나면 gz·90일 지나면 삭제. 엔진이 떠 있으면 엔진 로그는 건너뛴다. 원장 `trades_*.csv`는 손대지 않는다. 옮긴 gz는 잃는 게 아니다 — 날짜를 받는 스크립트(`market_close_autodoc`·`market_close_collect`·`parse_quant_log --full`·`summarize_trading_day`·`extract_swap_what_if`)는 `_logdir.log_sources()`로 그 날짜 gz와 라이브 로그를 이어서 읽으니 지난 날 재생성은 그대로 된다), 이어서 생성물 갱신 — `gen_facts` · `gen_code_graph` · `sync_ledgers` · `gen_automation_hub`(`_private/AUTOMATION_HUB.md`) · `gen_tuning_sheet`(`_private/TUNING_SHEET.md`). 대시보드는 부르지 않는다. 손으로는 `py ../quant-devtools/maintain.py --rotate-logs [--dry-run]` |
 | `Quant Minute Backfill` | 장 마지막 재스캔본 `Quant/config/universe_scan.json`을 `PYQuant/data/pit_universe/<오늘>.json`으로 옮기고 그날 유니버스 전체의 1분봉을 `PYQuant/data/minute/`에 쌓는다(`PYQuant/tools/minute_backfill.py --top-n 0`, 약 260종목×4콜). 매매 끝 15분 뒤(모의 15:45·실계좌 20:15) 전엔 돌지 않는다(반쪽 파일이 그날치를 건너뛰게 만든다). 대시보드 차트가 같은 파일을 읽는다 |
 | `Quant Daily Bars` | 바스켓 비중표가 읽는 일봉 `PYQuant/data/bars_all_pit_v2.parquet`을 네이버 siseJson으로 다시 받는다(`PYQuant/tools/naver_bars_backfill.py --refresh`). 상장 종목만 새로 받고, 기존 파일에만 있는 상폐 종목은 그대로 옮긴다. 새 응답이 비면 받아 둔 이력을 지우지 않는다. 2026-10-01 등록 |
+| `Quant Study35 Watch` | Daily Bars 뒤 갱신된 일봉으로 스터디 35 급등 사건을 앞으로 기록한다(`research/studies/35_surge_box_breakout/daily_watch.py --wait-minutes 45`, 일봉 파일이 그날 15:40 뒤로 갱신될 때까지 최대 45분 기다림). 산출은 `research/studies/35_surge_box_breakout/live/` 의 날짜별 jsonl·ledger.tsv·summary.txt, 6개 규칙(base·c1–c5)을 따로 적는다. 빠진 날은 다음 실행이 따라잡는다. `scripts/check_runtime_health.py` 의 "스터디 35 기록" 행이 가장 최근 날 요약을 매매일지 4절에 싣는다. 2026-10-02 등록 |
 | `claude_stock_study` | `claude -p "/stock-study auto"` → `_private/주식_study/{날짜}_재무/` 1종목 · 저널 · 스터디 사이트 |
 | `claude_dashboard_sync` | `claude -p "/dashboard-sync"` → 대시보드·스터디 사이트 HTML 재생성. 아티팩트 재발행은 헤드리스 `claude -p`에 Artifact 도구가 없어 못 한다 — 대화 세션에서 `/dashboard-sync`를 불러 같은 URL로 올린다 |
 | `Quant Maintain Weekly` | 금요일, `claude_dashboard_sync` 뒤. 미참조 스크립트 · 에이전트 죽은 경로 · 부산물 용량 · 주석 밀도 · 훅 배선 양방향 검사 → `docs/reports/MAINTENANCE_WEEKLY.md` |

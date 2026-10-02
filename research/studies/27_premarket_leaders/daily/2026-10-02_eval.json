@@ -1,0 +1,122 @@
+{
+ "date": "2026-10-02",
+ "snapshot_time": "2026-10-02T08:57:01",
+ "market_median_change": 0.21,
+ "candidates": [
+  {
+   "code": "103590",
+   "name": "일진전기",
+   "nxt_change": 7.0,
+   "nxt_value_eok": 719.0,
+   "via": "전선",
+   "krx_change": 3.98,
+   "value_rank": 78,
+   "change_rank": 234,
+   "leader": true
+  },
+  {
+   "code": "000500",
+   "name": "가온전선",
+   "nxt_change": 2.52,
+   "nxt_value_eok": 333.3,
+   "via": "전선",
+   "krx_change": 3.46,
+   "value_rank": 68,
+   "change_rank": 288,
+   "leader": true
+  },
+  {
+   "code": "229640",
+   "name": "LS에코에너지",
+   "nxt_change": 4.75,
+   "nxt_value_eok": 228.2,
+   "via": "전선",
+   "krx_change": 5.06,
+   "value_rank": 214,
+   "change_rank": 148,
+   "leader": false
+  },
+  {
+   "code": "218410",
+   "name": "RFHIC",
+   "nxt_change": 3.5,
+   "nxt_value_eok": 224.3,
+   "via": "통신장비",
+   "krx_change": 3.33,
+   "value_rank": 98,
+   "change_rank": 299,
+   "leader": true
+  },
+  {
+   "code": "032500",
+   "name": "케이엠더블유",
+   "nxt_change": 3.65,
+   "nxt_value_eok": 69.0,
+   "via": "통신장비",
+   "krx_change": 8.54,
+   "value_rank": 259,
+   "change_rank": 58,
+   "leader": false
+  },
+  {
+   "code": "168360",
+   "name": "펨트론",
+   "nxt_change": 16.62,
+   "nxt_value_eok": 351.7,
+   "via": "2차전지(장비)",
+   "krx_change": 7.94,
+   "value_rank": 235,
+   "change_rank": 68,
+   "leader": false
+  },
+  {
+   "code": "056190",
+   "name": "SFA",
+   "nxt_change": 2.67,
+   "nxt_value_eok": 17.6,
+   "via": "2차전지(장비)",
+   "krx_change": 3.67,
+   "value_rank": 256,
+   "change_rank": 267,
+   "leader": false
+  },
+  {
+   "code": "299030",
+   "name": "하나기술",
+   "nxt_change": 3.91,
+   "nxt_value_eok": 7.8,
+   "via": "2차전지(장비)",
+   "krx_change": 4.85,
+   "value_rank": 943,
+   "change_rank": 164,
+   "leader": false
+  },
+  {
+   "code": "062040",
+   "name": "산일전기",
+   "nxt_change": 2.11,
+   "nxt_value_eok": 210.1,
+   "via": "전기장비",
+   "krx_change": 6.32,
+   "value_rank": 36,
+   "change_rank": 99,
+   "leader": true
+  }
+ ],
+ "hit_rate": 0.44,
+ "premarket_leading_industries": [
+  "전기장비"
+ ],
+ "day_top10_industries_by_median": [
+  "우주항공과국방",
+  "통신장비",
+  "무선통신서비스",
+  "석유와가스",
+  "전기제품",
+  "전기장비",
+  "전자장비와기기",
+  "항공화물운송과물류",
+  "해운사",
+  "전기유틸리티"
+ ]
+}

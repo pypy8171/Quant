@@ -541,6 +541,51 @@
     ]
   },
   {
+    "number": "31",
+    "title": "DevScale 동시 보유 상한 N × 종목당 예산(200만 ÷ N) — 포트폴리오 리플레이",
+    "series": "장중 · 실행",
+    "period": "2025-09-19~2026-09-18(243거래일, 시총∪거래대금 상위 100, 32,874 종목일), 앞 70%/뒤 30%",
+    "status": "결과(결론 전)",
+    "question": "실계좌 DevScale 자본 200만에서 동시 보유 4종목 × 50만이 3×65만·5×30만 같은 대안보다 나은가.",
+    "method": "research/studies/31_devscale_slot_cap/slot_cap_replay.py — 스터디 28 실계좌 칸(z_lo8_up5_tp5)을 모든 종목 같은 3분봉 시각에 맞춰 돌리고 슬롯 상한(보유∪매수 대기)·종목 예산 200만÷N·정수 주·현금 제한을 얹었다. 같은 봉 신호 우선순위는 전일 20일 거래대금 순과 무작위 30회(엔진 점수 순위 근사). 무제한 칸이 스터디 28과 172건·59.18만으로 일치.",
+    "data": "PYQuant/data/minute/<종목>/<날짜>.parquet + 일봉 SMA/ATR, 유니버스 pairs_100.json(스터디 28과 같은 해시).",
+    "result": "1년 세후(turnover / 무작위 중앙값): N=2 47.0/70.7만, 3 51.6/58.0만, 4 45.6/47.5만, 5 34.0/37.1만, 6 30.2/30.9만. MDD −11~−15%. 건당 0.6~0.7%로 N과 무관하고 차이는 투입률(68→40%)에서 나온다. N=4 대비 달 부트스트랩: 3 0.76, 5 0.04, 6 0.05.",
+    "verdict": "결과 — 4 유지. 5·6(30만×5 포함)은 쓰지 않는다. 3은 조금 낫게 나오지만 잡음 범위이고 뒤 30%(거래 11~13건, 경합 없음)로 확인이 안 된다.",
+    "why": "상한 없이도 평균 보유가 134만(투입률 67%)이라 슬롯을 늘려 예산을 줄이면 현금이 논다.",
+    "followup": "거래 60건이 더 쌓이면 기간을 늘려 재실행 — N=3 부트스트랩 ≥0.90이면서 무작위 10분위가 N=4 중앙값 위면 3으로.",
+    "files": [
+      "research/studies/31_devscale_slot_cap/README.md",
+      "research/studies/31_devscale_slot_cap/slot_cap_replay.py",
+      "research/studies/31_devscale_slot_cap/slot_cap_summary.tsv",
+      "research/studies/31_devscale_slot_cap/slot_cap_runs.tsv",
+      "research/studies/31_devscale_slot_cap/metrics.json"
+    ]
+  },
+  {
+    "number": "32",
+    "title": "국내 지수 장중 낙폭 규칙 — 국면 점수 −11 청산과 비교·병행",
+    "series": "국면 · 리스크",
+    "period": "일봉 2015-01~2026-09(2,882일) · 1시간봉 2024-05~2026-09(581일), 각 앞 70%/뒤 30% · DevScale 적용 2025-09-19~2026-09-18",
+    "status": "결과",
+    "question": "코스피·코스닥이 장중 X% 빠지면(전일 종가 대비 / 당일 고점 대비) 신규 매수를 멈추거나 보유를 파는 규칙이 국면 점수 −11 청산보다 낫거나, 같이 쓰면 나은가.",
+    "method": "스터디 26의 시세 캐시·점수 복원을 그대로 불러 X −1.5~−5 × 기준 2개 × 단독/점수 병행 × 되사기(다음날 시가·그날 종가)를 지수 보유 대비로 잰다(왕복 0.215%). 정지는 발동 지점 매수의 그날·다음날 수익. 스터디 28 실계좌 칸 172건에 발동 시각 1분봉 매도를 대입.",
+    "data": "네이버 일봉, Yahoo ^KS11·^KQ11 1시간봉(26 캐시), PYQuant/data/minute 1분봉, research/studies/28_devscale_zone_width/zone_grid_days.tsv(로컬)",
+    "result": "전일 종가 기준 청산은 코스닥 24칸 중 23칸 음수(일봉 −2.2~−9.6, 1시간봉 −0.9~−27.7 %p/년), 고점 기준은 1시간봉에서 음수이고 일봉 플러스는 경로 근사 탓. 점수 −11 병행은 대부분 더 나쁨. 코스닥 전일 −2.5% 정지는 8칸 같은 방향(발동 뒤 매수가 0.16~0.42%p 덜 벎). DevScale 1년에서 청산 규칙 25개 중 24개가 원래(59.2만)보다 나빴다(−5.8만~−77.2만).",
+    "verdict": "지수 낙폭 청산은 넣지 않는다. 점수 −11 유지. 코스닥 전일 −2.5% 신규 매수 정지는 보류(종목 수준에서 5건뿐).",
+    "why": "좁은 X는 발동이 연 20~60회라 비용이 쌓이고, 크게 빠진 날 다음날 반등(2026-03-04 코스닥 −14.0% 뒤 +14.1%)을 놓친다. 최대낙폭은 줄지만(1시간봉 코스닥 prev −2 −47→−36%) 연 −10%p 안팎을 낸다.",
+    "followup": "정지 규칙을 넣는다면 청산 없이 정지만, 코스닥 전일 종가 −2.5%를 후보로 그림자 기록부터.",
+    "files": [
+      "research/studies/32_index_drawdown_guard/README.md",
+      "research/studies/32_index_drawdown_guard/index_drawdown_guard.py",
+      "research/studies/32_index_drawdown_guard/liquidate_grid.tsv",
+      "research/studies/32_index_drawdown_guard/halt_grid.tsv",
+      "research/studies/32_index_drawdown_guard/crash_days.tsv",
+      "research/studies/32_index_drawdown_guard/devscale_grid.tsv",
+      "research/studies/32_index_drawdown_guard/devscale_events.tsv",
+      "research/studies/32_index_drawdown_guard/metrics.json"
+    ]
+  },
+  {
     "number": "33",
     "title": "급등 뒤 눌림 매수 — 하루 +10% 오른 종목을 며칠 지켜보다 되돌림에서 산다(일봉)",
     "series": "강한 종목",
@@ -569,20 +614,41 @@
     "title": "바닥권 거래량 급등 뒤 40–60% 되돌림 매수 — 위치·거래량 경계를 개발 구간에서만 다시 고른다(일봉)",
     "series": "강한 종목",
     "period": "개발 2010-01–2022-12(판정) · 검증 2023-01–2025-09 · 최근 1년 2025-10–2026-09-29(둘 다 이미 본 구간, 참고)",
-    "status": "보류",
+    "status": "닫음",
     "question": "스터디 33 후속에서 사후 탐색으로 보인 '1년 고점 대비 −50% 이하 + 거래량 10배 이상' 묶음의 플러스가, 경계를 개발 구간만으로 고르고 '급등 뒤 위로 5% 넘게 뻗으면 버림'을 더해도 남는가.",
     "method": "스터디 33 zone 칸(몸통 40% 자리 지정가 매수, 급등일 시가 × 0.99 손절, 급등일 고가 익절, 10일)에 급등 전 위치 ≤ D, 거래량 배수 ≥ V, 지켜보는 날 고가 ≥ 급등일 종가 × 1.05면 버림을 더했다. D 4개 × V 5개 = 20칸을 개발 구간에서만 보고 건수 300 이상 중 t 최대 칸을 고른다. 통과: t ≥ 2.0이고 하위 구간 셋 중 둘 플러스. 규칙은 SPEC.md에 격자 전에 적었다.",
     "data": "PYQuant/data/bars_all_pit_v2.parquet, PYQuant/data/cache/datagokr_shares/univ_*.parquet(스터디 33과 같음)",
     "result": "고른 칸 −50%·10배: 개발 +0.35%(696건, t 0.95), 하위 구간 −2.09 / +0.05 / +0.65%. 20칸 중 t 1을 넘는 칸 없음. 참고로 검증 +0.21%(396건)·최근 1년 +0.35%(100건). '위로 뻗으면 버림'은 걸러낸 매매가 남긴 매매보다 나쁘지 않았다(개발 전체 −0.58 vs −0.69%, 묶음 +0.39 vs +0.35%).",
     "verdict": "보류 — t 0.95로 통과선 2.0 미달. 그림자 기록은 걸지 않았다.",
     "why": "익절이 급등일 고가에 묶여 이긴 매매(+8%)와 진 매매(−9%)의 크기가 비슷하고 승률이 44–46%라, 위치·거래량으로 골라도 건당 +0.4% 안팎이 한계다.",
-    "followup": "추세 전환을 노리려면 청산 규칙(익절 없이 더 오래 보유 등)을 바꾼 새 사전등록이 필요하다. 사용자 결정 대기.",
+    "followup": "닫음(2026-10-02) — 전체 기간 손절×익절 110칸 최고가 +0.8%(t 2.0)에 그쳤고, 같은 급등 계열에서 스터디 35 후보(이틀 이상 급등·되돌림 20% 안, +2.33% t 3.0)가 더 나아 거기에 집중한다(사용자 2026-10-02).",
     "files": [
       "research/studies/34_bottom_surge_zone/README.md",
       "research/studies/34_bottom_surge_zone/SPEC.md",
       "research/studies/34_bottom_surge_zone/backtest.py",
       "research/studies/34_bottom_surge_zone/grid.tsv",
       "research/studies/34_bottom_surge_zone/result.tsv"
+    ]
+  },
+  {
+    "number": "36",
+    "title": "업종 묶음 모멘텀 — 상관 Ward 묶음 상위 10%의 20일 1위 종목을 매주 산다(일봉)",
+    "series": "강한 종목",
+    "period": "2010-01-11 – 2026-10-01 한 번에(872주), 연도별·2010–17/2018–26은 안정성 확인용",
+    "status": "기각",
+    "question": "평소 함께 움직이는 종목 묶음이 같이 오를 때 그 묶음의 대표 종목을 사면, 같은 대상 종목 동일가중보다 낫고 묶지 않은 개별 20일 모멘텀보다도 나은가(회의 2 B안).",
+    "method": "매주 마지막 거래일, 60일 평균 시장 거래대금 비중 0.02% 이상 보통주(316–747종목)를 250일 일간 수익으로 Ward 계층 군집해 잎 순서대로 10개씩 묶고, 20일 평균 수익 상위 10% 묶음의 20일 수익 1위를 다음 날 시가 + 1틱에 산다. 청산은 주간 교체(W)·최대 12주(P) × 손절 5/8/10/없음 × 익절 10/15/20/없음 = 32칸. 비교 B0 동일가중(비용 없음), B1 개별 20일 상위 10%, B2 같은 개수. 판정: 월 초과 t ≥ 3, 이웃 칸 같은 부호, 두 구간 0 이상, 보조 낙폭 15% 이하·200건 이상. 규칙은 SPEC.md에 결과 전에 적었다.",
+    "data": "PYQuant/data/bars_all_pit_v2.parquet(상장폐지 포함), PYQuant/data/cache/datagokr_shares/univ_*.parquet(스터디 33과 같음)",
+    "result": "원안 W: 연복리 −50.5%, 월 초과 −4.37%(t −4.17), 2010–17 −6.13 / 2018–26 −2.78, 3,549건. P 12주: −21.7%, 월 초과 −1.63%(t −3.22). 가장 덜 나쁜 P 손절10·익절20도 월 −0.10%(t −0.24). B0 연복리 −1.2%. B2보다는 덜 나쁘고(P 12주 +1.28%/월 t 3.7) B1보다는 낫지 않다.",
+    "verdict": "기각 — 32칸 모두 월 초과수익 0 미만, 통과 0칸.",
+    "why": "20일 상위 종목은 다음 1–12주 동안 동일가중보다 진다(단기 되돌림). 묶음은 가장 크게 오른 몇 종목만 고를 때의 손실을 줄일 뿐 플러스로 바꾸지 못한다. 12주 보유 매매의 절반이 +22% 넘게 올랐다가 절반이 −26% 아래로 빠져 손절·익절 격자로도 0을 넘지 못했다.",
+    "followup": "없음. 라이브에 올리지 않는다.",
+    "files": [
+      "research/studies/36_cluster_momentum/README.md",
+      "research/studies/36_cluster_momentum/SPEC.md",
+      "research/studies/36_cluster_momentum/backtest.py",
+      "research/studies/36_cluster_momentum/grid.tsv",
+      "research/studies/36_cluster_momentum/result.txt"
     ]
   }
 ]

@@ -1,0 +1,16 @@
+target	curve	rows	mean_scale	zero_share_pct	net_pct_per_row	net_per_exposure_pct	avoided_mean_pct
+target	flat_1.0	1982	1.0	0.0	-0.1943	-0.1943	
+target	now_entry_scale	1982	0.674	11.9	-0.0977	-0.1451	-0.2809
+target	now_halt_only	1982	0.881	11.9	-0.1352	-0.1535	-0.2809
+target	new_equivalent_entry_scale	1982	0.683	9.7	-0.0848	-0.1242	-0.5278
+target	new_proposed_step	1982	0.85	10.0	-0.1067	-0.1256	-0.5334
+devscale_to_close_net	flat_1.0	1538	1.0	0.0	-0.0923	-0.0923	
+devscale_to_close_net	now_entry_scale	1538	0.662	14.1	-0.0281	-0.0423	-0.3039
+devscale_to_close_net	now_halt_only	1538	0.859	14.1	-0.0494	-0.0575	-0.3039
+devscale_to_close_net	new_equivalent_entry_scale	1538	0.671	10.9	-0.0189	-0.0281	-0.4083
+devscale_to_close_net	new_proposed_step	1538	0.835	11.2	-0.0342	-0.0409	-0.4343
+target_next	flat_1.0	1976	1.0	0.0	0.001	0.001	
+target_next	now_entry_scale	1976	0.673	11.9	-0.0369	-0.0548	0.6224
+target_next	now_halt_only	1976	0.881	11.9	-0.0476	-0.0541	0.6224
+target_next	new_equivalent_entry_scale	1976	0.682	9.8	0.0279	0.0408	-0.3015
+target_next	new_proposed_step	1976	0.849	10.1	0.0388	0.0457	-0.3344

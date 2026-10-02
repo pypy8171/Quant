@@ -3,3 +3,10 @@ candles/
 kinds/
 ma_sweep.parquet
 __pycache__/
+strength.parquet
+optimize.parquet
+optimize_events.parquet
+optimize_candidates.parquet
+index_snapshot.parquet
+rebuy_trades.parquet
+sweep.json

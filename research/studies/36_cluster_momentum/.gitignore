@@ -1,0 +1,4 @@
+trades.parquet
+nav.parquet
+picks.parquet
+__pycache__/
