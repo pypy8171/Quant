@@ -338,3 +338,26 @@
 - 현상: 2026-09-30 실계좌 ERROR 104줄 중 103줄이 업종 지수 조회(inquire-index-price)의 WinHTTP 12152다. GET 재시도가 대부분 살리지만 실패 줄은 ERROR로 남아 감시·판정표의 ERROR 집계를 채운다.
 - 미룬 이유: 매매 판단에 쓰지 않는 관측 조회라 손실로 번지지 않는다. 로그 등급을 재시도 결과에 맞추려면 전송 계층의 로그 위치를 옮겨야 한다.
 - 재개 조건: ERROR 집계가 다른 오류를 가리는 일이 한 번이라도 생기거나, 지수 조회를 매매 판단에 쓰기 시작하면.
+
+### D-29. 바스켓이 엔진이 버린 주문을 모른 채 하루 집행을 끝낸다
+
+- 위치: [Quant/src/strategy/TargetBasketStrategy.cpp](../Quant/src/strategy/TargetBasketStrategy.cpp) 집행 기록, [Quant/include/core/Engine.h](../Quant/include/core/Engine.h) 주문 큐 버림.
+- 현상: 2026-10-02 모의 14:40 계획 매수 29건 중 19건이 주문 큐에서 1초를 넘겨 버려졌는데 바스켓은 "보낸 주문 29건"으로 하루를 닫았다([docs/market_close/2026-10-02.md](market_close/2026-10-02.md) 1-1).
+- 미룬 이유: 바스켓 매수는 나이 제한에서 빼는 수정(worktree `wt/basket-age`)으로 같은 원인은 막힌다. 버림 결과를 전략에 돌려주는 통로는 다른 거부(게이트·거래소)와 함께 정해야 한다.
+- 재개 조건: 나이 면제 뒤에도 바스켓 계획과 접수 건수가 하루라도 어긋나면.
+- 확인(10-02): 날짜가 바뀌면 보낸 주문 기록을 비우고 다시 계획한다([Quant/src/strategy/TargetBasketStrategy.cpp:341](../Quant/src/strategy/TargetBasketStrategy.cpp#L341)) — 10-02에 버려진 19건은 다음 실행에서 다시 계획 대상이 된다.
+
+### D-30. 놓친 체결 조회가 100쪽을 넘겨 멈춘다
+
+- 위치: [Quant/src/ipc/OrderRouter.cpp](../Quant/src/ipc/OrderRouter.cpp) 일별주문체결 쪽 넘김.
+- 현상: 2026-10-02 모의 15:09:17 `놓친 체결 조회 실패 — 일별주문체결 조회가 100쪽을 넘었다`. 그날 주문은 54건이라 100쪽은 연속조회 키가 넘어가지 않고 같은 쪽을 다시 받는 것으로 의심한다.
+  이 뒤로 끊긴 사이 체결 복구가 그날 멈췄다.
+- 미룬 이유: 마감 15분 전 한 번이고 그날 체결은 체결통보로 모두 들어왔다(원장 FILL 64건, 잔고 대조 일치).
+- 재개 조건: 다음 거래일에 같은 줄이 다시 나오거나, 체결통보 누락과 겹치면. 확인할 것은 연속조회 키(CTX_AREA_FK100·NK100)를 다음 요청에 싣는지다.
+
+### D-31. 장 마감 수집기가 로그 폴더 지정을 무시한다
+
+- 위치: [scripts/_logdir.py](../scripts/_logdir.py) `find_ledger`, [scripts/market_close_collect.py](../scripts/market_close_collect.py).
+- 현상: `QUANT_LOG_DIR`로 실계좌 폴더를 줘도 행이 가장 많은 원장(모의)을 고른다. 2026-10-02 리뷰는 함수를 바꿔 끼워 실계좌 숫자를 냈다.
+- 미룬 이유: 리뷰 한 번은 우회로 끝났고, 매매에는 영향이 없다.
+- 재개 조건: 다음 실계좌 리뷰 전. 환경변수가 있으면 그 폴더만 보도록 고친다.
