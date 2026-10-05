@@ -36,7 +36,8 @@ namespace ipc
 //  판 7 — 칸 수 기본값이 바뀌었다(2026-09-25). 전략 이름표·시세 제어 줄이 1024에서 8192로, 주문 제어
 //   줄이 8192에서 16384로 늘었다. 구역 바이트가 달라져 옛 판으로 놓은 자리에는 붙지 못한다.
 //  판 8 — 장부 사본 한 줄에 미체결 매도 칸이 붙어 32바이트에서 40바이트가 됐다(2026-09-26, 매수·매도 선점 분리).
-constexpr uint32_t kSharedLayoutVersion = 8;
+//  판 9 — 주문 요청 레코드에 신호 나이 제한 면제 칸이 market 뒤에 붙어 뒤 칸 자리가 밀렸다(2026-10-02, D-155).
+constexpr uint32_t kSharedLayoutVersion = 9;
 
 // 칸 수 기본값 — 한 프로세스로 돌던 때 쓰던 값과 같다(Engine::ShardPipeline). 여기서 바꾸면 양쪽이 같이 바뀐다.
 constexpr size_t kLayoutRequestCapacity  = 1024; // 요청 하나에 답 하나라 응답과 같은 수다

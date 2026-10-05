@@ -7384,3 +7384,26 @@ regime.json 하나를 번갈아 쓰면 어느 쪽 값인지 가릴 수 없어서
 - (3) 업종 등락률을 시세판에서 업종별로 묶어 재현: 종목의 업종 코드가 시세판 목록에 없다. 전 종목 등락률 상위로도 목적(지금 강한 종목)은 같다.
 
 **연결**: D-028 · D-029 · D-138 · D-146 · `Quant/src/universe/UniverseCandidates.cpp` · `Quant/src/core/UniverseRescan.cpp` · `Quant/src/core/EngineDataThread.cpp`
+
+### D-155 바스켓 계획 매수는 주문 큐 신호 나이 제한을 받지 않는다 (2026-10-02)
+
+**문제**: 2026-10-02 모의에서 가치 코어 바스켓(BASKET_MAIN)이 14:40:02–14:40:11에 시장가 매수 29건을 냈다. 모의 서버 주문 왕복이
+4.4–7.4초라 주문 큐에서 1초를 넘긴 19건이 D-127의 나이 제한(`is_stale_entry`, 1초)에 걸려 버려졌다. 버림 경고는 첫 건과
+100건마다만 남겨서 로그에는 1건만 보였고 나머지 18건은 흔적이 없었다. 바스켓은 하루 한 번 일봉으로 짠 계획이라 몇 초 늦어도
+판단이 낡지 않는다. D-127이 버리려던 것은 틱마다 다시 만들어지는 장중 판단이다.
+
+**결정**:
+1. `OrderSignal`에 `exempt_from_age_limit`(기본 거짓)을 둔다. 켜진 신규 매수는 `is_stale_entry`·`is_stale_parked_entry`가 버리지 않는다.
+   프로세스를 갈라 띄워도 같도록 주문 요청 레코드(`ipc::OrderRequest`)에 같은 칸을 싣고 공유 자리표 판을 9로 올렸다.
+2. `TargetBasketStrategy::emit_leg`가 내는 매수에만 켠다. 매도는 원래 나이를 안 본다.
+3. 큐 대기로 버린 신규 매수는 매 건 WARN을 남긴다(전략 이름 포함). 버림은 드물어야 정상이고 소실 건수를 로그로 셀 수 있어야 한다.
+   큐 가득으로 버린 신호의 솎음(`kDropLogEvery`)은 그대로 둔다.
+
+**알려진 한계**: 바스켓 상태 파일은 주문을 내기 전에 "보냄"으로 적으므로, 다른 사유(게이트 거부 등)로 주문이 안 나가도 바스켓은 모른다.
+이번 범위가 아니다.
+
+**버린 대안**:
+- (1) 주문 스레드에서 전략 이름이 바스켓이면 면제: 신호마다 문자열을 비교한다(원칙 6, hot path 문자열 금지).
+- (2) 시장가 매수는 모두 면제: 다른 전략의 장중 시장가 매수까지 풀려 D-127이 막던 낡은 판단이 다시 나간다.
+
+**연결**: D-127 · D-151 · `Quant/include/core/Types.h` · `Quant/include/core/Engine.h` · `Quant/src/core/EngineOrderThread.cpp` · `Quant/src/strategy/TargetBasketStrategy.cpp`

@@ -12,6 +12,7 @@
 #include "core/IFeedSource.h"
 #include "core/ShardMatrix.h"
 #include "core/TickCapture.h"
+#include "ipc/OrderChannel.h"
 #include "strategy/StrategyBase.h"
 #include "universe/MarketBoard.h"
 #include "universe/ScoreWeight.h"
@@ -522,6 +523,21 @@ int run_stale_entry_case()
     OrderSignal unstamped = buy;
     unstamped.signal_at_ns = 0;
     CHECK(!is_stale_entry(unstamped, stale_ns));
+
+    // 바스켓 계획 매수처럼 나이 제한 면제 표시가 켜진 매수는 2초를 기다려도 버리지 않는다 — 10-02 모의는 모의
+    //  서버 왕복 4.4–7.4초에 바스켓 29건 중 19건이 버려졌다. 표시 없는 매수는 같은 나이에 버린다. [why D-155]
+    const int64_t two_seconds_ns = emitted_ns + 2 * kOrderSignalMaxAgeNs;
+    OrderSignal exempt_buy = buy;
+    exempt_buy.exempt_from_age_limit = true;
+    CHECK(!is_stale_entry(exempt_buy, two_seconds_ns));
+    CHECK(is_stale_entry(buy, two_seconds_ns));
+    CHECK(!is_stale_entry(sell, two_seconds_ns));
+    CHECK(!is_stale_parked_entry(exempt_buy, emitted_ns, emitted_ns + kParkedOrderMaxWaitNs + 1));
+
+    // 면제 표시는 프로세스를 갈라 띄워도 주문 요청 레코드를 지나 그대로 온다.
+    exempt_buy.sequence = 1;
+    CHECK(ipc::to_signal(ipc::to_request(exempt_buy), "BASKET").exempt_from_age_limit);
+    CHECK(!ipc::to_signal(ipc::to_request(buy), "BASKET").exempt_from_age_limit);
 
     // 같은 종목 앞 주문(취소) 답을 기다린 시간은 1초 기준으로 재지 않는다 — 10-01 실계좌 082270은 취소 왕복
     //  1.1초 뒤 다시 까는 BUY 32가 버려졌다. 큐에서 꺼낸 시각부터 10초를 넘길 때만 버린다. [why D-151]

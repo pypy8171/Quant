@@ -189,6 +189,7 @@ OrderRequest to_request(const OrderSignal& signal, bool* truncated) noexcept
     request.order_type                   = static_cast<uint8_t>(signal.type);
     request.action                       = static_cast<uint8_t>(signal.action);
     request.market                       = static_cast<uint8_t>(signal.market);
+    request.exempt_from_age_limit        = signal.exempt_from_age_limit ? 1 : 0;
     request.ticker                       = signal.ticker;
 
     bool cut = copy_text(request.exchange, kExchangeMax, signal.exchange);
@@ -231,6 +232,7 @@ OrderSignal to_signal(const OrderRequest& request, std::string_view strategy_id)
     signal.reason                       = std::string(text_of(request.reason, kSignalReasonMax));
     signal.tick_at_ns                   = request.tick_at_ns;
     signal.signal_at_ns                 = request.sent_at_ns;
+    signal.exempt_from_age_limit        = request.exempt_from_age_limit != 0;
     signal.sequence                     = request.sequence;
     return signal;
 }

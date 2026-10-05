@@ -70,6 +70,7 @@ struct OrderRequest
     uint8_t                    order_type                   = 0;   // OrderType
     uint8_t                    action                       = 0;   // OrderAction
     uint8_t                    market                       = 0;   // Market
+    uint8_t                    exempt_from_age_limit        = 0;   // 1 = 신호 나이 제한을 받지 않음 [why D-155]
     symbol::Ticker             ticker;                             // 고정 배열이라 레코드가 통째로 복사된다
     char                       exchange[kExchangeMax]                    = {};
     char                       account_id[kAccountIdMax]                 = {};

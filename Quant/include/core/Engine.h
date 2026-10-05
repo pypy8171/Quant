@@ -79,10 +79,11 @@ inline constexpr int64_t kOrderSignalMaxAgeNs   = 1'000'000'000; // 1초
 inline constexpr int64_t kNanosecondsPerMillisecond = 1'000'000; // 로그에 ms로 적을 때 쓰는 나눗수
 
 // 지금 꺼내 보내기엔 너무 오래된 신호인가. 시각을 안 찍은 신호(signal_at_ns=0)는 나이를 모르니 보낸다.
+//  나이 제한 면제 표시(exempt_from_age_limit)가 켜진 신호도 보낸다. [why D-155]
 constexpr bool is_stale_entry(const OrderSignal& signal, int64_t popped_at_ns)
 {
-    return signal.action == OrderAction::NEW && signal.side == OrderSide::BUY && signal.signal_at_ns != 0
-           && popped_at_ns - signal.signal_at_ns > kOrderSignalMaxAgeNs;
+    return signal.action == OrderAction::NEW && signal.side == OrderSide::BUY && !signal.exempt_from_age_limit
+           && signal.signal_at_ns != 0 && popped_at_ns - signal.signal_at_ns > kOrderSignalMaxAgeNs;
 }
 
 // 같은 종목 앞 주문(취소·정정·신규)의 답을 기다린 신규 매수는 이 시간을 넘길 때만 버린다. 그 대기는 우리 쪽 순서
@@ -91,11 +92,11 @@ constexpr bool is_stale_entry(const OrderSignal& signal, int64_t popped_at_ns)
 inline constexpr int64_t kParkedOrderMaxWaitNs = 10'000'000'000; // 10초
 
 // 앞 주문 답을 기다리다 너무 오래 선 신규 매수인가. 큐에서 꺼낸 시각(parked_at_ns)부터 잰다 — 큐에서 꺼낼 때
-//  이미 1초 기준을 통과했다. 시각이 없으면(0) 보낸다.
+//  이미 1초 기준을 통과했다. 시각이 없으면(0)·나이 제한 면제 표시가 켜졌으면 보낸다. [why D-155]
 constexpr bool is_stale_parked_entry(const OrderSignal& signal, int64_t parked_at_ns, int64_t now_ns)
 {
-    return signal.action == OrderAction::NEW && signal.side == OrderSide::BUY && parked_at_ns != 0
-           && now_ns - parked_at_ns > kParkedOrderMaxWaitNs;
+    return signal.action == OrderAction::NEW && signal.side == OrderSide::BUY && !signal.exempt_from_age_limit
+           && parked_at_ns != 0 && now_ns - parked_at_ns > kParkedOrderMaxWaitNs;
 }
 
 // 고른 주문을 같은 종목 줄 뒤에 다시 세워야 하는가. 같은 종목이 답을 기다리면 세운다. 줄에 같은 종목이 서 있으면

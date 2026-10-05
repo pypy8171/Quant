@@ -303,6 +303,9 @@ bool TargetBasketStrategy::emit_leg(std::vector<basket::PlannedOrder>& orders, s
         signal.account_id      = parameters_.account;
         signal.reason          = order.reason;
         signal.timestamp       = std::chrono::system_clock::now();
+        // 계획 매수는 하루 한 번 일봉으로 짠 것이라 주문 큐에서 몇 초 기다려도 판단이 낡지 않는다. 한 번에 수십 건을
+        //  내므로 1초 나이 제한에 걸리면 대부분 버려진다(10-02 모의 29건 중 19건). 매도는 원래 나이를 안 본다. [why D-155]
+        signal.exempt_from_age_limit = (order.side == OrderSide::BUY);
         out.push_back(std::move(signal));
         LOG_INFO("[" + id_ + "] 주문: " + line);
     }

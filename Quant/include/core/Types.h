@@ -143,6 +143,11 @@ struct OrderSignal
     int64_t tick_at_ns   = 0;
     int64_t signal_at_ns = 0;
 
+    // 참이면 주문 큐의 신호 나이 제한(is_stale_entry·is_stale_parked_entry)을 받지 않는다. 하루 한 번 일봉으로 짠
+    //  바스켓 계획 매수처럼 몇 초 늦어도 판단이 낡지 않는 주문만 켠다. 10-02 모의는 바스켓 시장가 매수 29건 중
+    //  19건이 큐 대기 1초를 넘겨 버려졌다. 기본 거짓이라 다른 전략은 그대로 나이를 잰다. [why D-155]
+    bool exempt_from_age_limit = false;
+
     // ── 신호 순번 (C-2) — 전략 스레드가 신호를 만들 때 단조 증가로 stamp. 0=미부여 ────────
     // 게이트 거부·라우터 접수·체결·장부 CSV(`sequence` 열)가 이 번호를 그대로 물고 가므로
     // 한 신호의 경로를 ODNO 없이도 잇는다(재기동 전 접수된 주문의 체결은 ODNO만 있어 0).

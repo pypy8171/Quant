@@ -685,11 +685,10 @@ void Engine::order_thread_fn(std::stop_token stop_token)
                     const auto waited_ms = (pop_ns - signal.signal_at_ns) / kNanosecondsPerMillisecond;
                     const auto count = pipeline_.order_stale.fetch_add(1, std::memory_order_relaxed) + 1;
 
-                    if (count == 1 || count % ShardPipeline::kDropLogEvery == 0)
-                    {
-                        LOG_WARN("[주문] 큐에서 " + std::to_string(waited_ms) + "ms 기다린 신규 매수를 버린다 " +
-                                 signal.ticker + " (누적 " + std::to_string(count) + ")");
-                    }
+                    // 버림은 드물어야 정상이고 소실 건수를 로그로 셀 수 있어야 해서 매 건 남긴다 — 100건마다로
+                    //  솎으면 10-02 모의 바스켓 19건 중 1건만 남았다. [why D-155]
+                    LOG_WARN("[주문] 큐에서 " + std::to_string(waited_ms) + "ms 기다린 신규 매수를 버린다 " +
+                             signal.ticker + " " + signal.strategy_id + " (누적 " + std::to_string(count) + ")");
 
                     answer(request.sequence, ipc::OrderResult::kStale, 0, "큐 대기가 길어 버림");
                     continue;
