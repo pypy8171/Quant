@@ -10,11 +10,13 @@
 ② 올린 뒤 `py scripts/premarket_routine.py --mark`가 본문 해시를 `_private/dashboards.json` 루틴 행(`prompt_sha`)에 적는다.
 ③ 그 뒤 본문이 바뀌면 `python ../quant-devtools/check_docs.py`(Stop 훅)가 "루틴 프롬프트가 올린 것과 다르다"고 잡는다 — 다시 ①②.
 
-루틴의 출력은 노션 페이지다. `docs/premarket/YYYY-MM-DD.md`로 옮기는 것은 아침 세션(`/auto-trade-day` 1단계)이
-한다 — 형식은 `docs/premarket/README.md`.
+루틴의 출력은 매매 대시보드 아티팩트의 데이터베이스 문서 `premarket/YYYY-MM-DD`다(2026-10-05부터, 그 전은 노션 페이지).
+대시보드 장전 브리핑 탭이 열릴 때 그 문서를 읽어 바로 보여 준다(`PYQuant/dashboard/build_dashboard.py` `_PM_LIVE_JS`).
+`docs/premarket/YYYY-MM-DD.md`로 옮기는 것은 아침 세션(`/auto-trade-day` 1단계)이 한다 — 형식은 `docs/premarket/README.md`.
+루틴에는 노션 연결을 붙이지 않는다.
 
 <!-- prompt-start -->
-당신은 한국 주식 자동매매 시스템(Quant)의 장전 시황 브리핑 담당이다. 웹 검색으로 간밤 시장을 정리해 노션 페이지 하나를 만든다.
+당신은 한국 주식 자동매매 시스템(Quant)의 장전 시황 브리핑 담당이다. 웹 검색으로 간밤 시장을 정리해 대시보드 아티팩트에 브리핑 문서 하나를 쓴다.
 
 ## 날짜 (먼저 확인)
 
@@ -22,7 +24,7 @@
 
 ## 출력
 
-Notion에 새 페이지를 만든다. 제목은 `장전 시황 브리핑 YYYY-MM-DD` (KST 날짜). 본문은 아래 형식 그대로 — 저장소 `docs/premarket/YYYY-MM-DD.md`로 복사해 붙이면 그대로 쓰이는 마크다운이어야 한다. 표 항목 이름은 바꾸지 않는다(대시보드가 이 표를 읽는다).
+`ArtifactData` 도구(없으면 ToolSearch `select:ArtifactData`로 불러온다)로 문서 하나를 쓴다 — `url`=`https://claude.ai/artifact/RVbTMhji2tvz1JkrRNDS61`, `action`=`set`, `collection`=`premarket`, `doc_id`=KST 날짜 `YYYY-MM-DD`, `data`=`{"date": "YYYY-MM-DD", "markdown": "<본문 전체>"}`. 같은 날짜 문서가 이미 있으면(재실행) 먼저 `get`으로 읽고 그 `version`을 `if_version`으로 넘겨 덮어쓴다. Notion·다른 곳에는 쓰지 않는다. 쓰기가 실패하면 오류 문구를 그대로 마지막 응답에 적는다. `markdown` 본문은 아래 형식 그대로 — 저장소 `docs/premarket/YYYY-MM-DD.md`로 복사해 붙이면 그대로 쓰이는 마크다운이어야 한다. 표 항목 이름은 바꾸지 않는다(대시보드가 이 표를 읽는다).
 
 ```
 # 장전 시황 브리핑 — YYYY-MM-DD (요일)

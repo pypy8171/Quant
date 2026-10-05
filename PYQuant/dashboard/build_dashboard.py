@@ -628,11 +628,78 @@ def _stance_pill(stance):
     return f'<span class="pill pm-{cls}">{esc(stance or "—")}</span>'
 
 
+# 발행본이 열릴 때 아티팩트 DB `premarket` 컬렉션(문서 id = 날짜, 필드 date·markdown)을 읽어
+# 정적 목록에 없는 날짜만 위에 붙인다. 아침 루틴이 DB에 쓰므로 재발행 없이 그날 브리핑이 보인다.
+# 파싱은 load_premarket·_md_block과 같은 규칙 — 머리 표 네 항목, `## ` 절, 문단·불릿·인용·표·코드.
+_PM_LIVE_JS = r"""<script>
+(async function(){
+  if(!window.claude||!claude.use)return;
+  var db=await claude.use("db");if(!db)return;
+  var rowsEl=document.getElementById("pm-rows"),listEl=document.getElementById("pm-list"),cnt=document.getElementById("pm-count");
+  if(!rowsEl||!listEl)return;
+  var have={};[].forEach.call(document.querySelectorAll("details.pm"),function(d){have[d.id.slice(3)]=1;});
+  var snap;try{snap=await db.collection("premarket").get();}catch(e){return;}
+  var docs=(snap.docs||[]).map(function(d){return d.data();})
+    .filter(function(x){return x&&/^\d{4}-\d{2}-\d{2}$/.test(x.date||"")&&x.markdown&&!have[x.date];})
+    .sort(function(a,b){return a.date<b.date?1:-1;});
+  if(!docs.length)return;
+  function esc(s){return String(s).replace(/[&<>"']/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];});}
+  function inl(s){s=esc(s);
+    s=s.replace(/\*\*(.+?)\*\*/g,"<b>$1</b>").replace(/`(.+?)`/g,"<code>$1</code>");
+    s=s.replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>');
+    return s.replace(/\[([^\]]+)\]\([^)]+\)/g,"$1");}
+  function table(rows){var c=rows.map(function(r){return r.trim().replace(/^\||\|$/g,"").split("|").map(function(t){return t.trim();});});
+    var head=c.length>1&&c[1].every(function(t){return /^:?-{2,}:?$/.test(t);});var o=[];
+    if(head)o.push("<tr>"+c[0].map(function(t){return "<th>"+inl(t)+"</th>";}).join("")+"</tr>");
+    (head?c.slice(2):c).forEach(function(r){o.push("<tr>"+r.map(function(t){return "<td>"+inl(t)+"</td>";}).join("")+"</tr>");});
+    return '<div class="tw"><table class="md-tbl">'+o.join("")+"</table></div>";}
+  function block(lines){var out=[],para=[],ul=[],tbl=[],code=null;
+    function fp(){if(para.length){out.push("<p>"+inl(para.join(" "))+"</p>");para=[];}}
+    function fu(){if(ul.length){out.push("<ul>"+ul.map(function(x){return "<li>"+inl(x)+"</li>";}).join("")+"</ul>");ul=[];}}
+    function ft(){if(tbl.length){out.push(table(tbl));tbl=[];}}
+    lines.forEach(function(raw){var line=raw.replace(/\s+$/,"");
+      if(code!==null){if(line.indexOf("```")===0){out.push("<pre>"+esc(code.join("\n"))+"</pre>");code=null;}else code.push(line);return;}
+      if(line.indexOf("```")===0){fp();fu();ft();code=[];return;}
+      if(/^\s*\|/.test(line)){fp();fu();tbl.push(line);return;}
+      ft();
+      if(/^\s*(?:-{3,}|\*{3,}|_{3,}|<!--.*?-->)\s*$/.test(line)){fp();fu();return;}
+      var h=line.match(/^(#{2,4})\s+(.*)/);
+      if(h){fp();fu();var lv=Math.min(h[1].length+1,5);out.push("<h"+lv+">"+inl(h[2])+"</h"+lv+">");}
+      else if(line.indexOf("- ")===0){fp();ul.push(line.slice(2));}
+      else if(!line.trim()){fp();fu();}
+      else if(line.charAt(0)===">"){fp();fu();out.push("<blockquote>"+inl(line.slice(1).trim())+"</blockquote>");}
+      else{fu();para.push(line.trim());}});
+    fp();fu();ft();if(code!==null)out.push("<pre>"+esc(code.join("\n"))+"</pre>");return out.join("");}
+  var STANCE={"관망":"info","보수":"warn","선별":"ok"},WK="일월화수목금토";
+  function pill(s){return '<span class="pill pm-'+(STANCE[s]||"")+'">'+esc(s||"—")+"</span>";}
+  var trs=[],cards=[];
+  docs.forEach(function(x){
+    var meta={},head=[],secs=[],cur=null;
+    String(x.markdown).split(/\r?\n/).forEach(function(line){
+      if(line.indexOf("## ")===0){cur=[line.slice(3).trim(),[]];secs.push(cur);}
+      else if(!cur)head.push(line);else cur[1].push(line);});
+    head.forEach(function(line){var m=line.trim().match(/^\|\s*([^|]+?)\s*\|\s*(.+?)\s*\|$/);
+      if(m&&["발행","본문 기준일","스탠스","국면 결론"].indexOf(m[1])>=0&&!(m[1] in meta))meta[m[1]]=m[2];});
+    var note=head.filter(function(l){return l.charAt(0)===">";}).map(function(l){return l.slice(1).trim();}).join(" ");
+    var wk=WK[new Date(x.date+"T00:00:00").getDay()]||"",basis=meta["본문 기준일"]||"";
+    if(basis.length===10)basis=basis.slice(5);
+    trs.push('<tr><td class="mono"><a href="#pm-'+esc(x.date)+'">'+esc(x.date)+"</a> ("+wk+')</td><td class="mono">'+esc(basis)+
+      "</td><td>"+pill(meta["스탠스"])+'</td><td class="pm-concl">'+esc(meta["국면 결론"]||"")+"</td></tr>");
+    cards.push('<details class="pm" id="pm-'+esc(x.date)+'"><summary><span class="cdate">'+esc(x.date)+" ("+wk+")</span>"+pill(meta["스탠스"])+
+      '<span class="pm-sum">'+esc(meta["국면 결론"]||"")+'</span><span class="pm-pub">'+esc(meta["발행"]||"")+"</span></summary>"+
+      (note?'<div class="pm-note">'+inl(note)+"</div>":"")+'<div class="pm-body">'+
+      secs.map(function(s){return "<h3>"+inl(s[0])+"</h3>"+block(s[1]);}).join("")+
+      '</div><div class="jsrc">아티팩트 DB premarket/'+esc(x.date)+" (루틴이 씀, 저장소 미반영)</div></details>");});
+  rowsEl.insertAdjacentHTML("afterbegin",trs.join(""));
+  var old=listEl.querySelector("details.pm[open]");if(old)old.open=false;
+  listEl.insertAdjacentHTML("afterbegin",cards.join(""));
+  listEl.querySelector("details.pm").open=true;
+  if(cnt)cnt.textContent=String(Number(cnt.textContent)+docs.length);
+})();
+</script>"""
+
+
 def render_premarket(items):
-    if not items:
-        return ('<section class="fam"><h2>장전 시황 브리핑</h2>'
-                '<p class="empty">브리핑이 없습니다. '
-                '<code>docs/premarket/YYYY-MM-DD.md</code>에 두면 실립니다.</p></section>')
     rows = []
     for it in items:
         basis = it["basis"][5:] if len(it["basis"]) == 10 else it["basis"]
@@ -644,10 +711,11 @@ def render_premarket(items):
             f'<td class="pm-concl">{esc(it["conclusion"])}</td>'
             "</tr>")
     out = ['<section class="fam"><h2>장전 시황 브리핑 '
-           f'<span class="sub">{len(items)}건 · 평일 08:30 KST 루틴 · 정성 판단, 실제 국면은 엔진이 따로 판정</span></h2>',
+           f'<span class="sub"><span id="pm-count">{len(items)}</span>건 · 평일 08:30 KST 루틴 · 정성 판단, 실제 국면은 엔진이 따로 판정</span></h2>',
            '<div class="tw"><table class="pm-tbl"><thead><tr>'
            '<th>발행일</th><th>기준일</th><th>스탠스</th><th>결론 한 줄</th></tr></thead>'
-           '<tbody>' + "".join(rows) + '</tbody></table></div></section>']
+           '<tbody id="pm-rows">' + "".join(rows) + '</tbody></table></div></section>',
+           '<div id="pm-list">']
     for i, it in enumerate(items):
         secs = "".join(
             f"<h3>{_md_inline(title)}</h3>{_md_block(body)}" for title, body in it["sections"])
@@ -663,6 +731,7 @@ def render_premarket(items):
             f'{note}<div class="pm-body">{secs}</div>'
             f'<div class="jsrc">{esc(it["file"])}</div>'
             '</details>')
+    out.append("</div>" + _PM_LIVE_JS)
     return "".join(out)
 
 

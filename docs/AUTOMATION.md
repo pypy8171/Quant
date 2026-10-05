@@ -86,7 +86,7 @@ schtasks /change /tn claude_stock_study /st 20:30    # 예시 — 실제 변경�
 
 | 루틴 | 시각 | 내용 |
 |---|---|---|
-| 장전 시황 브리핑 | 평일 08:30 KST | 간밤 시장과 국면 모델(지표 8개) 기준 스탠스를 노션 페이지로 쓴다(발행은 08:42~08:45쯤). 프롬프트 정본은 `docs/premarket/ROUTINE_PROMPT.md`(국면 모델은 gen 블록, 올린 것과 다르면 `check_docs`가 잡는다). md 정본 `docs/premarket/YYYY-MM-DD.md`로 옮기는 것은 아침 세션(`/auto-trade-day` 1단계). 링크는 `_private/LINKS.md` |
+| 장전 시황 브리핑 | 평일 08:30 KST | 간밤 시장과 국면 모델(지표 8개) 기준 스탠스를 대시보드 아티팩트 DB 문서 `premarket/YYYY-MM-DD`로 쓰고 대시보드 장전 브리핑 탭이 열릴 때 바로 보인다(2026-10-05부터, 그 전은 노션). 프롬프트 정본은 `docs/premarket/ROUTINE_PROMPT.md`(국면 모델은 gen 블록, 올린 것과 다르면 `check_docs`가 잡는다). md 정본 `docs/premarket/YYYY-MM-DD.md`로 옮기는 것은 아침 세션(ArtifactData get)(`/auto-trade-day` 1단계). 링크는 `_private/LINKS.md` |
 
 PC가 꺼져 있어도 돈다는 점이 OS 예약작업과 다르다. 대신 이 저장소 파일을 만들지는 않는다.
 
