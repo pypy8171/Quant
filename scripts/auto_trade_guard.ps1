@@ -111,9 +111,23 @@ if (Test-Path $Status) {
 # 이름이 박혀 있다. 그걸 워치독으로 세면 죽은 뒤로도 영영 되살리지 않는다. -File 실행만 센다.
 # 계좌를 둘 돌리는 날에는 config 까지 봐야 한다 — 실계좌 감시견이 떠 있다고 죽은 모의 감시견을
 #  안 살리면, 모의 쪽은 아무도 안 지킨다. config 이름이 명령줄에 그대로 박혀 있다. [why D-122]
+# 실계좌 진입점 auto_trade_live.ps1 은 auto_trade_day.ps1 을 같은 프로세스 안에서 부르므로 명령줄에는
+#  auto_trade_live.ps1 만 남고, 예약작업은 -Config 없이 -Yes 만 넘긴다(기본값 config_live.json).
+#  이 둘을 못 세 10-02 07:55 실계좌 엔진이 둘 떴다(같은 앱키, WS ALREADY IN USE). [why D-122]
 $configLeaf = Split-Path $Config -Leaf
+$liveEntryDefaultLeaf = "config_live.json"   # [inv] scripts\auto_trade_live.ps1 param -Config 기본값과 같아야 한다
 $live = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
-  Where-Object { $_.CommandLine -like "*auto_trade_day.ps1*" -and $_.CommandLine -notlike "*-Command*" -and $_.CommandLine -like "*$configLeaf*" })
+  Where-Object {
+    $commandLine = $_.CommandLine
+    if (-not $commandLine -or $commandLine -like "*-Command*") { return $false }
+    if ($commandLine -like "*auto_trade_day.ps1*") { return $commandLine -like "*$configLeaf*" }
+    if ($commandLine -like "*auto_trade_live.ps1*")
+    {
+      if ($commandLine -like "*-Config*") { return $commandLine -like "*$configLeaf*" }
+      return $configLeaf -eq $liveEntryDefaultLeaf
+    }
+    return $false
+  })
 if ($live.Count -gt 0) { Say "워치독 생존(pid=$($live.ProcessId -join ',')) — 할 일 없음."; exit 0 }
 
 # 워치독 없이 남은 트레이더는 감시자가 없다. 두면 다음 기동이 duplicate_process로 막힌다.

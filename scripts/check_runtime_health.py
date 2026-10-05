@@ -910,6 +910,42 @@ def slot_reject_row(date: str) -> tuple:
             f"{total}건(기준 {MAX_SLOT_REJECTS}건 이하)" + (f" — {detail}" if detail else ""))
 
 
+def guard_relaunch_row(date: str) -> tuple:
+    """가드가 그날 하루 루프를 다시 띄우거나 남은 트레이더를 내린 횟수 — 평소 0이다.
+
+    모의는 가드가 개장 때 하루 루프를 처음 띄우므로 계좌마다 기동 1회는 정상이다. 감시견이 떠 있는데
+    가드가 못 알아보면 트레이더를 내리고 감시견을 하나 더 띄워 같은 계좌에 엔진이 둘이 된다(10-02 07:55
+    실계좌, 같은 앱키). 그래서 트레이더를 내린 것과 같은 계좌 두 번째 기동부터 센다. 크래시 뒤 되살림도
+    여기 잡히므로 WARN으로 둔다.
+    """
+    name = "가드 되살림"
+    date_compact = date.replace("-", "")
+    guard_logs = sorted((REPO / "logs").glob(f"auto_trade_guard*_{date_compact}.log"))
+    events: list[str] = []
+
+    for guard_log in guard_logs:
+        try:
+            log_text = guard_log.read_text(encoding="utf-8-sig", errors="replace")
+        except OSError:
+            continue
+
+        label = guard_log.stem.removeprefix("auto_trade_guard").removesuffix(f"_{date_compact}").strip("_") or "모의"
+
+        launches = 0
+
+        for line in log_text.splitlines():
+            if "떠 있는 quant_trader" in line:
+                events.append(f"[{label}] {line[1:6]} 트레이더 내림")
+            elif "기동 요청 완료" in line:
+                launches += 1
+
+                if launches > 1:
+                    events.append(f"[{label}] {line[1:6]} {launches}번째 기동")
+
+    return (name, not events, "WARN",
+            f"{len(events)}건(기대 0)" + (f" — {', '.join(events[:6])}" if events else ""))
+
+
 def entry_cutoff_buy_row(date: str) -> tuple:
     """진입 마감 시각(no_new_entry_hhmm) 뒤에 DevScale 매수가 나갔는지.
 
@@ -2703,6 +2739,7 @@ def global_rows(date: str) -> list:
         entry_cutoff_buy_row(date),
         devscale_deploy_ratio_row(date),
         slot_reject_row(date),
+        guard_relaunch_row(date),
         devscale_adverse_selection_row(date),
         devscale_exit_reason_row(date),
         restart_verify_row(date),
