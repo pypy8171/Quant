@@ -134,4 +134,22 @@ ZoneBand zone_band(double entry_upper_percent, double pullback_percent, double h
     return band;
 }
 
+int sell_room_after_cancel(int sellable, int cancelled_sell_quantity, int position)
+{
+    const int room = (std::max)(sellable, 0) + (std::max)(cancelled_sell_quantity, 0);
+    return std::clamp(room, 0, (std::max)(position, 0));
+}
+
+bool sell_cover_missing(int position, int planned_sell_quantity, int free_sellable, long long seconds_since_rebuild,
+                        int grace_sec)
+{
+    if (position <= 0 || planned_sell_quantity <= 0 || seconds_since_rebuild < grace_sec)
+    {
+        return false;
+    }
+
+    const int left_uncovered = position - (std::min)(planned_sell_quantity, position);
+    return free_sellable > left_uncovered;
+}
+
 } // namespace devscale_rules

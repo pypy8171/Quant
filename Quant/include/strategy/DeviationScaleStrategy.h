@@ -266,10 +266,12 @@ private:
     static std::string plan_signature(const SplitPlan& split_plan, bool entry_on);
     bool clear_dust(const SplitPlan& split_plan, bool entry_on, int position, double current_price,
                     std::vector<OrderSignal>& out, std::chrono::steady_clock::time_point now);
-    // 직전 재구성과 같은 계획이거나 데드밴드·최소 간격 안이면 true — 기존 분할 주문을 둔다.
-    bool rebuild_suppressed(const std::string& signal, int position, double split_buy_reference);
+    // 직전 재구성과 같은 계획이거나 데드밴드·최소 간격 안이면 true — 기존 분할 주문을 둔다. 단 익절 매도가
+    //  보유를 덮지 못하고 있으면(sell_cover_missing) 같은 계획이어도 다시 깐다.
+    bool rebuild_suppressed(const std::string& signal, int position, double split_buy_reference,
+                            int planned_sell_quantity);
     std::string entry_context_text(const TradeData& trade, double current_price) const;
-    void place_split_steps(const SplitPlan& split_plan, bool entry_on, const std::string& buy_context,
+    void place_split_steps(const SplitPlan& split_plan, bool entry_on, const std::string& buy_context, int position,
                            std::vector<OrderSignal>& out);
 
     // ── 지표 (indicators.py 이식, bars[0]=최신) ──────────────────────────────
@@ -335,8 +337,11 @@ private:
     void place(std::vector<OrderSignal>& out, OrderSide side, double price, int quantity,
                const std::string& reason = "");
 
-    // 미체결 전량 취소. 발주가 있었으면 true.
+    // 미체결 전량 취소. 발주가 있었으면 true. 취소한 매도 수량을 cancelled_sell_quantity_에 더한다.
     bool cancel_all(std::vector<OrderSignal>& out);
+
+    // 이번 처리에서 새 매도에 쓸 수 있는 수량 — 장부 매도가능에 이번 처리에서 취소한 자기 매도를 더한다. [why D-156]
+    int sell_room(int position);
 
     OrderSignal make_market_sell(int quantity, const std::string& reason = "");
 
@@ -390,11 +395,15 @@ private:
         std::string order_id;     // 로그용 이름
         uint64_t    order_number; // 취소 키
         OrderSide   side;
+        int         quantity = 0; // 주문 수량. 취소 직후 다시 낼 매도 수량을 셀 때 쓴다 [why D-156]
     };
 
     Params parameters_;
     std::string id_; // 전략 이름, 생성자에서 한 번
     std::vector<Live> live_;               // 현재 live로 낙관하는 예약들
+    // [inv] on_trade_batch 첫머리에서 0으로 돌린다 — 같은 처리 안에서 낸 취소만 센다. 다음 처리에서는 취소 답이
+    //  장부에 반영돼 매도가능에 이미 들어 있으므로 더하면 두 번 센다.
+    int cancelled_sell_quantity_ = 0;
     // [inv] on_trade_batch가 스냅샷에서 잡는다. null이면 그 자리에서 return하므로, 아래 판정
     //  함수들이 불리는 시점에는 항상 유효하다.
     std::shared_ptr<const std::vector<MarketData>> daily_; // 이번 평가가 붙잡은 일봉(정배열/눌림 판정)
@@ -416,6 +425,9 @@ private:
     static constexpr int kAtrPeriod = 14;
     static constexpr int kLiquidationBackoffMs = 30000;    // 손절·트레일 청산의 재시도 상한(ms)
     static constexpr int kMarketCloseBackoffMs = 300000;   // 장 마감 청산의 재시도 상한(ms) — 마감까지 계속 민다
+    // 익절 매도가 보유를 덮는지 장부로 다시 보는 간격(초). 주문 답 왕복 p90 약 4.5초(Engine.h)보다 넉넉히 길게 둬
+    //  막 낸 주문을 빈 덮개로 오판하지 않는다. 장전처럼 계속 거부되는 구간에서는 이 간격마다 한 번씩 다시 낸다. [why D-156]
+    static constexpr int kSellCoverRecheckSec = 60;
     std::string last_split_buy_signal_;          // 마지막 발주 분할 매수 시그니처(no-change 가드)
     std::chrono::steady_clock::time_point last_work_{};   // 스로틀
     std::chrono::steady_clock::time_point last_rebuild_{}; // 마지막 분할 매수 전면 재구성

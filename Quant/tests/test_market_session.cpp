@@ -126,6 +126,24 @@ int main()
     assert(!in_session_string("153000"));
     assert(!in_session_string(""));
 
+    // order_window: 주문 구간 경계 — 시작 포함·끝 제외. 프리마켓·애프터마켓만 시장가를 못 받는다(D-156).
+    assert(order_window(75959) == OrderWindow::Regular);
+    assert(order_window(80000) == OrderWindow::PreMarket);
+    assert(order_window(82302) == OrderWindow::PreMarket); // 10-02 082270 시장가 청산이 APBK0918로 거부된 시각
+    assert(order_window(84959) == OrderWindow::PreMarket);
+    assert(order_window(85000) == OrderWindow::Regular);
+    assert(order_window(90000) == OrderWindow::Regular);
+    assert(order_window(153959) == OrderWindow::Regular);
+    assert(order_window(154000) == OrderWindow::ClosingAuction);
+    assert(order_window(155959) == OrderWindow::ClosingAuction);
+    assert(order_window(160000) == OrderWindow::AfterMarket);
+    assert(order_window(195959) == OrderWindow::AfterMarket);
+    assert(order_window(200000) == OrderWindow::Regular);
+    assert(market_order_unavailable(OrderWindow::PreMarket));
+    assert(market_order_unavailable(OrderWindow::AfterMarket));
+    assert(!market_order_unavailable(OrderWindow::Regular));
+    assert(!market_order_unavailable(OrderWindow::ClosingAuction));
+
     std::cout << "test_market_session: all passed" << std::endl;
     return 0;
 }

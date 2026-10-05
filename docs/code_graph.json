@@ -15,7 +15,7 @@
     {
       "from": "api",
       "to": "core",
-      "weight": 13
+      "weight": 14
     },
     {
       "from": "api",
@@ -453,6 +453,7 @@
     ],
     "api/KisOrder.cpp": [
       "core/KstTime.h",
+      "core/MarketSession.h",
       "core/TickSize.h",
       "utils/JsonNode.h"
     ],
@@ -1562,6 +1563,7 @@
       "core/LedgerReconciler.cpp"
     ],
     "core/MarketSession.h": [
+      "api/KisOrder.cpp",
       "api/KisWsDecode.h",
       "core/MarketSession.cpp",
       "core/PaperExecutor.h",
@@ -2208,12 +2210,12 @@
       "in_degree": 8
     },
     {
-      "header": "ipc/LedgerSnapshot.h",
+      "header": "core/MarketSession.h",
       "in_degree": 7
     },
     {
-      "header": "core/MarketSession.h",
-      "in_degree": 6
+      "header": "ipc/LedgerSnapshot.h",
+      "in_degree": 7
     },
     {
       "header": "core/StrategyTable.h",

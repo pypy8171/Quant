@@ -167,6 +167,8 @@ void DeviationScaleStrategy::on_trade_batch(const TradeData& trade, std::vector<
         return;
     }
 
+    cancelled_sell_quantity_ = 0; // 이번 처리에서 낸 취소만 센다(sell_room)
+
     if (trade.price > 0.0)
     {
         last_price_ = trade.price; // 시장가 청산의 명목 평가 기준가(reference_price). 장 마감 경로보다 먼저 갱신
@@ -298,7 +300,17 @@ void DeviationScaleStrategy::on_trade_batch(const TradeData& trade, std::vector<
         return;
     }
 
-    if (rebuild_suppressed(signal, position, simple_moving_average))
+    int planned_sell_quantity = 0;
+
+    for (const auto& split_step : plan.steps)
+    {
+        if (split_step.side == OrderSide::SELL)
+        {
+            planned_sell_quantity += split_step.quantity;
+        }
+    }
+
+    if (rebuild_suppressed(signal, position, simple_moving_average, planned_sell_quantity))
     {
         return;
     }
@@ -314,7 +326,7 @@ void DeviationScaleStrategy::on_trade_batch(const TradeData& trade, std::vector<
                                     "% 일봉SMA20=" + format_one_decimal(zone_judgement.average_20) +
                                     " 현재가=" + format_one_decimal(current_price) +
                                     entry_context_text(trade, current_price);
-    place_split_steps(plan, entry_on, buy_context, out);
+    place_split_steps(plan, entry_on, buy_context, position, out);
 
     if (position <= 0 && entry_on)
     {
@@ -944,22 +956,47 @@ bool DeviationScaleStrategy::clear_dust(const SplitPlan& split_plan, bool entry_
     return false;
 }
 
-bool DeviationScaleStrategy::rebuild_suppressed(const std::string& signal, int position, double split_buy_reference)
+bool DeviationScaleStrategy::rebuild_suppressed(const std::string& signal, int position, double split_buy_reference,
+                                                int planned_sell_quantity)
 {
     const double reprice_band = parameters_.reprice_move_ticks * tick_size(split_buy_reference);
     const bool simple_moving_average_quiet =
         last_split_buy_reference_ > 0.0 && std::fabs(split_buy_reference - last_split_buy_reference_) < reprice_band;
 
+    // 덮개 점검: (a)(b)는 낸 익절 매도가 살아 있다고 믿고 건너뛴다. 그 매도가 거부됐거나(장전 세션 창 밖) 처음부터
+    //  못 냈으면(매도가능 0) 같은 계획이 이어지는 한 다시 내지 않는다 — 10-02 모의 3종목은 08:30 거부 뒤 하루 종일,
+    //  실계좌 138930은 16:07·19:40 뒤 각각 마감까지 익절 매도가 없었다. 장부 사본은 잔고 조회 없이 읽히므로
+    //  접근자가 있을 때만 본다(REST 대체 경로로 매 하트비트 조회하지 않는다). [why D-156]
+    bool cover_missing = false;
+
+    if (last_rebuild_ != std::chrono::steady_clock::time_point{})
+    {
+        if (const auto ledger = ledger_sellable(parameters_.account, parameters_.ticker))
+        {
+            const long long since_rebuild =
+                std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - last_rebuild_).count();
+            cover_missing = devscale_rules::sell_cover_missing(position, planned_sell_quantity, ledger->sellable,
+                                                               since_rebuild, kSellCoverRecheckSec);
+
+            if (cover_missing)
+            {
+                LOG_WARN("[" + id() + "] " + display() + " 익절 매도가 보유를 덮지 못함 — 재구성 pos=" +
+                         std::to_string(position) + " 매도가능=" + std::to_string(ledger->sellable) +
+                         " 계획매도=" + std::to_string(planned_sell_quantity));
+            }
+        }
+    }
+
     // (a) 계획 시그니처+pos가 직전과 동일하면 live 유무와 무관하게 스킵.
     //     매도가능=0이라 아무것도 못 깔아 live_가 빈 채로 남을 때(장부 보유↔매도가능 괴리)
     //     매 하트비트 재진입해 잔고조회를 난사하던 스핀을 차단. 체결로 pos가 바뀌면 즉시 재구성.
     // (b) 데드밴드(reprice 이내 미세이동)+position 동일 스킵은 살아있는 분할 매수에만 적용.
-    if (signal == last_split_buy_signal_ && position == last_position_)
+    if (!cover_missing && signal == last_split_buy_signal_ && position == last_position_)
     {
         return true; // 동일 계획 → 유지(빈 계획 포함)
     }
 
-    if (!live_.empty() && simple_moving_average_quiet && position == last_position_)
+    if (!cover_missing && !live_.empty() && simple_moving_average_quiet && position == last_position_)
     {
         return true; // 데드밴드 내 미세이동 → 유지
     }
@@ -1032,7 +1069,8 @@ std::string DeviationScaleStrategy::entry_context_text(const TradeData& trade, d
 }
 
 void DeviationScaleStrategy::place_split_steps(const SplitPlan& split_plan, bool entry_on,
-                                               const std::string& buy_context, std::vector<OrderSignal>& out)
+                                               const std::string& buy_context, int position,
+                                               std::vector<OrderSignal>& out)
 {
     int sell_room = -1; // -1=미조회(지연). 첫 매도 분할 단계에서 1회 조회.
 
@@ -1042,7 +1080,7 @@ void DeviationScaleStrategy::place_split_steps(const SplitPlan& split_plan, bool
         {
             if (sell_room < 0)
             {
-                sell_room = sellable_quantity(); // 안전 우선: 불확실하면 0(매도 보류)
+                sell_room = this->sell_room(position); // 안전 우선: 불확실하면 0(매도 보류). 방금 취소한 자기 매도는 더한다
             }
 
             int quantity = split_step.quantity < sell_room ? split_step.quantity : sell_room;
@@ -1340,7 +1378,7 @@ void DeviationScaleStrategy::place(std::vector<OrderSignal>& out, OrderSide side
     signal.reason = reason; // G4: 판단 근거를 신호에 실어 영속
     signal.timestamp = std::chrono::system_clock::now();
     out.push_back(std::move(signal));
-    live_.push_back({std::move(order_id), order_number, side});
+    live_.push_back({std::move(order_id), order_number, side, quantity});
 }
 
 bool DeviationScaleStrategy::cancel_all(std::vector<OrderSignal>& out)
@@ -1352,6 +1390,11 @@ bool DeviationScaleStrategy::cancel_all(std::vector<OrderSignal>& out)
 
     for (auto& live_entry : live_) // live_는 아래에서 비우므로 주문 id를 옮긴다
     {
+        if (live_entry.side == OrderSide::SELL)
+        {
+            cancelled_sell_quantity_ += live_entry.quantity;
+        }
+
         OrderSignal signal;
         signal.ticker = parameters_.ticker;
         signal.symbol_id = symbol_id_;
@@ -1428,7 +1471,7 @@ bool DeviationScaleStrategy::emit_liquidation(std::vector<OrderSignal>& out, int
         return false; // 백오프 창 내 — 재발주 스킵(스팸 차단)
     }
 
-    const int sellable = clamp_sellable ? sellable_quantity() : position; // 안전 우선: 불확실하면 0(보류)
+    const int sellable = clamp_sellable ? sell_room(position) : position; // 안전 우선: 불확실하면 0(보류)
     const int quantity = sellable > 0 ? (position < sellable ? position : sellable) : 0;
     bool emitted = false;
 
@@ -1463,6 +1506,15 @@ bool DeviationScaleStrategy::emit_liquidation(std::vector<OrderSignal>& out, int
 
     liquidation_next_ = now + std::chrono::milliseconds(milliseconds);
     return emitted;
+}
+
+int DeviationScaleStrategy::sell_room(int position)
+{
+    // 취소를 먼저 고르고 다시 내는 방식(취소 확인 뒤 재구성)은 쓰지 않는다 — 재구성 한 번이 두 처리로 갈라져 그 사이
+    //  매수 분할 단계도 비고, 취소 답을 못 받으면 다음 재구성까지 빈 채로 남는다. 여기서는 취소한 수량을 그대로
+    //  다시 쓴다. 같은 종목의 새 주문은 앞 취소 답 뒤에 판정되고, 넘친 몫은 게이트 클램프와 라우터
+    //  자가정리(reconcile_blocked_sell)가 깎는다. [why D-156]
+    return devscale_rules::sell_room_after_cancel(sellable_quantity(), cancelled_sell_quantity_, position);
 }
 
 int DeviationScaleStrategy::sellable_quantity()

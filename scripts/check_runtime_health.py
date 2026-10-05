@@ -946,6 +946,85 @@ def guard_relaunch_row(date: str) -> tuple:
             f"{len(events)}건(기대 0)" + (f" — {', '.join(events[:6])}" if events else ""))
 
 
+# DevScale 익절 매도가 보유를 덮지 못한 채 남은 구간. 재구성 줄(pos·live)부터 그 종목의 다음 재구성까지 접수된 매도
+#  수량이 보유보다 적으면 빈 덮개다. 고친 뒤(D-156)에는 빈 덮개가 kSellCoverRecheckSec(60초) 안에 다시 깔리므로
+#  5분을 넘겨 남으면 자가복구가 안 된 것이다.
+SELL_COVER_REBUILD_RE = re.compile(r"\[DEVSCALE_(\d{6})\] 분할 매수 재구성 .* pos=(\d+) live=(\d+)")
+SELL_COVER_ACCEPT_RE = re.compile(r"\[OrderRouter\] 접수 \[ORD-\d+\] ODNO=\d+ (\d{6}) SELL (\d+)주")
+SELL_COVER_MAX_GAP_SEC = 300
+
+
+def sell_cover_gaps(lines) -> list[str]:
+    """로그 줄에서 익절 매도가 보유를 5분 넘게 덮지 못한 재구성 구간을 '시각 종목 pos=N 덮음=M n분'으로 낸다.
+
+    구간은 재구성 줄에서 시작해 같은 종목의 다음 재구성(없으면 로그 끝)에서 끝난다. 그 사이 접수된 그 종목 매도
+    수량을 더해 보유에 못 미치면 빈 덮개다 — live=0(매도가능 0으로 건너뜀, 10-02 실계좌 138930), 매도가 거부됨
+    (세션 창 밖, 10-02 모의 003490), 일부만 덮음(10-02 모의 017860 37·111주 번갈이)이 모두 여기 걸린다.
+    """
+    open_spans: dict[str, list] = {}   # 종목 → [시작 초, 시작 시각 글자, 보유, 접수 매도 수량]
+    gaps: list[str] = []
+    last_second = 0
+
+    def close(ticker: str, end_second: int) -> None:
+        start_second, clock, position, covered = open_spans.pop(ticker)
+
+        if covered < position and end_second - start_second > SELL_COVER_MAX_GAP_SEC:
+            gaps.append(f"{clock} {ticker} pos={position} 덮음={covered} {(end_second - start_second) // 60}분")
+
+    for line in lines:
+        if not TS_RE.match(line):
+            continue
+
+        second = int(line[11:13]) * 3600 + int(line[14:16]) * 60 + int(line[17:19])
+        last_second = second
+        rebuilt = SELL_COVER_REBUILD_RE.search(line)
+
+        if rebuilt:
+            ticker = rebuilt.group(1)
+
+            if ticker in open_spans:
+                close(ticker, second)
+
+            position = int(rebuilt.group(2))
+
+            if position > 0:
+                open_spans[ticker] = [second, line[11:16], position, 0]
+
+            continue
+
+        accepted = SELL_COVER_ACCEPT_RE.search(line)
+
+        if accepted and accepted.group(1) in open_spans:
+            open_spans[accepted.group(1)][3] += int(accepted.group(2))
+
+    for ticker in list(open_spans):
+        close(ticker, last_second)
+
+    return gaps
+
+
+def sell_cover_row(date: str) -> tuple:
+    """DevScale 보유에 익절 매도가 5분 넘게 걸리지 않은 구간 수 — 기대값 0.
+
+    10-02에 세 갈래로 보유가 덮이지 않았다: 취소 직후 매도가능 0으로 건너뜀(실계좌 138930 16:07–16:15·19:40–20:00),
+    장전 매도가 세션 창 밖으로 거부된 뒤 같은 계획이라 다시 안 냄(모의 003490 등 3종목 하루 종일), 자기 매도를 뺀
+    나머지만 덮음(모의 017860). 고친 뒤에는 60초 안에 다시 깔리므로 5분 넘는 구간은 자가복구 실패다 — FAIL.
+    """
+    name = "DevScale 익절 매도 빈 보유"
+    gaps: list[str] = []
+
+    for directory in health_targets():
+        for gap in sell_cover_gaps(date_log_lines(date, directory)):
+            gaps.append(f"[{directory.name}] {gap}")
+
+    if gaps:
+        return (name, False, "FAIL",
+                f"{len(gaps)}구간(기준 0) — {'; '.join(gaps[:4])}" + (" 외" if len(gaps) > 4 else "") +
+                " (재구성 뒤 다음 재구성까지 접수된 매도가 보유보다 적은 채 5분 넘게 감, D-156)")
+
+    return (name, True, "FAIL", "0구간(기준 0)")
+
+
 def entry_cutoff_buy_row(date: str) -> tuple:
     """진입 마감 시각(no_new_entry_hhmm) 뒤에 DevScale 매수가 나갔는지.
 
@@ -2740,6 +2819,7 @@ def global_rows(date: str) -> list:
         devscale_deploy_ratio_row(date),
         slot_reject_row(date),
         guard_relaunch_row(date),
+        sell_cover_row(date),
         devscale_adverse_selection_row(date),
         devscale_exit_reason_row(date),
         restart_verify_row(date),

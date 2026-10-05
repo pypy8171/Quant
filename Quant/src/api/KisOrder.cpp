@@ -3,6 +3,7 @@
 #include "KisClientInternal.h"
 #include "utils/JsonNode.h"
 #include "core/KstTime.h"
+#include "core/MarketSession.h"
 #include "core/TickSize.h"
 
 #include <cstring>
@@ -30,38 +31,20 @@ static std::string kis_reject_code(const json& document)
 //                               뒤에도 이 구간은 남았다
 //    16:00~20:00 애프터마켓    — 접속매매라 실시간으로 체결되고, 전용 주문구분 41(지정가)·42(IOC)·
 //                               43(FOK)만 받는다. 시장가는 없고 거래소는 KRX 로 못박아야 한다
+//    08:00~08:50 NXT 프리마켓  — 지정가 00 은 설정 거래소(SOR)로 받고, 시장가 01 은 "장운영시간이
+//                               아닙니다 [APBK0918]" 로 되돌아온다(2026-10-02 실계좌 082270 실측: 08:00:01
+//                               지정가 45주 접수, 08:23–08:30 시장가 45주 4회 거부). 시장가는 지정가 00 으로 바꾼다
 //  실계좌에서 두 번 되돌아온 뒤에 얻은 배선이다(2026-09-23, HJ중공업 3주 청산 12회 거부).
 //  최유리지정가(03)는 "최유리지정가호가불가 [APBK1943]", 그 다음에 넣은 지정가(00)는 거래소를
 //  SOR 로 둔 탓에 "SOR 시장에서 거래가 불가능한 종목입니다 [APBK3009]" 로 막혔다. 모의계좌는
 //  애프터마켓 주문 자체를 받지 않아 이 경로는 실증된 적이 없었다.
 //  구간 바깥(예: 08:50~09:00)은 OrderGate 세션 창이 막으므로 여기서 다시 보지 않는다.
 //  [why D-097] [why D-122]
-static constexpr int32_t kClosingAuctionOpenHhmmss = 154000;  // 장후 종가매매 시작 15:40:00
-static constexpr int32_t kAfterMarketOpenHhmmss    = 160000;  // 애프터마켓 시작 16:00:00
-static constexpr int32_t kAfterMarketCloseHhmmss   = 200000;  // 애프터마켓 끝 20:00:00
-
-enum class MarketSession
-{
-    Regular,         // 정규장
-    ClosingAuction,  // 장후 시간외 종가매매
-    AfterMarket      // 애프터마켓 접속매매
-};
+using MarketSession = krx::OrderWindow; // 구간 경계는 core/MarketSession.h 한 곳에 둔다(단위 시험 test_market_session)
 
 static MarketSession market_session_now()
 {
-    const int32_t hhmmss = kst::hhmmss_int(std::time(nullptr));
-
-    if (hhmmss >= kClosingAuctionOpenHhmmss && hhmmss < kAfterMarketOpenHhmmss)
-    {
-        return MarketSession::ClosingAuction;
-    }
-
-    if (hhmmss >= kAfterMarketOpenHhmmss && hhmmss < kAfterMarketCloseHhmmss)
-    {
-        return MarketSession::AfterMarket;
-    }
-
-    return MarketSession::Regular;
+    return krx::order_window(kst::hhmmss_int(std::time(nullptr)));
 }
 
 static const char* kis_order_division(OrderType type, MarketSession session)
@@ -74,6 +57,11 @@ static const char* kis_order_division(OrderType type, MarketSession session)
     if (session == MarketSession::AfterMarket)
     {
         return "41";
+    }
+
+    if (session == MarketSession::PreMarket)
+    {
+        return "00"; // 프리마켓은 시장가가 없다 — 시장가 신호도 지정가로 낸다(단가는 호출부가 채운다)
     }
 
     return type == OrderType::MARKET ? "01" : "00";
@@ -230,21 +218,30 @@ OrderAck KisClient::submit_order_acknowledgement(const OrderSignal& signal)
             // 근거: 주문구분 06·단가 0은 D-097(2026-09-23 실측 절에서 06이 남아 있음을 확인). "단가를 실으면 거부"는
             //  공식 샘플에 없고 거부를 본 실측 기록도 찾지 못했다(2026-09-27).
         }
-        else if (session == MarketSession::AfterMarket && signal.type == OrderType::MARKET)
+        else if (krx::market_order_unavailable(session) && signal.type == OrderType::MARKET)
         {
-            // 애프터마켓 접속매매는 지정가(41)만 받는다. 현재가는 REST로 한 번 묻는다 —
-            //  근거: 실측 — D-097 "2026-09-23 실측"(03은 APBK1943, SOR 00은 APBK3009로 거부, 41+KRX로 접수).
-            //  공식 샘플 order_cash에는 ORD_DVSN 코드 목록이 없다(2026-09-27 MCP 확인).
-            //  청산·정정은 드물어 이 왕복이 hot path가 아니다.
-            order_price = offhours_limit_price(get_current_price(signal.ticker), signal.side);
+            // 애프터마켓 접속매매는 지정가(41)만, NXT 프리마켓은 지정가(00)만 받는다.
+            //  근거: 실측 — D-097 "2026-09-23 실측"(03은 APBK1943, SOR 00은 APBK3009로 거부, 41+KRX로 접수),
+            //  프리마켓은 2026-10-02 실계좌 082270(00+SOR 접수, 01+SOR APBK0918 거부). [why D-156]
+            //  공식 샘플 order_cash에는 ORD_DVSN 코드 목록·시간대 제약이 없다(2026-09-27·2026-10-02 MCP 확인).
+            //  프리마켓 기준가는 신호의 reference_price(전략이 본 KRX+NXT 통합 체결가)를 먼저 쓴다 — REST 현재가는
+            //  KRX 기준이라 장전에는 전날 종가에 머문다. 애프터마켓은 REST로 한 번 묻는다(청산·정정은 드물어
+            //  이 왕복이 hot path가 아니다).
+            const bool   pre_market      = session == MarketSession::PreMarket;
+            const double reference_price = pre_market && signal.reference_price > 0.0 ? signal.reference_price
+                                                                                       : get_current_price(signal.ticker);
+            order_price             = offhours_limit_price(reference_price, signal.side);
+            const char* window_name = pre_market ? "프리마켓" : "애프터마켓";
 
             if (order_price <= 0)
             {
-                LOG_ERROR("[KIS] 애프터마켓 주문에 실을 현재가를 못 구했다 — 주문하지 않는다 " + signal.ticker);
+                LOG_ERROR(std::string("[KIS] ") + window_name + " 주문에 실을 현재가를 못 구했다 — 주문하지 않는다 " +
+                          signal.ticker);
                 return OrderAck::fail(kis_error::kTransport);
             }
 
-            LOG_INFO("[KIS] 애프터마켓이라 시장가를 지정가 " + std::to_string(order_price) + "원으로 바꾼다 " + signal.ticker);
+            LOG_INFO(std::string("[KIS] ") + window_name + "이라 시장가를 지정가 " + std::to_string(order_price) +
+                     "원으로 바꾼다 " + signal.ticker);
         }
 
         const char* order_exchange = kis_session_exchange(config_, session);
@@ -253,7 +250,7 @@ OrderAck KisClient::submit_order_acknowledgement(const OrderSignal& signal)
 
         body = {{"CANO", config_.account_no}, {"ACNT_PRDT_CD", config_.account_type},
                 {"PDNO", signal.ticker},
-                {"ORD_DVSN", order_division}, // 시간대가 정한다 — 정규장 01/00 · 종가 06 · 애프터 41
+                {"ORD_DVSN", order_division}, // 시간대가 정한다 — 정규장 01/00 · 프리마켓 00 · 종가 06 · 애프터 41
                 {"ORD_QTY", std::to_string(signal.quantity)},
                 {"ORD_UNPR", std::to_string(order_price)},
                 {"EXCG_ID_DVSN_CD", order_exchange}};

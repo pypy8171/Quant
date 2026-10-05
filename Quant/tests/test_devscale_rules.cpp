@@ -1,6 +1,6 @@
 // DevScale 순수 판정(strategy/DevScaleRules.h) 단위 테스트 — 무장 후 고가 트레일의 무장·발동·미발동 경계,
 //  체결 원장에서 종목별 순수량을 더하는 규칙(FILL만·슬리브 접두어·짧은 행·MANUAL 제외)과 재인수 판정, 일봉 ATR과 하루 단위 진입 필터를
-//  고정한다. 헤더 전용이라 파일·로그 없이 돈다.
+//  고정한다. 자기 매도 취소 뒤 다시 낼 수량과 익절 매도 빈 덮개 판정(D-156)도 본다. 파일·로그 없이 돈다.
 // 빌드: cmake --build <directory> --target test_devscale_rules
 #include "strategy/DevScaleRules.h"
 
@@ -177,6 +177,35 @@ int test_zone_band()
 }
 } // namespace
 
+// 같은 처리에서 자기 매도를 취소하고 다시 낼 때의 수량 — 장부 매도가능에 취소한 몫을 더하고 보유로 자른다.
+int test_sell_room_after_cancel()
+{
+    CHECK(sell_room_after_cancel(0, 31, 31) == 31);    // 10-02 138930: 취소 중인 31주가 매도가능을 0으로 잡고 있었다
+    CHECK(sell_room_after_cancel(111, 37, 148) == 148); // 10-02 017860: 37주를 취소하면 148주 전량을 덮는다
+    CHECK(sell_room_after_cancel(37, 111, 148) == 148); // 반대 차례도 같다 — 37·111주 번갈이가 끊긴다
+    CHECK(sell_room_after_cancel(0, 148, 98) == 98);    // 일부 체결로 보유가 줄었으면 보유까지만
+    CHECK(sell_room_after_cancel(10, 0, 31) == 10);     // 취소가 없으면 장부 매도가능 그대로(남이 잠근 몫은 그대로 빠진다)
+    CHECK(sell_room_after_cancel(0, 0, 31) == 0);       // 잠긴 이유가 자기 매도가 아니면 여전히 보류
+    CHECK(sell_room_after_cancel(5, 5, 0) == 0);        // 보유 없음
+    CHECK(sell_room_after_cancel(-3, 4, 10) == 4);      // 음수 매도가능은 0으로 본다
+    return 0;
+}
+
+// 같은 계획이라 재구성을 건너뛰려는 자리에서 익절 매도가 보유를 덮지 못하면 다시 연다.
+int test_sell_cover_missing()
+{
+    // 10-02 모의 003490 83주: 08:30 매도가 세션 창 밖으로 거부돼 장부 매도가능이 83 그대로였다
+    CHECK(sell_cover_missing(83, 83, 83, 60, 60));
+    CHECK(!sell_cover_missing(83, 83, 83, 59, 60));   // 막 낸 주문은 답이 오기 전이라 보지 않는다
+    CHECK(!sell_cover_missing(83, 83, 0, 600, 60));   // 매도가 살아 있어 매도가능 0 — 덮여 있다
+    CHECK(sell_cover_missing(148, 148, 37, 60, 60));  // 일부만 덮였다(017860 번갈이에서 37주가 빈 차례)
+    CHECK(!sell_cover_missing(100, 60, 40, 600, 60)); // 계획이 40주를 남기려는 것이면 빈 덮개가 아니다
+    CHECK(sell_cover_missing(100, 60, 41, 600, 60));  // 그보다 더 비면 빈 덮개
+    CHECK(!sell_cover_missing(0, 10, 10, 600, 60));   // 보유 없음
+    CHECK(!sell_cover_missing(31, 0, 31, 600, 60));   // 계획에 매도가 없으면 판정하지 않는다
+    return 0;
+}
+
 int main()
 {
     if (test_peak_trail() != 0)
@@ -220,6 +249,16 @@ int main()
     }
 
     if (test_zone_band() != 0)
+    {
+        return 1;
+    }
+
+    if (test_sell_room_after_cancel() != 0)
+    {
+        return 1;
+    }
+
+    if (test_sell_cover_missing() != 0)
     {
         return 1;
     }

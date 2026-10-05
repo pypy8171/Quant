@@ -9,6 +9,8 @@
 //   • entry_time_closed: 그날 신규 진입 마감 시각을 지났나.
 //   • is_dust: 먼지 정리 대상인가(평가금 기준 + 당일 분할 진입 면제).
 //   • zone_band: 일봉 SMA20 이격 존의 하단·상단(%) — 진입 폭과 유지 폭.
+//   • sell_room_after_cancel: 같은 처리에서 자기 매도를 취소한 뒤 다시 낼 수 있는 매도 수량.
+//   • sell_cover_missing: 익절 매도가 보유를 덮지 못한 채 남아 있어 재구성을 다시 열어야 하나.
 // 테스트: Quant/tests/test_devscale_rules.cpp
 #include "core/Types.h"
 
@@ -71,5 +73,21 @@ struct ZoneBand
 //  보유가 있을 때 true다 — 보유를 넣지 않으면 재기동 직후(직전 판정 기억 없음) 이격 5~9%인 보유분이 좁은 폭으로
 //  판정돼 시장가로 팔린다(09-28~30 5건).
 ZoneBand zone_band(double entry_upper_percent, double pullback_percent, double hysteresis_percent, bool widened);
+
+// 같은 처리에서 자기 매도 cancelled_sell_quantity주를 취소하고 곧바로 새 매도를 낼 때 쓸 수 있는 수량.
+//  장부 사본의 매도가능(sellable)은 취소 답이 오기 전까지 그 매도가 잡은 수량을 빼고 보여 준다 — 그대로 쓰면
+//  0이 나와 익절 매도를 건너뛰거나(10-02 실계좌 138930 31주), 취소한 몫을 뺀 나머지만 덮는다(10-02 모의 017860
+//  148주를 37·111주로 번갈아 덮음). 주문 스레드가 같은 종목의 다음 주문을 앞 주문 답 뒤에 판정하므로 새 매도가
+//  게이트에 닿을 때는 취소가 이미 풀려 있다. 취소가 실패해도(이미 체결) 게이트 클램프가 넘친 몫을 깎는다.
+//  결과는 0 이상 position 이하. [why D-156]
+int sell_room_after_cancel(int sellable, int cancelled_sell_quantity, int position);
+
+// 직전 재구성과 계획·보유가 같아 재구성을 건너뛰려는 자리에서, 익절 매도가 보유를 덮지 못하고 있으면 true.
+//  free_sellable은 장부 사본의 매도가능(자기 미체결 매도를 뺀 값)이다. 계획이 덮으려는 수량(planned_sell_quantity)이
+//  남기려는 몫(position − planned)보다 더 비어 있으면 낸 매도가 거부됐거나 빠진 것이다. 막 낸 주문은 답이 오기
+//  전이라 아직 장부에 안 잡히므로 grace_sec 동안은 보지 않는다. 10-02 모의 003490·016360·005930은 08:30 장전
+//  매도가 세션 창 밖으로 거부된 뒤 같은 계획이라 하루 종일 다시 내지 않았다. [why D-156]
+bool sell_cover_missing(int position, int planned_sell_quantity, int free_sellable, long long seconds_since_rebuild,
+                        int grace_sec);
 
 } // namespace devscale_rules

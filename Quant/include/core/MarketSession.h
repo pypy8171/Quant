@@ -35,4 +35,20 @@ int32_t parse_hhmmss(std::string_view ticker);
 
 // 정수 HHMMSS를 여섯 자리 문자열로(93001 → "093001"). 화면·CSV·캡처 파일용 — hot path에서 부르지 않는다.
 std::string hhmmss_string(int32_t hhmmss);
+
+// 국내 주문이 나가는 구간. 구간마다 KIS가 받는 주문구분·거래소가 다르다 — 배선은 src/api/KisOrder.cpp. 그 밖의
+//  시각(08:50–09:00 등)은 Regular로 접고, 주문을 막는 일은 OrderGate 세션 창이 한다. [why D-097] [why D-156]
+enum class OrderWindow
+{
+    Regular,        // 정규장(과 구간 밖)
+    PreMarket,      // NXT 프리마켓 08:00–08:50
+    ClosingAuction, // 장후 시간외 종가매매 15:40–16:00
+    AfterMarket     // KRX 애프터마켓 16:00–20:00
+};
+
+// KST HHMMSS 정수로 구간을 고른다. 경계는 시작 포함·끝 제외.
+OrderWindow order_window(int32_t hhmmss);
+
+// 시장가를 받지 않는 구간인가 — 프리마켓·애프터마켓. 호출부가 시장가 신호를 지정가로 바꿔 낸다.
+bool market_order_unavailable(OrderWindow window);
 } // namespace krx
