@@ -636,16 +636,21 @@ OrderAck OrderRouter::reconcile_blocked_sell(const OrderSignal& signal, const Or
     //  한계는 분명하다: 이번 세션이 낸 주문만 보인다. 이전 세션·수동 예약은 여전히 안 보이므로
     //  그때는 아래 "취소할 예약매도 없음"으로 떨어진다. 그래도 통째로 단락하는 것보다 낫다.
     //  지금은 get_open_orders가 모의에서도 VTTC0081R로 답하지만, 이 경로는 아직 이력을 쓴다.
+    int cancelled = 0;
+
     if (kis_.is_paper())
     {
         collect_session_sells(signal, opens);
     }
-    else if (!fetch_open_orders(opens, "[OrderRouter] 미체결 조회 실패 — ", "[OrderRouter] 미체결 조회 예외 — "))
+    else
     {
-        return OrderAck::fail(kis_error::kTransport);
-    }
+        if (!fetch_open_orders(opens, "[OrderRouter] 미체결 조회 실패 — ", "[OrderRouter] 미체결 조회 예외 — "))
+        {
+            return OrderAck::fail(kis_error::kTransport);
+        }
 
-    int cancelled = 0;
+        cancelled = close_vanished_session_sells(signal, opens);
+    }
 
     for (const auto& open : opens)
     {
@@ -771,42 +776,7 @@ bool OrderRouter::cancel_blocking_sell(const OrderSignal& signal, const OpenOrde
         return false;
     }
 
-    // 이번 세션 주문이면 이력·선점을 같이 정리한다. 잠금 순서 history_mutex_ → 장부 positions_mutex_는 close_cancel과 같다.
-    //  closed는 락 안에서 뜬 사본 — 락 밖의 장부 기록에 쓰고, history_ 원소는 축출로 참조가 죽을 수 있다.
-    ManagedOrder closed;
-    bool         found   = false;
-    int          release = 0;
-    {
-        std::lock_guard<std::mutex> lock(history_mutex_);
-        ManagedOrder* managed_order = history_.find_by_order_number(digits_to_number(open.kis_order_no));
-
-        if (managed_order && managed_order->status == OrderStatus::ACCEPTED)
-        {
-            release                      = outstanding_of(*managed_order);
-            managed_order->status        = OrderStatus::CANCELLED;
-            managed_order->reject_reason = "청산차단 해소 취소";
-            managed_order->updated_at    = std::chrono::system_clock::now();
-            closed                       = *managed_order;
-            found                        = true;
-        }
-
-        if (release > 0)
-        {
-            ledger.on_cancel(closed.signal.account_id, closed.signal.ticker, OrderSide::SELL, release,
-                             OrderGate::OrderRef{digits_to_number(closed.order_id), digits_to_number(open.kis_order_no),
-                                                 closed.signal.type});
-        }
-    }
-
-    if (found)
-    {
-        // 선점(reserved_)만 풀면 잔고 시드값 sellable_(취소 전 스냅샷, 주문가능 0)이 그대로라 다음 매도도 0으로
-        //  깎인다 — 09-14 15:00 096770 은 익절 취소 뒤 재매도가 유량한도에 막히자 재시도 3회가 전부 "매도가능 0".
-        //  취소로 브로커에서 풀린 수량만큼 되돌린다(이전 세션 줄과 같은 처리).
-        ledger.restore_sellable(closed.signal.account_id, closed.signal.ticker, release);
-        journal_.write_trade_row("", closed, 0, 0.0);
-    }
-    else
+    if (!close_session_sell(digits_to_number(open.kis_order_no), "청산차단 해소 취소"))
     {
         // 이전 세션 줄 — 부속 파일에서 빼고, 취소로 풀린 수량을 장부 매도가능수량에 되돌린다(기동 취소와 같은 처리).
         if (erase_carry_row(open.kis_order_no))
@@ -818,6 +788,97 @@ bool OrderRouter::cancel_blocking_sell(const OrderSignal& signal, const OpenOrde
     }
 
     return true;
+}
+
+// 이번 세션 매도 한 건을 CANCELLED로 닫고 선점·매도가능수량을 되돌린다. 이력에 ACCEPTED로 있었으면 참.
+bool OrderRouter::close_session_sell(uint64_t kis_order_number, const char* reason)
+{
+    auto& ledger = gate_.ledger();
+
+    // 잠금 순서 history_mutex_ → 장부 positions_mutex_는 close_cancel과 같다.
+    //  closed는 락 안에서 뜬 사본 — 락 밖의 장부 기록에 쓰고, history_ 원소는 축출로 참조가 죽을 수 있다.
+    ManagedOrder closed;
+    bool         found   = false;
+    int          release = 0;
+    {
+        std::lock_guard<std::mutex> lock(history_mutex_);
+        ManagedOrder* managed_order = history_.find_by_order_number(kis_order_number);
+
+        if (managed_order && managed_order->status == OrderStatus::ACCEPTED)
+        {
+            release                      = outstanding_of(*managed_order);
+            managed_order->status        = OrderStatus::CANCELLED;
+            managed_order->reject_reason = reason;
+            managed_order->updated_at    = std::chrono::system_clock::now();
+            closed                       = *managed_order;
+            found                        = true;
+        }
+
+        if (release > 0)
+        {
+            ledger.on_cancel(closed.signal.account_id, closed.signal.ticker, OrderSide::SELL, release,
+                             OrderGate::OrderRef{digits_to_number(closed.order_id), kis_order_number, closed.signal.type});
+        }
+    }
+
+    if (!found)
+    {
+        return false;
+    }
+
+    // 선점(reserved_)만 풀면 잔고 시드값 sellable_(취소 전 스냅샷, 주문가능 0)이 그대로라 다음 매도도 0으로
+    //  깎인다 — 09-14 15:00 096770 은 익절 취소 뒤 재매도가 유량한도에 막히자 재시도 3회가 전부 "매도가능 0".
+    //  브로커에서 풀린 수량만큼 되돌린다(이전 세션 줄과 같은 처리).
+    ledger.restore_sellable(closed.signal.account_id, closed.signal.ticker, release);
+    journal_.write_trade_row("", closed, 0, 0.0);
+    return true;
+}
+
+// 실계좌 — 브로커 미체결 목록에 없는데 이력에는 아직 ACCEPTED로 남은 이 종목 매도를 닫는다. 닫은 건수를 돌려준다.
+//  10-06 237690: 13:46 SOR 익절 지정가 1주가 체결·취소 통보 없이 브로커에서 사라졌는데 이력은 계속 미체결로 세어,
+//  15:42 재매도가 "매도가능 0"으로 4번 막혔다(잔고 주문가능 1주, 원주문 취소는 "정정취소 가능수량이 없습니다").
+//  미체결 조회에 안 보이는 주문은 수량을 묶고 있지 않다. 체결 통보가 늦게 오면 미연결 체결로 장부에 들어간다.
+//  이력의 ACCEPTED는 KIS가 주문번호를 돌려준 뒤라 그 뒤의 미체결 조회에는 이미 보인다 — 유예를 두지 않는다.
+int OrderRouter::close_vanished_session_sells(const OrderSignal& signal, const std::vector<OpenOrder>& opens)
+{
+    std::vector<uint64_t> vanished;
+    {
+        std::lock_guard<std::mutex> lock(history_mutex_);
+
+        for (const auto& managed_order : history_)
+        {
+            if (managed_order.status != OrderStatus::ACCEPTED || managed_order.signal.side != OrderSide::SELL ||
+                managed_order.signal.symbol_id != signal.symbol_id || managed_order.kis_order_number == 0 ||
+                outstanding_of(managed_order) <= 0)
+            {
+                continue;
+            }
+
+            const bool open_at_broker = std::ranges::any_of(opens, [&managed_order](const OpenOrder& open)
+            {
+                return digits_to_number(open.kis_order_no) == managed_order.kis_order_number;
+            });
+
+            if (!open_at_broker)
+            {
+                vanished.push_back(managed_order.kis_order_number);
+            }
+        }
+    }
+
+    int closed = 0;
+
+    for (const uint64_t kis_order_number : vanished)
+    {
+        if (close_session_sell(kis_order_number, "브로커 미체결 목록에 없음 — 통보 없이 사라짐"))
+        {
+            LOG_WARN(std::format("[OrderRouter] 사라진 매도 정리 {} ODNO={:010} — 브로커 미체결 목록에 없어 선점을 푼다",
+                                 signal.ticker, kis_order_number));
+            ++closed;
+        }
+    }
+
+    return closed;
 }
 
 // ─── 이력 저장 (max_history 초과 시 체결 완료/거부된 것만 삭제) ───────────

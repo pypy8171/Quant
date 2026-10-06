@@ -1090,6 +1090,92 @@ void test_blocked_sell_releases_reservation()
     PASS("blocked_sell_releases_reservation");
 }
 
+// ─── 실계좌: 통보 없이 사라진 예약매도 — 브로커 미체결 목록에 없으면 닫고 선점을 푼다 ───────
+//   10-06 237690: SOR 익절 지정가가 브로커에서 사라졌는데 이력이 미체결로 세어 재매도가 "매도가능 0"으로 막혔다.
+//   취소는 보내지 않는다(브로커에 없는 주문이라 "정정취소 가능수량 없음"으로 거부된다).
+void test_blocked_sell_closes_vanished_order()
+{
+    OrderGate         gate(relaxed_config());
+    StubOrderExecutor stub(true, "0000000401");
+    OrderRouter       router(gate, stub);
+    stub.paper = false; // 실계좌 경로 — 미체결은 브로커 조회로 안다
+
+    OrderSignal reserved     = make_signal("005930", OrderSide::SELL, 1);
+    reserved.type            = OrderType::LIMIT;
+    reserved.price           = 101000.0;
+    reserved.client_order_id = "RESV:2";
+    auto acknowledgement_a   = router.submit(reserved);
+    assert(acknowledgement_a.status == OrderStatus::ACCEPTED);
+    assert(gate.ledger().reserved("005930") == -1);
+
+    // 브로커 미체결 목록은 비었다 → 시장가 재매도가 40240000으로 막히면 사라진 주문을 닫고 다시 낸다.
+    stub.open_orders.clear();
+    stub.kis_order_no = "0000000402";
+    stub.fail_next    = 1;
+    stub.error_code   = "40240000";
+    OrderSignal liquidation     = make_signal("005930", OrderSide::SELL, 1);
+    liquidation.type            = OrderType::MARKET;
+    liquidation.price           = 0.0;
+    liquidation.reference_price = 96000.0;
+    auto acknowledgement_b      = router.submit(liquidation);
+    assert(acknowledgement_b.status == OrderStatus::ACCEPTED);
+    assert(acknowledgement_b.kis_order_no == "0000000402");
+    assert(stub.cancel_calls == 0);
+    assert(stub.open_order_calls == 1);
+
+    bool original_cancelled = false;
+
+    for (const auto& history_entry : router.recent(10))
+    {
+        if (history_entry.kis_order_no == "0000000401")
+        {
+            original_cancelled = (history_entry.status == OrderStatus::CANCELLED);
+        }
+    }
+
+    assert(original_cancelled);
+    assert(gate.ledger().reserved("005930") == -1); // 재매도분만
+    PASS("blocked_sell_closes_vanished_order");
+}
+
+// ─── 실계좌: 브로커 미체결 목록에 있는 예약매도는 사라진 것으로 보지 않는다 ───────
+void test_blocked_sell_keeps_order_open_at_broker()
+{
+    OrderGate         gate(relaxed_config());
+    StubOrderExecutor stub(true, "0000000501");
+    OrderRouter       router(gate, stub);
+    stub.paper = false;
+
+    OrderSignal reserved     = make_signal("005930", OrderSide::SELL, 1);
+    reserved.type            = OrderType::LIMIT;
+    reserved.price           = 101000.0;
+    reserved.client_order_id = "RESV:3";
+    auto acknowledgement_a   = router.submit(reserved);
+    assert(acknowledgement_a.status == OrderStatus::ACCEPTED);
+
+    // 브로커에 살아 있다 → 취소를 보내 풀고 다시 낸다(기존 경로).
+    OpenOrder open_at_broker;
+    open_at_broker.ticker                = "005930";
+    open_at_broker.side                  = OrderSide::SELL;
+    open_at_broker.psbl_qty              = 1;
+    open_at_broker.ord_unpr              = 101000.0;
+    open_at_broker.kis_order_no          = "0000000501";
+    open_at_broker.krx_forwarding_org_no = "ORG000777";
+    stub.open_orders  = {open_at_broker};
+    stub.kis_order_no = "0000000502";
+    stub.fail_next    = 1;
+    stub.error_code   = "40240000";
+    OrderSignal liquidation     = make_signal("005930", OrderSide::SELL, 1);
+    liquidation.type            = OrderType::MARKET;
+    liquidation.price           = 0.0;
+    liquidation.reference_price = 96000.0;
+    auto acknowledgement_b      = router.submit(liquidation);
+    assert(acknowledgement_b.status == OrderStatus::ACCEPTED);
+    assert(stub.cancel_calls == 1 && stub.last_cancel_quantity == 1);
+    assert(gate.ledger().reserved("005930") == -1);
+    PASS("blocked_sell_keeps_order_open_at_broker");
+}
+
 // ─── 재기동 미결 주문 대조 (D-113) ─────────────────────────────────────────────
 //   전송 뒤 접수 응답 전에 죽으면 저널에는 주문번호 없는 INTENT만 남는다. 예전에는 이를 무조건 풀어,
 //   KIS에 살아 있는 주문을 잊고 같은 수량을 또 낼 수 있었다.
@@ -1425,6 +1511,8 @@ int main()
     test_reconcile_row_written();
     test_sequence_propagates_to_rows();
     test_blocked_sell_releases_reservation();
+    test_blocked_sell_closes_vanished_order();
+    test_blocked_sell_keeps_order_open_at_broker();
     test_adopt_unnumbered_intent_matched();
     test_adopt_unnumbered_intent_not_sent();
     test_adopt_unnumbered_skips_claimed_order();
