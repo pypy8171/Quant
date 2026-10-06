@@ -340,6 +340,9 @@ private:
     // 미체결 전량 취소. 발주가 있었으면 true. 취소한 매도 수량을 cancelled_sell_quantity_에 더한다.
     bool cancel_all(std::vector<OrderSignal>& out);
 
+    // 미체결 매수만 취소한다 — 익절 매도는 보유를 덮어야 하므로 남긴다. 매수를 취소했으면 true.
+    bool cancel_buys(std::vector<OrderSignal>& out);
+
     // 이번 처리에서 새 매도에 쓸 수 있는 수량 — 장부 매도가능에 이번 처리에서 취소한 자기 매도를 더한다. [why D-156]
     int sell_room(int position);
 
@@ -397,6 +400,9 @@ private:
         OrderSide   side;
         int         quantity = 0; // 주문 수량. 취소 직후 다시 낼 매도 수량을 셀 때 쓴다 [why D-156]
     };
+
+    // 예약 하나의 취소 신호를 out에 넣는다. 주문 id를 옮기므로 호출 뒤 그 예약은 live_에서 뺀다.
+    void push_cancel(std::vector<OrderSignal>& out, Live& live_entry);
 
     Params parameters_;
     std::string id_; // 전략 이름, 생성자에서 한 번

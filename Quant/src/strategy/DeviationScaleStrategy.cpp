@@ -223,11 +223,13 @@ void DeviationScaleStrategy::on_trade_batch(const TradeData& trade, std::vector<
 
     if (!zone_judgement.zone)
     {
-        // 진입 축만 닫혔다. 미체결 매수는 거두되 보유는 그대로 둔다 — 장중에 이평이
+        // 진입 축만 닫혔다. 미체결 매수는 거두되 보유와 익절 매도는 그대로 둔다 — 장중에 이평이
         //  깨졌다고 파는 대신 되돌아오면 그대로 이어간다. 청산은 위 hold_zone이 맡는다.
-        if (cancel_all(out) && !entry_closed_logged_)
+        //  매도까지 거두면 정배열이 현재가 한 호가에 걸쳐 오갈 때 익절 매도를 매번 취소·재발주한다
+        //  (10-06 모의 005930: 11:11부터 274,000↔274,250 사이 떨림에 1분마다 SELL 3주 접수·취소 12회). [why D-156]
+        if (cancel_buys(out) && !entry_closed_logged_)
         {
-            LOG_INFO("[" + id() + "] " + display() + " 진입 축 닫힘(장중 정배열) — 미체결 취소, 보유 유지");
+            LOG_INFO("[" + id() + "] " + display() + " 진입 축 닫힘(장중 정배열) — 미체결 매수 취소, 보유·익절 매도 유지");
             entry_closed_logged_ = true;
         }
 
@@ -1390,29 +1392,54 @@ bool DeviationScaleStrategy::cancel_all(std::vector<OrderSignal>& out)
 
     for (auto& live_entry : live_) // live_는 아래에서 비우므로 주문 id를 옮긴다
     {
-        if (live_entry.side == OrderSide::SELL)
-        {
-            cancelled_sell_quantity_ += live_entry.quantity;
-        }
-
-        OrderSignal signal;
-        signal.ticker = parameters_.ticker;
-        signal.symbol_id = symbol_id_;
-        signal.side = live_entry.side;
-        signal.type = OrderType::LIMIT;
-        signal.quantity = 0;
-        signal.strategy_id = id();
-        signal.market = Market::KR;
-        signal.action = OrderAction::CANCEL;
-        signal.original_client_order_id = std::move(live_entry.order_id);
-        signal.original_client_order_number = live_entry.order_number;
-        signal.account_id = parameters_.account;
-        signal.timestamp = std::chrono::system_clock::now();
-        out.push_back(std::move(signal));
+        push_cancel(out, live_entry);
     }
 
     live_.clear();
     return true;
+}
+
+bool DeviationScaleStrategy::cancel_buys(std::vector<OrderSignal>& out)
+{
+    bool cancelled = false;
+
+    for (auto& live_entry : live_)
+    {
+        if (live_entry.side == OrderSide::BUY)
+        {
+            push_cancel(out, live_entry);
+            cancelled = true;
+        }
+    }
+
+    std::erase_if(live_, [](const Live& live_entry)
+    {
+        return live_entry.side == OrderSide::BUY;
+    });
+    return cancelled;
+}
+
+void DeviationScaleStrategy::push_cancel(std::vector<OrderSignal>& out, Live& live_entry)
+{
+    if (live_entry.side == OrderSide::SELL)
+    {
+        cancelled_sell_quantity_ += live_entry.quantity;
+    }
+
+    OrderSignal signal;
+    signal.ticker = parameters_.ticker;
+    signal.symbol_id = symbol_id_;
+    signal.side = live_entry.side;
+    signal.type = OrderType::LIMIT;
+    signal.quantity = 0;
+    signal.strategy_id = id();
+    signal.market = Market::KR;
+    signal.action = OrderAction::CANCEL;
+    signal.original_client_order_id = std::move(live_entry.order_id);
+    signal.original_client_order_number = live_entry.order_number;
+    signal.account_id = parameters_.account;
+    signal.timestamp = std::chrono::system_clock::now();
+    out.push_back(std::move(signal));
 }
 
 OrderSignal DeviationScaleStrategy::make_market_sell(int quantity, const std::string& reason)

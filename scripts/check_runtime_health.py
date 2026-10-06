@@ -2214,6 +2214,49 @@ def daily_reset_order_row(date: str) -> tuple:
     return (name, True, "FAIL", f"{checked}개 로그 모두 첫 주문 전에 리셋")
 
 
+def zone_close_keeps_sell_row(date: str) -> tuple:
+    """DevScale 진입 축이 닫힐 때 익절 매도는 남기고 매수만 취소했는지.
+
+    정배열이 현재가 한 호가에 걸쳐 오가면 축이 닫힐 때마다 익절 매도까지 취소되고, 다시 열리면 덮개 점검이
+    매도를 새로 낸다(10-06 모의 005930, 11:11부터 1분마다 SELL 3주 접수·취소 12회).
+    """
+    name = "진입 축 닫힘 매도 유지"
+    sell_cancels: list[str] = []
+    closes = 0
+
+    for account, engine_log in engine_logs():
+        try:
+            body = engine_log.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+
+        close_stamps: set[tuple[str, str]] = set()
+
+        for line in _logdir.live_session_lines(body.splitlines()):
+            if not line.startswith(date):
+                continue
+
+            if "진입 축 닫힘(장중 정배열)" in line:
+                tag_start = line.find("[DEVSCALE_")
+                close_stamps.add((line[:23], line[tag_start:line.find("]", tag_start) + 1]))
+                closes += 1
+            elif "[Strategy] 신호: [DEVSCALE_" in line and " 취소 SELL " in line:
+                tag_start = line.find("[DEVSCALE_")
+                key = (line[:23], line[tag_start:line.find("]", tag_start) + 1])
+
+                if key in close_stamps:
+                    sell_cancels.append(f"[{account}] {line[11:19]} {key[1]}")
+
+    if not closes:
+        return (name, True, "WARN", f"{date} 진입 축 닫힘 기록이 없다 — 판정 안 함")
+
+    if sell_cancels:
+        return (name, False, "FAIL",
+                f"진입 축 닫힘 {closes}회 중 {len(sell_cancels)}회가 익절 매도를 취소했다 — " + "; ".join(sell_cancels[:5]))
+
+    return (name, True, "FAIL", f"진입 축 닫힘 {closes}회 모두 매도 유지")
+
+
 def market_open_gate_row(date: str) -> tuple:
     """감시견의 휴장일 관문(scripts/auto_trade_day.ps1)이 그날 제대로 갈렸는지.
 
@@ -3100,6 +3143,7 @@ def global_rows(date: str) -> list:
         order_answer_row(date),
         fill_notice_session_row(date),
         missed_fill_recovery_row(date),
+        zone_close_keeps_sell_row(date),
         daily_reset_order_row(date),
         pinned_capture_row(date),
         board_minute_row(date),

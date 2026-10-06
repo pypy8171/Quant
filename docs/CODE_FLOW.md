@@ -227,8 +227,8 @@ flowchart LR
    `Quant/src/core/BarAggregator.cpp:199` · `bool BarAggregator::on_tick(const TradeData& trade)` · 시험 [test_bar_aggregator](../Quant/tests/test_bar_aggregator.cpp)
 62. [`bars::resample`](../Quant/include/core/BarAggregator.h#L59) — 1분봉 → `interval_min` 봉. 판단은 언제나 이 봉으로(D-072)  
    `Quant/include/core/BarAggregator.h:59` · `std::vector<MarketData> resample(const std::vector<MarketData>& bars_1m, int interval_min, int max_count = 0);` · 시험 [test_bar_aggregator](../Quant/tests/test_bar_aggregator.cpp)
-63. [`DeviationScaleStrategy::emit_liquidation`](../Quant/include/strategy/DeviationScaleStrategy.h#L362) — 청산 신호 조립 — 시장가면 `reference_price` 스탬프, 매도 가능 수량은 원장 접근자(`sellable_quantity`, 동기 잔고조회 금지)  
-   `Quant/include/strategy/DeviationScaleStrategy.h:362` · `bool emit_liquidation(std::vector<OrderSignal>& out, int position, …`
+63. [`DeviationScaleStrategy::emit_liquidation`](../Quant/include/strategy/DeviationScaleStrategy.h#L365) — 청산 신호 조립 — 시장가면 `reference_price` 스탬프, 매도 가능 수량은 원장 접근자(`sellable_quantity`, 동기 잔고조회 금지)  
+   `Quant/include/strategy/DeviationScaleStrategy.h:365` · `bool emit_liquidation(std::vector<OrderSignal>& out, int position, …`
 64. [`Engine::ledger_sellable`](../Quant/src/core/Engine.cpp#L716) — 전략이 보는 보유·매도 가능 수량의 출처 — 주문 프로세스가 발행한 장부 스냅숏  
    `Quant/src/core/Engine.cpp:716` · `StrategyBase::SellableInfo Engine::ledger_sellable(const std::string&, const std::string& ticker) const`
 65. [`ipc::LedgerSnapshot::begin_optimistic_read`](../Quant/src/ipc/LedgerSnapshot.cpp#L21) — 쓰는 쪽을 막지 않고 읽은 뒤 세대 번호로 그 사이에 바뀌었는지 확인한다(바뀌었으면 다시 읽음)  
