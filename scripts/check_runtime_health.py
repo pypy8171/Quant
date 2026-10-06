@@ -2257,6 +2257,48 @@ def zone_close_keeps_sell_row(date: str) -> tuple:
     return (name, True, "FAIL", f"진입 축 닫힘 {closes}회 모두 매도 유지")
 
 
+def transport_error_level_row(date: str) -> tuple:
+    """HTTP 전송 실패가 ERROR로 찍힐 때는 끝내 실패한 것뿐인지.
+
+    재시도로 붙은 전송 실패(쉬던 상주 연결을 KIS가 먼저 끊어 첫 조회가 12152로 떨어지는 경우)는 WARN이다.
+    ERROR 줄에 "모두 실패"나 "재시도 없이"가 없으면 단발 시도가 직접 찍은 것이라 운영 단말이 가짜 오류로 찬다
+    (10-06 실계좌 업종지수 조회 20건, 끝내 실패 0건).
+    """
+    name = "전송 실패 등급"
+    stray: list[str] = []
+    final_failures = 0
+    checked = 0
+
+    for account, engine_log in engine_logs():
+        try:
+            body = engine_log.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+
+        checked += 1
+
+        for line in _logdir.live_session_lines(body.splitlines()):
+            if not line.startswith(date) or "[ERROR]" not in line:
+                continue
+
+            if "[WinHTTP]" not in line and "[CURL]" not in line:
+                continue
+
+            if "모두 실패" in line or "재시도 없이" in line:
+                final_failures += 1
+            elif "실패:" in line:
+                stray.append(f"[{account}] {line[11:19]}")
+
+    if not checked:
+        return (name, True, "WARN", f"{date} 엔진 로그가 없다 — 판정 안 함")
+
+    if stray:
+        return (name, False, "FAIL",
+                f"재시도 전 단발 실패가 ERROR로 {len(stray)}건 찍혔다 — " + "; ".join(stray[:5]))
+
+    return (name, True, "FAIL", f"전송 실패 ERROR {final_failures}건은 모두 끝내 실패한 요청")
+
+
 def market_open_gate_row(date: str) -> tuple:
     """감시견의 휴장일 관문(scripts/auto_trade_day.ps1)이 그날 제대로 갈렸는지.
 
@@ -3143,6 +3185,7 @@ def global_rows(date: str) -> list:
         order_answer_row(date),
         fill_notice_session_row(date),
         missed_fill_recovery_row(date),
+        transport_error_level_row(date),
         zone_close_keeps_sell_row(date),
         daily_reset_order_row(date),
         pinned_capture_row(date),

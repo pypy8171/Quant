@@ -14,6 +14,11 @@ static thread_local int g_fastfail_depth = 0;
 //  조회에 195번 이렇게 답했고 재시도 3회가 한 조회를 45초 넘게 붙잡았다. 다른 전송 실패(빈 응답 12152·연결 끊김)는
 //  바로 다시 보내면 대개 붙으므로 재시도를 유지한다.
 static thread_local bool g_last_attempt_timed_out = false;
+// 직전 단발 시도의 전송 실패 문구(예: "[WinHTTP] ReceiveResponse 실패: 12152"). 단발 시도는 찍지 않고 재시도 래퍼가
+//  등급을 정해 찍는다 — 재시도로 붙은 실패는 WARN, 재시도를 다 쓰거나 재시도하지 않는 실패만 ERROR다.
+//  KIS가 쉬던 상주 연결을 먼저 끊으면 그 연결로 보낸 첫 조회가 바로 12152로 떨어지고 새 연결로 다시 보내면
+//  붙는다 — 10-06 실계좌 업종지수 조회 20건이 전부 이렇게 ERROR로 찍혀 운영 단말을 채웠고, 끝내 실패한 것은 0건이었다.
+static thread_local std::string g_last_transport_error;
 
 KisClient::FastFailScope::FastFailScope()
 {
@@ -245,12 +250,14 @@ static std::string winhttp_request_once(const std::string& method, const std::st
     transport_ok = false;
     status_code = 0;
     g_last_attempt_timed_out = false;
+    g_last_transport_error.clear();
     auto other_crack_url = crack_url(url);
 
     HINTERNET connect_handle = acquire_connection(other_crack_url);
 
     if (!connect_handle)
     {
+        g_last_transport_error = "[WinHTTP] 연결 실패: " + std::to_string(GetLastError());
         return "";
     }
 
@@ -260,6 +267,7 @@ static std::string winhttp_request_once(const std::string& method, const std::st
 
     if (!request_handle)
     {
+        g_last_transport_error = "[WinHTTP] OpenRequest 실패: " + std::to_string(GetLastError());
         thread_connection.reset(); // 상주 연결이 상해 있을 수 있음 → 파기, 다음 호출서 재수립
         return "";
     }
@@ -278,7 +286,7 @@ static std::string winhttp_request_once(const std::string& method, const std::st
         DWORD error = GetLastError();
         char errbuf[128];
         snprintf(errbuf, sizeof(errbuf), "[WinHTTP] SendRequest 실패: %lu", error);
-        LOG_ERROR(std::string(errbuf) + "  url=" + url);
+        g_last_transport_error = errbuf;
         WinHttpCloseHandle(request_handle);
         thread_connection.reset(); // 끊긴 keep-alive 가능 → 파기 후 재수립(GET이면 래퍼가 재시도)
         return "";
@@ -289,7 +297,7 @@ static std::string winhttp_request_once(const std::string& method, const std::st
         DWORD error = GetLastError();
         char errbuf[128];
         snprintf(errbuf, sizeof(errbuf), "[WinHTTP] ReceiveResponse 실패: %lu", error);
-        LOG_ERROR(std::string(errbuf) + "  url=" + url);
+        g_last_transport_error = errbuf;
         g_last_attempt_timed_out = (error == ERROR_WINHTTP_TIMEOUT);
         WinHttpCloseHandle(request_handle);
         thread_connection.reset();
@@ -372,16 +380,22 @@ static std::string winhttp_request(const std::string& method, const std::string&
         //  또 간다. 호출자(잔고 대조 등)가 자기 주기에 다시 부른다.
         if (!transport_ok && g_last_attempt_timed_out)
         {
-            LOG_WARN("[WinHTTP] 수신 제한 시간 초과 — 재시도 없이 실패 처리  url=" + url);
+            LOG_ERROR(g_last_transport_error + " — 수신 제한 시간 초과 — 재시도 없이 실패 처리  url=" + url);
             return response;
         }
 
         if (attempt < max_attempts)
         {
-            LOG_WARN("[WinHTTP] " + std::string(transport_ok ? "HTTP " + std::to_string(status) : "전송 실패") +
+            LOG_WARN((transport_ok ? "[WinHTTP] HTTP " + std::to_string(status) : g_last_transport_error) +
                      " — 재시도 " + std::to_string(attempt + 1) + "/" + std::to_string(max_attempts) +
                      "  url=" + url);
             Sleep(kRetryBackoffMsBase * attempt);
+            continue;
+        }
+
+        if (!transport_ok) // 재시도를 다 썼거나 재시도하지 않는 요청(주문 POST·즉시 실패 스코프)
+        {
+            LOG_ERROR(g_last_transport_error + " — 시도 " + std::to_string(attempt) + "회 모두 실패  url=" + url);
         }
     }
 
@@ -495,11 +509,12 @@ static std::string curl_request_once(const std::string& method, const std::strin
         curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
     }
 
+    g_last_transport_error.clear();
     CURLcode result_code = curl_easy_perform(curl);
 
     if (result_code != CURLE_OK)
     {
-        LOG_ERROR(std::string("[CURL] 요청 실패: ") + curl_easy_strerror(result_code));
+        g_last_transport_error = std::string("[CURL] 요청 실패: ") + curl_easy_strerror(result_code);
         g_last_attempt_timed_out = (result_code == CURLE_OPERATION_TIMEDOUT);
     }
     else
@@ -551,16 +566,22 @@ static std::string curl_request(const std::string& method, const std::string& ur
 
         if (!transport_ok && g_last_attempt_timed_out) // WinHTTP 경로와 같은 규약 — 제한 시간 초과는 재시도 없음
         {
-            LOG_WARN("[CURL] 수신 제한 시간 초과 — 재시도 없이 실패 처리  url=" + url);
+            LOG_ERROR(g_last_transport_error + " — 수신 제한 시간 초과 — 재시도 없이 실패 처리  url=" + url);
             return response;
         }
 
         if (attempt < max_attempts)
         {
-            LOG_WARN("[CURL] " + std::string(transport_ok ? "HTTP " + std::to_string(status) : "전송 실패") +
+            LOG_WARN((transport_ok ? "[CURL] HTTP " + std::to_string(status) : g_last_transport_error) +
                      " — 재시도 " + std::to_string(attempt + 1) + "/" + std::to_string(max_attempts) +
                      "  url=" + url);
             std::this_thread::sleep_for(std::chrono::milliseconds(kRetryBackoffMsBase * attempt));
+            continue;
+        }
+
+        if (!transport_ok) // 재시도를 다 썼거나 재시도하지 않는 요청(주문 POST·즉시 실패 스코프)
+        {
+            LOG_ERROR(g_last_transport_error + " — 시도 " + std::to_string(attempt) + "회 모두 실패  url=" + url);
         }
     }
 
