@@ -776,7 +776,7 @@ bool OrderRouter::cancel_blocking_sell(const OrderSignal& signal, const OpenOrde
         return false;
     }
 
-    if (!close_session_sell(digits_to_number(open.kis_order_no), "청산차단 해소 취소"))
+    if (!close_session_order(digits_to_number(open.kis_order_no), "청산차단 해소 취소"))
     {
         // 이전 세션 줄 — 부속 파일에서 빼고, 취소로 풀린 수량을 장부 매도가능수량에 되돌린다(기동 취소와 같은 처리).
         if (erase_carry_row(open.kis_order_no))
@@ -790,8 +790,8 @@ bool OrderRouter::cancel_blocking_sell(const OrderSignal& signal, const OpenOrde
     return true;
 }
 
-// 이번 세션 매도 한 건을 CANCELLED로 닫고 선점·매도가능수량을 되돌린다. 이력에 ACCEPTED로 있었으면 참.
-bool OrderRouter::close_session_sell(uint64_t kis_order_number, const char* reason)
+// 이번 세션 주문 한 건을 CANCELLED로 닫고 선점을 푼다(매도면 매도가능수량도 되돌린다). 이력에 ACCEPTED로 있었으면 참.
+bool OrderRouter::close_session_order(uint64_t kis_order_number, const char* reason)
 {
     auto& ledger = gate_.ledger();
 
@@ -816,7 +816,7 @@ bool OrderRouter::close_session_sell(uint64_t kis_order_number, const char* reas
 
         if (release > 0)
         {
-            ledger.on_cancel(closed.signal.account_id, closed.signal.ticker, OrderSide::SELL, release,
+            ledger.on_cancel(closed.signal.account_id, closed.signal.ticker, closed.signal.side, release,
                              OrderGate::OrderRef{digits_to_number(closed.order_id), kis_order_number, closed.signal.type});
         }
     }
@@ -829,7 +829,11 @@ bool OrderRouter::close_session_sell(uint64_t kis_order_number, const char* reas
     // 선점(reserved_)만 풀면 잔고 시드값 sellable_(취소 전 스냅샷, 주문가능 0)이 그대로라 다음 매도도 0으로
     //  깎인다 — 09-14 15:00 096770 은 익절 취소 뒤 재매도가 유량한도에 막히자 재시도 3회가 전부 "매도가능 0".
     //  브로커에서 풀린 수량만큼 되돌린다(이전 세션 줄과 같은 처리).
-    ledger.restore_sellable(closed.signal.account_id, closed.signal.ticker, release);
+    if (closed.signal.side == OrderSide::SELL)
+    {
+        ledger.restore_sellable(closed.signal.account_id, closed.signal.ticker, release);
+    }
+
     journal_.write_trade_row("", closed, 0, 0.0);
     return true;
 }
@@ -870,7 +874,7 @@ int OrderRouter::close_vanished_session_sells(const OrderSignal& signal, const s
 
     for (const uint64_t kis_order_number : vanished)
     {
-        if (close_session_sell(kis_order_number, "브로커 미체결 목록에 없음 — 통보 없이 사라짐"))
+        if (close_session_order(kis_order_number, "브로커 미체결 목록에 없음 — 통보 없이 사라짐"))
         {
             LOG_WARN(std::format("[OrderRouter] 사라진 매도 정리 {} ODNO={:010} — 브로커 미체결 목록에 없어 선점을 푼다",
                                  signal.ticker, kis_order_number));

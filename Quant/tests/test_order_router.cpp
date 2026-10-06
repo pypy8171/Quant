@@ -1303,6 +1303,60 @@ void test_adopt_open_orders_failure_keeps_accepted()
     PASS("adopt_open_orders_failure_keeps_accepted");
 }
 
+// 재기동 대조가 되살린 매도와 이전 세션 미체결 줄이 같은 ODNO다. 기동 취소 스레드가 그 줄을 취소하면
+//  되살린 주문도 닫혀 선점이 풀려야 한다 — 10-06 모의 13:42 재기동 뒤 7종목이 선점에 묶여 매도가능 0으로 굳었다.
+void test_stale_cancel_closes_restored_sell()
+{
+    OrderGate         gate(relaxed_config());
+    StubOrderExecutor stub(true);
+    stub.paper = true;
+    OrderRouter router(gate, stub);
+
+    const OrderGate::OrderRef reference{21, 571, OrderType::LIMIT};
+    const bool                written = gate.ledger().on_intent("", "005930", OrderSide::SELL, 8, 80000.0, reference);
+    assert(written);
+    OrderGate::OpenIntent intent;
+    intent.order_id         = 21;
+    intent.kis_order_number = 571;
+    intent.ticker           = "005930";
+    intent.strategy_name    = "DEVSCALE";
+    intent.side             = OrderSide::SELL;
+    intent.type             = OrderType::LIMIT;
+    intent.remaining        = 8;
+    intent.price            = 80000.0;
+    intent.accepted         = true;
+
+    const auto adopted = router.adopt_open_intents({intent});
+    assert(adopted.restored == 1);
+    assert(gate.ledger().reserved("005930") == -8);
+
+    const std::filesystem::path path = Logger::instance().path_for("open_orders.txt");
+    {
+        std::ofstream out(path, std::ios::trunc);
+        out << "0000000571|ORG000777|005930|SELL|8\n";
+    }
+
+    router.cancel_stale_orders_async();
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    bool       closed   = false;
+
+    while (!closed && std::chrono::steady_clock::now() < deadline)
+    {
+        closed = router.recent(1)[0].status == OrderStatus::CANCELLED;
+
+        if (!closed)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+    }
+
+    assert(closed);
+    assert(gate.ledger().reserved("005930") == 0);
+    std::error_code error_code;
+    std::filesystem::remove(path, error_code);
+    PASS("stale_cancel_closes_restored_sell");
+}
+
 // ─── 놓친 체결 되찾기 (D-149) ───────────────────────────────────────────────
 //  체결통보 소켓이 끊긴 사이 난 체결은 통보가 다시 오지 않을 수 있다. 재구독 뒤 당일 체결 조회의 누적 수량·금액과
 //  라우터가 받은 누적을 비교해 모자란 만큼을 체결로 넣는다. 단가는 누적 금액 차이 ÷ 모자란 수량이다.
@@ -1518,6 +1572,7 @@ int main()
     test_adopt_unnumbered_skips_claimed_order();
     test_adopt_paper_keeps_accepted_rule();
     test_adopt_open_orders_failure_keeps_accepted();
+    test_stale_cancel_closes_restored_sell();
     test_recover_missed_fill_by_amount_difference();
     test_recover_credit_partial_and_after_query_time();
     test_recover_skips_restored_orders();

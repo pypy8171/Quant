@@ -633,7 +633,10 @@ void OrderRouter::cancel_stale_rows(std::stop_token stop_token, const std::vecto
             //  (ord_psbl_qty, 취소 전 스냅샷) 그대로다. 되돌리지 않으면 미체결이 없는데도
             //  자기 청산이 막힌다 — 09-09 000215은 13:45 취소 뒤 16분간 "매도가능수량 0"으로
             //  교체 진입이 네 번 무산됐다. 매도 취소만 해당한다(매수는 현금을 풀 뿐이다).
-            if (row[3] == "SELL")
+            //  재기동 대조가 같은 ODNO를 이번 세션 주문으로 되살렸으면 그 주문도 닫는다 — 취소만 하고 두면
+            //  되살린 주문의 선점(reserved_)이 남아 매도가능이 0으로 굳는다. 10-06 모의 13:42 재기동 뒤
+            //  003490·016360 등 7종목, 실계좌 138930이 그렇게 익절 매도를 못 냈다. 닫으면서 매도가능도 되돌린다.
+            if (!close_session_order(digits_to_number(row[0]), "이전 세션 미체결 정리 취소") && row[3] == "SELL")
             {
                 gate_.ledger().restore_sellable(std::string(), row[2], quantity);
             }
