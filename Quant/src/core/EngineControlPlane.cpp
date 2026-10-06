@@ -21,7 +21,7 @@
 
 void Engine::apply_reset_daily()
 {
-    // 같은 거래일 두 번째 호출(장중 재기동·US 22:30)이면 게이트가 거절한다. 라우터·기준선도 그날 이미
+    // 같은 거래일 두 번째 호출(장중 재기동)이면 게이트가 거절한다. 라우터·기준선도 그날 이미
     //  새로 열었으니 같이 건너뛴다. [why A-4]
     const auto trading_date = static_cast<uint32_t>(std::stoul(kst::date_yyyymmdd(std::time(nullptr))));
 
@@ -40,7 +40,7 @@ void Engine::apply_reset_daily()
 
 void Engine::request_reset_daily()
 {
-    // 부르는 자리는 데이터 스레드의 장 시작 감지라 역할 셋이 다 지난다. 장부·게이트를 든 쪽만 그 자리서
+    // 부르는 자리는 데이터 스레드의 거래일 시작 감지라 역할 셋이 다 지난다. 장부·게이트를 든 쪽만 그 자리서
     //  고치고, 전략은 통로로 청하고, 시세는 고칠 것이 없어 지나간다. [why D-114 단계 5]
     if (runs_order_side())
     {

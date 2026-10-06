@@ -1005,10 +1005,10 @@ void OrderGate::note_displacement(const DisplacePlan& plan, symbol::SymbolId ben
                                       config_.displace_slot_hold_sec, ledger_.symbols().capacity());
 }
 
-// ─── 일별 리셋 (장 시작 시) ─────────────────────────────────────────────────
+// ─── 일별 리셋 (거래일 첫 회차) ─────────────────────────────────────────────────
 bool OrderGate::reset_daily(uint32_t trading_date_yyyymmdd)
 {
-    // 하루 한 번이다. 장 시작 감지는 "이 스레드가 본 닫힘→열림"이라 장중 재기동 직후 첫 회차와 US 22:30에도
+    // 하루 한 번이다. 데이터 스레드는 기동 직후 첫 회차마다 부르므로 장중 재기동 때도
     //  불린다. 그때 다시 비우면 리플레이·미체결 대조로 되살린 선점과 당일 손익이 0이 된다.
     //  그날 리셋을 했는지는 저널의 RESET_DAY가 안다. [why A-4]
     if (ledger_.last_daily_reset_date() == trading_date_yyyymmdd)

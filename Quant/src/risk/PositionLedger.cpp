@@ -1044,7 +1044,7 @@ size_t PositionLedger::open_slot_count() const
     return open;
 }
 
-// ─── 일별 만료 (장 시작 시) ─────────────────────────────────────────────────
+// ─── 일별 만료 (거래일 첫 회차) ─────────────────────────────────────────────────
 void PositionLedger::expire_reservations(uint32_t trading_date_yyyymmdd)
 {
     // 미체결 선점은 일일 만료 (KIS 당일 주문은 장 마감 소멸 → 다음날 잘못된 차단 방지).

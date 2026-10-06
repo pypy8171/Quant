@@ -501,7 +501,7 @@ public:
     // check() 3절의 장부 키 — 처음 보는 계좌·종목은 등록한다. positions_mutex_를 잠깐 잡는다.
     [[nodiscard]] PosKey register_signal(const OrderSignal& signal);
 
-    // 장 시작(OrderGate::reset_daily) — 미체결 선점을 비운다. 보유·평단은 영속 장부라 둔다. 저널에 RESET_DAY로
+    // 거래일 첫 회차(OrderGate::reset_daily) — 미체결 선점을 비운다. 보유·평단은 영속 장부라 둔다. 저널에 RESET_DAY로
     //  그 거래일을 남겨, 같은 날 재기동한 프로세스가 리플레이로 "오늘 리셋은 끝났다"를 알게 한다. [why A-4]
     void expire_reservations(uint32_t trading_date_yyyymmdd);
 

@@ -2169,6 +2169,51 @@ def missed_fill_recovery_row(date: str) -> tuple:
     return (name, True, "WARN", summary)
 
 
+def daily_reset_order_row(date: str) -> tuple:
+    """하루치 새로 열기(OrderGate 하루 리셋)가 그날 첫 주문 접수보다 먼저 돌았는지.
+
+    리셋은 미체결 매도 선점을 지운다. 그날 낸 주문 뒤에 돌면 살아 있는 익절 매도가 장부에서 사라져 전략이
+    취소·재주문하고, 재주문은 매도가능 0으로 막힌다(10-06 실계좌 138930, 08:00 접수 → 09:00 리셋).
+    """
+    name = "하루 리셋 순서"
+    late: list[str] = []
+    checked = 0
+
+    for account, engine_log in engine_logs():
+        try:
+            body = engine_log.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+
+        reset_time = None
+        first_accept_time = None
+
+        for line in _logdir.live_session_lines(body.splitlines()):
+            if not line.startswith(date):
+                continue
+
+            if reset_time is None and "[OrderGate] 하루 리셋 - " in line:
+                reset_time = line[11:19]
+            elif first_accept_time is None and "[OrderRouter] 접수 [" in line:
+                first_accept_time = line[11:19]
+
+        if reset_time is None and first_accept_time is None:
+            continue
+
+        checked += 1
+
+        if first_accept_time is not None and (reset_time is None or reset_time > first_accept_time):
+            late.append(f"[{account}] 첫 접수 {first_accept_time} · 리셋 {reset_time or '없음'}")
+
+    if not checked:
+        return (name, True, "WARN", f"{date} 리셋·주문 기록이 없다 — 판정 안 함")
+
+    if late:
+        return (name, False, "FAIL", "리셋이 첫 주문보다 늦었다(그 사이 주문의 매도 선점이 지워진다) — " + "; ".join(late))
+
+    return (name, True, "FAIL", f"{checked}개 로그 모두 첫 주문 전에 리셋")
+
+
 def market_open_gate_row(date: str) -> tuple:
     """감시견의 휴장일 관문(scripts/auto_trade_day.ps1)이 그날 제대로 갈렸는지.
 
@@ -3055,6 +3100,7 @@ def global_rows(date: str) -> list:
         order_answer_row(date),
         fill_notice_session_row(date),
         missed_fill_recovery_row(date),
+        daily_reset_order_row(date),
         pinned_capture_row(date),
         board_minute_row(date),
         scan_registration_row(date),

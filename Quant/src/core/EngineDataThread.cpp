@@ -36,27 +36,37 @@ void Engine::data_thread_fn(std::stop_token stop_token)
     const bool order_side    = runs_order_side();
     const bool feed_side     = runs_feed_side();
 
-    bool was_market_open = false;
+    bool        was_market_open = false;
+    std::string last_trading_date;
 
     while (!stop_token.stop_requested())
     {
         bool market_now = ::kst::any_market_open(std::time(nullptr));
 
-        // 장 시작 감지 → 일별 카운터 리셋 + 국면 판정
-        //  "어느 시장이든 닫힘→열림" 전이라 KR 09:00과 US 22:30(KST) 두 번 발화한다. 22:30 리셋은
-        //  그날 KR 손익 기록을 지우지만 그 시각 KR 주문은 나가지 않는다(W-9, 시장별 분리는 보류).
+        // 하루치 새로 열기(선점 만료·당일 손익·주문 한도)는 KST 날짜가 바뀐 첫 회차에 한다 — 기동 직후 첫 회차가
+        //  그날 첫 주문보다 앞선다. 예전에는 장 개장 전이(KR 09:00)에 했는데, 엔진이 08:00 장전 거래(NXT)부터
+        //  주문을 내면서 그 사이 낸 오늘 주문의 매도 선점까지 지웠다. 10-06 실계좌 138930: 08:00 익절 매도 31주가
+        //  09:00에 선점을 잃어 전략이 "덮개 없음"으로 취소·재주문했고, 재주문은 취소가 처리되기 전이라 매도가능 0으로
+        //  1분 막혔다. 같은 날 두 번째 호출(장중 재기동·자정 넘김 없음)은 게이트가 거절한다. [why A-4]
+        //  하루치를 새로 여는 것은 주문 쪽 제 주기다 — 게이트·장부·라우터가 거기 있다. [why D-114]
+        if (order_side)
+        {
+            std::string trading_date = ::kst::date_yyyymmdd(std::time(nullptr));
+
+            if (trading_date != last_trading_date)
+            {
+                request_reset_daily();
+                LOG_INFO("[DataThread] 거래일 시작(" + trading_date + ") — OrderGate 일별 카운터 리셋");
+                last_trading_date = std::move(trading_date);
+            }
+        }
+
+        // 장 시작 감지 → 국면 판정
+        //  "어느 시장이든 닫힘→열림" 전이라 KR 09:00과 US 22:30(KST) 두 번 발화한다.
         //  근거: KR 09:00은 제도 자료(KRX 정규장 09:00~15:30), US 22:30은 NYSE 정규장 ET 09:30의 서머타임(EDT) 환산이다.
         //  겨울(EST)에는 23:30이 맞는데 core/KstTime.h 상수는 서머타임을 반영하지 않는다 — 그 파일 주석 참고.
         if (market_now && !was_market_open)
         {
-            // 하루치를 새로 여는 것은 주문 쪽 제 주기다 — 게이트·장부·라우터가 거기 있다. [why D-114]
-            if (order_side)
-            {
-                request_reset_daily();
-                LOG_INFO(std::string("[DataThread] 장 개장 전이(") + (::kst::kr_market_open(std::time(nullptr)) ? "KR" : "US") +
-                         ") — OrderGate 일별 카운터 리셋");
-            }
-
             // 기동 뒤 첫 개장이면 아직 라벨 전이가 없었을 수 있다. 마지막 선택을 강제 로그로 다시 적용해
             //  "오늘 무엇이 켜져 있나"가 하루 한 줄은 남게 한다.
             if (strategy_side && strategy_.last_selected_regime != Regime::UNKNOWN)

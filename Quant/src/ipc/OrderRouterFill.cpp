@@ -703,7 +703,7 @@ bool OrderRouter::is_replayed_fill_locked(const FillKey& fill_key, uint32_t sess
     return false;
 }
 
-// ─── 일별 리셋 (장 시작 시 Engine이 호출) ─────────────────────────────────
+// ─── 일별 리셋 (거래일 첫 회차에 Engine이 호출) ─────────────────────────────────
 // 체결 목격 기록(fill_sightings_)의 무한 증가를 해소. 거래일 prefix로 cross-day 충돌은 이미
 // 차단되므로, 전일 키는 더 이상 필요 없다.
 void OrderRouter::reset_daily()
