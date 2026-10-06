@@ -157,6 +157,13 @@ def ledger_candidates(date: str) -> list[tuple[Path, int, float]]:
 
 
 def find_ledger(date: str) -> Path | None:
+    # QUANT_LOG_DIR로 폴더를 지정했으면 그 폴더 원장이 이긴다. 행 수로만 고르면 실계좌(logs_live)를 지정해도
+    #  행이 더 많은 모의 원장이 뽑힌다(10-02·10-06 장 마감 수집).
+    pinned_directory = os.environ.get("QUANT_LOG_DIR")
+    if pinned_directory:
+        pinned = Path(pinned_directory) / LEDGER_NAME.format(ymd=_ymd(date))
+        if pinned.is_file():
+            return pinned
     c = ledger_candidates(date)
     return c[0][0] if c else None
 

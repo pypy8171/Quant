@@ -1182,6 +1182,9 @@ SELL_COVER_ACCEPT_RE = re.compile(r"\[OrderRouter\] 접수 \[ORD-\d+\] ODNO=\d+ 
 SELL_COVER_MAX_GAP_SEC = 300
 
 
+SELL_COVER_WINDOW_OPEN_SEC = 9 * 3600   # 매매 창 시작 09:00 — 그 전 구간은 빈 덮개로 세지 않는다
+
+
 def sell_cover_gaps(lines) -> list[str]:
     """로그 줄에서 익절 매도가 보유를 5분 넘게 덮지 못한 재구성 구간을 '시각 종목 pos=N 덮음=M n분'으로 낸다.
 
@@ -1195,6 +1198,9 @@ def sell_cover_gaps(lines) -> list[str]:
 
     def close(ticker: str, end_second: int) -> None:
         start_second, clock, position, covered = open_spans.pop(ticker)
+        # 09:00 전에는 매도를 낼 수 없다(세션 창). 장전 재구성 시각부터 세면 08:30–09:00이 빈 덮개로 잡힌다 —
+        #  10-06 모의 08:30 003490은 창 밖 거부 뒤 09:00:26에 다시 냈다.
+        start_second = max(start_second, SELL_COVER_WINDOW_OPEN_SEC)
 
         if covered < position and end_second - start_second > SELL_COVER_MAX_GAP_SEC:
             gaps.append(f"{clock} {ticker} pos={position} 덮음={covered} {(end_second - start_second) // 60}분")
@@ -1268,6 +1274,11 @@ def entry_cutoff_buy_row(date: str) -> tuple:
         cutoff = cutoffs.get(folder, 0)
 
         if not cutoff or record.get("side") != "BUY" or record.get("event") not in ("ACCEPTED", "REJECTED"):
+            continue
+
+        # 수량 0인 REJECTED는 매수가 아니라 취소 거부 기록이다 — 10-06 실계좌 19:40 011200은 진입 마감이 13:42 매수를
+        #  거두려다 KIS가 "정정취소 가능수량 없음"으로 거부한 줄이었다.
+        if int(float(record.get("order_qty") or 0)) <= 0:
             continue
 
         if not (record.get("strategy") or "").startswith(DEVSCALE_STRATEGY_PREFIX):
@@ -2299,6 +2310,55 @@ def transport_error_level_row(date: str) -> tuple:
     return (name, True, "FAIL", f"전송 실패 ERROR {final_failures}건은 모두 끝내 실패한 요청")
 
 
+VANISHED_SELL_RE = re.compile(r"\[OrderRouter\] 사라진 매도 정리 (\d{6}) ODNO=(\d+)")
+
+
+def vanished_sell_row(date: str) -> tuple:
+    """통보 없이 브로커에서 사라진 매도를 막힘 해소 경로가 닫은 횟수와 그 주문의 접수 시각.
+
+    10-06 실계좌 237690·016360 은 정규장(13:4x)에 낸 SOR 지정가 매도가 체결·취소 통보 없이 사라져
+    매도가능을 묶었다. 15:30 정규장 끝에 남은 SOR 주문이 조용히 만료된다는 추정을 이 행의 접수 시각으로 확인한다 —
+    접수가 모두 15:30 전이고 닫힘이 15:30 뒤면 추정이 맞고, 그때는 15:30에 미리 닫는 처리가 따로 필요하다.
+    """
+    name = "사라진 매도 정리"
+    found: list[str] = []
+    checked = 0
+
+    for account, engine_log in engine_logs():
+        try:
+            body = engine_log.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+
+        checked += 1
+        lines = list(_logdir.live_session_lines(body.splitlines()))
+        accepted_at: dict[str, str] = {}
+
+        for line in lines:
+            if not line.startswith(date):
+                continue
+
+            if "[OrderRouter] 접수" in line:
+                match = re.search(r"ODNO=(\d+)", line)
+                if match:
+                    accepted_at[match.group(1).lstrip("0")] = line[11:16]
+
+                continue
+
+            match = VANISHED_SELL_RE.search(line)
+            if match:
+                order_number = match.group(2).lstrip("0")
+                found.append(f"[{account}] {match.group(1)} 접수 {accepted_at.get(order_number, '?')} → 정리 {line[11:16]}")
+
+    if not checked:
+        return (name, True, "WARN", f"{date} 엔진 로그가 없다 — 판정 안 함")
+
+    if not found:
+        return (name, True, "WARN", "0건")
+
+    return (name, False, "WARN", f"{len(found)}건 — " + "; ".join(found[:5]))
+
+
 def market_open_gate_row(date: str) -> tuple:
     """감시견의 휴장일 관문(scripts/auto_trade_day.ps1)이 그날 제대로 갈렸는지.
 
@@ -3186,6 +3246,7 @@ def global_rows(date: str) -> list:
         fill_notice_session_row(date),
         missed_fill_recovery_row(date),
         transport_error_level_row(date),
+        vanished_sell_row(date),
         zone_close_keeps_sell_row(date),
         daily_reset_order_row(date),
         pinned_capture_row(date),
@@ -3408,6 +3469,9 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
             last_ts = second
             if START_RE.search(line):
                 starts.append(second)
+                # 새 프로세스는 판 번호를 0부터 다시 센다 — 직전 프로세스의 마지막 번호와 우연히 같아도 멈춤이 아니다
+                #  (10-06 모의 07:47 ledger_gen=599 → 07:48 재기동 뒤 07:49 다시 599).
+                ledger_gen_previous = -1
 
                 # 플랫폼은 엔진이 실제로 뜬 기동만 센다. 설정 로드 실패(지운 모드 포함, D-130)는 플랫폼 줄까지만
                 #  찍고 엔진 시작 줄이 없다 — 주문을 한 건도 못 내므로 "엔진 둘" 판정의 대상이 아니다.
