@@ -341,6 +341,8 @@
 - [SeedPeakStore.h](../Quant/include/strategy/SeedPeakStore.h) — 청산관리 시드분 당일 고점 재기동 간 보존(D-052)
 - [StrategyBase.h](../Quant/include/strategy/StrategyBase.h) — 전략 기반 인터페이스
 - [StrategyFactory.h](../Quant/include/strategy/StrategyFactory.h) — config strategies 배열 파싱·등록 로더
+- [SurgeHoldPlan.h](../Quant/include/strategy/SurgeHoldPlan.h) — 급등 보유 계획 파일 계약(BUY_OPEN·HOLD·EXIT_CLOSE)과 손절·익절·건너뜀 판정 선언 (D-157)
+- [SurgeHoldStrategy.h](../Quant/include/strategy/SurgeHoldStrategy.h) — 급등 보유 슬리브 전략 — 동시호가 매수·손절·익절·만기 청산·상태 파일 선언 (D-157)
 - [TargetBasketPlan.h](../Quant/include/strategy/TargetBasketPlan.h) — 목표 비중표 파일 계약(schema·슬리브·행)과 "목표 − 보유 = 주문" 계획 구조체 (D-109)
 - [TargetBasketStrategy.h](../Quant/include/strategy/TargetBasketStrategy.h) — 바스켓 슬리브 전략 — 집행 창·두 레그·상태 파일·소유 종목 sink 선언 (D-109)
 - [ValueContraryStrategy.h](../Quant/include/strategy/ValueContraryStrategy.h) — 저PBR 3일 연속 하락 반전 매수 전략
@@ -496,6 +498,8 @@
 - [StrategyBase.cpp](../Quant/src/strategy/StrategyBase.cpp) — StrategyBase.h 구현 — 원장 보유·매도가능 조회, 보호 주문 무장·해제, 종목 비교
 - [StrategyFactory.cpp](../Quant/src/strategy/StrategyFactory.cpp) — 전략 로더 구현 — config 파싱·국면 부착
 - [StrategyLoadPass.h](../Quant/src/strategy/StrategyLoadPass.h) — 전략 로더 파일들이 함께 쓰는 로드 상태(LoadPass)·도우미 선언, 공개 헤더 아님
+- [SurgeHoldPlan.cpp](../Quant/src/strategy/SurgeHoldPlan.cpp) — 계획 파일 검증(행 하나 틀리면 전체 버림, 거래대금 비중순 정렬)·계획 날짜 확인·손절가 저가×0.97·건너뜀 순서·평일 수
+- [SurgeHoldStrategy.cpp](../Quant/src/strategy/SurgeHoldStrategy.cpp) — 08:50 동시호가 매수(on_clock, 계획 한 번만·국면 파일 직접 확인), 체결 뒤 익절 재계산, 09:00–15:19 창 안 청산·15:20 만기·백스톱 매도, 09:30 미체결 취소, 상태 파일 먼저 쓰기
 - [TargetBasketPlan.cpp](../Quant/src/strategy/TargetBasketPlan.cpp) — 목표 비중표 파싱·검증과 밴드·DROP·liquidate_all 규칙으로 매도/매수 계획을 만든다
 - [TargetBasketStrategy.cpp](../Quant/src/strategy/TargetBasketStrategy.cpp) — 파일 재읽기, 14:40~15:00 매도→매수 레그, 종목:방향 하루 한 번(상태 파일 먼저 쓰기), 남의 틱을 심장박동으로
 - [ValueContraryStrategy.cpp](../Quant/src/strategy/ValueContraryStrategy.cpp) — ValueContraryStrategy.h 구현 — 저PBR 3일 연속 하락 반전 매수 전략
@@ -599,6 +603,7 @@
 - [test_signal_dispatcher.cpp](../Quant/tests/test_signal_dispatcher.cpp) — 신호 디스패처 단위 테스트(교체진입·강제청산·유니버스 이탈)
 - [test_strategy_router.cpp](../Quant/tests/test_strategy_router.cpp) — 종목 id 전략 라우터 단위 테스트, 틱당 시간 측정
 - [test_strategy_shard.cpp](../Quant/tests/test_strategy_shard.cpp) — 전략 샤드 단위 테스트(열 소비 순서·다건 발주)
+- [test_surge_hold.cpp](../Quant/tests/test_surge_hold.cpp) — 계획 파싱·계획 날짜·손절·익절·건너뜀(약세장·겹침·같은 신호·보유 4·하루 3)·체결 재계산·재기동·만기·백스톱·dry_run·같은 계획 재매수·창 밖 손절·매도 재개·갭 하락·미체결 취소·상태 파일 깨짐 고정
 - [test_symbol_table.cpp](../Quant/tests/test_symbol_table.cpp) — 종목 id 테이블 단위 테스트(부여 순서·동시성)
 - [test_target_basket_plan.cpp](../Quant/tests/test_target_basket_plan.cpp) — 비중표 파싱 실패 6종·밴드·채우기·DROP·두 슬리브 합산·liquidate_all·순자산 계산 고정
 - [test_target_basket_strategy.cpp](../Quant/tests/test_target_basket_strategy.cpp) — 원장·시각 주입으로 집행 창·두 레그·예산·재기동 중복 방지·창 끝·dry_run 고정

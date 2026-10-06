@@ -24,6 +24,10 @@ Quant/config/prices_live.json
 # 바스켓 목표 비중표(basket_forward.py 매일 생성)·엔진 상태 파일 — 산출물이라 커밋하지 않는다(D-109)
 Quant/config/basket_targets.json
 Quant/config/basket_state.json
+# 급등 보유 계획(daily_watch.py --emit-plan 매일 생성)·엔진 상태 파일 — 산출물이라 커밋하지 않는다(D-157)
+Quant/config/surge_plan.json
+Quant/config/surge_state.json
+Quant/config/*.json.tmp
 kis_token_*.json
 *.log
 *.pid

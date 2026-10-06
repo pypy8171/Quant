@@ -507,13 +507,56 @@ void test_session_window()
     PASS("session_window");
 }
 
+// ─── 장 시작 동시호가 창(D-157) ──────────────────────────────────────────
+//  opening_auction 표시 주문은 정규장 시작 10분 전부터 받는다 — 신규 매수만. 25분 전(08:35 같은 자리)과 매도는 거절한다.
+void test_opening_auction_window()
+{
+    const auto time_of_day_now = kst::time_of_day(std::time(nullptr));
+    const int  now_min = static_cast<int>(time_of_day_now.hours().count() * 60 + time_of_day_now.minutes().count());
+    std::string reason;
+
+    if (now_min + 25 >= 24 * 60)
+    {
+        PASS("opening_auction_window (자정 직전이라 건너뜀)");
+        return;
+    }
+
+    OrderGate::Config config;
+    config.session_open_min  = now_min + 5; // 지금은 시작 5분 전 — 08:55 자리
+    config.session_close_min = now_min + 60;
+    OrderGate gate(config);
+
+    auto buy            = make_signal("005930", OrderSide::BUY);
+    buy.opening_auction = true;
+    assert(gate.check(buy, reason));
+
+    auto plain = make_signal("005930", OrderSide::BUY);
+    reason.clear();
+    assert(!gate.check(plain, reason)); // 표시 없는 주문은 그대로 막힌다
+
+    auto sell            = make_signal("005930", OrderSide::SELL);
+    sell.opening_auction = true;
+    reason.clear();
+    assert(!gate.check(sell, reason)); // 매도는 동시호가 창을 받지 않는다
+    assert(reason.find("세션 창 밖") != std::string::npos);
+
+    OrderGate::Config early_config;
+    early_config.session_open_min  = now_min + 25; // 지금은 시작 25분 전 — 08:35 자리
+    early_config.session_close_min = now_min + 60;
+    OrderGate early(early_config);
+    reason.clear();
+    assert(!early.check(buy, reason));
+
+    PASS("opening_auction_window");
+}
+
 // ─── 바스켓 슬롯 제외(D-109) ────────────────────────────────────────────
 //  바스켓 슬리브가 든 종목은 장중 전략의 슬롯을 먹지 않는다. 상한 2에서 제외 종목 둘을 채워도 새 BUY가 통과하고,
 //  open_slot_count·plan_displacement 후보·snapshot_positions 표시가 같은 집합을 본다.
 void test_slot_exempt()
 {
     OrderGate gate(displace_config()); // 상한 2, 교체 켜짐
-    gate.ledger().set_slot_exempt({"BK1", "BK2"});
+    gate.ledger().set_slot_exempt(gate.ledger().strategy_index_of("BASKET_MAIN"), {"BK1", "BK2"});
     gate.ledger().seed_position("", "BK1", 10, 1000.0);
     gate.ledger().seed_position("", "BK2", 10, 1000.0);
     assert(!gate.slots_full());
@@ -556,9 +599,39 @@ void test_slot_exempt()
     assert(exempt_symbols.size() == 2 && exempt_symbols[0] == gate.ledger().symbol_id_of("BK1") && exempt_symbols[1] == gate.ledger().symbol_id_of("BK2"));
 
     // 집합을 갈아 끼우면 이전 것은 풀린다.
-    gate.ledger().set_slot_exempt({"BK1"});
+    gate.ledger().set_slot_exempt(gate.ledger().strategy_index_of("BASKET_MAIN"), {"BK1"});
     assert(gate.ledger().slot_exempt_symbols().size() == 1 && gate.ledger().slot_exempt_symbols()[0] == gate.ledger().symbol_id_of("BK1"));
     PASS("slot_exempt");
+}
+
+// ─── 슬롯 제외 소유자별 합집합(D-157) ──────────────────────────────────────
+//  바스켓과 SURGE가 각자 목록을 올린다. 한쪽이 갱신해도 다른 쪽 종목이 풀리면 안 된다 — 덮어쓰던 때는
+//  나중에 올린 쪽만 남아 먼저 올린 쪽 보유가 슬롯을 먹고 강제청산 대상이 됐다.
+void test_slot_exempt_owner_union()
+{
+    OrderGate  gate(displace_config());
+    const auto basket = gate.ledger().strategy_index_of("BASKET_MAIN");
+    const auto surge  = gate.ledger().strategy_index_of("SURGE_MAIN");
+    gate.ledger().set_slot_exempt(basket, {"BK1", "BK2", "BK3"});
+    gate.ledger().set_slot_exempt(surge, {"SG1", "SG2"});
+    assert(gate.ledger().slot_exempt_symbols().size() == 5);
+
+    // SURGE가 목록을 바꿔도 바스켓 셋은 남는다.
+    gate.ledger().set_slot_exempt(surge, {"SG2"});
+    assert(gate.ledger().slot_exempt_symbols().size() == 4);
+    assert(gate.ledger().is_slot_exempt(gate.ledger().symbol_id_of("BK1")));
+    assert(!gate.ledger().is_slot_exempt(gate.ledger().symbol_id_of("SG1")));
+
+    // 두 소유자가 같은 종목을 올렸다면 한쪽이 빼도 다른 쪽 몫으로 남는다.
+    gate.ledger().set_slot_exempt(surge, {"SG2", "BK1"});
+    gate.ledger().set_slot_exempt(basket, {"BK2", "BK3"});
+    assert(gate.ledger().is_slot_exempt(gate.ledger().symbol_id_of("BK1")));
+
+    // 빈 목록은 그 소유자 몫만 비운다.
+    gate.ledger().set_slot_exempt(surge, {});
+    assert(gate.ledger().slot_exempt_symbols().size() == 2);
+    assert(!gate.ledger().is_slot_exempt(gate.ledger().symbol_id_of("BK1")));
+    PASS("slot_exempt_owner_union");
 }
 
 
@@ -600,7 +673,7 @@ void test_publish_ledger_matches_gate()
     config.max_concurrent_positions = 3;
     OrderGate gate(config);
 
-    gate.ledger().set_slot_exempt({"BK1"});
+    gate.ledger().set_slot_exempt(gate.ledger().strategy_index_of("BASKET_MAIN"), {"BK1"});
     gate.ledger().seed_position("", "A", 10, 1000.0);
     gate.ledger().seed_position("", "B", 5, 2000.0);
     gate.ledger().seed_position("", "BK1", 7, 500.0);   // 슬롯 면제 — 자리를 안 먹는다
@@ -859,8 +932,10 @@ int main()
     test_displace_daily_cap();
     test_entry_snapshot_matches_separate_calls();
     test_session_window();
+    test_opening_auction_window();
     test_halt_sources_are_independent();
     test_slot_exempt();
+    test_slot_exempt_owner_union();
     test_publish_ledger_matches_gate();
     test_verdict_codes_and_describe();
     test_reset_daily_once_per_trading_date();

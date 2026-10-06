@@ -719,6 +719,7 @@ StrategyBase::SellableInfo Engine::ledger_sellable(const std::string&, const std
     StrategyBase::SellableInfo sellable_info;
     sellable_info.sellable      = row.sellable;
     sellable_info.average_price = row.average_price;
+    sellable_info.reserved      = row.reserved;
     return sellable_info;
 }
 

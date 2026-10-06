@@ -809,8 +809,8 @@ def entry_cutoff_hhmm(config_name: str) -> int:
     return int(match.group(1)) if match else DEFAULT_ENTRY_CUTOFF_HHMM
 
 
-def basket_configured(log: Path) -> bool:
-    """이 로그 폴더의 설정 strategies 에 TARGET_BASKET 이 있는지. 매핑에 없는 폴더·못 읽는 설정은 False."""
+def basket_configured(log: Path, strategy_type: str = "TARGET_BASKET") -> bool:
+    """이 로그 폴더의 설정 strategies 에 그 유형(기본 TARGET_BASKET)이 있는지. 매핑에 없는 폴더·못 읽는 설정은 False."""
     config_name = ENTRY_CUTOFF_CONFIG.get(log.parent.name)
 
     if not config_name:
@@ -821,8 +821,222 @@ def basket_configured(log: Path) -> bool:
     except (OSError, ValueError):
         return False
 
-    return any(isinstance(strategy, dict) and strategy.get("type") == "TARGET_BASKET"
+    return any(isinstance(strategy, dict) and strategy.get("type") == strategy_type
                for strategy in document.get("strategies", []))
+
+
+SURGE_PLAN_RE = re.compile(r"\[SURGE_\w+\] 계획 읽음 as_of=(\d{4}-\d{2}-\d{2}) .* 매수 (\d+) 만기 청산 (\d+)")
+SURGE_BUY_RE = re.compile(r"\[SURGE_\w+\] (\[dry-run\] )?동시호가 매수 (\d{6}) (\d+)주")
+SURGE_SKIP_RE = re.compile(r"\[SURGE_\w+\] 매수 건너뜀 (\d{6}) — (.+?) \(")
+SURGE_FILL_RE = re.compile(r"\[SURGE_\w+\] 매수 체결 (\d{6}) (\d+)주 매수가 ([\d.]+) → 손절 ([\d.]+) 익절 ([\d.]+)")
+SURGE_SELL_RE = re.compile(r"\[SURGE_\w+\] (?:\[dry-run\] )?매도 (\d{6}) (\d+)주 — (손절|익절|만기)")
+SURGE_HELD_RE = re.compile(r"\[SURGE_\w+\] 보유 복원 (\d{6}) ")
+SURGE_DONE_RE = re.compile(r"\[SURGE_\w+\] 계획 as_of=(\S+) 는 (\d+) 에 이미 집행함")
+SURGE_BROKEN_RE = re.compile(r"\[SURGE_\w+\] 상태 파일 (읽기|쓰기) 실패")
+SURGE_EXEMPT_SENT_RE = re.compile(r"\[Engine\] 슬롯 면제 보냄 (\S+)\(번호 \d+\) (\d+)종목")
+SURGE_EXEMPT_UNION_RE = re.compile(r"\[Ledger\] 슬롯 면제 갱신 소유자 \d+ \d+종목, 합집합 (\d+)종목")
+SURGE_FILL_DEADLINE = 9 * 3600 + 5 * 60    # 동시호가 매수는 09:05까지 체결이 잡혀야 한다
+SURGE_CLOSE_WINDOW = (15 * 3600 + 20 * 60, 15 * 3600 + 30 * 60)
+SURGE_MAX_SLIPPAGE_BP = 30                 # 매수가와 그날 시가 차이 평균 상한(D-157 2단계 기준)
+SURGE_MAX_STOP_DELAY_SEC = 3               # 손절 신호 → 매도 체결통보 중앙값 상한
+
+
+def surge_signal_repeats(log: Path) -> tuple[list[str], str]:
+    """상태 파일(보유 + 청산 기록)에서 같은 (종목, 급등일 d0)가 두 번 이상인 것 — 같은 급등 신호를 다시 산 것이다.
+    설정의 SURGE_HOLD state_file 을 읽는다(없으면 기본 경로). 파일이 없으면 빈 목록."""
+    config_name = ENTRY_CUTOFF_CONFIG.get(log.parent.name)
+    state_file = "Quant/config/surge_state.json"
+
+    try:
+        document = json.loads((REPO / "Quant" / "config" / config_name).read_text(encoding="utf-8")) if config_name else {}
+        state_file = next((strategy.get("state_file", state_file) for strategy in document.get("strategies", [])
+                           if isinstance(strategy, dict) and strategy.get("type") == "SURGE_HOLD"), state_file)
+    except (OSError, ValueError):
+        pass
+
+    try:
+        state = json.loads((REPO / state_file).read_text(encoding="utf-8"))
+    except OSError:
+        return [], state_file
+    except ValueError:
+        return ["(파일을 JSON으로 못 읽음)"], state_file
+
+    seen: dict[tuple[str, str], int] = {}
+
+    for record in list(state.get("positions", [])) + list(state.get("closed", [])):
+        if isinstance(record, dict) and record.get("d0"):
+            key = (str(record.get("ticker")), str(record["d0"]))
+            seen[key] = seen.get(key, 0) + 1
+
+    return sorted(f"{ticker} {d0}" for (ticker, d0), count in seen.items() if count > 1), state_file
+
+
+def surge_hold_rows(date: str, log: Path, surge_lines: list, signals: list, itb_attached: list, fills: list) -> list:
+    """SURGE_HOLD(급등 뒤 되돌림 보유, D-157) 판정 아홉 줄. 줄은 collect() 가 모은 그날의 SURGE·면제 로그 줄이다.
+
+    설정에 없으면 판정하지 않는다. 설정에 있는데 SURGE 줄이 없으면 미로드로 보고 실패로 둔다 — 바스켓 행과 같은 틀.
+    시세 수신(보유 종목 09:00–09:05 체결 시세)과 15:35 잔고 대조는 로그만으로 못 세어 뺐다.
+    """
+    expected = basket_configured(log, "SURGE_HOLD")
+    surge_seen = any("[SURGE_" in line for _, line in surge_lines)
+
+    def row(name: str, ok: bool, level: str, detail: str):
+        if not surge_seen and expected:
+            return (name, False, level, "설정에 SURGE_HOLD 가 있는데 로그 줄 없음(미로드)")
+        if not surge_seen:
+            return (name, True, level, "설정에 SURGE_HOLD 없음 — 판정 안 함")
+        return (name, ok, level, detail)
+
+    def clock(second: int) -> str:
+        return f"{second // 3600:02d}:{second // 60 % 60:02d}:{second % 60:02d}"
+
+    plan = None              # (as_of, 매수 행 수, 만기 행 수) — 09:00 전 마지막으로 읽은 계획
+    buys: list[tuple[int, str, bool]] = []      # (초, 종목, dry-run)
+    skips: list[tuple[str, str]] = []
+    filled: dict[str, tuple[int, float, float, float]] = {}   # 종목 → (초, 매수가, 손절, 익절)
+    sells: list[tuple[int, str, str]] = []      # (초, 종목, 사유)
+    held: set[str] = set()
+    exempt_sent: dict[str, int] = {}
+    exempt_union = None
+    done_plan = None         # (as_of, 집행한 날) — 같은 계획이 다음 날에도 남은 경우
+    state_errors = 0
+
+    for second, line in surge_lines:
+        if found := SURGE_PLAN_RE.search(line):
+            if plan is None or second < 9 * 3600:
+                plan = (found.group(1), int(found.group(2)), int(found.group(3)))
+        elif found := SURGE_BUY_RE.search(line):
+            buys.append((second, found.group(2), bool(found.group(1))))
+        elif found := SURGE_SKIP_RE.search(line):
+            skips.append((found.group(1), found.group(2)))
+        elif found := SURGE_FILL_RE.search(line):
+            filled.setdefault(found.group(1), (second, float(found.group(3)), float(found.group(4)), float(found.group(5))))
+        elif found := SURGE_SELL_RE.search(line):
+            sells.append((second, found.group(1), found.group(3)))
+        elif found := SURGE_HELD_RE.search(line):
+            held.add(found.group(1))
+        elif found := SURGE_EXEMPT_SENT_RE.search(line):
+            exempt_sent[found.group(1)] = int(found.group(2))
+        elif found := SURGE_EXEMPT_UNION_RE.search(line):
+            exempt_union = int(found.group(1))
+        elif found := SURGE_DONE_RE.search(line):
+            done_plan = (found.group(1), found.group(2))
+        elif SURGE_BROKEN_RE.search(line):
+            state_errors += 1
+
+    surge_tickers = held | {ticker for _, ticker, _ in buys} | set(filled) | {ticker for _, ticker, _ in sells}
+
+    # 1. 계획 신선도 — 신호일이 오늘 앞이고 달력 5일 안(엔진 surge::plan_fresh 와 같은 기준).
+    if plan:
+        gap = (dt.date.fromisoformat(date) - dt.date.fromisoformat(plan[0])).days
+        plan_ok = 1 <= gap <= 5
+        plan_detail = f"계획 as_of={plan[0]} (오늘과 {gap}일 차이, 기대 1–5), 매수 {plan[1]} 만기 청산 {plan[2]}"
+
+        if done_plan:  # 어제 계획이 그대로 남았다 — 엔진은 사지 않았지만 17:00 계획 생성이 실패한 것이다
+            plan_ok = False
+            plan_detail += f" — {done_plan[1]} 에 이미 집행한 계획이라 매수 안 함(계획 생성 실패 의심)"
+    else:
+        plan_ok = False
+        plan_detail = "계획 읽음 줄 없음 — 17:00 daily_watch.py --emit-plan 미실행 또는 파일 검증 실패"
+
+    # 2. 계획 매수 행 = 낸 매수 + 건너뜀. 같은 종목 매수가 두 번이면 재기동 중복이다.
+    bought = [ticker for _, ticker, _ in buys]
+    duplicates = sorted({ticker for ticker in bought if bought.count(ticker) > 1})
+    planned = plan[1] if plan and not done_plan else 0
+    accounted = len(set(bought)) + len({ticker for ticker, _ in skips})
+    dry = sum(1 for _, _, is_dry in buys if is_dry)
+    order_ok = (not plan or planned == accounted) and not duplicates
+    order_detail = (f"계획 매수 {planned}행 = 매수 {len(set(bought))}(dry-run {dry}) + 건너뜀 {len(skips)}"
+                    + (f" — 건너뜀: {', '.join(f'{ticker} {why}' for ticker, why in skips[:4])}" if skips else "")
+                    + (f" — 중복 매수 {', '.join(duplicates)}" if duplicates else ""))
+
+    # 3. 매수 체결 — 실주문 매수가 09:05까지 잡혔는지, 매수가와 그날 시가 차이(1분봉 첫 봉 시가).
+    live_buys = sorted({ticker for _, ticker, is_dry in buys if not is_dry})
+    late = [ticker for ticker in live_buys if ticker not in filled or filled[ticker][0] > SURGE_FILL_DEADLINE]
+    slippages = []
+
+    for ticker in live_buys:
+        if ticker not in filled:
+            continue
+
+        bars, _ = minute_bars(date, ticker, {})
+
+        if bars and bars[0][1] > 0:
+            slippages.append((filled[ticker][1] / bars[0][1] - 1.0) * 10000.0)
+
+    mean_slip = sum(slippages) / len(slippages) if slippages else 0.0
+    fill_ok = not late and mean_slip <= SURGE_MAX_SLIPPAGE_BP
+    fill_detail = (f"실주문 매수 {len(live_buys)}건 중 09:05까지 체결 {len(live_buys) - len(late)}건"
+                   + (f", 시가 대비 평균 {mean_slip:+.1f}bp({len(slippages)}건, 상한 {SURGE_MAX_SLIPPAGE_BP})" if slippages
+                      else ", 시가 대비는 1분봉이 없어 못 잼")
+                   + (f" — 미체결·늦음 {', '.join(late[:5])}" if late else ""))
+
+    # 4. 손절선 — 실제 매수가로 다시 잡은 손절가 < 매수가 < 익절가. 시가가 손절선 아래로 갭 하락해 체결됐으면
+    #    (손절가 ≥ 매수가) 그날 손절 매도가 있어야 한다.
+    stop_sold = {ticker for _, ticker, reason in sells if reason == "손절"}
+    gap_downs = [ticker for ticker, (_, entry, stop, take) in filled.items() if 0 < entry <= stop]
+    bad_lines = [ticker for ticker, (_, entry, stop, take) in filled.items()
+                 if not (0 < stop and entry < take) or (ticker in gap_downs and ticker not in stop_sold)]
+    line_detail = (f"체결 {len(filled)}건의 손절·익절 재계산(갭 하락 {len(gap_downs)}건은 손절 매도로 확인)"
+                   + (f" — 틀린 종목 {', '.join(bad_lines)}" if bad_lines else " 모두 맞음"))
+
+    # 5. 손절 지연 — 손절 매도 신호에서 그 종목 매도 체결통보까지(중앙값).
+    delays = []
+
+    for second, ticker, reason in sells:
+        if reason != "손절":
+            continue
+
+        notice = next((fill_second for fill_second, fill_ticker, side in fills
+                       if fill_ticker == ticker and side == "SELL" and fill_second >= second), None)
+
+        if notice is not None:
+            delays.append(notice - second)
+
+    delay_ok = not delays or median(delays) <= SURGE_MAX_STOP_DELAY_SEC
+    delay_detail = (f"손절 {len(delays)}건 신호→체결통보 중앙값 {median(delays)}초 (상한 {SURGE_MAX_STOP_DELAY_SEC})" if delays
+                    else "손절 매도 없음")
+
+    # 6. 만기 청산 — 계획 EXIT_CLOSE 행 수 = 15:20–15:30 만기 매도 수.
+    expiry = [ticker for second, ticker, reason in sells
+              if reason == "만기" and SURGE_CLOSE_WINDOW[0] <= second < SURGE_CLOSE_WINDOW[1]]
+    expiry_planned = plan[2] if plan else 0
+    expiry_ok = len(set(expiry)) == expiry_planned
+    expiry_detail = f"계획 만기 청산 {expiry_planned}행, 15:20–15:30 만기 매도 {len(set(expiry))}건"
+
+    # 7. 소유권 — SURGE 종목에 ITB 부착 0, 다른 전략의 매도 신호 0(바스켓 격리와 같은 방식).
+    itb = sorted(set(itb_attached) & surge_tickers)
+    foreign = [(second, sid, ticker) for second, sid, ticker, side in signals
+               if side == "SELL" and ticker in surge_tickers and not sid.startswith("SURGE_")]
+    owner_ok = not itb and not foreign
+    owner_detail = (f"SURGE 종목 {len(surge_tickers)}개에 ITB 부착 {len(itb)}건, 다른 전략 매도 {len(foreign)}건 (기대 0)"
+                    + (f" — {', '.join(itb[:3])}" if itb else "")
+                    + (f" — {', '.join(f'{clock(second)} {sid} {ticker}' for second, sid, ticker in foreign[:3])}" if foreign else ""))
+
+    # 8. 면제 합집합 — 마지막 합집합 수 ≤ 소유자별 마지막으로 보낸 수의 합. 두 소유자가 같은 종목을 올리면 작아진다.
+    #    합보다 크면 지운 소유자의 종목이 남은 것이다. 0인데 합이 양수면 서로 지운 것이다.
+    exempt_total = sum(exempt_sent.values())
+    exempt_ok = exempt_union is None or (exempt_union <= exempt_total and (exempt_union > 0 or exempt_total == 0))
+    exempt_detail = (f"합집합 {exempt_union}종목 ≤ 소유자별 합 {exempt_total} "
+                     f"({', '.join(f'{owner} {count}' for owner, count in sorted(exempt_sent.items()))})"
+                     if exempt_union is not None else "면제 갱신 줄 없음 — 이 바이너리 전이거나 소유자 없음")
+
+    # 9. 같은 급등 신호(종목·d0)를 두 번 샀는지(상태 파일), 상태 파일 읽기·쓰기 실패 로그.
+    repeats, state_file = surge_signal_repeats(log)
+    repeat_detail = (f"{state_file} 의 같은 (종목, 급등일) 반복 {len(repeats)}건, 상태 파일 실패 로그 {state_errors}건 (기대 0)"
+                     + (f" — {', '.join(repeats[:4])}" if repeats else ""))
+
+    return [
+        row("SURGE 계획 당일", plan_ok, "FAIL", plan_detail),
+        row("SURGE 계획 대비 매수", order_ok, "FAIL", order_detail),
+        row("SURGE 동시호가 체결", fill_ok, "WARN", fill_detail),
+        row("SURGE 손절선 재계산", not bad_lines, "FAIL", line_detail),
+        row("SURGE 손절 지연", delay_ok, "WARN", delay_detail),
+        row("SURGE 만기 청산", expiry_ok, "FAIL", expiry_detail),
+        row("SURGE 소유권 격리", owner_ok, "FAIL", owner_detail),
+        row("SURGE 면제 합집합", exempt_ok, "FAIL", exempt_detail),
+        row("SURGE 같은 신호 재매수·상태 파일", not repeats and not state_errors, "FAIL", repeat_detail),
+    ]
 
 
 SLOT_REJECT_PREFIXES = ("점수 우선순위 미달", "동시 보유 종목 한도 초과")
@@ -2957,6 +3171,7 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
     basket_run_end: list[int] = []
     basket_window_closed = 0
     basket_lines = 0
+    surge_lines: list[tuple[int, str]] = []     # SURGE_HOLD·슬롯 면제 줄(초, 줄) — surge_hold_rows 가 푼다(D-157)
     last_zone_judge: dict[str, tuple[float, float]] = {}  # 전략 id → (이격, 밴드 상단)
     narrow_band_exits: list[tuple[int, str]] = []            # 보유 중인데 좁은 폭으로 판정돼 팔린 건
     signals: list[tuple[int, str, str, str]] = []  # (초, 전략 id, 종목, BUY|SELL)
@@ -3249,6 +3464,8 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
                 order_division_rejects += 1
             if "[BASKET_" in line:
                 basket_lines += 1
+            if "[SURGE_" in line or "슬롯 면제" in line:
+                surge_lines.append((second, line))
             if found := BASKET_LOADED_RE.search(line):
                 basket_as_of.append(found.group(1))
             if found := BASKET_ORDER_RE.search(line):
@@ -3782,6 +3999,8 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
         ("보유분 좁은 폭 존 이탈 매도", not narrow_band_exits, "FAIL",
          f"{len(narrow_band_exits)}건 (기대 0)" + (f" — {', '.join(f"{hhmm(second)} {what}" for second, what in narrow_band_exits[:5])}" if narrow_band_exits else "")),
     ]
+
+    rows.extend(surge_hold_rows(date, log, surge_lines, signals, itb_attached, fills))
 
     if include_global:
         rows.extend(global_rows(date))

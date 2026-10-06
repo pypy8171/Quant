@@ -24,7 +24,9 @@
         live/summary.txt — 규칙별 누적 요약, 백테스트 나란히, 판정.
 멱등  : 같은 일봉이면 같은 결과. 빠진 날 파일은 WATCH_FROM 부터 채우고, 있는 날 파일은 두되 마지막 날 파일은 다시 쓴다.
         원장은 매번 다시 계산하고 "기록" 칸만 앞 원장에서 이어받는다. 규칙을 바꾸면 이름을 새로 붙여 새로 쌓는다.
-재실행(저장소 루트): py -X utf8 research/studies/35_surge_box_breakout/daily_watch.py [--rewrite] [--wait-minutes 45]
+        Quant/config/surge_plan.json(--emit-plan) — 다음 거래일 엔진 계획. c1 신호는 BUY_OPEN, 엔진 보유 중 120거래일째는
+        EXIT_CLOSE(엔진 상태 파일 Quant/config/surge_state.json 을 읽는다). 계약은 docs/DECISIONS.md D-157.
+재실행(저장소 루트): py -X utf8 research/studies/35_surge_box_breakout/daily_watch.py [--rewrite] [--wait-minutes 45] [--emit-plan]
 """
 from __future__ import annotations
 
@@ -389,11 +391,84 @@ def write_summary(ledger: list[dict], last_bar: int, day_counts: dict) -> None:
     SUMMARY.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+PLAN_RULE = "c1"            # 엔진이 매매하는 규칙(D-157, 사용자 2026-10-06)
+PLAN_PATH = STUDY.parents[2] / "Quant" / "config" / "surge_plan.json"
+STATE_PATH = STUDY.parents[2] / "Quant" / "config" / "surge_state.json"
+
+
+def held_tickers(state_path: Path) -> list[dict]:
+    """엔진 상태 파일의 보유 목록. 파일이 없거나 깨졌으면 빈 목록 — 계획에 청산 행이 빠질 뿐 매수 판정은 그대로다."""
+    if not state_path.exists():
+        return []
+
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+
+    return [position for position in state.get("positions", []) if position.get("ticker") and position.get("entry_date")]
+
+
+def emit_plan(ledger: list[dict], recorder: Recorder, trading_dates: list[int], last_bar: int,
+              plan_path: Path, state_path: Path) -> dict:
+    """다음 거래일에 엔진(SurgeHoldStrategy)이 할 일을 surge_plan.json 으로 쓴다(D-157).
+    BUY_OPEN    오늘 PLAN_RULE 신호 — 다음 날 장 시작 동시호가에 산다. 손절 기준 저가는 수정 전 가격으로 바꿔 적는다.
+    EXIT_CLOSE  상태 파일의 보유 중 다음 거래일이 매수일부터 세어 120거래일째인 종목 — 종가 동시호가에 판다.
+    HOLD        그 밖의 보유. 엔진은 상태 파일 값으로 손절·익절을 감시하고 이 행은 기록용이다.
+    거래일 수는 휴장일을 아는 일봉 날짜로 센다. 다음 거래일 날짜는 모르므로 "오늘까지 센 수 + 1"로 판정한다.
+    마지막 일봉이 오늘이 아니면(일봉 적재가 밀린 날) BUY_OPEN 을 쓰지 않는다 — 어제 신호를 오늘 계획으로 내면
+    엔진이 하루 늦게 산다. BUY_OPEN 은 거래대금 비중(turnover_share) 큰 순으로 적는다(엔진도 그 순서로 산다)."""
+    take_percent = RULES[PLAN_RULE]["take"]
+    stop_kind, stop_percent = STOP_OF[RULES[PLAN_RULE]["stop"]]
+    assert stop_kind == "low", "엔진은 관찰 최저 저가 기준 손절만 안다"
+    rows = []
+    today = int(dt.date.today().strftime("%Y%m%d"))
+    buys_allowed = last_bar == today
+
+    if not buys_allowed:
+        print(f"[study35] 경고: 마지막 일봉 {text_date(last_bar)} 가 오늘 {text_date(today)} 이 아니다 — 매수 행을 쓰지 않는다")
+
+    for record in ledger:
+        if not buys_allowed or record["규칙"] != PLAN_RULE or record["매수일"] != text_date(last_bar):
+            continue
+
+        series = recorder.series_of[record["종목코드"]]
+        factor = float(series.factor[-1])  # 수정주가 → 오늘 기준 실제 가격(엔진은 체결 시세로 비교한다)
+        event = next(row for row in recorder.event_rows
+                     if row["code"] == record["종목코드"] and row["entry_date"] == last_bar)
+        rows.append({"ticker": record["종목코드"], "name": record["이름"], "rule": PLAN_RULE, "action": "BUY_OPEN",
+                     "signal_date": text_date(last_bar), "d0": record["D0"],
+                     "stop_basis_low": rounded(float(event["lowest"]) * factor, 0),
+                     "stop_pct": stop_percent, "take_pct": take_percent, "horizon_days": base.HORIZON,
+                     "reference_close": rounded(float(record["매수가"]) * factor, 0),
+                     "turnover_share": rounded(float(event["share"]), 3),
+                     "depth_pct": record["depth%"], "move_pct": record["상승폭%"]})
+
+    rows.sort(key=lambda row: -row["turnover_share"])
+
+    for position in held_tickers(state_path):
+        entry_date = int(str(position["entry_date"]).replace("-", ""))
+        held_days = sum(1 for date in trading_dates if entry_date <= date <= last_bar) + 1  # 다음 거래일 포함
+        action = "EXIT_CLOSE" if held_days >= base.HORIZON else "HOLD"
+        rows.append({"ticker": position["ticker"], "rule": PLAN_RULE, "action": action,
+                     "entry_date": text_date(entry_date), "held_days": held_days, "horizon_days": base.HORIZON})
+
+    plan = {"schema": 1, "generated_at": dt.datetime.now().isoformat(timespec="seconds"), "as_of": text_date(last_bar),
+            "rule": PLAN_RULE, "count": len(rows), "rows": rows}
+    plan_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = plan_path.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(plan, ensure_ascii=False, indent=1), encoding="utf-8", newline="\n")
+    temporary.replace(plan_path)  # 엔진이 반쯤 쓴 파일을 읽지 않게 이름 바꾸기로 끝낸다
+    return plan
+
+
 def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description="스터디 35 앞으로의 기록(장 마감 뒤)")
     parser.add_argument("--rewrite", action="store_true", help="있는 날짜 파일도 다시 쓴다")
     parser.add_argument("--wait-minutes", type=int, default=0, help="일봉 파일이 오늘 마감 뒤 갱신될 때까지 기다리는 시간")
+    parser.add_argument("--emit-plan", action="store_true",
+                        help="다음 거래일 엔진 계획을 Quant/config/surge_plan.json 에 쓴다(D-157)")
     arguments = parser.parse_args()
 
     last_usable = bars_last_usable(arguments.wait_minutes)
@@ -444,6 +519,12 @@ def main() -> int:
         written += 1
 
     write_summary(ledger, last_bar, day_counts)
+
+    if arguments.emit_plan:
+        plan = emit_plan(ledger, recorder, trading_dates, last_bar, PLAN_PATH, STATE_PATH)
+        actions = [row["action"] for row in plan["rows"]]
+        print(f"[study35] 계획 {plan['as_of']}: 매수 {actions.count('BUY_OPEN')}, 청산 {actions.count('EXIT_CLOSE')}, "
+              f"보유 {actions.count('HOLD')} → Quant/config/surge_plan.json")
     today = day_counts[last_bar]
     base_closed = statistics(closed_returns(ledger, "base", text_date(last_bar)))
     mean_text = f"{base_closed['mean']:+.2f}%" if base_closed["n"] else "–"

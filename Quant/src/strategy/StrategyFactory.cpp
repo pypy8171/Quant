@@ -6,6 +6,7 @@
 #include "strategy/IntradayBreakoutStrategy.h"
 #include "strategy/MACrossStrategy.h"
 #include "strategy/MarketMakingStrategy.h"
+#include "strategy/SurgeHoldStrategy.h"
 #include "strategy/TargetBasketStrategy.h"
 #include "strategy/ValueContraryStrategy.h"
 #include "universe/UniverseScanner.h"
@@ -475,11 +476,12 @@ static void load_target_basket(LoadPass& context, const json& node)
         return;
     }
 
-    Engine& engine = context.engine;
-    auto    strategy = std::make_unique<TargetBasketStrategy>(
-        std::move(parameters), [&engine](const std::vector<std::string>& tickers)
+    Engine&           engine = context.engine;
+    const std::string owner  = "BASKET_" + parameters.label; // 전략 id 와 같은 이름 — 슬롯 면제 소유자 [why D-157]
+    auto              strategy = std::make_unique<TargetBasketStrategy>(
+        std::move(parameters), [&engine, owner](const std::vector<std::string>& tickers)
         {
-            engine.set_slot_exempt_tickers(tickers);
+            engine.set_slot_exempt_tickers(owner, tickers);
         });
     strategy->load_targets(); // 기동 때 파일이 있으면 소유 종목을 지금 확정한다(뒤에 도는 DEVSCALE 로더가 본다)
 
@@ -496,11 +498,89 @@ static void load_target_basket(LoadPass& context, const json& node)
     add_gated(context, std::move(strategy));
 }
 
+// ─── SURGE_HOLD ─────────────────────────────────────────────────────────────
+//  급등 뒤 되돌림 보유 슬리브. 상태 파일의 보유는 context.scan_covered에 넣어 청산 관리(ITB) 부착에서 빼고(재기동 때 승계 금지),
+//  오늘 매수 후보는 context.basket_owned에 넣어 DEVSCALE 초기 유니버스에서 뺀다. 바스켓 소유 종목은 매수하지 않는다 —
+//  그래서 바스켓 다음, 다른 유형 앞에 돈다. 슬롯 면제는 전략이 owned_sink로 올린다. [why D-157]
+static void load_surge_hold(LoadPass& context, const json& node)
+{
+    SurgeHoldStrategy::Params parameters;
+    parameters.label             = node.value("label", std::string("MAIN"));
+    parameters.account           = node.value("account", std::string());
+    parameters.plan_file         = node.value("plan_file", parameters.plan_file);
+    parameters.state_file        = node.value("state_file", parameters.state_file);
+    parameters.amount_krw        = node.value("amount_krw", parameters.amount_krw);
+    parameters.max_positions     = node.value("max_positions", parameters.max_positions);
+    parameters.max_daily_buys    = node.value("max_daily_buys", parameters.max_daily_buys);
+    parameters.buy_start_hhmm    = node.value("buy_start_hhmm", parameters.buy_start_hhmm);
+    parameters.buy_end_hhmm      = node.value("buy_end_hhmm", parameters.buy_end_hhmm);
+    parameters.close_start_hhmm  = node.value("close_start_hhmm", parameters.close_start_hhmm);
+    parameters.close_end_hhmm    = node.value("close_end_hhmm", parameters.close_end_hhmm);
+    parameters.exit_start_hhmm   = node.value("exit_start_hhmm", parameters.exit_start_hhmm);
+    parameters.backstop_weekdays = node.value("backstop_weekdays", parameters.backstop_weekdays);
+    parameters.fill_wait_hhmm    = node.value("fill_wait_hhmm", parameters.fill_wait_hhmm);
+    parameters.exit_retry_sec    = node.value("exit_retry_sec", parameters.exit_retry_sec);
+    parameters.max_exit_attempts = node.value("max_exit_attempts", parameters.max_exit_attempts);
+    parameters.reload_sec        = node.value("reload_sec", parameters.reload_sec);
+    parameters.dry_run           = node.value("dry_run", false);
+
+    if (parameters.amount_krw <= 0.0 || parameters.max_positions <= 0)
+    {
+        LOG_WARN("[Main] SURGE_HOLD amount_krw·max_positions 없음 — 등록 건너뜀");
+        return;
+    }
+
+    Engine&      engine          = context.engine;
+    const size_t symbol_capacity = engine.symbols().capacity();
+
+    // 바스켓이 먼저 돌아 basket_owned에 자기 종목을 켜 두었다 — 이 종목들은 매수 후보에서 뺀다.
+    for (size_t index = 0; index < context.basket_owned.size() && index < symbol_capacity; ++index)
+    {
+        if (context.basket_owned[index])
+        {
+            parameters.excluded_tickers.push_back(engine.symbols().name(static_cast<symbol::SymbolId>(index)).string());
+        }
+    }
+
+    const bool        dry_run  = parameters.dry_run;
+    const std::string owner    = "SURGE_" + parameters.label; // 전략 id 와 같은 이름 — 슬롯 면제 소유자
+    auto              strategy = std::make_unique<SurgeHoldStrategy>(
+        std::move(parameters), [&engine, owner](const std::vector<std::string>& tickers)
+        {
+            return engine.set_slot_exempt_tickers(owner, tickers);
+        });
+    // 08:50 매수 때는 엔진의 국면 선택이 아직 어제 값이다 — regime.json을 그 자리에서 읽어 본다.
+    strategy->set_regime_check([&engine, owner]
+    {
+        return engine.regime_file_allows_entry(owner);
+    });
+    strategy->load_state();
+    strategy->load_plan();
+
+    for (const auto& ticker : strategy->held_tickers())
+    {
+        mark_symbol(context.scan_covered, engine.symbols().intern(ticker), symbol_capacity);
+    }
+
+    // dry_run은 주문을 내지 않으니 매수 후보를 DEVSCALE 유니버스에서 빼지 않는다.
+    if (!dry_run)
+    {
+        for (const auto& ticker : strategy->buy_candidates())
+        {
+            mark_symbol(context.basket_owned, engine.symbols().intern(ticker), symbol_capacity);
+        }
+    }
+
+    LOG_INFO("[Main] SURGE_HOLD " + strategy->describe() + " 보유 " + std::to_string(strategy->held_tickers().size()) + "종목, 매수 후보 " +
+             std::to_string(strategy->buy_candidates().size()) + "종목");
+    add_gated(context, std::move(strategy));
+}
+
 // ─── 디스패치 ───────────────────────────────────────────────────────────────
 void load_strategies(StrategyLoadCtx& context, const json& strategies)
 {
-    // 운영 설정 현황(2026-09-25 확인): Quant/config/config_dev_paper.json과 config_live.json은 DEVIATION_SCALE 하나만
-    //  등록한다. TARGET_BASKET(D-109)은 로더만 있고 지금 어느 설정에도 없다.
+    // 운영 설정 현황(2026-10-06 확인): Quant/config/config_live.json은 DEVIATION_SCALE 하나, Quant/config/config_dev_paper.json은
+    //  DEVIATION_SCALE·TARGET_BASKET(D-109)·SURGE_HOLD(D-157)를 등록한다.
     // INTRADAY_BREAKOUT은 운영에서는 이 표가 아니라 attach_holding_exit_managers()가 승계 보유분에만 붙이는 청산 전용이다.
     // 나머지 유형은 시험용 모의 설정(config_mm_paper.json의 MARKET_MAKING 등)에서만 쓴다.
     static const std::map<StrategyType, void (*)(LoadPass&, const json&)> LOADERS = {
@@ -511,25 +591,34 @@ void load_strategies(StrategyLoadCtx& context, const json& strategies)
         {StrategyType::MARKET_MAKING, load_market_making},
         {StrategyType::DEVIATION_SCALE, load_deviation_scale},
         {StrategyType::TARGET_BASKET, load_target_basket},
+        {StrategyType::SURGE_HOLD, load_surge_hold},
     };
 
     LoadPass pass(context);
     pass.priority_merger = make_entry_priority_merger();
 
     // 바스켓 슬리브를 먼저 — 그 소유 종목을 DEVSCALE 유니버스·청산 관리 부착에서 빼야 하므로 config 순서와 무관하게 앞에 둔다 [why D-109].
+    //  SURGE_HOLD는 그다음 — 바스켓 종목을 매수 후보에서 빼고, 자기 종목을 DEVSCALE 유니버스에서 뺀다 [why D-157].
     std::vector<const json*> ordered;
-
-    for (const auto& strategy : strategies)
+    const auto               type_of = [](const json& strategy)
     {
-        if (StrategyType::from_string(strategy.value("type", std::string())) == StrategyType::TARGET_BASKET)
+        return StrategyType::from_string(strategy.value("type", std::string()));
+    };
+
+    for (const StrategyType::Value first : {StrategyType::TARGET_BASKET, StrategyType::SURGE_HOLD})
+    {
+        for (const auto& strategy : strategies)
         {
-            ordered.push_back(&strategy);
+            if (type_of(strategy) == first)
+            {
+                ordered.push_back(&strategy);
+            }
         }
     }
 
     for (const auto& strategy : strategies)
     {
-        if (StrategyType::from_string(strategy.value("type", std::string())) != StrategyType::TARGET_BASKET)
+        if (type_of(strategy) != StrategyType::TARGET_BASKET && type_of(strategy) != StrategyType::SURGE_HOLD)
         {
             ordered.push_back(&strategy);
         }

@@ -135,7 +135,7 @@
     {
       "from": "strategy",
       "to": "core",
-      "weight": 21
+      "weight": 22
     },
     {
       "from": "strategy",
@@ -150,7 +150,7 @@
     {
       "from": "strategy",
       "to": "utils",
-      "weight": 9
+      "weight": 10
     },
     {
       "from": "universe",
@@ -269,6 +269,8 @@
     "strategy/SeedPeakStore.h": "strategy",
     "strategy/StrategyBase.h": "strategy",
     "strategy/StrategyFactory.h": "strategy",
+    "strategy/SurgeHoldPlan.h": "strategy",
+    "strategy/SurgeHoldStrategy.h": "strategy",
     "strategy/TargetBasketPlan.h": "strategy",
     "strategy/TargetBasketStrategy.h": "strategy",
     "strategy/ValueContraryStrategy.h": "strategy",
@@ -394,6 +396,8 @@
     "strategy/StrategyBase.cpp": "strategy",
     "strategy/StrategyFactory.cpp": "strategy",
     "strategy/StrategyLoadPass.h": "strategy",
+    "strategy/SurgeHoldPlan.cpp": "strategy",
+    "strategy/SurgeHoldStrategy.cpp": "strategy",
     "strategy/TargetBasketPlan.cpp": "strategy",
     "strategy/TargetBasketStrategy.cpp": "strategy",
     "strategy/ValueContraryStrategy.cpp": "strategy",
@@ -1235,6 +1239,7 @@
       "strategy/MACrossStrategy.h",
       "strategy/MarketMakingStrategy.h",
       "strategy/StrategyFactory.h",
+      "strategy/SurgeHoldStrategy.h",
       "strategy/TargetBasketStrategy.h",
       "strategy/ValueContraryStrategy.h",
       "universe/UniverseScanner.h",
@@ -1247,6 +1252,18 @@
       "core/Types.h",
       "strategy/StrategyBase.h",
       "strategy/StrategyFactory.h"
+    ],
+    "strategy/SurgeHoldPlan.cpp": [
+      "strategy/SurgeHoldPlan.h"
+    ],
+    "strategy/SurgeHoldStrategy.cpp": [
+      "core/KstTime.h",
+      "strategy/SurgeHoldStrategy.h",
+      "utils/Logger.h"
+    ],
+    "strategy/SurgeHoldStrategy.h": [
+      "strategy/StrategyBase.h",
+      "strategy/SurgeHoldPlan.h"
     ],
     "strategy/TargetBasketPlan.cpp": [
       "strategy/TargetBasketPlan.h"
@@ -1535,6 +1552,7 @@
       "strategy/DevScaleLoader.cpp",
       "strategy/DeviationScaleStrategy.h",
       "strategy/SeedPeakStore.h",
+      "strategy/SurgeHoldStrategy.cpp",
       "strategy/TargetBasketStrategy.cpp",
       "universe/MarketBoard.cpp",
       "universe/UniverseCandidates.cpp",
@@ -1965,6 +1983,7 @@
       "strategy/MarketMakingStrategy.h",
       "strategy/StrategyBase.cpp",
       "strategy/StrategyLoadPass.h",
+      "strategy/SurgeHoldStrategy.h",
       "strategy/TargetBasketStrategy.h",
       "strategy/ValueContraryStrategy.h"
     ],
@@ -1972,6 +1991,14 @@
       "main.cpp",
       "strategy/StrategyFactory.cpp",
       "strategy/StrategyLoadPass.h"
+    ],
+    "strategy/SurgeHoldPlan.h": [
+      "strategy/SurgeHoldPlan.cpp",
+      "strategy/SurgeHoldStrategy.h"
+    ],
+    "strategy/SurgeHoldStrategy.h": [
+      "strategy/StrategyFactory.cpp",
+      "strategy/SurgeHoldStrategy.cpp"
     ],
     "strategy/TargetBasketPlan.h": [
       "strategy/TargetBasketPlan.cpp",
@@ -2092,6 +2119,7 @@
       "strategy/IntradayBreakoutStrategy.h",
       "strategy/SeedPeakStore.h",
       "strategy/StrategyFactory.cpp",
+      "strategy/SurgeHoldStrategy.cpp",
       "strategy/TargetBasketStrategy.cpp",
       "strategy/ValueContraryStrategy.h",
       "universe/MarketBoard.cpp",
@@ -2147,7 +2175,7 @@
   "hubs": [
     {
       "header": "utils/Logger.h",
-      "in_degree": 59
+      "in_degree": 60
     },
     {
       "header": "core/Types.h",
@@ -2155,7 +2183,7 @@
     },
     {
       "header": "core/KstTime.h",
-      "in_degree": 32
+      "in_degree": 33
     },
     {
       "header": "utils/ThreadName.h",
@@ -2175,7 +2203,7 @@
     },
     {
       "header": "strategy/StrategyBase.h",
-      "in_degree": 13
+      "in_degree": 14
     },
     {
       "header": "core/LatencyTrace.h",
@@ -3149,6 +3177,7 @@
         "Quant/src/core/EngineRegime.cpp",
         "Quant/src/core/RegimeFileJudge.cpp",
         "Quant/src/ipc/ZmqBridge.cpp",
+        "Quant/src/strategy/StrategyFactory.cpp",
         "scripts/dashboard_server.py",
         "scripts/notify_trades.py"
       ]

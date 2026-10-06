@@ -148,6 +148,10 @@ struct OrderSignal
     //  19건이 큐 대기 1초를 넘겨 버려졌다. 기본 거짓이라 다른 전략은 그대로 나이를 잰다. [why D-155]
     bool exempt_from_age_limit = false;
 
+    // 참이면 장 시작 동시호가(08:50–09:00 KST, 신규 매수만)에도 세션 창을 통과한다. 그 시간에 시가로 사려는 주문만 켠다 —
+    //  세션 창 자체를 넓히면 모든 전략의 신규 주문이 열린다. 15:20–15:30 종가 동시호가는 정규장 창 안이라 필요 없다. [why D-157]
+    bool opening_auction = false;
+
     // ── 신호 순번 (C-2) — 전략 스레드가 신호를 만들 때 단조 증가로 stamp. 0=미부여 ────────
     // 게이트 거부·라우터 접수·체결·장부 CSV(`sequence` 열)가 이 번호를 그대로 물고 가므로
     // 한 신호의 경로를 ODNO 없이도 잇는다(재기동 전 접수된 주문의 체결은 ODNO만 있어 0).
@@ -358,7 +362,8 @@ public:
         FIXED_INTERVAL,
         MARKET_MAKING,
         DEVIATION_SCALE,
-        TARGET_BASKET // 목표 비중표(파일)를 장부와 맞추는 바스켓 슬리브 [why D-109]
+        TARGET_BASKET, // 목표 비중표(파일)를 장부와 맞추는 바스켓 슬리브 [why D-109]
+        SURGE_HOLD     // 급등 뒤 되돌림 종목 계획(파일)을 동시호가로 사고 손절·익절·만기로 파는 슬리브 [why D-157]
     };
 
     StrategyType() = default;

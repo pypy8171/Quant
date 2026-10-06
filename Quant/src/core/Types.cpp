@@ -62,6 +62,7 @@ StrategyType StrategyType::from_string(std::string_view text)
         {"MARKET_MAKING", MARKET_MAKING},
         {"DEVIATION_SCALE", DEVIATION_SCALE},
         {"TARGET_BASKET", TARGET_BASKET},
+        {"SURGE_HOLD", SURGE_HOLD},
     };
 
     for (const auto& [name, value] : kNames)

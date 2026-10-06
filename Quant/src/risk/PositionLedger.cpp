@@ -1304,40 +1304,42 @@ void PositionLedger::publish(ipc::LedgerSnapshot& snapshot, const std::function<
     }
 }
 
-void PositionLedger::set_slot_exempt(const std::vector<std::string>& tickers)
+void PositionLedger::set_slot_exempt(strategy_table::StrategyId owner, const std::vector<std::string>& tickers)
 {
-    std::unordered_set<symbol::SymbolId> next;
-    next.reserve(tickers.size());
+    std::vector<symbol::SymbolId> symbols;
+    symbols.reserve(tickers.size());
 
     for (const auto& ticker : tickers)
     {
-        const symbol::SymbolId symbol = keys_.symbols().intern(ticker);
-
-        if (symbol != symbol::kNone)
-        {
-            next.insert(symbol);
-        }
+        symbols.push_back(keys_.symbols().intern(ticker));
     }
 
-    std::lock_guard<std::mutex> lock(positions_mutex_);
-    slot_exempt_ = std::move(next);
+    set_slot_exempt_by_id(owner, symbols);
 }
 
-void PositionLedger::set_slot_exempt_by_id(const std::vector<symbol::SymbolId>& symbols)
+void PositionLedger::set_slot_exempt_by_id(strategy_table::StrategyId owner, const std::vector<symbol::SymbolId>& symbols)
 {
-    std::unordered_set<symbol::SymbolId> next;
-    next.reserve(symbols.size());
+    std::unordered_set<symbol::SymbolId> owned;
+    owned.reserve(symbols.size());
 
     for (const symbol::SymbolId symbol : symbols)
     {
         if (symbol != symbol::kNone)
         {
-            next.insert(symbol);
+            owned.insert(symbol);
         }
     }
 
+    // 소유자 하나의 목록만 바꾸고 판정용 집합은 전 소유자의 합집합으로 다시 만든다 — 바스켓과 SURGE_HOLD가
+    //  같이 걸면 나중에 건 쪽이 앞의 목록을 지우던 문제(10-06 발견)를 막는다. [why D-157]
     std::lock_guard<std::mutex> lock(positions_mutex_);
-    slot_exempt_ = std::move(next);
+    slot_exempt_by_owner_[owner] = std::move(owned);
+    slot_exempt_.clear();
+
+    for (const auto& owner_entry : slot_exempt_by_owner_)
+    {
+        slot_exempt_.insert(owner_entry.second.begin(), owner_entry.second.end());
+    }
 }
 
 bool PositionLedger::is_slot_exempt(symbol::SymbolId symbol) const

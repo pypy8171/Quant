@@ -537,6 +537,9 @@ void Engine::shard_thread_fn(std::stop_token stop_token, uint32_t row)
     // 유휴 전이: 전략 스레드와 같은 정책 — 200us yield 뒤 자기 게이트에서 잔다. [why D-071]
     constexpr auto                        kSpinBudget = std::chrono::microseconds(200);
     std::chrono::steady_clock::time_point idle_since{};
+    // 시각 호출 주기 — 잠들어도 10ms마다 깨므로 1초 해상도는 지켜진다. [why D-157]
+    constexpr auto                        kClockInterval = std::chrono::seconds(1);
+    std::chrono::steady_clock::time_point last_clock{};
 
     while (!stop_token.stop_requested())
     {
@@ -581,6 +584,12 @@ void Engine::shard_thread_fn(std::stop_token stop_token, uint32_t row)
         try
         {
             did_work = shard.step(emit, on_price, symbol_id_of);
+
+            if (const auto clock_now = std::chrono::steady_clock::now(); clock_now - last_clock >= kClockInterval)
+            {
+                last_clock = clock_now;
+                shard.clock(snapshot, emit);
+            }
         }
         catch (const std::exception& exception)
         {

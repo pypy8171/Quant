@@ -38,7 +38,8 @@ static std::string kis_reject_code(const json& document)
 //  최유리지정가(03)는 "최유리지정가호가불가 [APBK1943]", 그 다음에 넣은 지정가(00)는 거래소를
 //  SOR 로 둔 탓에 "SOR 시장에서 거래가 불가능한 종목입니다 [APBK3009]" 로 막혔다. 모의계좌는
 //  애프터마켓 주문 자체를 받지 않아 이 경로는 실증된 적이 없었다.
-//  구간 바깥(예: 08:50~09:00)은 OrderGate 세션 창이 막으므로 여기서 다시 보지 않는다.
+//  08:50~09:00 장 시작 동시호가는 정규장 구간으로 보고 시장가 01 을 낸다. OrderGate 세션 창이 이 구간은
+//  opening_auction 을 표시한 신규 매수만 통과시키고(D-157) 나머지 구간 바깥은 막으므로 여기서 다시 보지 않는다.
 //  [why D-097] [why D-122]
 using MarketSession = krx::OrderWindow; // 구간 경계는 core/MarketSession.h 한 곳에 둔다(단위 시험 test_market_session)
 

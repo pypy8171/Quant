@@ -238,6 +238,8 @@ set(ENGINE_SOURCES
   src/strategy/MACrossStrategy.cpp
   src/strategy/TargetBasketPlan.cpp
   src/strategy/TargetBasketStrategy.cpp
+  src/strategy/SurgeHoldPlan.cpp
+  src/strategy/SurgeHoldStrategy.cpp
   src/risk/OrderGate.cpp
   src/risk/LedgerKeys.cpp
   src/risk/EntryPriority.cpp
@@ -544,6 +546,19 @@ target_include_directories(test_target_basket_strategy PRIVATE ${CMAKE_CURRENT_S
 target_link_libraries(test_target_basket_strategy PRIVATE nlohmann_json::nlohmann_json)
 if(UNIX)
     target_link_libraries(test_target_basket_strategy PRIVATE pthread)
+endif()
+
+# 급등 뒤 되돌림 보유(strategy/SurgeHold*) — 계획 파싱·손절익절·건너뜀 판정(순수)과 전략 본체(원장·시각 주입) (D-157)
+add_executable(test_surge_hold
+    tests/test_surge_hold.cpp
+    src/strategy/SurgeHoldStrategy.cpp
+    src/strategy/SurgeHoldPlan.cpp
+    src/utils/Logger.cpp
+)
+target_include_directories(test_surge_hold PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(test_surge_hold PRIVATE nlohmann_json::nlohmann_json)
+if(UNIX)
+    target_link_libraries(test_surge_hold PRIVATE pthread)
 endif()
 
 # ─── 테스트 타겟: SPSC RingBuffer 검증 ───────────────────────────────────
@@ -986,6 +1001,7 @@ set(QUANT_ASSERT_TARGETS
     test_devscale_rules
     test_target_basket_plan
     test_target_basket_strategy
+    test_surge_hold
     test_ringbuffer
     test_ringbuffer_stress
     test_pipeline_stress

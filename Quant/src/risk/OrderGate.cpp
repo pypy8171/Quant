@@ -427,8 +427,12 @@ GateVerdict OrderGate::evaluate(const OrderSignal& signal)
         const bool in_regular = now_min >= config_.session_open_min && now_min < config_.session_close_min;
         const bool in_after   = config_.after_close_min > config_.after_open_min && now_min >= config_.after_open_min &&
                                 now_min < config_.after_close_min;
+        // 장 시작 동시호가 매수는 정규장 시작 전 10분(08:50–09:00)을 더 받는다 — 표시한 신규 매수만. 08:50 앞은
+        //  NXT 프리마켓이라 시장가가 거부되고, 매도는 이 창을 쓰지 않는다 [why D-157]
+        const bool in_opening_auction = signal.opening_auction && signal.side == OrderSide::BUY &&
+                                        now_min >= config_.session_open_min - 10 && now_min < config_.session_open_min;
 
-        if (!in_regular && !in_after)
+        if (!in_regular && !in_after && !in_opening_auction)
         {
             reject(GateReject::OutsideSession).amount = now_min;
             return verdict;

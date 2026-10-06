@@ -172,6 +172,31 @@ public:
         return did_work;
     }
 
+    // 시각 호출 — 샤드 스레드가 약 1초마다 자기 전략 목록으로 부른다. wants_clock()이 참인 전략만 on_clock을 받는다.
+    //  체결 틱이 없는 동시호가 시간에도 주문을 낼 수 있게 한 길이다. [why D-157]
+    template <class Emit>
+    void clock(const std::vector<StrategyBase*>& strategies, Emit&& emit)
+    {
+        for (StrategyBase* strategy : strategies)
+        {
+            if (!strategy->wants_clock())
+            {
+                continue;
+            }
+
+            batch_buffer_.clear();
+            strategy->on_clock(batch_buffer_);
+
+            for (auto& batch : batch_buffer_)
+            {
+                if (batch.action != OrderAction::NEW || batch.side != OrderSide::NONE)
+                {
+                    emit(strategy, batch, int64_t{0});
+                }
+            }
+        }
+    }
+
 private:
     uint32_t                 index_;
     ShardQueues              queue_;

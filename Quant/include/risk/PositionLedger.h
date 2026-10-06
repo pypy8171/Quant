@@ -488,9 +488,10 @@ public:
     //  60종목을 드는 바스켓이 같은 장부에 들어오면 상한 20에 걸려 매수가 거부되고 교체가 바스켓을 먼저 판다.
     //  바스켓 로더·전략이 자기 종목을 여기 넣으면 그 종목은 슬롯을 먹지도, 교체·청산 대상이 되지도 않는다.
     //  종목당 명목·수량 한도·현금·총노출·일일 손실은 그대로 적용된다(바스켓도 계좌 위험을 진다). [why D-109]
-    void set_slot_exempt(const std::vector<std::string>& tickers);
+    //  소유자(전략 번호)마다 목록을 따로 두고 판정은 합집합으로 한다 — 한 소유자의 갱신이 남의 목록을 지우지 않는다. [why D-157]
+    void set_slot_exempt(strategy_table::StrategyId owner, const std::vector<std::string>& tickers);
     // 번호로 받는 갈래 — 전략 쪽 제어 요청이 티커가 아니라 id를 실어 온다(레코드에 문자열을 안 싣는다). [why D-114]
-    void set_slot_exempt_by_id(const std::vector<symbol::SymbolId>& symbols);
+    void set_slot_exempt_by_id(strategy_table::StrategyId owner, const std::vector<symbol::SymbolId>& symbols);
     bool is_slot_exempt(symbol::SymbolId symbol) const;
     std::vector<symbol::SymbolId> slot_exempt_symbols() const; // 오름차순 id
 
@@ -588,7 +589,8 @@ private:
     PosMap<int>       missed_sell_seen_; // (account,ticker) → 직전 대조에서 본 잔고 수량(2회 연속 확인용)
     PosMap<int>       missed_buy_seen_;  // 매수 쪽 같은 용도(absorb_missed_buy)
     PosMap<TimePoint> opened_at_;        // (account,ticker) → 포지션이 0에서 열린 시각(교체 최소 보유 판정)
-    std::unordered_set<symbol::SymbolId> slot_exempt_; // 슬롯 계산 밖 종목(바스켓 소유). positions_mutex_ 보호 [why D-109]
+    std::unordered_set<symbol::SymbolId> slot_exempt_; // 슬롯 계산 밖 종목(아래 소유자별 목록의 합집합). positions_mutex_ 보호 [why D-109]
+    std::unordered_map<strategy_table::StrategyId, std::unordered_set<symbol::SymbolId>> slot_exempt_by_owner_; // 소유자별 목록. positions_mutex_ 보호 [why D-157]
     // 발행끼리 줄 세우는 잠금 — 사본의 판 번호는 한 번에 한 스레드만 뒤집어야 한다.
     mutable std::mutex ledger_publish_mutex_;
     // 사본에 못 실은 다른 계좌 줄의 누적 수. publish_ledger만 쓴다.

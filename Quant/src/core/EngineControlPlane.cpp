@@ -141,50 +141,88 @@ void Engine::request_manual_halt(OrderSide side, bool on)
     control_plane_.send_switch(request, "수동 정지");
 }
 
-void Engine::set_slot_exempt_tickers(const std::vector<std::string>& tickers)
+bool Engine::set_slot_exempt_tickers(std::string_view owner, const std::vector<std::string>& tickers)
 {
-    ipc::ControlRequest open;
-    open.kind = ipc::ControlKind::kSlotExemptBegin;
+    const strategy_table::StrategyId owner_index = order_gate_.ledger().strategy_index_of(owner);
 
-    if (!control_plane_.send(open))
+    if (owner_index == strategy_table::kNone)
     {
-        LOG_WARN("[Engine] 슬롯 면제 " + std::to_string(tickers.size()) + "종목 — 제어 통로가 가득 차 이번 판을 접는다");
-        return;
+        LOG_WARN("[Engine] 슬롯 면제 소유자 " + std::string(owner) + " 번호를 못 받았다 — 이번 판을 접는다");
+        return false;
     }
 
-    uint32_t sent = 0;
+    // 번호 등록은 기다릴 수 있어 잠그기 전에 끝낸다.
+    std::vector<symbol::SymbolId> symbols;
+    symbols.reserve(tickers.size());
 
     for (const auto& ticker : tickers)
     {
-        ipc::ControlRequest row;
-        row.kind      = ipc::ControlKind::kSlotExemptEntry;
-        row.batch     = open.sequence;
-        row.symbol_id = register_symbol(ticker); // 티커 문자열이 번호가 되는 경계 [why D-112]
+        const symbol::SymbolId symbol = register_symbol(ticker); // 티커 문자열이 번호가 되는 경계 [why D-112]
 
-        if (row.symbol_id == symbol::kNone)
+        if (symbol != symbol::kNone)
         {
-            continue;
+            symbols.push_back(symbol);
         }
-
-        // 한 줄이라도 못 보내면 commit 을 안 보내고 접는다 — 받는 쪽은 commit 없는 표를 걸지 않는다.
-        if (!control_plane_.send(row))
-        {
-            LOG_WARN("[Engine] 슬롯 면제 집합을 보내다 통로가 가득 찼다 — 이번 판을 접는다(보낸 " +
-                     std::to_string(sent) + "줄)");
-            return;
-        }
-
-        ++sent;
     }
 
-    ipc::ControlRequest close;
-    close.kind      = ipc::ControlKind::kSlotExemptCommit;
-    close.batch     = open.sequence;
-    close.rank      = static_cast<int32_t>(sent);
-    close.row_count = sent;
-
-    if (!control_plane_.send(close))
+    // 받는 쪽 표(ControlTableBuilder)는 한 번에 하나만 연다 — 소유자 둘이 동시에 보내 줄이 섞이면 앞 표가 버려지므로
+    //  여는 줄부터 닫는 줄까지를 한 번에 보낸다. [why D-157]
+    const char* failure = nullptr;
+    uint32_t    sent    = 0;
     {
-        LOG_WARN("[Engine] 슬롯 면제 집합 마무리를 못 보냈다 — 이번 판은 걸리지 않는다");
+        std::lock_guard<std::mutex> lock(slot_exempt_send_mutex_);
+
+        ipc::ControlRequest open;
+        open.kind        = ipc::ControlKind::kSlotExemptBegin;
+        open.owner_index = owner_index;
+
+        if (!control_plane_.send(open))
+        {
+            failure = "여는 줄";
+        }
+
+        for (size_t index = 0; failure == nullptr && index < symbols.size(); ++index)
+        {
+            ipc::ControlRequest row;
+            row.kind        = ipc::ControlKind::kSlotExemptEntry;
+            row.batch       = open.sequence;
+            row.owner_index = owner_index;
+            row.symbol_id   = symbols[index];
+
+            // 한 줄이라도 못 보내면 commit 을 안 보내고 접는다 — 받는 쪽은 commit 없는 표를 걸지 않는다.
+            if (!control_plane_.send(row))
+            {
+                failure = "종목 줄";
+                break;
+            }
+
+            ++sent;
+        }
+
+        if (failure == nullptr)
+        {
+            ipc::ControlRequest close;
+            close.kind        = ipc::ControlKind::kSlotExemptCommit;
+            close.batch       = open.sequence;
+            close.owner_index = owner_index;
+            close.rank        = static_cast<int32_t>(sent);
+            close.row_count   = sent;
+
+            if (!control_plane_.send(close))
+            {
+                failure = "닫는 줄";
+            }
+        }
     }
+
+    if (failure != nullptr)
+    {
+        LOG_WARN("[Engine] 슬롯 면제 " + std::string(owner) + " " + std::to_string(symbols.size()) +
+                 "종목 — 통로가 가득 차 " + failure + "을 못 보내 이번 판을 접는다(보낸 종목 " + std::to_string(sent) + "줄)");
+        return false;
+    }
+
+    LOG_INFO("[Engine] 슬롯 면제 보냄 " + std::string(owner) + "(번호 " + std::to_string(owner_index) + ") " +
+             std::to_string(symbols.size()) + "종목");
+    return true;
 }

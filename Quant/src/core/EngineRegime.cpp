@@ -25,28 +25,29 @@
 //  poll_regime_file()이 RISK_ON→BULL·NEUTRAL·RISK_OFF→BEAR로 옮겨 라벨이 바뀐 회차에 부른다.
 //  같은 파일이 entry_halt·매수비율·강제청산도 내므로 "무엇을 살까"와 "지금 사도 되나"가 한 입력에서
 //  나온다. 코스피 200MA·정배열로 따로 판정하던 축은 이 스위치 말고 하는 일이 없어 지웠다. [why D-084][why D-085]
-void Engine::apply_regime_selection(Regime regime, bool force_log)
+// id 매칭: 목록 항목이 '*'로 끝나면 접두 매칭, 아니면 정확히 일치.
+static bool regime_list_matches(std::string_view id, const std::vector<std::string>& selected_ids)
 {
-    // id 매칭: 목록 항목이 '*'로 끝나면 접두 매칭, 아니면 정확히 일치.
-    auto matches = [](const std::string& id, const std::vector<std::string>& selected)
+    for (const auto& selected : selected_ids)
     {
-        for (const auto& selected : selected)
+        if (!selected.empty() && selected.back() == '*')
         {
-            if (!selected.empty() && selected.back() == '*')
-            {
-                if (id.starts_with(std::string_view(selected).substr(0, selected.size() - 1)))
-                {
-                    return true;
-                }
-            }
-            else if (id == selected)
+            if (id.starts_with(std::string_view(selected).substr(0, selected.size() - 1)))
             {
                 return true;
             }
         }
+        else if (id == selected)
+        {
+            return true;
+        }
+    }
 
-        return false;
-    };
+    return false;
+}
+
+void Engine::apply_regime_selection(Regime regime, bool force_log)
+{
 
     const std::vector<std::string>* selected = nullptr;
 
@@ -78,7 +79,7 @@ void Engine::apply_regime_selection(Regime regime, bool force_log)
 
         if (strategy_.has_regime_map)
         {
-            on = selected && matches(strategy->id(), *selected);
+            on = selected && regime_list_matches(strategy->id(), *selected);
         }
         else
         {
@@ -172,6 +173,42 @@ static regime_file::Observation observe_regime_file(const std::string& path, int
     }
 
     return observation;
+}
+
+// 국면 선택과 같은 맵·같은 매칭으로 답한다. 국면 맵이 없으면(per-strategy 폴백) 라벨로 막지 않고 진입 정지만 본다.
+std::optional<bool> Engine::regime_file_allows_entry(std::string_view strategy_id) const
+{
+    if (regime_file_.empty())
+    {
+        return true; // 국면 파일 기능 꺼짐 — 국면 게이트가 없다
+    }
+
+    const regime_file::Observation observation = observe_regime_file(regime_file_, regime_file_judge_.stale_sec());
+
+    if (observation.state != regime_file::FileState::kFresh || !observation.snapshot.valid)
+    {
+        return std::nullopt;
+    }
+
+    if (observation.snapshot.entry_halt || observation.snapshot.force_liquidate)
+    {
+        return false;
+    }
+
+    const Regime regime = regime_file::selection_of(observation.snapshot.regime);
+
+    if (regime == Regime::UNKNOWN)
+    {
+        return std::nullopt;
+    }
+
+    if (!strategy_.has_regime_map)
+    {
+        return true;
+    }
+
+    const auto iterator = strategy_.regime_map.find(regime);
+    return iterator != strategy_.regime_map.end() && regime_list_matches(strategy_id, iterator->second);
 }
 
 // ─── 매크로 레짐 파일 폴링 → entry_halt 요청 (data_thread 전용) ─────────────

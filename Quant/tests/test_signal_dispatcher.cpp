@@ -383,7 +383,7 @@ int test_sleeve_scan_skips_basket()
     auto config                    = open_config();
     config.max_notional_per_ticker = 1000.0;
     Rig rig(config);
-    rig.gate.ledger().set_slot_exempt({"BK"});
+    rig.gate.ledger().set_slot_exempt(rig.gate.ledger().strategy_index_of("BASKET_MAIN"), {"BK"});
     rig.gate.ledger().seed_position("", "BK", 50, 100.0); // 명목 5,000 > 한도 1,000이지만 바스켓 것
     rig.gate.ledger().seed_position("", "A", 20, 100.0);
     rig.publish();

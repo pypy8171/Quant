@@ -83,6 +83,17 @@ public:
     {
     }
 
+    // 틱과 상관없이 샤드 스레드가 약 1초마다 부른다 — wants_clock()이 참인 전략만. 동시호가처럼 체결 틱이 없는
+    //  시간에 정해진 시각의 주문을 내야 하는 전략이 쓴다. out의 신호는 on_trade_batch와 같은 길로 나간다. [why D-157]
+    virtual bool wants_clock() const
+    {
+        return false;
+    }
+
+    virtual void on_clock(std::vector<OrderSignal>& /*out*/)
+    {
+    }
+
     // Engine이 set_kis 등을 주입한 뒤 부른다(기동, 그리고 재스캔 등록)
     virtual void on_start()
     {
@@ -251,6 +262,7 @@ public:
     {
         int    sellable = 0;   // 주
         double average_price   = 0.0; // 원, 0=장부에 없음
+        int    reserved = 0;   // 미체결 선점 순값(매수 − 매도, 주). 양수면 아직 안 잡힌 매수가 있다
     };
 
     void set_sellable_provider(std::function<SellableInfo(const std::string&, const std::string&)> provider)

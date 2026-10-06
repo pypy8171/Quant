@@ -44,7 +44,7 @@
       {
         "name": "Quant Study35 Watch",
         "at": "17:00",
-        "run": "py research\\studies\\35_surge_box_breakout\\daily_watch.py --wait-minutes 45 (일봉 갱신을 기다림)"
+        "run": "py research\\studies\\35_surge_box_breakout\\daily_watch.py --wait-minutes 45 --emit-plan (일봉 갱신을 기다림, 다음 거래일 SURGE_HOLD 계획을 씀)"
       },
       {
         "name": "claude_stock_study",
@@ -106,7 +106,7 @@
       {
         "name": "Quant Study35 Watch",
         "at": "21:15",
-        "run": "py research\\studies\\35_surge_box_breakout\\daily_watch.py --wait-minutes 45 (일봉 갱신을 기다림)"
+        "run": "py research\\studies\\35_surge_box_breakout\\daily_watch.py --wait-minutes 45 --emit-plan (일봉 갱신을 기다림, 다음 거래일 SURGE_HOLD 계획을 씀)"
       },
       {
         "name": "claude_stock_study",
@@ -145,6 +145,10 @@
     {
       "name": "MarketMakingStrategy",
       "file": "Quant/include/strategy/MarketMakingStrategy.h"
+    },
+    {
+      "name": "SurgeHoldStrategy",
+      "file": "Quant/include/strategy/SurgeHoldStrategy.h"
     },
     {
       "name": "TargetBasketStrategy",
@@ -216,6 +220,7 @@
       "test_regime_file_judge",
       "test_target_basket_plan",
       "test_target_basket_strategy",
+      "test_surge_hold",
       "test_ringbuffer",
       "test_ringbuffer_stress",
       "test_pipeline_stress",
@@ -309,6 +314,7 @@
       "test_regime_file_judge",
       "test_target_basket_plan",
       "test_target_basket_strategy",
+      "test_surge_hold",
       "test_ringbuffer",
       "test_ringbuffer_stress",
       "test_pipeline_stress",
@@ -353,7 +359,7 @@
       "test_heartbeat",
       "test_logger"
     ],
-    "count": 64
+    "count": 65
   },
   "harness": {
     "commands": [
@@ -500,22 +506,8 @@
     "us_universe.json"
   ],
   "config_keys": {
-    "top": [
-      "//ledger_journal_dir",
-      "fetch_interval_sec",
-      "kis",
-      "ledger_journal_dir",
-      "mode",
-      "strategies"
-    ],
-    "strategies": [
-      "exchange",
-      "market",
-      "market_close_exit_hhmm",
-      "pbr_max",
-      "quantity",
-      "type"
-    ]
+    "top": [],
+    "strategies": []
   },
   "dir_tree": {
     ".claude": {
@@ -536,7 +528,6 @@
       "reports": {}
     },
     "linux_practice": {},
-    "logs_test": {},
     "PYQuant": {
       "backtest": {},
       "config": {},
@@ -581,8 +572,8 @@
     {
       "file": "scripts/check_runtime_health.py",
       "symbol": "collect",
-      "lines": 874,
-      "start": 2799
+      "lines": 879,
+      "start": 3130
     },
     {
       "file": "Quant/src/core/EngineDataThread.cpp",
@@ -593,7 +584,7 @@
     {
       "file": "Quant/src/risk/OrderGate.cpp",
       "symbol": "OrderGate::evaluate",
-      "lines": 376,
+      "lines": 380,
       "start": 389
     },
     {
@@ -642,7 +633,13 @@
       "file": "Quant/src/risk/OrderGate.cpp",
       "symbol": "OrderGate::plan_displacement",
       "lines": 183,
-      "start": 809
+      "start": 813
+    },
+    {
+      "file": "Quant/src/strategy/DeviationScaleStrategy.cpp",
+      "symbol": "DeviationScaleStrategy::on_trade_batch",
+      "lines": 183,
+      "start": 163
     },
     {
       "file": "Quant/src/ipc/OpsServer.cpp",
@@ -663,16 +660,22 @@
       "start": 99
     },
     {
-      "file": "Quant/src/strategy/DeviationScaleStrategy.cpp",
-      "symbol": "DeviationScaleStrategy::on_trade_batch",
+      "file": "Quant/src/strategy/SurgeHoldStrategy.cpp",
+      "symbol": "SurgeHoldStrategy::run_buys",
       "lines": 171,
-      "start": 163
+      "start": 673
     },
     {
       "file": "PYQuant/dashboard/build_dashboard.py",
       "symbol": "render_reviews",
       "lines": 168,
-      "start": 1066
+      "start": 1135
+    },
+    {
+      "file": "scripts/check_runtime_health.py",
+      "symbol": "surge_hold_rows",
+      "lines": 166,
+      "start": 874
     },
     {
       "file": "Quant/src/ipc/SharedLayout.cpp",
@@ -729,6 +732,12 @@
       "start": 235
     },
     {
+      "file": "Quant/src/core/ControlPlane.cpp",
+      "symbol": "ControlPlane::apply",
+      "lines": 140,
+      "start": 95
+    },
+    {
       "file": "Quant/src/regime/RegimeFeed.cpp",
       "symbol": "assess_levels",
       "lines": 140,
@@ -739,12 +748,6 @@
       "symbol": "websocket_recv_frame_linux",
       "lines": 137,
       "start": 209
-    },
-    {
-      "file": "Quant/src/core/ControlPlane.cpp",
-      "symbol": "ControlPlane::apply",
-      "lines": 137,
-      "start": 95
     },
     {
       "file": "Quant/src/ipc/OpsServer.cpp",
@@ -795,6 +798,12 @@
       "start": 598
     },
     {
+      "file": "Quant/src/api/KisOrder.cpp",
+      "symbol": "KisClient::submit_order_acknowledgement",
+      "lines": 126,
+      "start": 182
+    },
+    {
       "file": "Quant/src/ipc/OrderRouterReconcile.cpp",
       "symbol": "OrderRouter::reconcile_unknown_order_async",
       "lines": 125,
@@ -816,25 +825,19 @@
       "file": "Quant/src/strategy/TargetBasketStrategy.cpp",
       "symbol": "TargetBasketStrategy::run_pass",
       "lines": 119,
-      "start": 313
-    },
-    {
-      "file": "Quant/src/api/KisOrder.cpp",
-      "symbol": "KisClient::submit_order_acknowledgement",
-      "lines": 117,
-      "start": 193
+      "start": 316
     },
     {
       "file": "Quant/src/strategy/StrategyFactory.cpp",
       "symbol": "load_intraday_breakout",
       "lines": 117,
-      "start": 156
+      "start": 157
     },
     {
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::stop",
       "lines": 116,
-      "start": 794
+      "start": 795
     },
     {
       "file": "Quant/src/api/KisIndex.cpp",
@@ -864,13 +867,13 @@
       "file": "Quant/src/strategy/DeviationScaleStrategy.cpp",
       "symbol": "DeviationScaleStrategy::load_decision_bars",
       "lines": 109,
-      "start": 386
+      "start": 398
     },
     {
       "file": "scripts/check_runtime_health.py",
       "symbol": "journal_mirror_row",
       "lines": 109,
-      "start": 2284
+      "start": 2613
     },
     {
       "file": "Quant/src/api/KisMarket.cpp",
@@ -957,12 +960,6 @@
       "start": 290
     },
     {
-      "file": "Quant/src/core/EngineRegime.cpp",
-      "symbol": "Engine::apply_regime_selection",
-      "lines": 97,
-      "start": 28
-    },
-    {
       "file": "PYQuant/tools/log_report.py",
       "symbol": "render_html",
       "lines": 95,
@@ -981,6 +978,12 @@
       "start": 55
     },
     {
+      "file": "Quant/src/strategy/SurgeHoldPlan.cpp",
+      "symbol": "parse_plan",
+      "lines": 94,
+      "start": 74
+    },
+    {
       "file": "Quant/src/api/KisMarket.cpp",
       "symbol": "KisClient::get_us_daily_ohlcv",
       "lines": 93,
@@ -990,7 +993,13 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::set_entry_priority",
       "lines": 93,
-      "start": 915
+      "start": 916
+    },
+    {
+      "file": "Quant/src/strategy/SurgeHoldStrategy.cpp",
+      "symbol": "SurgeHoldStrategy::load_state",
+      "lines": 93,
+      "start": 252
     },
     {
       "file": "Quant/src/core/EngineOpsServer.cpp",
@@ -1002,7 +1011,7 @@
       "file": "Quant/src/strategy/DeviationScaleStrategy.cpp",
       "symbol": "DeviationScaleStrategy::prefetch_once",
       "lines": 92,
-      "start": 1148
+      "start": 1186
     },
     {
       "file": "Quant/src/core/BarAggregator.cpp",
@@ -1026,7 +1035,7 @@
       "file": "scripts/check_runtime_health.py",
       "symbol": "shared_region_exit_row",
       "lines": 89,
-      "start": 1382
+      "start": 1711
     },
     {
       "file": "Quant/src/strategy/ValueContraryStrategy.cpp",
@@ -1051,6 +1060,12 @@
       "symbol": "KisWebSocket::handle_data_frame",
       "lines": 85,
       "start": 173
+    },
+    {
+      "file": "Quant/src/core/EngineControlPlane.cpp",
+      "symbol": "Engine::set_slot_exempt_tickers",
+      "lines": 85,
+      "start": 144
     },
     {
       "file": "Quant/src/core/EngineStrategyThread.cpp",
@@ -1110,7 +1125,19 @@
       "file": "scripts/check_runtime_health.py",
       "symbol": "order_answer_row",
       "lines": 82,
-      "start": 1476
+      "start": 1805
+    },
+    {
+      "file": "Quant/src/strategy/StrategyFactory.cpp",
+      "symbol": "load_strategies",
+      "lines": 81,
+      "start": 580
+    },
+    {
+      "file": "Quant/src/strategy/SurgeHoldStrategy.cpp",
+      "symbol": "SurgeHoldStrategy::track_fills",
+      "lines": 81,
+      "start": 879
     },
     {
       "file": "Quant/src/universe/UniverseFeatures.cpp",

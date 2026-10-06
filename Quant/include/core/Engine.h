@@ -523,7 +523,14 @@ public:
     //  다시 읽을 때 넣고, DEVSCALE 재스캔이 이 목록을 유니버스에서 뺀다(같은 종목을 두 슬리브가 들지 않게). [why D-109]
     //  전략 쪽에서 부르는 자리라 게이트를 바로 고치지 않고 제어 요청으로 보낸다 — 표를 고치는 것은
     //  주문 스레드 하나다(원칙 4). 건 결과는 장부 사본의 slot_exempt 비트로 돌아온다. [why D-114]
-    void set_slot_exempt_tickers(const std::vector<std::string>& tickers);
+    //  owner 는 소유 전략 이름 — 소유자마다 목록을 따로 두고 판정은 합집합이다. [why D-157]
+    //  통로가 가득 차 표를 못 보냈으면 false — 부른 쪽이 다음 판에 다시 보낸다.
+    bool set_slot_exempt_tickers(std::string_view owner, const std::vector<std::string>& tickers);
+    // regime.json 을 지금 읽어 이 전략이 오늘 신규 매수해도 되는지 답한다 — 국면 선택(apply_regime_selection)은
+    //  09:00 첫 장중 사이클에 적용되므로, 그 전(08:50 동시호가)에 사는 전략이 오늘 국면을 보려고 부른다.
+    //  true = 국면 맵이 이 id를 켜고 entry_halt 아님(파일 기능이 꺼져 있어도 true), false = 꺼짐 또는 진입 정지,
+    //  nullopt = 파일 없음·오래됨·손상·판정 보류(모름). 어느 스레드에서 불러도 된다(기동 뒤 바뀌지 않는 값만 읽는다). [why D-157]
+    std::optional<bool> regime_file_allows_entry(std::string_view strategy_id) const;
     std::vector<symbol::SymbolId> slot_exempt_symbols() const
     {
         return order_gate_.ledger().slot_exempt_symbols();
@@ -1162,6 +1169,7 @@ private:
     //  data_thread(재스캔 등록)가 쓰고 control_thread(WS 재연결)가 읽는다 — watch_specs_mtx_로 보호.
     std::vector<WatchSpec> watch_specifications_;
     mutable std::mutex     watch_specifications_mutex_;
+    std::mutex             slot_exempt_send_mutex_; // 슬롯 면제 표 한 판(여는 줄~닫는 줄)을 섞이지 않게 보낸다 [why D-157]
 
     // 아직 소켓에 걸지 않은 구독 스펙. 주문 스레드가 제어 요청에서 꺼내 여기 쌓고, 감시 스레드가
     //  비우며 소켓에 건다 — 주문 스레드는 단일 시퀀서라 소켓 쓰기로 막으면 그동안 주문이 안 나간다. [why D-114]

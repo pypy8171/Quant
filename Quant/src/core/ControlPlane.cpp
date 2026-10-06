@@ -121,7 +121,10 @@ void ControlPlane::apply()
                     symbols.push_back(row.symbol_id);
                 }
 
-                ledger.set_slot_exempt_by_id(symbols);
+                ledger.set_slot_exempt_by_id(request.owner_index, symbols);
+                // 소유자 둘이 서로 지우지 않는지 운영 판정(check_runtime_health 'SURGE 면제 합집합')이 이 줄을 센다 [why D-157]
+                LOG_INFO("[Ledger] 슬롯 면제 갱신 소유자 " + std::to_string(request.owner_index) + " " + std::to_string(symbols.size()) +
+                         "종목, 합집합 " + std::to_string(ledger.slot_exempt_symbols().size()) + "종목");
             }
 
             break;
