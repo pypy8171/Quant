@@ -48,6 +48,25 @@ void set_current(const std::string& name)
 #endif
 }
 
+void clear_current()
+{
+    current_name[0] = '\0';
+#ifdef _WIN32
+    SetThreadDescription(GetCurrentThread(), L"");
+#endif
+    // 리눅스 std::async는 호출마다 새 스레드를 띄우고 끝나면 거둔다 — 운영체제 이름은 스레드와 같이 사라진다.
+}
+
+ScopedName::ScopedName(const std::string& name)
+{
+    set_current(name);
+}
+
+ScopedName::~ScopedName()
+{
+    clear_current();
+}
+
 const char* current()
 {
     if (current_name[0] == '\0')

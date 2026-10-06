@@ -2,7 +2,7 @@
 엔진 프로세스 자원 표본 수집 — ZMQ HEALTH에는 처리건수만 있고 자원 사용량이 없어 따로 떠서
 TimescaleDB에 쌓는다(proc_stats·proc_thread_stats·proc_hotspots).
 
-- Windows 네이티브 엔진(quant_trader.exe): psutil로 프로세스 CPU/메모리만.
+- Windows 네이티브 엔진(quant_trader.exe): psutil로 프로세스 CPU/메모리 + 스레드별 CPU(이름은 GetThreadDescription).
 - 리눅스 엔진(quant_trader, WSL 포함): /proc를 읽어 프로세스 합계 + 스레드별 CPU까지. Windows에서 WSL 안의
   엔진을 볼 때는 `wsl -d <배포판>`으로 같은 셸 조각을 돌린다(psutil은 WSL 프로세스를 못 본다).
   perf가 있으면 일정 주기로 몇 초 표본을 떠서 함수별 자기 시간 비율(proc_hotspots)도 적재한다.
@@ -163,6 +163,93 @@ def find_processes(process_name: str) -> list:
     return found
 
 
+
+# 스레드 이름은 엔진이 SetThreadDescription으로 붙인 것을 GetThreadDescription으로 읽는다(Windows 10 1607 이상).
+#  psutil.Process.threads()는 번호와 누적 CPU 시간만 준다 — 이것 없이는 proc_thread_stats가 Windows 엔진에서 비었다(10-06 발견).
+_THREAD_QUERY_LIMITED_INFORMATION = 0x0800
+_kernel32 = None
+
+
+def _load_kernel32():
+    global _kernel32
+
+    if _kernel32 is None:
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32")
+        kernel32.OpenThread.restype = wintypes.HANDLE
+        kernel32.OpenThread.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel32.GetThreadDescription.restype = ctypes.c_long
+        kernel32.GetThreadDescription.argtypes = [wintypes.HANDLE, ctypes.POINTER(ctypes.c_void_p)]
+        kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        _kernel32 = kernel32
+
+    return _kernel32
+
+
+def windows_thread_name(thread_id: int) -> str:
+    """엔진이 붙인 스레드 이름. 이름이 없거나 못 읽으면 빈 문자열."""
+    import ctypes
+
+    kernel32 = _load_kernel32()
+    handle = kernel32.OpenThread(_THREAD_QUERY_LIMITED_INFORMATION, False, thread_id)
+
+    if not handle:
+        return ""
+
+    try:
+        description = ctypes.c_void_p()
+
+        if kernel32.GetThreadDescription(handle, ctypes.byref(description)) < 0 or not description.value:
+            return ""
+
+        try:
+            return ctypes.wstring_at(description.value)
+        finally:
+            kernel32.LocalFree(description)
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+class WindowsThreadSampler:
+    """스레드별 CPU %를 누적 CPU 시간 차이로 낸다. 단위는 리눅스 경로와 같다(100 = 코어 1개).
+    pid마다 첫 표본은 기준점만 잡고 행을 내지 않는다 — 기동 뒤 누적값을 한 구간으로 읽으면 부풀어 보인다."""
+
+    def __init__(self, process_name: str):
+        self.process_name = process_name
+        self._previous = {}   # pid → (monotonic 초, {tid: 누적 CPU 초})
+
+    def sample(self, process) -> list:
+        now = time.monotonic()
+        totals = {thread.id: thread.user_time + thread.system_time for thread in process.threads()}
+        previous = self._previous.get(process.pid)
+        self._previous[process.pid] = (now, totals)
+
+        if previous is None:
+            return []
+
+        elapsed = max(now - previous[0], 1e-3)
+        rows = []
+
+        for thread_id, total in totals.items():
+            if thread_id not in previous[1]:
+                continue
+
+            rows.append({
+                "process_name": self.process_name, "pid": process.pid, "tid": thread_id,
+                "thread_name": windows_thread_name(thread_id) or "(이름 없음)",
+                "cpu_percent": (total - previous[1][thread_id]) * 100.0 / elapsed,
+            })
+
+        return rows
+
+    def forget_except(self, live_pids: set):
+        for pid in list(self._previous):
+            if pid not in live_pids:
+                del self._previous[pid]
+
 MISSING_REPEAT_SEC = 300.0
 
 
@@ -192,6 +279,7 @@ def _run_psutil(db, process_name: str, interval: float):
     missing_since = 0.0
     last_missing_warning = 0.0
     primed = set()   # cpu_percent()를 한 번 불러 기준점을 잡아 둔 pid
+    thread_sampler = WindowsThreadSampler(process_name)
 
     while True:
         processes = find_processes(process_name)
@@ -217,6 +305,7 @@ def _run_psutil(db, process_name: str, interval: float):
 
         time.sleep(interval)
         primed &= {process.pid for process in processes}
+        thread_sampler.forget_except(primed)
 
         for process in processes:
             try:
@@ -231,6 +320,7 @@ def _run_psutil(db, process_name: str, interval: float):
                     "thread_count": thread_count,
                     "core_count": core_count,
                 })
+                db.insert_proc_thread_statistics(thread_sampler.sample(process))
                 logger.info(f"pid={process.pid} cpu={cpu_percent:.1f}% mem={memory_mb:.0f}MB "
                             f"threads={thread_count}")
             except (psutil.NoSuchProcess, psutil.AccessDenied) as error:

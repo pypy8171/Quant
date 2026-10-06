@@ -334,10 +334,11 @@ void LedgerReconciler::reconcile(bool resync_positions, std::time_t now_utc)
     if (!pending_fetch_.valid())
     {
         // 조회 스레드에도 이름을 붙인다 — 이름이 없으면 로그와 스레드별 CPU 적재에 운영체제 번호로만 찍힌다.
-        //  fetch_는 전처럼 값으로 넘긴다(람다가 사본을 쥔다).
+        //  MSVC std::async는 Windows 스레드 풀에서 돌아 스레드가 조회 뒤에도 남는다. 조회 동안만 이름을 쥐어야
+        //  쉬는 풀 스레드 6–8개가 BalanceFetch로 집계되지 않는다(10-06 실측). fetch_는 값으로 넘긴다(람다가 사본을 쥔다).
         pending_fetch_  = std::async(std::launch::async, [fetch = fetch_]()
         {
-            thread_name::set_current("BalanceFetch");
+            const thread_name::ScopedName name("BalanceFetch");
             return fetch();
         });
         pending_since_  = std::chrono::steady_clock::now();

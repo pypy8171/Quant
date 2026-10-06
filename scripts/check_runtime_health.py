@@ -327,13 +327,15 @@ def resource_sampling_rows(date: str) -> list:
 
     if not password:
         return [("자원 표본 적재", True, "WARN", ".env에 TSDB_PASSWORD 없음 — 판정 안 함"),
-                ("자원 표본 공백", True, "WARN", ".env에 TSDB_PASSWORD 없음 — 판정 안 함")]
+                ("자원 표본 공백", True, "WARN", ".env에 TSDB_PASSWORD 없음 — 판정 안 함"),
+                ("풀 스레드 이름", True, "WARN", ".env에 TSDB_PASSWORD 없음 — 판정 안 함")]
 
     psycopg2 = import_psycopg2()
 
     if psycopg2 is None:
         return [("자원 표본 적재", False, "WARN", "psycopg2 없음 — venv(PYQuant/.venv*)로 부르거나 pip install psycopg2-binary"),
-                ("자원 표본 공백", False, "WARN", "psycopg2 없음 — 위와 같다")]
+                ("자원 표본 공백", False, "WARN", "psycopg2 없음 — 위와 같다"),
+                ("풀 스레드 이름", False, "WARN", "psycopg2 없음 — 위와 같다")]
 
     try:
         connection = psycopg2.connect(host="localhost", port=5432, dbname="quant", user="quant",
@@ -347,6 +349,13 @@ def resource_sampling_rows(date: str) -> list:
                 "SELECT COUNT(DISTINCT thread_name) FROM proc_thread_stats"
                 " WHERE (ts AT TIME ZONE 'Asia/Seoul')::date = %s AND thread_name NOT LIKE 'quant_trader%%'", (date,))
             named_threads = cursor.fetchone()[0]
+            # 한 표본에 BalanceFetch가 몇 개 찍혔나 — 조회는 한 번에 하나라 1을 넘으면 쉬는 풀 스레드가 이름을
+            #  쥐고 있다는 뜻이다(10-06 Windows 엔진당 6–8개, thread_name::ScopedName으로 고침)
+            cursor.execute(
+                "SELECT COALESCE(MAX(named), 0) FROM (SELECT COUNT(*) named FROM proc_thread_stats"
+                "       WHERE (ts AT TIME ZONE 'Asia/Seoul')::date = %s AND thread_name = 'BalanceFetch'"
+                "       GROUP BY pid, ts) per_sample", (date,))
+            balance_fetch_threads = cursor.fetchone()[0]
             # 표본 사이가 얼마나 벌어졌나 — 행수만 보면 중간에 통째로 빈 구간을 못 잡는다
             #  (2026-09-22 09:32~09:44 12분 공백을 하루 판정이 PASS로 넘겼다)
             cursor.execute(
@@ -358,7 +367,8 @@ def resource_sampling_rows(date: str) -> list:
         connection.close()
     except Exception as error:   # DB가 없거나 잠든 날은 판정을 미룬다
         return [("자원 표본 적재", True, "WARN", f"DB 조회 실패 — 판정 안 함 ({str(error).strip()[:80]})"),
-                ("자원 표본 공백", True, "WARN", "DB 조회 실패 — 판정 안 함")]
+                ("자원 표본 공백", True, "WARN", "DB 조회 실패 — 판정 안 함"),
+                ("풀 스레드 이름", True, "WARN", "DB 조회 실패 — 판정 안 함")]
 
     # 장중 6시간 30분을 5초 주기로 떠도 4,000행이 넘고, 절반만 떠도 2,000행쯤 — 300행이면 몇십 분만 돌다 죽은 것
     # 공백 기준 120초: 주기 5초 + perf 표본 10초 + 재기동 대기를 다 더해도 그 안이다.
@@ -367,7 +377,11 @@ def resource_sampling_rows(date: str) -> list:
              + (" — 0이면 스레드 이름 배포 전 바이너리거나 Windows psutil 경로" if named_threads == 0 else "")),
             ("자원 표본 공백", float(max_gap_seconds) <= 120, "WARN",
              f"가장 긴 공백 {float(max_gap_seconds):.0f}초 (기대 120 이하), 마지막 표본 {last_sample}"
-             + (" — 수집기가 멈췄다 되살아난 구간이다. logs/procwatch.log를 본다" if float(max_gap_seconds) > 120 else ""))]
+             + (" — 수집기가 멈췄다 되살아난 구간이다. logs/procwatch.log를 본다" if float(max_gap_seconds) > 120 else "")),
+            ("풀 스레드 이름", balance_fetch_threads <= 1, "WARN",
+             f"한 표본의 BalanceFetch 스레드 최대 {balance_fetch_threads}개 (기대 1 이하)"
+             + (" — 쉬는 풀 스레드가 조회 이름을 쥐고 있다. 엔진이 ScopedName 배포 전 바이너리인지 본다"
+                if balance_fetch_threads > 1 else ""))]
 
 
 def feed_ledger_rows(date: str) -> list:

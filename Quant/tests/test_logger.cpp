@@ -5,13 +5,16 @@
 //   ① 무손실·순번 : N 스레드가 각 M줄 로그 → 파일에 (N*M − dropped)줄, 스레드별 sequence는 단조 증가
 //   ② flush 계약  : flush() 반환 시점에 그 전에 반환된 log()가 전부 파일에 있다
 //   ③ 드롭 계수   : 가득 차서 버린 수가 dropped()에 잡히고, 기록 + 드롭 = 발행 수
+//   ④ 작업 이름   : ScopedName이 끝나면 스레드 이름이 "T" + 스레드 번호로 돌아간다(풀 스레드가 옛 이름을 쥐지 않는다)
 //
 // 사용법: test_logger   (cwd 하위 logs_test/ 에 파일을 만들고 끝나면 지운다)
 
 #include "utils/Logger.h"
+#include "utils/ThreadName.h"
 
 #include <cassert>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -121,6 +124,21 @@ void test_flush_contract()
     std::printf("[PASS] flush contract\n");
 }
 
+void test_scoped_name_clears()
+{
+    std::thread worker([]
+    {
+        {
+            const thread_name::ScopedName name("BalanceFetch");
+            assert(std::strcmp(thread_name::current(), "BalanceFetch") == 0);
+        }
+
+        assert(thread_name::current()[0] == 'T');
+    });
+    worker.join();
+    std::printf("[PASS] scoped name clears\n");
+}
+
 } // namespace
 
 int main()
@@ -131,6 +149,7 @@ int main()
 
     test_multi_producer_no_loss();
     test_flush_contract();
+    test_scoped_name_clears();
 
     Logger::instance().flush();
     std::printf("ALL PASS\n");

@@ -21,6 +21,20 @@ constexpr std::size_t kMaxLength = 16;
 
 void set_current(const std::string& name);
 
+// 이 스레드의 이름을 지운다. 다음 current()는 "T" + 운영체제 스레드 번호로 돌아간다.
+void clear_current();
+
+// 작업 하나 동안만 이름을 붙인다. MSVC의 std::async처럼 스레드 풀이 작업 뒤에도 스레드를 남겨 다른 일에 다시 쓰는
+//  자리에서 쓴다 — 이름을 지우지 않으면 쉬는 풀 스레드가 옛 작업 이름으로 집계되고, 다른 작업의 로그 줄에도 그 이름이 찍힌다.
+class ScopedName
+{
+public:
+    explicit ScopedName(const std::string& name);
+    ~ScopedName();
+    ScopedName(const ScopedName&)            = delete;
+    ScopedName& operator=(const ScopedName&) = delete;
+};
+
 // 이 스레드의 이름. set_current를 부른 적 없으면 "T" + 운영체제 스레드 번호를 한 번 만들어 둔다.
 //  [inv] 돌려준 포인터는 이 스레드가 살아 있는 동안만 유효하다 — 다른 스레드로 넘길 때는 복사한다.
 const char* current();
