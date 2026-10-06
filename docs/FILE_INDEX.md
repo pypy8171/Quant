@@ -9,10 +9,10 @@
 - [(루트)](#루트) — 11개
 - [.vscode](#vscode) — 4개
 - [PYQuant](#pyquant) — 105개
-- [Quant](#quant) — 353개
+- [Quant](#quant) — 358개
 - [docs](#docs) — 146개
 - [linux_practice](#linux_practice) — 2개
-- [research](#research) — 389개
+- [research](#research) — 395개
 - [scripts](#scripts) — 50개
 - [strategies](#strategies) — 39개
 - [tools](#tools) — 3개
@@ -1212,6 +1212,8 @@
 - [2026-10-01_eval.json](../research/studies/27_premarket_leaders/daily/2026-10-01_eval.json) — 10-01 장 마감 판정(후보 20개 중 주도주 0, 철강은 프리마켓 급등 뒤 꺾임)
 - [2026-10-02.jsonl](../research/studies/27_premarket_leaders/daily/2026-10-02.jsonl) — 10-02 장 전 주도 후보 기록
 - [2026-10-02_eval.json](../research/studies/27_premarket_leaders/daily/2026-10-02_eval.json) — 10-02 장 전 주도 후보의 장중 성적 평가
+- [2026-10-05.jsonl](../research/studies/27_premarket_leaders/daily/2026-10-05.jsonl) — 10-05 장 전 주도 후보 기록
+- [2026-10-06.jsonl](../research/studies/27_premarket_leaders/daily/2026-10-06.jsonl) — 10-06 장 전 주도 후보 기록
 
 ### research/studies/28_devscale_zone_width/
 
@@ -1321,9 +1323,13 @@
 
 - [.gitignore](../research/studies/35_surge_box_breakout/.gitignore) — 매매 원장·차트 자료(trades.json·kinds/·candles/, 수백 MB, 재실행으로 다시 만듦)와 ma_sweep.parquet 커밋 제외
 - [backtest.py](../research/studies/35_surge_box_breakout/backtest.py) — 스터디 35 백테스트 — 급등 묶음 뒤 횡보 범위 돌파·눌림·이평선 매수, 손절×익절 격자, 다시 사기 사슬
+- [close_depth.py](../research/studies/35_surge_box_breakout/close_depth.py) — 되돌림을 장중 저가·종가로 잰 3,840칸과 다음 날 시가 매수 비교, 연도 단위 교차검증
+- [close_depth.txt](../research/studies/35_surge_box_breakout/close_depth.txt) — close_depth 결과(종가 측정 기각, 다음 날 시가 매수 n263 +3.11% t3.82 추천)
 - [daily_watch.py](../research/studies/35_surge_box_breakout/daily_watch.py) — 스터디 35 앞으로의 기록 — 장 마감 뒤 밤 일봉으로 급등 사건·관찰·6개 규칙(base·c1–c5) 신호와 청산을 날짜별로 적고 규칙별 판정(2026-10-02 이후 50건·평균>0·t≥2)을 낸다. 예약작업 Quant Study35 Watch
 - [flow_test.py](../research/studies/35_surge_box_breakout/flow_test.py) — 1번 칸·기준선을 외국인+기관 순매수 여부로 나눠 비교하는 수급 시험
 - [flow_test.txt](../research/studies/35_surge_box_breakout/flow_test.txt) — 수급 시험 결과(차이 t −1.42, 기각)
+- [ma_reclaim_deep.py](../research/studies/35_surge_box_breakout/ma_reclaim_deep.py) — 이평선 이탈 뒤 회복 횟수와 깊은 되돌림 지정가 매수 시험
+- [ma_reclaim_deep.txt](../research/studies/35_surge_box_breakout/ma_reclaim_deep.txt) — ma_reclaim_deep 결과(회복 횟수 영향 없음, 깊은 자리 매수 통과 0칸)
 - [ma_sweep.py](../research/studies/35_surge_box_breakout/ma_sweep.py) — 스터디 35 이평선 3–21일 × 지정가·종가 확인 매수와 소화 끝 지표(거래량 마름·저가 멈춤) 전수 비교
 - [miss_322000.py](../research/studies/35_surge_box_breakout/miss_322000.py) — HD현대에너지솔루션 2026-02 구간을 규칙별로 왜 사거나 놓쳤는지 추적
 - [miss_322000.txt](../research/studies/35_surge_box_breakout/miss_322000.txt) — 322000 추적 결과(날짜별 탈락 사유·가격 흐름)

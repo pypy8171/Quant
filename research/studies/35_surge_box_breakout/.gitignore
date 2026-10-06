@@ -10,3 +10,9 @@ optimize_candidates.parquet
 index_snapshot.parquet
 rebuy_trades.parquet
 sweep.json
+close_depth_events.parquet
+close_depth_cells.parquet
+close_depth_cv_trades.parquet
+ma_reclaim_deep_trades.parquet
+ma_reclaim_deep_fills.parquet
+ma_reclaim_deep_cells.parquet
