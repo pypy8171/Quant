@@ -4,6 +4,23 @@
 > 각 폴더의 `README.md`는 질문·설정·발견 요약 + 런별 실현손익 표, `{run}.md`는 **어떤 종목을 언제 사고팔아 얼마 손익**이었는지 왕복 원장(FIFO 매칭).
 > 스터디 문서의 t·창·문턱 숫자가 무엇을 뜻하고 어디서 왔는지는 [READING_NUMBERS.md](READING_NUMBERS.md)(확률 표는 `py research/studies/threshold_check.py`가 만든다).
 
+## 결과 발행 규약 — 표지는 같게, 본문은 각자 (2026-10-07)
+
+스터디 결과 페이지(리플레이·시험 원장·조건 탐색기 등)는 형태를 맞추지 않는다. 대신 모든 스터디가 같은 **표지**를
+[index.json](index.json)에 남기고, 스터디 목록 페이지 하나가 그 표지만 읽어 각 페이지로 링크한다.
+목록 페이지는 "시험 결과 쉽게 읽기"(<https://claude.ai/artifact/Ahgj1CbDYc7aPfkujiQRQR>)의 스터디 목록이다
+(`scripts/build_plain_dashboard.py`가 이 파일을 읽는다 — 표지를 고치면 그 생성기 재실행·재발행).
+
+- 스터디를 끝내거나 결과 페이지를 새로 발행·재발행하면 `index.json`의 자기 항목을 같이 고친다(없으면 만든다).
+- 기존 칸(`question`·`method`·`result`·`verdict`·`why`·`followup`·`files`)에 더해 다음 칸을 채운다.
+  - `verdict_tag`: `채택` / `보류` / `기각` / `진행 중` / `참고`(판정 없는 기록) 중 하나. 자세한 문구는 지금처럼 `verdict`에 둔다.
+  - `headline`: `{"n": 건수, "mean": 건당 평균 %(비용 뺌), "t": t, "early": 앞 기간 평균, "late": 뒤 기간 평균, "split": "2010–17 | 2018–26"}`. 모르는 값은 `null`.
+  - `pages`: `[{"url": 아티팩트 링크, "kind": "리플레이"|"원장"|"탐색기"|"리포트", "label": 한 줄}]`. 한 페이지가 여러 스터디에 걸치면 각 스터디에 같은 링크를 넣는다.
+  - `questions`(선택): 한 스터디 안에 질문이 여럿이면 `[{"q", "verdict_tag", "headline", "anchor"}]`. `anchor`는 그 질문이 있는 페이지 URL에 `#id`를 붙인 전체 주소.
+- 결과 페이지 맨 위에는 스터디 목록으로 돌아가는 링크 한 줄만 넣는다. 색·배치·필터는 각자 그대로 둔다.
+  주소는 자기 스터디 항목 `https://claude.ai/artifact/Ahgj1CbDYc7aPfkujiQRQR#s35`(`#s`+index.json number 두 자리), 여러 스터디를 담은 페이지는 목록 `#studies`.
+- 새로 발행한 링크는 `_private/dashboards.json`에도 적는다(CLAUDE.md "링크 허브").
+
 ## 한눈에 보기 — 스터디마다 무엇을 알아보려 했고 어떻게 끝났나
 
 "스터디"는 매매 규칙 하나를 실제로 쓰기 전에 지난 시세로 미리 돌려 보는 시험이다.

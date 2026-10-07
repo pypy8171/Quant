@@ -16,7 +16,17 @@
       "research/studies/01_momentum_regime/README.md",
       "research/studies/01_momentum_regime/metrics.json",
       "research/BACKTEST_LOG.md"
-    ]
+    ],
+    "verdict_tag": "보류",
+    "headline": {
+      "n": null,
+      "mean": null,
+      "t": null,
+      "early": null,
+      "late": null,
+      "split": null
+    },
+    "pages": []
   },
   {
     "number": "02",
@@ -35,7 +45,17 @@
       "research/studies/02_vol_target/README.md",
       "research/studies/02_vol_target/metrics.json",
       "research/BACKTEST_LOG.md"
-    ]
+    ],
+    "verdict_tag": "채택",
+    "headline": {
+      "n": null,
+      "mean": null,
+      "t": null,
+      "early": null,
+      "late": null,
+      "split": null
+    },
+    "pages": []
   },
   {
     "number": "03",
@@ -54,7 +74,17 @@
       "research/studies/03_2022_removal_test/README.md",
       "research/studies/03_2022_removal_test/metrics.json",
       "research/BACKTEST_LOG.md"
-    ]
+    ],
+    "verdict_tag": "채택",
+    "headline": {
+      "n": null,
+      "mean": null,
+      "t": null,
+      "early": null,
+      "late": null,
+      "split": null
+    },
+    "pages": []
   },
   {
     "number": "04",
@@ -73,7 +103,17 @@
       "research/studies/01_momentum_regime/metrics.json",
       "research/runs/2026-08-07_month-start-sweep.md",
       "research/BACKTEST_LOG.md"
-    ]
+    ],
+    "verdict_tag": "보류",
+    "headline": {
+      "n": null,
+      "mean": null,
+      "t": null,
+      "early": null,
+      "late": null,
+      "split": null
+    },
+    "pages": []
   },
   {
     "number": "05",
@@ -92,7 +132,17 @@
       "research/studies/01_momentum_regime/metrics.json",
       "research/runs/2026-08-07_month-start-sweep.md",
       "research/BACKTEST_LOG.md"
-    ]
+    ],
+    "verdict_tag": "기각",
+    "headline": {
+      "n": null,
+      "mean": null,
+      "t": null,
+      "early": null,
+      "late": null,
+      "split": null
+    },
+    "pages": []
   },
   {
     "number": "06",
@@ -111,7 +161,17 @@
       "research/studies/06_bear_market/README.md",
       "research/studies/06_bear_market/metrics.json",
       "research/studies/06_bear_market/events/README.md"
-    ]
+    ],
+    "verdict_tag": "보류",
+    "headline": {
+      "n": null,
+      "mean": null,
+      "t": null,
+      "early": null,
+      "late": null,
+      "split": null
+    },
+    "pages": []
   },
   {
     "number": "07",
@@ -129,7 +189,17 @@
     "files": [
       "research/studies/07_crisis_regimes/README.md",
       "research/studies/07_crisis_regimes/summary.tsv"
-    ]
+    ],
+    "verdict_tag": "참고",
+    "headline": {
+      "n": null,
+      "mean": null,
+      "t": null,
+      "early": null,
+      "late": null,
+      "split": null
+    },
+    "pages": []
   },
   {
     "number": "08",
@@ -147,7 +217,17 @@
     "files": [
       "research/studies/08_crisis_response/README.md",
       "research/studies/08_crisis_response/metrics.json"
-    ]
+    ],
+    "verdict_tag": "기각",
+    "headline": {
+      "n": null,
+      "mean": null,
+      "t": null,
+      "early": null,
+      "late": null,
+      "split": null
+    },
+    "pages": []
   },
   {
     "number": "09",
@@ -166,7 +246,17 @@
       "research/studies/09_crisis_strategies/README.md",
       "research/studies/09_crisis_strategies/SUMMARY_RANKING.md",
       "research/studies/09_crisis_strategies/metrics.json"
-    ]
+    ],
+    "verdict_tag": "기각",
+    "headline": {
+      "n": null,
+      "mean": null,
+      "t": null,
+      "early": null,
+      "late": null,
+      "split": null
+    },
+    "pages": []
   },
   {
     "number": "10",
@@ -184,7 +274,17 @@
     "files": [
       "research/studies/10_regime_scorer/README.md",
       "research/studies/10_regime_scorer/A1_REPORT.md"
-    ]
+    ],
+    "verdict_tag": "보류",
+    "headline": {
+      "n": null,
+      "mean": null,
+      "t": null,
+      "early": null,
+      "late": null,
+      "split": null
+    },
+    "pages": []
   },
   {
     "number": "11",
@@ -202,7 +302,17 @@
     "files": [
       "research/studies/11_signal_axes/README.md",
       "research/studies/11_signal_axes/metrics.json"
-    ]
+    ],
+    "verdict_tag": "기각",
+    "headline": {
+      "n": null,
+      "mean": null,
+      "t": null,
+      "early": null,
+      "late": null,
+      "split": null
+    },
+    "pages": []
   },
   {
     "number": "12",
@@ -220,7 +330,17 @@
     "files": [
       "research/studies/12_base_breakout/README.md",
       "research/studies/12_base_breakout/HANDOFF.md"
-    ]
+    ],
+    "verdict_tag": "기각",
+    "headline": {
+      "n": null,
+      "mean": null,
+      "t": null,
+      "early": null,
+      "late": null,
+      "split": null
+    },
+    "pages": []
   },
   {
     "number": "13",
@@ -238,7 +358,17 @@
     "files": [
       "research/studies/13_trendx_gate/README.md",
       "research/studies/13_trendx_gate/results.tsv"
-    ]
+    ],
+    "verdict_tag": "기각",
+    "headline": {
+      "n": null,
+      "mean": null,
+      "t": null,
+      "early": null,
+      "late": null,
+      "split": null
+    },
+    "pages": []
   },
   {
     "number": "14",
@@ -256,7 +386,17 @@
     "files": [
       "research/studies/14_hold_axis/README.md",
       "research/studies/14_hold_axis/paired.tsv"
-    ]
+    ],
+    "verdict_tag": "기각",
+    "headline": {
+      "n": null,
+      "mean": null,
+      "t": null,
+      "early": null,
+      "late": null,
+      "split": null
+    },
+    "pages": []
   },
   {
     "number": "15",
@@ -274,7 +414,17 @@
     "files": [
       "research/studies/15_impulse_pullback/README.md",
       "research/studies/15_impulse_pullback/out/summary_sweep.csv"
-    ]
+    ],
+    "verdict_tag": "기각",
+    "headline": {
+      "n": null,
+      "mean": null,
+      "t": null,
+      "early": null,
+      "late": null,
+      "split": null
+    },
+    "pages": []
   },
   {
     "number": "16",
@@ -293,7 +443,17 @@
       "research/studies/16_trendx_execution/README.md",
       "research/studies/16_trendx_execution/atr_stop_results.tsv",
       "research/studies/16_trendx_execution/exec_replay.tsv"
-    ]
+    ],
+    "verdict_tag": "기각",
+    "headline": {
+      "n": null,
+      "mean": null,
+      "t": null,
+      "early": null,
+      "late": null,
+      "split": null
+    },
+    "pages": []
   },
   {
     "number": "17",
@@ -312,7 +472,17 @@
       "research/studies/17_exit_ev/README.md",
       "research/studies/17_exit_ev/RESULT.md",
       "strategies/DeviationScale/evidence/exit_ev_table.md"
-    ]
+    ],
+    "verdict_tag": "보류",
+    "headline": {
+      "n": null,
+      "mean": null,
+      "t": null,
+      "early": null,
+      "late": null,
+      "split": null
+    },
+    "pages": []
   },
   {
     "number": "18",
@@ -332,7 +502,17 @@
       "research/studies/18_factor_harness/README.md",
       "research/studies/18_factor_harness/run_low_volatility.py",
       "research/studies/18_factor_harness/metrics.json"
-    ]
+    ],
+    "verdict_tag": "기각",
+    "headline": {
+      "n": null,
+      "mean": null,
+      "t": null,
+      "early": null,
+      "late": null,
+      "split": null
+    },
+    "pages": []
   },
   {
     "number": "19",
@@ -351,7 +531,17 @@
       "research/studies/19_fundamental_factors/README.md",
       "research/studies/19_fundamental_factors/PREREG.md",
       "research/studies/19_fundamental_factors/metrics.json"
-    ]
+    ],
+    "verdict_tag": "기각",
+    "headline": {
+      "n": null,
+      "mean": null,
+      "t": null,
+      "early": null,
+      "late": null,
+      "split": null
+    },
+    "pages": []
   },
   {
     "number": "20",
@@ -370,7 +560,17 @@
       "research/studies/20_macro_overlay/README.md",
       "research/studies/20_macro_overlay/PREREG.md",
       "research/studies/20_macro_overlay/metrics.json"
-    ]
+    ],
+    "verdict_tag": "기각",
+    "headline": {
+      "n": null,
+      "mean": null,
+      "t": null,
+      "early": null,
+      "late": null,
+      "split": null
+    },
+    "pages": []
   },
   {
     "number": "21",
@@ -389,7 +589,17 @@
       "research/studies/21_macro_overlay_hold/README.md",
       "research/studies/21_macro_overlay_hold/PREREG.md",
       "research/studies/21_macro_overlay_hold/metrics.json"
-    ]
+    ],
+    "verdict_tag": "기각",
+    "headline": {
+      "n": null,
+      "mean": null,
+      "t": null,
+      "early": null,
+      "late": null,
+      "split": null
+    },
+    "pages": []
   },
   {
     "number": "22",
@@ -409,7 +619,17 @@
       "research/studies/22_pbr_roe_value_tilt/PREREG.md",
       "research/studies/22_pbr_roe_value_tilt/metrics.json",
       "research/studies/22_pbr_roe_value_tilt/run_value_tilt.py"
-    ]
+    ],
+    "verdict_tag": "보류",
+    "headline": {
+      "n": null,
+      "mean": null,
+      "t": null,
+      "early": null,
+      "late": null,
+      "split": null
+    },
+    "pages": []
   },
   {
     "number": "23",
@@ -431,7 +651,17 @@
       "research/studies/23_value_tilt_liquidity_floor/run_liquidity_floor.py",
       "research/studies/23_value_tilt_liquidity_floor/floor_30/metrics.json",
       "research/studies/23_value_tilt_liquidity_floor/floor_50/metrics.json"
-    ]
+    ],
+    "verdict_tag": "보류",
+    "headline": {
+      "n": null,
+      "mean": null,
+      "t": null,
+      "early": null,
+      "late": null,
+      "split": null
+    },
+    "pages": []
   },
   {
     "number": "24",
@@ -453,7 +683,46 @@
       "research/studies/24_devscale_exit_lines/carry_wide_grid_summary.txt",
       "research/studies/24_devscale_exit_lines/carry_wide2_grid_summary.txt",
       "research/studies/24_devscale_exit_lines/carry_wide3_grid_summary.txt"
-    ]
+    ],
+    "verdict_tag": "채택",
+    "headline": {
+      "n": null,
+      "mean": null,
+      "t": null,
+      "early": null,
+      "late": null,
+      "split": null
+    },
+    "pages": []
+  },
+  {
+    "number": "25",
+    "title": "DevScale 개장 이격 조건 재평가 시점",
+    "series": "DevScale",
+    "period": "2025-09 – 2026-09(1년, 100종목 분봉)",
+    "status": "기각",
+    "question": "09:03 한 번의 개장 이격 판정(≥−1%)에 못 넘긴 종목에게 10:30에 한 번 더 기회를 주면 나아지는가.",
+    "method": "PYQuant/backtest/devscale_replay_rescue.py로 재평가 시각 10:00·10:30·11:00·12:00·13:30 격자, 다음 봉 체결.",
+    "data": "분봉 100종목 쌍(C:/build_tmp/minute_pairs_100.json), 32,883 종목일.",
+    "result": "10:30 구제가 매수 3건을 더하고 건당 세후 7,197 → 7,121원, 총액 278.5만 → 277.7만. 이격으로 막힌 날은 후보의 2.6%(34일).",
+    "verdict": "구제 로직 기각. 표본을 늘리려면 이격 조건이 아니라 정배열 게이트를 봐야 한다.",
+    "why": "후보 1,284일이 전부 정배열 게이트에서 걸러지고, 이격 조건은 걸리는 일이 드물며 걸릴 때 약하게 손실을 막는다.",
+    "followup": "정배열 게이트 완화를 따로 시험(미착수).",
+    "files": [
+      "research/studies/25_devscale_open_dev_rescue/README.md",
+      "research/studies/25_devscale_open_dev_rescue/metrics.json",
+      "research/studies/25_devscale_open_dev_rescue/summarize_rescue.py"
+    ],
+    "verdict_tag": "기각",
+    "headline": {
+      "n": 387,
+      "mean": null,
+      "t": null,
+      "early": null,
+      "late": null,
+      "split": null
+    },
+    "pages": []
   },
   {
     "number": "26",
@@ -474,7 +743,17 @@
       "research/studies/26_regime_threshold_history/liquidate_grid.tsv",
       "research/studies/26_regime_threshold_history/score_bins.tsv",
       "research/studies/26_regime_threshold_history/metrics.json"
-    ]
+    ],
+    "verdict_tag": "보류",
+    "headline": {
+      "n": null,
+      "mean": null,
+      "t": null,
+      "early": null,
+      "late": null,
+      "split": null
+    },
+    "pages": []
   },
   {
     "number": "27",
@@ -492,7 +771,17 @@
     "files": [
       "research/studies/27_premarket_leaders/premarket_leaders.py",
       "research/studies/27_premarket_leaders/daily/2026-10-01.jsonl"
-    ]
+    ],
+    "verdict_tag": "진행 중",
+    "headline": {
+      "n": null,
+      "mean": null,
+      "t": null,
+      "early": null,
+      "late": null,
+      "split": null
+    },
+    "pages": []
   },
   {
     "number": "28",
@@ -513,7 +802,46 @@
       "research/studies/28_devscale_zone_width/zone_grid_summary.tsv",
       "research/studies/28_devscale_zone_width/zone_grid_halves.tsv",
       "research/studies/28_devscale_zone_width/metrics.json"
-    ]
+    ],
+    "verdict_tag": "기각",
+    "headline": {
+      "n": null,
+      "mean": null,
+      "t": null,
+      "early": null,
+      "late": null,
+      "split": null
+    },
+    "pages": []
+  },
+  {
+    "number": "29",
+    "title": "국면 점수 다시 맞추기 — 표 점수 vs 연속 특징 선형 점수",
+    "series": "국면",
+    "period": "일봉 2015-01 – 2026-09(2,882일), 시간봉 2024-05 – 2026-09(581일)",
+    "status": "결과(결론 아님), 정지선 제안은 60거래일 측정 전까지 보류",
+    "question": "지금 국면 점수(RegimeFeed 계단 표)는 결정 시각 뒤 당일 종가까지의 시장 수익을 맞히는가. 같은 시각에 알 수 있던 값으로 만든 선형 점수가 검증 구간에서 나은가.",
+    "method": "research/studies/29_regime_score_refit/refit_regime_score.py — 특징 최대 5개 릿지 회귀, walk-forward(일봉·시간봉), 재표집으로 IC 차이 구간.",
+    "data": "지수 일봉·분봉 패널(build_minute_panel.py), 스터디 26 daily_scores.tsv.",
+    "result": "새 점수 IC가 현행보다 시간봉 +0.06·일봉 +0.12(재표집 구간이 0을 넘음). 정지가 막는 구간의 평균 손실 −0.28 → −0.53%. 일봉 고정 분리(2015–22 학습)에서는 나아지지 않음.",
+    "verdict": "결과만 남김. 정지선 제안은 앞으로 60거래일 forward 측정 전까지 보류.",
+    "why": "개선은 국내 갭·지수 등락을 계단 대신 연속값으로 쓰는 데서 오고, 관계가 바뀌어 3년 창 재적합이 필요하다.",
+    "followup": "60거래일 forward 측정 뒤 scripts/check_backtest.py로 판정.",
+    "files": [
+      "research/studies/29_regime_score_refit/README.md",
+      "research/studies/29_regime_score_refit/metrics.json",
+      "research/studies/29_regime_score_refit/refit_regime_score.py"
+    ],
+    "verdict_tag": "보류",
+    "headline": {
+      "n": null,
+      "mean": null,
+      "t": null,
+      "early": null,
+      "late": null,
+      "split": null
+    },
+    "pages": []
   },
   {
     "number": "30",
@@ -538,7 +866,17 @@
       "research/studies/30_strong_stock_strategies/criteria_review.py",
       "research/studies/30_strong_stock_strategies/b_checks.json",
       "research/studies/30_strong_stock_strategies/b_metrics.json"
-    ]
+    ],
+    "verdict_tag": "진행 중",
+    "headline": {
+      "n": null,
+      "mean": null,
+      "t": null,
+      "early": null,
+      "late": null,
+      "split": null
+    },
+    "pages": []
   },
   {
     "number": "31",
@@ -559,7 +897,17 @@
       "research/studies/31_devscale_slot_cap/slot_cap_summary.tsv",
       "research/studies/31_devscale_slot_cap/slot_cap_runs.tsv",
       "research/studies/31_devscale_slot_cap/metrics.json"
-    ]
+    ],
+    "verdict_tag": "기각",
+    "headline": {
+      "n": null,
+      "mean": null,
+      "t": null,
+      "early": null,
+      "late": null,
+      "split": null
+    },
+    "pages": []
   },
   {
     "number": "32",
@@ -583,7 +931,17 @@
       "research/studies/32_index_drawdown_guard/devscale_grid.tsv",
       "research/studies/32_index_drawdown_guard/devscale_events.tsv",
       "research/studies/32_index_drawdown_guard/metrics.json"
-    ]
+    ],
+    "verdict_tag": "기각",
+    "headline": {
+      "n": null,
+      "mean": null,
+      "t": null,
+      "early": null,
+      "late": null,
+      "split": null
+    },
+    "pages": []
   },
   {
     "number": "33",
@@ -607,6 +965,22 @@
       "research/studies/33_post_surge_pullback/metrics.json",
       "research/studies/33_post_surge_pullback/backtest_zone.py",
       "research/studies/33_post_surge_pullback/build_replay.py"
+    ],
+    "verdict_tag": "기각",
+    "headline": {
+      "n": null,
+      "mean": null,
+      "t": null,
+      "early": null,
+      "late": null,
+      "split": null
+    },
+    "pages": [
+      {
+        "url": "https://claude.ai/artifact/BX9Sw3EpVVuf82VWBBtz21",
+        "kind": "리플레이",
+        "label": "급등 뒤 눌림 리플레이(33·34 규칙 탭)"
+      }
     ]
   },
   {
@@ -628,6 +1002,95 @@
       "research/studies/34_bottom_surge_zone/backtest.py",
       "research/studies/34_bottom_surge_zone/grid.tsv",
       "research/studies/34_bottom_surge_zone/result.tsv"
+    ],
+    "verdict_tag": "보류",
+    "headline": {
+      "n": null,
+      "mean": null,
+      "t": null,
+      "early": null,
+      "late": null,
+      "split": null
+    },
+    "pages": [
+      {
+        "url": "https://claude.ai/artifact/BX9Sw3EpVVuf82VWBBtz21",
+        "kind": "리플레이",
+        "label": "급등 뒤 눌림 리플레이(33·34 규칙 탭)"
+      }
+    ]
+  },
+  {
+    "number": "35",
+    "title": "급등 뒤 횡보 돌파 — 매수 멈춤 조건 시험",
+    "series": "급등 뒤",
+    "period": "2009-06 – 2026-03(매매 263건)",
+    "status": "결과 — 멈춤 조건은 금액 줄이기보다 못함",
+    "question": "급등 뒤 횡보 돌파 실매매 칸(263건)에서 국면 점수·지수 이평선·전략 손실·미국장 정보로 매수를 멈추면 낙폭이 줄면서 손익을 지키는가.",
+    "method": "시험 목록·통과선을 돌리기 전에 고정(2026-10-06). halt_trigger(30칸) → halt_validate(V1–V4) → overnight_us. 무작위 제거 200번 95% 선과 비교.",
+    "data": "일봉 전 종목, 스터디 26 국면 점수(일치 100%), 코스닥·코스피 지수, 미국장 직전 세션.",
+    "result": "기준 n263 평균 +3.11% t+3.82, 총 +4,095만·낙폭 −803만. 30칸 중 3칸 통과(코스닥 < 20·120일 평균, 최근 20건 합 < 0) → 검증 V1–V4 중 V3만 통과. 국면 점수·미국장은 통과 못 함.",
+    "verdict": "매수 멈춤 조건은 채택하지 않는다. 금액(사이징) 줄이기가 낫다.",
+    "why": "통과한 칸도 검증에서 낙폭 30% 감소·손익 유지 기준을 못 넘었다.",
+    "followup": "스터디 37(쌍바닥·추세·이평선 지지)로 이어짐.",
+    "files": [
+      "research/studies/35_surge_box_breakout/halt_trigger.txt",
+      "research/studies/35_surge_box_breakout/halt_validate.txt",
+      "research/studies/35_surge_box_breakout/overnight_us.txt",
+      "research/studies/35_surge_box_breakout/summary.txt",
+      "research/studies/build_test_ledger.py"
+    ],
+    "verdict_tag": "기각",
+    "headline": {
+      "n": 263,
+      "mean": 3.11,
+      "t": 3.82,
+      "early": 1.41,
+      "late": 3.83,
+      "split": "2010–17 / 2018–26"
+    },
+    "pages": [
+      {
+        "url": "https://claude.ai/artifact/WHZVLv1yXjgJHhnxjCtmAK",
+        "kind": "탐색기",
+        "label": "급등 뒤 횡보 돌파 — 손절×익절 격자"
+      },
+      {
+        "url": "https://claude.ai/artifact/QhTHvFN4koDdWmKbYKuYUn",
+        "kind": "원장",
+        "label": "시험 원장"
+      },
+      {
+        "url": "https://claude.ai/artifact/7whD79bcz9wpGFBP7TzyBc",
+        "kind": "리플레이",
+        "label": "시험 매매 리플레이"
+      }
+    ],
+    "questions": [
+      {
+        "q": "국면 점수로 매수를 멈추면 나은가",
+        "verdict_tag": "기각",
+        "headline": null,
+        "anchor": "https://claude.ai/artifact/QhTHvFN4koDdWmKbYKuYUn#t1"
+      },
+      {
+        "q": "코스닥 이평선·연속 손실로 멈추면 나은가",
+        "verdict_tag": "보류",
+        "headline": null,
+        "anchor": "https://claude.ai/artifact/QhTHvFN4koDdWmKbYKuYUn#t23"
+      },
+      {
+        "q": "통과한 세 칸이 검증에서도 남는가",
+        "verdict_tag": "기각",
+        "headline": null,
+        "anchor": "https://claude.ai/artifact/QhTHvFN4koDdWmKbYKuYUn#validate"
+      },
+      {
+        "q": "전날 미국장으로 멈추면 나은가",
+        "verdict_tag": "기각",
+        "headline": null,
+        "anchor": "https://claude.ai/artifact/QhTHvFN4koDdWmKbYKuYUn#overnight"
+      }
     ]
   },
   {
@@ -649,6 +1112,16 @@
       "research/studies/36_cluster_momentum/backtest.py",
       "research/studies/36_cluster_momentum/grid.tsv",
       "research/studies/36_cluster_momentum/result.txt"
-    ]
+    ],
+    "verdict_tag": "기각",
+    "headline": {
+      "n": null,
+      "mean": null,
+      "t": null,
+      "early": null,
+      "late": null,
+      "split": null
+    },
+    "pages": []
   }
 ]
