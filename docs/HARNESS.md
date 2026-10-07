@@ -31,7 +31,7 @@
 | 에이전트 | `20` | `backtest-runner`, `bias-auditor`, `claude-coach`, `committer`, `data-sourcer`, `fundamental-quant`, `harness-engineer`, `interviewer`, `intraday-analyst`, `log-reader`, `macro-quant`, `market-brief`, `perf-optimizer`, `planner`, `pm`, `prep-doc`, `quant-analyst`, `reviewer`, `risk-behavior`, `strategist` |
 | 스킬 | `1` | `stock-study` |
 | 훅 파일 | `18` | `cron-gate.ps1`, `dashboard-refresh.ps1`, `docs-gate.ps1`, `file-index-gate.ps1`, `handoff-due.ps1`, `handoff-list.ps1`, `lexicon-gate.ps1`, `market-close-gate.ps1`, `output-gate.ps1`, `pre-gates.ps1`, `precompact-handoff.ps1`, `push-summary.ps1`, `resume-work.ps1`, `review-reminder.ps1`, `secret-gate.ps1`, `session-board-server.ps1`, `stop-gates.ps1`, `sync-gate.ps1` |
-| settings.json 훅 배선 | `10` | `PreToolUse:pre-gates.ps1`, `PreToolUse:lexicon-gate.ps1`, `PostToolUse:push-summary.ps1`, `Stop:stop-gates.ps1`, `SessionStart:resume-work.ps1`, `SessionStart:market-close-gate.ps1`, `SessionStart:cron-gate.ps1`, `SessionStart:handoff-list.ps1`, `SessionStart:session-board-server.ps1`, `PreCompact:precompact-handoff.ps1` |
+| settings.json 훅 배선 | `12` | `PreToolUse:pre-gates.ps1`, `PreToolUse:lexicon-gate.ps1`, `PostToolUse:push-summary.ps1`, `PostToolUse:`, `Stop:stop-gates.ps1`, `SessionStart:resume-work.ps1`, `SessionStart:market-close-gate.ps1`, `SessionStart:cron-gate.ps1`, `SessionStart:handoff-list.ps1`, `SessionStart:session-board-server.ps1`, `SessionStart:`, `PreCompact:precompact-handoff.ps1` |
 <!-- /gen -->
 
 효과: 반복 절차의 재작성·재승인이 사라진다. `/build`는 `settings.local.json`에 15개 넘게 쌓여 있던 vcvars64+cmake 변형을 하나의 절차로 고정했다(한글 임시폴더 경로로 인한 링커 오류 `LNK1104` 회피 포함).
@@ -70,12 +70,14 @@ Notion 커넥터가 연결돼 있다. 개발로그와 장전 시황 브리핑을
 | `PreToolUse` | `Bash|PowerShell` | `pre-gates.ps1` |
 | `PreToolUse` | `Write|Edit|MultiEdit|NotebookEdit` | `lexicon-gate.ps1` |
 | `PostToolUse` | `Bash|PowerShell` | `push-summary.ps1` |
+| `PostToolUse` | `Artifact` | `py ../quant-devtools/publish_ledger.py --record` |
 | `Stop` | `(전체)` | `stop-gates.ps1` |
 | `SessionStart` | `(전체)` | `resume-work.ps1` |
 | `SessionStart` | `(전체)` | `market-close-gate.ps1` |
 | `SessionStart` | `(전체)` | `cron-gate.ps1` |
 | `SessionStart` | `(전체)` | `handoff-list.ps1` |
 | `SessionStart` | `(전체)` | `session-board-server.ps1` |
+| `SessionStart` | `(전체)` | `py ../quant-devtools/publish_ledger.py --check` |
 | `PreCompact` | `(전체)` | `precompact-handoff.ps1` |
 <!-- /gen -->
 

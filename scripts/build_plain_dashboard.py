@@ -22,6 +22,13 @@ import pathlib
 import re
 import sys
 
+for stream in (sys.stdout, sys.stderr):
+    # 예약작업·refresh_dashboard.py가 utf-8로 읽는다 — 콘솔 코드페이지(cp949)로 찍으면 로그가 깨진다
+    try:
+        stream.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
+
 repo = pathlib.Path(__file__).resolve().parent.parent
 plain_directory = repo / "research" / "dashboard" / "plain"
 output_path = repo / "_private" / "dashboard_plain.html"

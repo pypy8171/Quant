@@ -10,7 +10,7 @@
 - [.vscode](#vscode) — 4개
 - [PYQuant](#pyquant) — 105개
 - [Quant](#quant) — 358개
-- [docs](#docs) — 147개
+- [docs](#docs) — 148개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 428개
 - [scripts](#scripts) — 51개
@@ -720,6 +720,7 @@
 - [2026-10-01.md](market_close/2026-10-01.md) — 10-01 매매 사후검토
 - [2026-10-02.md](market_close/2026-10-02.md) — 10-02 매매 사후검토
 - [2026-10-06.md](market_close/2026-10-06.md) — 10-06 매매 사후검토
+- [2026-10-07.md](market_close/2026-10-07.md) — 10-07 매매 사후검토
 - [README.md](market_close/README.md) — 장 마감 리뷰 색인
 
 ### docs/premarket/

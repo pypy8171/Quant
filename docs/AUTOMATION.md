@@ -109,6 +109,7 @@ PC가 꺼져 있어도 돈다는 점이 OS 예약작업과 다르다. 대신 이
 | `market-close-gate.ps1` | SessionStart | 사후검토가 밀린 거래일이 있으면 세션 시작에 알림 |
 | `session-board-server.ps1` | SessionStart | `../quant-devtools/session_board_server.py`(:8788)를 숨긴 창으로 띄운다 — 트레이더 대시보드가 없어도 세션이 하나라도 열려 있으면 현황판을 보게. 포트가 이미 쓰이면 서버가 스스로 끝나므로 매번 띄운다 |
 | `cron-gate.ps1` | SessionStart | 예약작업이 예정 시각을 넘겨 안 돌았거나 `LastTaskResult≠0`이면 작업 이름·실패 시각·복구 커맨드를 알림 |
+| `../quant-devtools/publish_ledger.py` | PostToolUse (Artifact) · SessionStart | 발행 한 건마다 주소·로컬 파일·시각·내용 해시를 `_private/publish_ledger.json`에 적고(`--record`), 세션 시작에 로컬 HTML이 발행 뒤 내용까지 바뀐 아티팩트를 `[재발행 필요]`로 알린다(`--check`). 로컬은 매일 자동으로 새로 만들어지는데 발행은 대화 세션에서만 돼서, 10-02에 멈춘 발행본을 10-07에야 알아챈 일 뒤에 넣었다 |
 | `dashboard-refresh.ps1` | Stop | 매매일지·백테스트가 `dashboard.html`보다 새것이면 리뷰 항목과 대시보드를 다시 만든다. 같은 훅이 `session_board.py --quiet`로 세션 현황판도 턴마다 다시 쓴다. 낡았는지는 수정시각으로 보므로 편집 도구·스크립트·다른 세션 어느 경로로 고쳤든 걸린다 |
 | `handoff-due.ps1` | Stop | 인계할 때가 되면 exit 2로 턴을 되돌려 `/handoff`를 밟게 한다. 갈래가 둘이다 — ①작업 경계: 이 턴에 HEAD가 바뀌었고(커밋 직후) 문맥이 100K를 넘었다. ②압축 임박: 경계가 아니어도 문맥이 140K를 넘었다(커밋을 하지 않는 세션은 ①이 오지 않아 자동 압축까지 가므로). ②는 압축 구간마다 한 번만 알린다. 판정은 `session_board.py --due`(세션별 직전 HEAD와 알린 이력을 `_private/session_board.state.json`에 둠) |
 | `resume-work.ps1` | SessionStart | 압축 직후(`source=compact`)와 무인일 때 인계 파일의 '남은 것'을 가리켜 하던 일을 잇게 한다. 사람이 없으면 `/clear`를 칠 수 없어 자동 압축이 곧 문맥 초기화이므로, 압축 다음 턴이 무엇을 하던 중이었는지 알 길이 이 파일뿐이다. 세션 이름은 짧은 해시라 며칠 전 세션과 겹치므로 **한 시간 안에 갱신된 자기 파일만** 집는다(옛 인계를 이어받아 엉뚱한 일을 하는 것을 막는다) |
@@ -344,7 +345,7 @@ scripts/market_close_autodoc.py
 | 증상 | 먼저 볼 것 |
 |---|---|
 | 대시보드가 어제에 머물러 있다 | `Quant Market Close AutoDoc`의 마지막 결과 → `logs/market_close_autodoc.log` |
-| 아티팩트만 낡았다 | 예약작업은 HTML만 다시 만들고 아티팩트는 못 올린다(헤드리스에 Artifact 도구 없음, 09-12 rc=267009). 두 클로드 작업의 액션은 2026-09-19부터 `scripts/run_claude_task.ps1` 래퍼다 — 전에는 stderr 경고 한 줄이 rc=1(거짓 실패)을 만들었고, `claude_stock_study`는 배터리 조건(0x800710E0)으로 안 떴다(조건 해제·한도 PT1H). 대화 세션에서 `/dashboard-sync`로 재발행한다. 다른 실패면 세션 시작 `[CRON]` 알림(`cron-gate.ps1`)과 `_private/_cron_dashboard.log` |
+| 아티팩트만 낡았다 | 예약작업은 HTML만 다시 만들고 아티팩트는 못 올린다(헤드리스에 Artifact 도구 없음, 09-12 rc=267009). 두 클로드 작업의 액션은 2026-09-19부터 `scripts/run_claude_task.ps1` 래퍼다 — 전에는 stderr 경고 한 줄이 rc=1(거짓 실패)을 만들었고, `claude_stock_study`는 배터리 조건(0x800710E0)으로 안 떴다(조건 해제·한도 PT1H). 대화 세션에서 `/dashboard-sync`로 재발행한다 — 무엇이 밀렸는지는 세션 시작 `[재발행 필요]` 알림(`publish_ledger.py --check`)이 적는다. 다른 실패면 세션 시작 `[CRON]` 알림(`cron-gate.ps1`)과 `_private/_cron_dashboard.log` |
 | 스터디가 리포트만 있고 저널이 없다 | 중도 중단. `/stock-study`를 다시 부르면 새 종목을 고르지 않고 빠진 산출물만 채운다 |
 | 예약작업이 `LastTaskResult=1` | 세션 사용량 한도를 먼저 의심한다(`_private/_cron_dashboard.log`) |
 | 트레이더가 계속 죽는다 | `_private/_auto_trade_day.json`의 `history`에서 종료 코드·지속 시간 |

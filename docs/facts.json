@@ -431,7 +431,7 @@
       "agents": 20,
       "skills": 1,
       "hooks": 18,
-      "hook_wirings": 10
+      "hook_wirings": 12
     },
     "settings_hooks": [
       {
@@ -451,6 +451,12 @@
         "matcher": "Bash|PowerShell",
         "hook_file": "push-summary.ps1",
         "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .claude\\hooks\\push-summary.ps1"
+      },
+      {
+        "event": "PostToolUse",
+        "matcher": "Artifact",
+        "hook_file": "",
+        "command": "py ../quant-devtools/publish_ledger.py --record"
       },
       {
         "event": "Stop",
@@ -487,6 +493,12 @@
         "matcher": "",
         "hook_file": "session-board-server.ps1",
         "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .claude\\hooks\\session-board-server.ps1"
+      },
+      {
+        "event": "SessionStart",
+        "matcher": "",
+        "hook_file": "",
+        "command": "py ../quant-devtools/publish_ledger.py --check"
       },
       {
         "event": "PreCompact",

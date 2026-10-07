@@ -45,6 +45,8 @@ REVIEW_ENTRY = "scripts/build_review_entry.py"
 BACKFILL_STUDIES = "scripts/backfill_studies.py"
 BUILD_DASHBOARD = "PYQuant/dashboard/build_dashboard.py"
 EXIT_EV_DASHBOARD = "scripts/exit_ev_dashboard.py"  # 청산 확률표(study 17) — 원장 최신 날짜까지 다시 센다
+# 시험 결과 쉽게 읽기 — live.json·일지·research/studies/index.json을 읽는다. 체인 밖에 있어 10-02에서 멈췄었다(2026-10-07)
+BUILD_PLAIN_DASHBOARD = "scripts/build_plain_dashboard.py"
 
 _DATE = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
 
@@ -80,6 +82,7 @@ def watched() -> list[Path]:
     out += sorted((REPO / "docs" / "market_close").glob("*.md"))
     out += sorted((REPO / "docs" / "premarket").glob("????-??-??.md"))
     out += sorted((REPO / "research" / "studies").rglob("metrics.json"))
+    out.append(REPO / "research" / "studies" / "index.json")  # 스터디 표지 칸 — 매매 대시보드·쉽게 읽기 스터디 목록
     for n in ("live.json", "reviews.json"):
         f = REPO / "research" / "dashboard" / n
         if f.exists():
@@ -142,14 +145,17 @@ def refresh(live_dates: list[str], backtest: bool, render: bool, dry: bool) -> t
         lines.append("갱신할 것 없음")
         return lines, 0
     for script, args in steps:
-        rc = _run(script, args, dry, lines)
-        if rc:
-            lines.append(f"중단 — {script} 실패(rc={rc}), 생성기를 돌리지 않음")
-            return lines, rc
+        return_code = _run(script, args, dry, lines)
+        if return_code:
+            lines.append(f"중단 — {script} 실패(rc={return_code}), 생성기를 돌리지 않음")
+            return lines, return_code
     if live_dates:
         # 청산 확률표는 매매 대시보드와 별개 HTML이라 실패해도 매매 대시보드 생성은 막지 않는다. rc는 로그에 남는다.
         _run(EXIT_EV_DASHBOARD, [], dry, lines)
-    return lines, _run(BUILD_DASHBOARD, [], dry, lines)
+    return_code = _run(BUILD_DASHBOARD, [], dry, lines)
+    # 쉽게 읽기도 별개 HTML이라 실패해도 매매 대시보드 결과(return_code)는 바꾸지 않는다
+    _run(BUILD_PLAIN_DASHBOARD, [], dry, lines)
+    return lines, return_code
 
 
 def main() -> int:
