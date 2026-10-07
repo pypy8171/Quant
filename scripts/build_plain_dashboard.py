@@ -158,6 +158,14 @@ def main():
             "top_rejects": rejected_reasons.most_common(3), "source": day["path"], "rows": rows,
         }
 
+    # 백테스트 탭의 전체 목록 — 표지 칸(verdict_tag·headline·pages·questions)만 옮긴다. 정본은 research/studies/index.json
+    # (규약 research/studies/README.md "결과 발행 규약", 2026-10-07 quant-27과 맞춤). 손으로 고른 8건은 틀에 그대로 둔다.
+    study_index = json.loads(read_text(repo / "research" / "studies" / "index.json"))
+    summary["study_index"] = [
+        {key: item.get(key) for key in ("number", "title", "question", "verdict", "verdict_tag", "headline", "pages", "questions")}
+        for item in sorted(study_index, key=lambda item: item.get("number") or "")
+        if item.get("number")
+    ]
     summary["orders"] = orders
     summary["reject_totals"] = reject_totals.most_common()
     summary.setdefault("bt_specs", {})
