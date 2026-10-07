@@ -506,8 +506,22 @@
     "us_universe.json"
   ],
   "config_keys": {
-    "top": [],
-    "strategies": []
+    "top": [
+      "//ledger_journal_dir",
+      "fetch_interval_sec",
+      "kis",
+      "ledger_journal_dir",
+      "mode",
+      "strategies"
+    ],
+    "strategies": [
+      "exchange",
+      "market",
+      "market_close_exit_hhmm",
+      "pbr_max",
+      "quantity",
+      "type"
+    ]
   },
   "dir_tree": {
     ".claude": {
@@ -528,6 +542,7 @@
       "reports": {}
     },
     "linux_practice": {},
+    "logs_test": {},
     "PYQuant": {
       "backtest": {},
       "config": {},
@@ -572,13 +587,13 @@
     {
       "file": "scripts/check_runtime_health.py",
       "symbol": "collect",
-      "lines": 879,
-      "start": 3130
+      "lines": 882,
+      "start": 3338
     },
     {
       "file": "Quant/src/core/EngineDataThread.cpp",
       "symbol": "Engine::data_thread_fn",
-      "lines": 636,
+      "lines": 646,
       "start": 29
     },
     {
@@ -630,16 +645,16 @@
       "start": 608
     },
     {
+      "file": "Quant/src/strategy/DeviationScaleStrategy.cpp",
+      "symbol": "DeviationScaleStrategy::on_trade_batch",
+      "lines": 185,
+      "start": 163
+    },
+    {
       "file": "Quant/src/risk/OrderGate.cpp",
       "symbol": "OrderGate::plan_displacement",
       "lines": 183,
       "start": 813
-    },
-    {
-      "file": "Quant/src/strategy/DeviationScaleStrategy.cpp",
-      "symbol": "DeviationScaleStrategy::on_trade_batch",
-      "lines": 183,
-      "start": 163
     },
     {
       "file": "Quant/src/ipc/OpsServer.cpp",
@@ -675,7 +690,7 @@
       "file": "scripts/check_runtime_health.py",
       "symbol": "surge_hold_rows",
       "lines": 166,
-      "start": 874
+      "start": 888
     },
     {
       "file": "Quant/src/ipc/SharedLayout.cpp",
@@ -764,7 +779,7 @@
     {
       "file": "Quant/src/core/LedgerReconciler.cpp",
       "symbol": "LedgerReconciler::reconcile",
-      "lines": 132,
+      "lines": 133,
       "start": 317
     },
     {
@@ -867,13 +882,13 @@
       "file": "Quant/src/strategy/DeviationScaleStrategy.cpp",
       "symbol": "DeviationScaleStrategy::load_decision_bars",
       "lines": 109,
-      "start": 398
+      "start": 400
     },
     {
       "file": "scripts/check_runtime_health.py",
       "symbol": "journal_mirror_row",
       "lines": 109,
-      "start": 2613
+      "start": 2817
     },
     {
       "file": "Quant/src/api/KisMarket.cpp",
@@ -885,7 +900,7 @@
       "file": "scripts/check_runtime_health.py",
       "symbol": "feed_ledger_rows",
       "lines": 108,
-      "start": 373
+      "start": 387
     },
     {
       "file": "PYQuant/tools/walkforward.py",
@@ -898,6 +913,12 @@
       "symbol": "KisWebSocket::recv_loop",
       "lines": 107,
       "start": 83
+    },
+    {
+      "file": "Quant/src/ipc/OrderRouterReconcile.cpp",
+      "symbol": "OrderRouter::cancel_stale_rows",
+      "lines": 106,
+      "start": 554
     },
     {
       "file": "Quant/src/api/WsSocketPosix.cpp",
@@ -916,12 +937,6 @@
       "symbol": "run_day",
       "lines": 104,
       "start": 144
-    },
-    {
-      "file": "Quant/src/ipc/OrderRouterReconcile.cpp",
-      "symbol": "OrderRouter::cancel_stale_rows",
-      "lines": 103,
-      "start": 554
     },
     {
       "file": "scripts/exit_ev_dashboard.py",
@@ -1011,7 +1026,7 @@
       "file": "Quant/src/strategy/DeviationScaleStrategy.cpp",
       "symbol": "DeviationScaleStrategy::prefetch_once",
       "lines": 92,
-      "start": 1186
+      "start": 1188
     },
     {
       "file": "Quant/src/core/BarAggregator.cpp",
@@ -1035,7 +1050,7 @@
       "file": "scripts/check_runtime_health.py",
       "symbol": "shared_region_exit_row",
       "lines": 89,
-      "start": 1711
+      "start": 1736
     },
     {
       "file": "Quant/src/strategy/ValueContraryStrategy.cpp",
@@ -1125,7 +1140,7 @@
       "file": "scripts/check_runtime_health.py",
       "symbol": "order_answer_row",
       "lines": 82,
-      "start": 1805
+      "start": 1830
     },
     {
       "file": "Quant/src/strategy/StrategyFactory.cpp",

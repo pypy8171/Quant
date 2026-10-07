@@ -1,0 +1,246 @@
+{
+ "date": "2026-10-07",
+ "snapshot_time": "2026-10-07T08:57:01",
+ "market_median_change": -0.46,
+ "candidates": [
+  {
+   "code": "000500",
+   "name": "가온전선",
+   "nxt_change": 7.34,
+   "nxt_value_eok": 1221.0,
+   "via": "전기장비",
+   "krx_change": -6.27,
+   "value_rank": 22,
+   "change_rank": 2549,
+   "leader": false
+  },
+  {
+   "code": "010120",
+   "name": "LS ELECTRIC",
+   "nxt_change": 4.83,
+   "nxt_value_eok": 1008.7,
+   "via": "전기장비",
+   "krx_change": -5.52,
+   "value_rank": 16,
+   "change_rank": 2515,
+   "leader": false
+  },
+  {
+   "code": "062040",
+   "name": "산일전기",
+   "nxt_change": 5.32,
+   "nxt_value_eok": 558.3,
+   "via": "전기장비",
+   "krx_change": -1.49,
+   "value_rank": 41,
+   "change_rank": 1745,
+   "leader": false
+  },
+  {
+   "code": "298040",
+   "name": "효성중공업",
+   "nxt_change": 3.53,
+   "nxt_value_eok": 509.3,
+   "via": "전기장비",
+   "krx_change": -7.8,
+   "value_rank": 8,
+   "change_rank": 2597,
+   "leader": false
+  },
+  {
+   "code": "103590",
+   "name": "일진전기",
+   "nxt_change": 4.44,
+   "nxt_value_eok": 440.6,
+   "via": "전기장비",
+   "krx_change": 0.11,
+   "value_rank": 76,
+   "change_rank": 891,
+   "leader": false
+  },
+  {
+   "code": "267260",
+   "name": "HD현대일렉트릭",
+   "nxt_change": 3.95,
+   "nxt_value_eok": 324.7,
+   "via": "전기장비",
+   "krx_change": -8.05,
+   "value_rank": 26,
+   "change_rank": 2601,
+   "leader": false
+  },
+  {
+   "code": "006260",
+   "name": "LS",
+   "nxt_change": 3.01,
+   "nxt_value_eok": 135.2,
+   "via": "전기장비",
+   "krx_change": -6.51,
+   "value_rank": 43,
+   "change_rank": 2567,
+   "leader": false
+  },
+  {
+   "code": "229640",
+   "name": "LS에코에너지",
+   "nxt_change": 4.9,
+   "nxt_value_eok": 105.6,
+   "via": "전기장비",
+   "krx_change": 2.37,
+   "value_rank": 210,
+   "change_rank": 256,
+   "leader": false
+  },
+  {
+   "code": "033100",
+   "name": "제룡전기",
+   "nxt_change": 3.37,
+   "nxt_value_eok": 61.7,
+   "via": "전기장비",
+   "krx_change": -2.48,
+   "value_rank": 337,
+   "change_rank": 2018,
+   "leader": false
+  },
+  {
+   "code": "034020",
+   "name": "두산에너빌리티",
+   "nxt_change": 2.33,
+   "nxt_value_eok": 1077.8,
+   "via": "전력설비",
+   "krx_change": -1.23,
+   "value_rank": 17,
+   "change_rank": 1673,
+   "leader": false
+  },
+  {
+   "code": "083650",
+   "name": "비에이치아이",
+   "nxt_change": 3.44,
+   "nxt_value_eok": 98.1,
+   "via": "에너지장비및서비스",
+   "krx_change": -1.72,
+   "value_rank": 222,
+   "change_rank": 1807,
+   "leader": false
+  },
+  {
+   "code": "044490",
+   "name": "태웅",
+   "nxt_change": 2.52,
+   "nxt_value_eok": 34.6,
+   "via": "에너지장비및서비스",
+   "krx_change": -2.39,
+   "value_rank": 481,
+   "change_rank": 1997,
+   "leader": false
+  },
+  {
+   "code": "098070",
+   "name": "한텍",
+   "nxt_change": 2.34,
+   "nxt_value_eok": 14.8,
+   "via": "에너지장비및서비스",
+   "krx_change": 2.12,
+   "value_rank": 630,
+   "change_rank": 299,
+   "leader": false
+  },
+  {
+   "code": "126720",
+   "name": "수산인더스트리",
+   "nxt_change": 2.81,
+   "nxt_value_eok": 6.4,
+   "via": "에너지장비및서비스",
+   "krx_change": 1.87,
+   "value_rank": 1125,
+   "change_rank": 345,
+   "leader": false
+  },
+  {
+   "code": "052690",
+   "name": "한전기술",
+   "nxt_change": 4.35,
+   "nxt_value_eok": 457.4,
+   "via": "원자력발전",
+   "krx_change": -0.78,
+   "value_rank": 114,
+   "change_rank": 1489,
+   "leader": false
+  },
+  {
+   "code": "019170",
+   "name": "신풍제약",
+   "nxt_change": 13.96,
+   "nxt_value_eok": 495.9,
+   "via": "백신/진단시약/방역(신종플루, AI 등)",
+   "krx_change": 13.86,
+   "value_rank": 128,
+   "change_rank": 24,
+   "leader": false
+  },
+  {
+   "code": "128940",
+   "name": "한미약품",
+   "nxt_change": 3.63,
+   "nxt_value_eok": 190.2,
+   "via": "백신/진단시약/방역(신종플루, AI 등)",
+   "krx_change": 2.1,
+   "value_rank": 58,
+   "change_rank": 305,
+   "leader": false
+  },
+  {
+   "code": "096530",
+   "name": "씨젠",
+   "nxt_change": 2.01,
+   "nxt_value_eok": 33.7,
+   "via": "백신/진단시약/방역(신종플루, AI 등)",
+   "krx_change": 4.43,
+   "value_rank": 129,
+   "change_rank": 130,
+   "leader": false
+  },
+  {
+   "code": "003850",
+   "name": "보령",
+   "nxt_change": 2.11,
+   "nxt_value_eok": 26.6,
+   "via": "백신/진단시약/방역(신종플루, AI 등)",
+   "krx_change": 2.93,
+   "value_rank": 775,
+   "change_rank": 212,
+   "leader": false
+  },
+  {
+   "code": "302440",
+   "name": "SK바이오사이언스",
+   "nxt_change": 3.49,
+   "nxt_value_eok": 11.8,
+   "via": "백신/진단시약/방역(신종플루, AI 등)",
+   "krx_change": 2.01,
+   "value_rank": 515,
+   "change_rank": 321,
+   "leader": false
+  }
+ ],
+ "hit_rate": 0.0,
+ "premarket_leading_industries": [
+  "전기장비",
+  "에너지장비및서비스",
+  "생물공학",
+  "생명과학도구및서비스"
+ ],
+ "day_top10_industries_by_median": [
+  "화장품",
+  "석유와가스",
+  "손해보험",
+  "가정용품",
+  "인터넷과카탈로그소매",
+  "도로와철도운송",
+  "식품과기본식료품소매",
+  "제약",
+  "방송과엔터테인먼트",
+  "해운사"
+ ]
+}

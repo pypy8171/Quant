@@ -1,0 +1,247 @@
+{
+ "date": "2026-10-06",
+ "snapshot_time": "2026-10-06T08:57:01",
+ "market_median_change": 0.2,
+ "candidates": [
+  {
+   "code": "053800",
+   "name": "안랩",
+   "nxt_change": 21.56,
+   "nxt_value_eok": 570.5,
+   "via": "소프트웨어",
+   "krx_change": 15.58,
+   "value_rank": 80,
+   "change_rank": 36,
+   "leader": true
+  },
+  {
+   "code": "030520",
+   "name": "한컴",
+   "nxt_change": 12.17,
+   "nxt_value_eok": 243.9,
+   "via": "소프트웨어",
+   "krx_change": 7.39,
+   "value_rank": 322,
+   "change_rank": 125,
+   "leader": false
+  },
+  {
+   "code": "058970",
+   "name": "엠로",
+   "nxt_change": 2.91,
+   "nxt_value_eok": 11.6,
+   "via": "소프트웨어",
+   "krx_change": 1.6,
+   "value_rank": 1207,
+   "change_rank": 713,
+   "leader": false
+  },
+  {
+   "code": "007660",
+   "name": "이수페타시스",
+   "nxt_change": 4.54,
+   "nxt_value_eok": 304.4,
+   "via": "우주항공산업(누리호/인공위성 등)",
+   "krx_change": 8.83,
+   "value_rank": 13,
+   "change_rank": 89,
+   "leader": true
+  },
+  {
+   "code": "272210",
+   "name": "한화시스템",
+   "nxt_change": 4.83,
+   "nxt_value_eok": 276.1,
+   "via": "우주항공산업(누리호/인공위성 등)",
+   "krx_change": -1.45,
+   "value_rank": 41,
+   "change_rank": 2269,
+   "leader": false
+  },
+  {
+   "code": "488900",
+   "name": "비츠로넥스텍",
+   "nxt_change": 14.47,
+   "nxt_value_eok": 218.6,
+   "via": "우주항공산업(누리호/인공위성 등)",
+   "krx_change": 3.55,
+   "value_rank": 408,
+   "change_rank": 361,
+   "leader": false
+  },
+  {
+   "code": "295310",
+   "name": "에이치브이엠",
+   "nxt_change": 9.83,
+   "nxt_value_eok": 197.7,
+   "via": "우주항공산업(누리호/인공위성 등)",
+   "krx_change": 9.26,
+   "value_rank": 196,
+   "change_rank": 79,
+   "leader": false
+  },
+  {
+   "code": "012450",
+   "name": "한화에어로스페이스",
+   "nxt_change": 2.05,
+   "nxt_value_eok": 137.5,
+   "via": "우주항공산업(누리호/인공위성 등)",
+   "krx_change": -4.57,
+   "value_rank": 25,
+   "change_rank": 2587,
+   "leader": false
+  },
+  {
+   "code": "189300",
+   "name": "인텔리안테크",
+   "nxt_change": 7.57,
+   "nxt_value_eok": 116.4,
+   "via": "우주항공산업(누리호/인공위성 등)",
+   "krx_change": 2.34,
+   "value_rank": 268,
+   "change_rank": 545,
+   "leader": false
+  },
+  {
+   "code": "099320",
+   "name": "쎄트렉아이",
+   "nxt_change": 5.87,
+   "nxt_value_eok": 72.7,
+   "via": "우주항공산업(누리호/인공위성 등)",
+   "krx_change": 0.98,
+   "value_rank": 283,
+   "change_rank": 923,
+   "leader": false
+  },
+  {
+   "code": "009150",
+   "name": "삼성전기",
+   "nxt_change": 2.85,
+   "nxt_value_eok": 2432.3,
+   "via": "PCB(FPCB 등)",
+   "krx_change": 5.95,
+   "value_rank": 3,
+   "change_rank": 180,
+   "leader": true
+  },
+  {
+   "code": "222800",
+   "name": "심텍",
+   "nxt_change": 3.29,
+   "nxt_value_eok": 387.0,
+   "via": "PCB(FPCB 등)",
+   "krx_change": 4.67,
+   "value_rank": 19,
+   "change_rank": 252,
+   "leader": true
+  },
+  {
+   "code": "007810",
+   "name": "코리아써키트",
+   "nxt_change": 3.03,
+   "nxt_value_eok": 173.1,
+   "via": "PCB(FPCB 등)",
+   "krx_change": 7.65,
+   "value_rank": 86,
+   "change_rank": 113,
+   "leader": true
+  },
+  {
+   "code": "168360",
+   "name": "펨트론",
+   "nxt_change": 6.23,
+   "nxt_value_eok": 155.7,
+   "via": "PCB(FPCB 등)",
+   "krx_change": 5.05,
+   "value_rank": 424,
+   "change_rank": 227,
+   "leader": false
+  },
+  {
+   "code": "020150",
+   "name": "롯데에너지머티리얼즈",
+   "nxt_change": 2.56,
+   "nxt_value_eok": 122.8,
+   "via": "PCB(FPCB 등)",
+   "krx_change": 6.69,
+   "value_rank": 157,
+   "change_rank": 147,
+   "leader": false
+  },
+  {
+   "code": "356860",
+   "name": "티엘비",
+   "nxt_change": 2.79,
+   "nxt_value_eok": 81.7,
+   "via": "PCB(FPCB 등)",
+   "krx_change": 4.02,
+   "value_rank": 164,
+   "change_rank": 306,
+   "leader": false
+  },
+  {
+   "code": "323280",
+   "name": "태성",
+   "nxt_change": 2.18,
+   "nxt_value_eok": 46.5,
+   "via": "PCB(FPCB 등)",
+   "krx_change": 2.52,
+   "value_rank": 207,
+   "change_rank": 507,
+   "leader": false
+  },
+  {
+   "code": "089980",
+   "name": "상아프론테크",
+   "nxt_change": 3.69,
+   "nxt_value_eok": 41.5,
+   "via": "PCB(FPCB 등)",
+   "krx_change": 2.42,
+   "value_rank": 910,
+   "change_rank": 529,
+   "leader": false
+  },
+  {
+   "code": "011070",
+   "name": "LG이노텍",
+   "nxt_change": 2.79,
+   "nxt_value_eok": 211.2,
+   "via": "반도체 기판(FC-BGA/PCB/MLB 등)",
+   "krx_change": 12.2,
+   "value_rank": 9,
+   "change_rank": 49,
+   "leader": true
+  },
+  {
+   "code": "042700",
+   "name": "한미반도체",
+   "nxt_change": 3.31,
+   "nxt_value_eok": 728.2,
+   "via": "스페이스X(SpaceX)",
+   "krx_change": 2.21,
+   "value_rank": 28,
+   "change_rank": 574,
+   "leader": false
+  }
+ ],
+ "hit_rate": 0.3,
+ "premarket_leading_industries": [
+  "소프트웨어",
+  "전자장비와기기",
+  "우주항공과국방",
+  "반도체와반도체장비",
+  "통신장비"
+ ],
+ "day_top10_industries_by_median": [
+  "전기제품",
+  "전자장비와기기",
+  "소프트웨어",
+  "에너지장비및서비스",
+  "반도체와반도체장비",
+  "생물공학",
+  "전기유틸리티",
+  "자동차",
+  "IT서비스",
+  "전기장비"
+ ]
+}

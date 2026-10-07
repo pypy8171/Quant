@@ -3,6 +3,176 @@
  "_comment": "실증 사후검토(post-mortem) 데이터 계약. build_dashboard.py render_reviews()가 이 파일만 읽어 '리뷰' 탭을 렌더한다. *_html 필드는 신뢰된 인라인 HTML(작성자=본인), 그 외는 이스케이프. 새 리뷰는 reviews 배열에 append.",
  "reviews": [
   {
+   "id": "2026-10-07_session_review",
+   "strategy": "DEVSCALE · UNLINKED",
+   "eyebrow": "세션 리뷰 · 10-07 · 원장/로그 자동 집계",
+   "headline_html": "10-07 세션 정리 — 전일대비 −722,094원",
+   "verdict_html": "원장 241이벤트(접수 84 · 체결 36 · 거부 36), 재기동 2회. 당일 라운드트립 10건 중 이익 2건, 라운드트립 실현 −13,000원(당일 양변 확인분·비용 제외). 전일 종가 대비 종료 손익은 −722,094원이다. 세션 시작을 0으로 잡은 잔고 대조 카운터로는 −722,094원인데, 재기동마다 기준이 옮겨가고 간밤 갭이 빠지므로 하루의 성과는 앞의 값으로 읽는다. 여기까지는 원장·로그에서 기계로 뽑은 사실이고, 원인과 다음 조치는 아래 항목에 사람이 적는다.",
+   "meta_html": [
+    "근거 로그 <span class=\"mono\">quant_trader.log</span> · 원장 <span class=\"mono\">241</span>이벤트",
+    "재기동 <span class=\"mono\">2</span>회 · 접수 <span class=\"mono\">84</span> / 체결 <span class=\"mono\">36</span> / 거부 <span class=\"mono\">36</span>",
+    "전략별 이벤트 <span class=\"mono\">DEVSCALE_278470 50</span> · <span class=\"mono\">DEVSCALE_009070 22</span> · <span class=\"mono\">DEVSCALE_003490 11</span> · <span class=\"mono\">DEVSCALE_454910 9</span>"
+   ],
+   "doc_path": "strategies/DeviationScale/live/2026-10-07.md",
+   "log_path": "Quant/build_win/logs/quant_trader.log",
+   "incidents": [
+    {
+     "sev": "거부",
+     "when": "10-07 종일",
+     "title": "주문 거부 9건 — KIS API 거부 (빈 ODNO) [E_TRANSPORT]",
+     "desc_html": "원장 REJECTED 사유 상위. 정규화 문구 <span class=\"mono\">KIS API 거부 (빈 ODNO) [E_TRANSPORT]</span>.",
+     "evidence": "Quant/build_win/logs/trades_20261007.csv · REJECTED 9건",
+     "impact_html": ""
+    },
+    {
+     "sev": "거부",
+     "when": "10-07 종일",
+     "title": "주문 거부 7건 — KIS API 거부 (빈 ODNO) [N]",
+     "desc_html": "원장 REJECTED 사유 상위. 정규화 문구 <span class=\"mono\">KIS API 거부 (빈 ODNO) [N]</span>.",
+     "evidence": "Quant/build_win/logs/trades_20261007.csv · REJECTED 7건",
+     "impact_html": ""
+    },
+    {
+     "sev": "거부",
+     "when": "10-07 종일",
+     "title": "주문 거부 5건 — KIS 취소 거부(원주문 이미 체결/소멸 가능) [N]",
+     "desc_html": "원장 REJECTED 사유 상위. 정규화 문구 <span class=\"mono\">KIS 취소 거부(원주문 이미 체결/소멸 가능) [N]</span>.",
+     "evidence": "Quant/build_win/logs/trades_20261007.csv · REJECTED 5건",
+     "impact_html": ""
+    },
+    {
+     "sev": "로그",
+     "when": "10-07 종일",
+     "title": "ERROR/WARN 517건 — [WinHTTP] HTTP N  url=https://openapi.koreainves",
+     "desc_html": "로그 상위 경고. <span class=\"mono\">[WinHTTP] HTTP N  url=https://openapi.koreainvestment.com:N/uapi/domestic-stock/</span>.",
+     "evidence": "Quant/build_win/logs/quant_trader.log · 517건",
+     "impact_html": ""
+    },
+    {
+     "sev": "로그",
+     "when": "10-07 종일",
+     "title": "ERROR/WARN 447건 — [KIS] 조회 (초당 한도) — 재시도 2/2, 버킷이 찰 때까지 약 Nms 기다린다",
+     "desc_html": "로그 상위 경고. <span class=\"mono\">[KIS] 조회 (초당 한도) — 재시도 2/2, 버킷이 찰 때까지 약 Nms 기다린다  url=https://openapi.koreainves</span>.",
+     "evidence": "Quant/build_win/logs/quant_trader.log · 447건",
+     "impact_html": ""
+    },
+    {
+     "sev": "로그",
+     "when": "10-07 종일",
+     "title": "ERROR/WARN 43건 — [WinHTTP] HTTP N  url=https://openapivts.koreain",
+     "desc_html": "로그 상위 경고. <span class=\"mono\">[WinHTTP] HTTP N  url=https://openapivts.koreainvestment.com:N/uapi/domestic-sto</span>.",
+     "evidence": "Quant/build_win/logs/quant_trader.log · 43건",
+     "impact_html": ""
+    }
+   ],
+   "pnl": {
+    "title_html": "10-07 세션 당일손익 <span class=\"u\">KRW · 잔고 대조 폴링에서 시작·고점·저점·마감 4점</span>",
+    "series": [
+     {
+      "t": "09:00",
+      "v": 0
+     },
+     {
+      "t": "15:15",
+      "v": -764949
+     },
+     {
+      "t": "15:31",
+      "v": -722094
+     }
+    ],
+    "floor": -764949,
+    "ceil": 0,
+    "gridlines": [
+     400000,
+     0,
+     -400000,
+     -800000
+    ],
+    "last_label": "세션손익",
+    "note_html": "고점 <b class=\"pos\">0</b>@09:00 · 저점 <b class=\"neg\">−764,949</b>@15:15 · 마감 <b>−722,094</b>@15:31. 폴링 297건 중 4점만 표시했다(연속 곡선 아님)."
+   }
+  },
+  {
+   "id": "2026-10-06_session_review",
+   "strategy": "BASKET_MAIN · DEVSCALE",
+   "eyebrow": "세션 리뷰 · 10-06 · 원장/로그 자동 집계",
+   "headline_html": "10-06 세션 정리 — 전일대비 +391,342원",
+   "verdict_html": "원장 249이벤트(접수 63 · 체결 124 · 거부 7), 재기동 3회. 당일 라운드트립 18건 중 이익 18건, 라운드트립 실현 +150,860원(당일 양변 확인분·비용 제외). 전일 종가 대비 종료 손익은 +391,342원이다. 세션 시작을 0으로 잡은 잔고 대조 카운터로는 +391,342원인데, 재기동마다 기준이 옮겨가고 간밤 갭이 빠지므로 하루의 성과는 앞의 값으로 읽는다. 여기까지는 원장·로그에서 기계로 뽑은 사실이고, 원인과 다음 조치는 아래 항목에 사람이 적는다.",
+   "meta_html": [
+    "근거 로그 <span class=\"mono\">quant_trader.log</span> · 원장 <span class=\"mono\">249</span>이벤트",
+    "재기동 <span class=\"mono\">3</span>회 · 접수 <span class=\"mono\">63</span> / 체결 <span class=\"mono\">124</span> / 거부 <span class=\"mono\">7</span>",
+    "전략별 이벤트 <span class=\"mono\">BASKET_MAIN 104</span> · <span class=\"mono\">DEVSCALE_203450 18</span> · <span class=\"mono\">DEVSCALE_011200 14</span> · <span class=\"mono\">DEVSCALE_005930 12</span>"
+   ],
+   "doc_path": "strategies/DeviationScale/live/2026-10-06.md",
+   "log_path": "Quant/build_win/logs/quant_trader.log",
+   "incidents": [
+    {
+     "sev": "로그",
+     "when": "10-06 종일",
+     "title": "ERROR/WARN 767건 — [WinHTTP] HTTP N  url=https://openapi.koreainves",
+     "desc_html": "로그 상위 경고. <span class=\"mono\">[WinHTTP] HTTP N  url=https://openapi.koreainvestment.com:N/uapi/domestic-stock/</span>.",
+     "evidence": "Quant/build_win/logs/quant_trader.log · 767건",
+     "impact_html": ""
+    },
+    {
+     "sev": "로그",
+     "when": "10-06 종일",
+     "title": "ERROR/WARN 641건 — [KIS] 조회 (초당 한도) — 재시도 2/2, 버킷이 찰 때까지 약 Nms 기다린다",
+     "desc_html": "로그 상위 경고. <span class=\"mono\">[KIS] 조회 (초당 한도) — 재시도 2/2, 버킷이 찰 때까지 약 Nms 기다린다  url=https://openapi.koreainves</span>.",
+     "evidence": "Quant/build_win/logs/quant_trader.log · 641건",
+     "impact_html": ""
+    },
+    {
+     "sev": "로그",
+     "when": "10-06 종일",
+     "title": "ERROR/WARN 111건 — [SURGE_MAIN] 계획 파일 없음 Quant/config/surge_plan.js",
+     "desc_html": "로그 상위 경고. <span class=\"mono\">[SURGE_MAIN] 계획 파일 없음 Quant/config/surge_plan.json — 새 매수 없음, 보유 감시만</span>.",
+     "evidence": "Quant/build_win/logs/quant_trader.log · 111건",
+     "impact_html": ""
+    },
+    {
+     "sev": "공백",
+     "when": "12:47~14:40",
+     "title": "주문 이벤트 공백 112.2분",
+     "desc_html": "접수·체결·거부가 한 건도 없는 최장 구간. 신호 고갈인지 배관 정지인지는 로그로 갈라야 한다.",
+     "evidence": "Quant/build_win/logs/trades_20261006.csv",
+     "impact_html": ""
+    }
+   ],
+   "pnl": {
+    "title_html": "10-06 세션 당일손익 <span class=\"u\">KRW · 잔고 대조 폴링에서 시작·고점·저점·마감 4점</span>",
+    "series": [
+     {
+      "t": "09:00",
+      "v": 22450
+     },
+     {
+      "t": "09:57",
+      "v": -38093
+     },
+     {
+      "t": "15:20",
+      "v": 391602
+     },
+     {
+      "t": "15:31",
+      "v": 391342
+     }
+    ],
+    "floor": -38093,
+    "ceil": 391602,
+    "gridlines": [
+     400000,
+     200000,
+     0,
+     -200000
+    ],
+    "last_label": "세션손익",
+    "note_html": "고점 <b class=\"pos\">+391,602</b>@15:20 · 저점 <b class=\"neg\">−38,093</b>@09:57 · 마감 <b>+391,342</b>@15:31. 폴링 337건 중 4점만 표시했다(연속 곡선 아님)."
+   }
+  },
+  {
    "id": "2026-10-02_session_review",
    "strategy": "BASKET_MAIN · DEVSCALE",
    "eyebrow": "세션 리뷰 · 10-02 · 원장/로그 자동 집계",
@@ -76,7 +246,221 @@
     ],
     "last_label": "세션손익",
     "note_html": "고점 <b class=\"pos\">+110,936</b>@15:31 · 저점 <b class=\"neg\">−136,414</b>@12:50 · 마감 <b>+110,936</b>@15:31. 폴링 376건 중 4점만 표시했다(연속 곡선 아님)."
-   }
+   },
+   "axes": [
+    {
+     "n": "AXIS 1",
+     "title": "바스켓 첫 실주문의 큐 버림",
+     "tag": "오늘의 본질",
+     "tag_cls": "crit",
+     "items": [
+      {
+       "kind": "bug",
+       "text_html": "가치 코어 바스켓이 처음 실주문을 냈는데 계획 29건 중 접수된 것은 10건(약 1,254만원)뿐이다. 19건(약 2,491만원)은 주문 큐에서 1초를 넘겼다는 이유로 엔진이 버렸다"
+      },
+      {
+       "kind": "bug",
+       "text_html": "원인은 <span class=\"mono\">is_stale_entry</span>가 전략을 가리지 않고 1초 넘은 신규 매수를 버리는 것이다(D-127). 바스켓은 하루 한 번 일봉으로 짠 계획이라 몇 초 늦어도 판단이 낡지 않는다"
+      },
+      {
+       "kind": "bug",
+       "text_html": "버림 경고는 100건마다 한 줄이라 19건 중 18건은 로그에 흔적이 없었다. 바스켓은 버림을 모른 채 \"보낸 주문 29건\"으로 적었다"
+      },
+      {
+       "kind": "des",
+       "text_html": "조치 — 신호에 나이 제한 면제 표시를 두고 바스켓 매수만 켠다. 버림은 매 건 남긴다(<span class=\"mono\">wt/basket-age</span>). 남은 19건을 다음 바스켓 실행이 다시 계획하는지는 D-29로 남겼다"
+      }
+     ]
+    },
+    {
+     "n": "AXIS 2",
+     "title": "익절 매도가 보유 전량을 덮지 못한 구간",
+     "tag": "고칠 것 확정",
+     "tag_cls": "info",
+     "items": [
+      {
+       "kind": "bug",
+       "text_html": "실계좌 138930은 재구성이 <span class=\"mono\">cancel_all</span> 직후 같은 처리 안에서 매도가능 수량을 읽어 0으로 보고, 취소만 내고 7분 30초(16:07~16:15) 매도 주문이 없었다. 19:40 뒤로는 마감까지 없었다"
+      },
+      {
+       "kind": "bug",
+       "text_html": "모의는 08:30~08:32의 익절 매도 3건이 <span class=\"mono\">세션 창 밖 (허용 09:00~15:30)</span>으로 거부된 뒤 창이 열려도 다시 걸리지 않았다(005930 3주·003490 83주·016360 12주)"
+      },
+      {
+       "kind": "bug",
+       "text_html": "모의 017860은 37주+111주로 나눠 산 148주 중 한 몫만 매도 주문이 덮었고, 마감 때 37주는 매도 주문이 없었다"
+      },
+      {
+       "kind": "unc",
+       "text_html": "오늘은 현재가가 지정가에 닿지 않아 손실로 이어지지 않았다. 060720·071320의 짧은 공백 4건은 취소 사유 로그가 없어 같은 경로인지 수정 작업에서 확인한다"
+      },
+      {
+       "kind": "des",
+       "text_html": "조치 — 세 건과 프리마켓 시장가를 한 작업으로 고친다(<span class=\"mono\">wt/devscale-tp</span>)"
+      }
+     ]
+    },
+    {
+     "n": "AXIS 3",
+     "title": "기동 경로 — 엔진 이중 기동과 프리마켓 주문",
+     "tag": "고칠 것 확정",
+     "tag_cls": "warn",
+     "items": [
+      {
+       "kind": "bug",
+       "text_html": "07:55 가드가 실계좌 감시견을 못 알아보고 트레이더를 내린 뒤 감시견을 하나 더 띄워, 07:55:45~08:25 엔진이 둘이었다. 두 번째 엔진은 WS가 <span class=\"mono\">ALREADY IN USE appkey</span>로 거부돼 주문을 내지 않았다(중복 주문 0)"
+      },
+      {
+       "kind": "bug",
+       "text_html": "원인은 가드가 명령줄에 <span class=\"mono\">auto_trade_day.ps1</span>과 config 이름이 있어야 감시견으로 세는 것이다. 예약작업은 <span class=\"mono\">auto_trade_live.ps1 -Yes</span>만 넘긴다"
+      },
+      {
+       "kind": "bug",
+       "text_html": "082270 존 이탈 청산이 08:23~08:46 프리마켓에 시장가로 나가 APBK0918로 7회 거부됐고, 정규장 첫 시도(09:00:27)에 체결됐다. 지연 비용은 약 1,300~4,000원으로 추정한다"
+      },
+      {
+       "kind": "des",
+       "text_html": "조치 — 가드가 <span class=\"mono\">auto_trade_live.ps1</span>도 감시견으로 세고 점검표에 \"가드 되살림\" 행을 넣었다(<span class=\"mono\">wt/guard-live</span>). 애프터마켓 지정가 처리(D-097)를 프리마켓에도 적용한다"
+      }
+     ]
+    },
+    {
+     "n": "AXIS 4",
+     "title": "실계좌 매수 0건",
+     "tag": "판정 보류",
+     "tag_cls": "warn",
+     "items": [
+      {
+       "kind": "des",
+       "text_html": "전략은 돌았다. HMM 16주는 09:14 @20,950 → 11:06 @21,200으로 재접수됐고 그날 저가(정규장 21,100)에 150원·50원 모자라 닿지 않았다"
+      },
+      {
+       "kind": "des",
+       "text_html": "네이처셀 14주는 <span class=\"mono\">점수 우선순위 미달(랭크 8, 슬롯 3/4)</span>로 보류된 뒤 09:31 유니버스에서 빠졌다. 진입 필터(ATR 4.5% 초과)는 9회 걸렸다"
+      },
+      {
+       "kind": "unc",
+       "text_html": "결함이 아니라 계좌가 작아 슬롯 4칸 중 3칸이 차 있었고 정배열 후보가 적었다. 슬롯 수·매수 지정가 조정은 리스크 한도라 사용자 결정 사항이다"
+      }
+     ]
+    },
+    {
+     "n": "AXIS 5",
+     "title": "집계·조회의 관측 공백",
+     "tag": "미룬 것",
+     "tag_cls": "info",
+     "items": [
+      {
+       "kind": "bug",
+       "text_html": "모의 놓친 체결 조회가 <span class=\"mono\">일별주문체결 조회가 100쪽을 넘었다</span>로 멈췄다(15:09). 주문 54건에 100쪽은 쪽 넘김 반복이 의심된다 — 그 뒤로 끊긴 사이 체결 복구가 없다(D-30)"
+      },
+      {
+       "kind": "bug",
+       "text_html": "장 마감 수집기가 <span class=\"mono\">QUANT_LOG_DIR</span>를 따르지 않고 행 수가 가장 많은 폴더를 고른다. 이번 리뷰는 원장 고르는 함수를 바꿔 끼워 실계좌 숫자를 냈다(D-31)"
+      },
+      {
+       "kind": "unc",
+       "text_html": "실계좌 잔고 조회 EGW00215 32회는 정규장에만 나고 연속 실패 0, 정상 대조 1,221회다. 09-30·10-01에도 반복되며 연속 2회 이상일 때만 볼 일로 둔다"
+      },
+      {
+       "kind": "unc",
+       "text_html": "모의 주문 왕복 4~7초와 \"주문 스레드가 멈췄다 깼다\" 경고 4회는 KIS 왕복 대기였다. 문구가 프로세스 정지를 가리키는 점만 남긴다"
+      }
+     ]
+    }
+   ],
+   "improvements": {
+    "section_sub": "다음 거래일 전까지. 근거는 docs/market_close/2026-10-02.md",
+    "lanes": [
+     {
+      "prio": "P0",
+      "title": "바스켓 계획대로 나가게",
+      "count_note": "1건",
+      "items": [
+       {
+        "id": "T-01",
+        "cat": "배관",
+        "eff": "S",
+        "title": "바스켓 매수에 주문 나이 제한 면제, 버림은 매 건 로그",
+        "prob_html": "계획 29건 중 19건(약 2,491만원)이 큐 1초 제한에 걸려 사라졌고, 100건마다 찍는 경고 탓에 18건은 흔적조차 없었다.",
+        "fix_html": "신호에 나이 제한 면제 표시를 두고 바스켓 매수만 켠다. 버린 주문은 종목·대기시간과 함께 매 건 남긴다. worktree <span class=\"mono\">wt/basket-age</span>."
+       }
+      ]
+     },
+     {
+      "prio": "P0",
+      "title": "익절 매도 공백 메우기",
+      "count_note": "2건",
+      "items": [
+       {
+        "id": "T-02",
+        "cat": "전략",
+        "eff": "M",
+        "title": "재구성·세션 창·분할 보유 세 경로의 익절 매도 복구",
+        "prob_html": "취소 직후 매도가능 0을 읽어 다시 깔지 않거나(실계좌 138930), 창 밖 거부 뒤 재시도가 없거나(모의 3건), 나눠 산 보유분의 한 몫만 덮는다(모의 017860 37주).",
+        "fix_html": "취소 반영을 기다린 뒤 보유 전량 기준으로 다시 깔고, 창이 열리면 거부분을 재접수한다. worktree <span class=\"mono\">wt/devscale-tp</span>."
+       },
+       {
+        "id": "T-03",
+        "cat": "주문",
+        "eff": "S",
+        "title": "프리마켓 청산도 지정가로",
+        "prob_html": "082270 존 이탈 청산이 프리마켓에 시장가로 나가 APBK0918 7회 거부, 정규장까지 37분 밀렸다(추정 비용 1,300~4,000원).",
+        "fix_html": "애프터마켓 지정가 변환(D-097)을 프리마켓에도 적용한다. 같은 worktree에서 처리한다."
+       }
+      ]
+     },
+     {
+      "prio": "P1",
+      "title": "기동 경로 정리",
+      "count_note": "1건",
+      "items": [
+       {
+        "id": "T-04",
+        "cat": "운영",
+        "eff": "S",
+        "title": "가드의 감시견 판정에 실계좌 스크립트 포함",
+        "prob_html": "가드가 <span class=\"mono\">auto_trade_live.ps1</span>로 뜬 감시견을 못 알아보고 트레이더를 내린 뒤 감시견을 더 띄워 30분간 엔진이 둘이었다.",
+        "fix_html": "실계좌 스크립트도 감시견으로 세고 <span class=\"mono\">-Config</span>가 없으면 <span class=\"mono\">config_live.json</span>으로 본다. 점검표에 \"가드 되살림\" 행(트레이더 내림·같은 계좌 두 번째 기동이면 WARN). worktree <span class=\"mono\">wt/guard-live</span>."
+       }
+      ]
+     },
+     {
+      "prio": "P2",
+      "title": "집계 신뢰도",
+      "count_note": "2건",
+      "items": [
+       {
+        "id": "T-05",
+        "cat": "관측성",
+        "eff": "M",
+        "title": "놓친 체결 조회 쪽 넘김 수정",
+        "prob_html": "주문 54건인데 조회가 100쪽을 넘겨 멈췄다. 그 시점 뒤 끊긴 사이 체결 복구가 없다.",
+        "fix_html": "쪽 넘김 키가 전진하는지 확인하고 같은 쪽 반복이면 멈춘다. D-30으로 미뤘다."
+       },
+       {
+        "id": "T-06",
+        "cat": "관측성",
+        "eff": "S",
+        "title": "수집기가 원장 폴더를 환경변수로 받게",
+        "prob_html": "행 수가 가장 많은 폴더를 골라 <span class=\"mono\">QUANT_LOG_DIR=logs_live</span>를 줘도 모의 원장을 읽는다. 실계좌 숫자를 손으로 바꿔 끼워 냈다.",
+        "fix_html": "<span class=\"mono\">find_ledger</span>가 환경변수를 먼저 보게 한다. D-31로 미뤘다."
+       }
+      ]
+     }
+    ]
+   },
+   "gate": [
+    {
+     "html": "<b class=\"stop\">바스켓 실계좌 적용 보류</b> — 모의 첫 실주문에서 계획의 3분의 2가 엔진 안에서 사라졌다. T-01이 끝나고 계획 건수와 접수 건수가 맞는 거래일을 한 번 보기 전까지 실계좌에 붙이지 않는다."
+    },
+    {
+     "html": "<b>슬롯 수·매수 지정가 동결</b> — 실계좌 매수 0건은 슬롯 4칸 중 3칸이 차 있었고 지정가가 저가에 150원·50원 모자란 결과다. 표본 하루로 리스크 한도를 건드리지 않는다."
+    },
+    {
+     "html": "<b>익절 공백 수정 전까지 이월 종목 수를 늘리지 않는다</b> — 보유 전량을 덮지 못하는 구간이 두 계좌에서 5종목에 걸쳐 나왔다. 오늘은 가격이 닿지 않아 손실이 없었을 뿐이다."
+    }
+   ]
   },
   {
    "id": "2026-10-01_session_review",

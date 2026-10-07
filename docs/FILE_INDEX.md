@@ -12,9 +12,9 @@
 - [Quant](#quant) — 358개
 - [docs](#docs) — 147개
 - [linux_practice](#linux_practice) — 2개
-- [research](#research) — 401개
-- [scripts](#scripts) — 50개
-- [strategies](#strategies) — 40개
+- [research](#research) — 408개
+- [scripts](#scripts) — 51개
+- [strategies](#strategies) — 41개
 - [tools](#tools) — 3개
 
 ## (루트)
@@ -855,6 +855,11 @@
 - [live.json](../research/dashboard/live.json) — 라이브 매매일지 링크 모음 데이터
 - [reviews.json](../research/dashboard/reviews.json) — 실증 사후검토 데이터
 
+### research/dashboard/plain/
+
+- [journal_summary.json](../research/dashboard/plain/journal_summary.json) — 시험 결과 쉽게 읽기의 날짜별 쉬운 말 요약 정본(세션이 씀, 없는 날은 생성기가 기본 요약)
+- [plain_template.html](../research/dashboard/plain/plain_template.html) — 시험 결과 쉽게 읽기 틀(데이터·기준일 자리표시자)
+
 ### research/runs/
 
 - [2026-08-07_month-start-sweep.md](../research/runs/2026-08-07_month-start-sweep.md) — 월별 시작시점 스윕 실행 원자료 아카이브
@@ -1215,6 +1220,9 @@
 - [2026-10-02_eval.json](../research/studies/27_premarket_leaders/daily/2026-10-02_eval.json) — 10-02 장 전 주도 후보의 장중 성적 평가
 - [2026-10-05.jsonl](../research/studies/27_premarket_leaders/daily/2026-10-05.jsonl) — 10-05 장 전 주도 후보 기록
 - [2026-10-06.jsonl](../research/studies/27_premarket_leaders/daily/2026-10-06.jsonl) — 10-06 장 전 주도 후보 기록
+- [2026-10-06_eval.json](../research/studies/27_premarket_leaders/daily/2026-10-06_eval.json) — 10-06 장 전 주도 후보의 장중 성적 평가
+- [2026-10-07.jsonl](../research/studies/27_premarket_leaders/daily/2026-10-07.jsonl) — 10-07 장 전 주도 후보 기록
+- [2026-10-07_eval.json](../research/studies/27_premarket_leaders/daily/2026-10-07_eval.json) — 10-07 장 전 주도 후보의 장중 성적 평가
 
 ### research/studies/28_devscale_zone_width/
 
@@ -1372,6 +1380,8 @@
 - [2026-09-30.jsonl](../research/studies/35_surge_box_breakout/live/2026-09-30.jsonl) — 09-30 기록 — 새 사건 2, 관찰 중 72, 신호 0(첫 줄 day 요약, 이어서 surge·observe·end·signal·position 줄)
 - [2026-10-01.jsonl](../research/studies/35_surge_box_breakout/live/2026-10-01.jsonl) — 10-01 기록 — 새 사건 11, 관찰 중 64, 신호 0(첫 줄 day 요약, 이어서 surge·observe·end·signal·position 줄)
 - [2026-10-02.jsonl](../research/studies/35_surge_box_breakout/live/2026-10-02.jsonl) — 10-02 기록 — daily_watch.py 산출
+- [2026-10-06.jsonl](../research/studies/35_surge_box_breakout/live/2026-10-06.jsonl) — 10-06 기록 — daily_watch.py 산출
+- [2026-10-07.jsonl](../research/studies/35_surge_box_breakout/live/2026-10-07.jsonl) — 10-07 기록 — daily_watch.py 산출
 - [ledger.tsv](../research/studies/35_surge_box_breakout/live/ledger.tsv) — daily_watch.py 규칙별 매매 원장(신호일·매수·청산·수익률, 기록 열은 실시간/따라잡기)
 - [summary.txt](../research/studies/35_surge_box_breakout/live/summary.txt) — daily_watch.py 규칙별 누적 성적과 백테스트 대비·판정 요약
 
@@ -1387,8 +1397,6 @@
 - [result.txt](../research/studies/36_cluster_momentum/result.txt) — 스터디 36 결과 요약 — 원안 두 칸, 비교 기준 대비, 연도별, MAE·MFE, 32칸 표
 - [yearly.tsv](../research/studies/36_cluster_momentum/yearly.tsv) — 스터디 36 연도별 B0 수익과 원안 두 칸 수익·초과
 
-## scripts
-
 ### scripts/
 
 - [_logdir.py](../scripts/_logdir.py) — 로그·원장 경로 탐색 헬퍼
@@ -1399,6 +1407,7 @@
 - [backfill_fills_db.py](../scripts/backfill_fills_db.py) — 과거 체결 원장 CSV를 TimescaleDB fills 테이블에 적재하는 스크립트
 - [backfill_studies.py](../scripts/backfill_studies.py) — 스터디 결과 메트릭 백필 스크립트
 - [build.sh](../scripts/build.sh) — Docker 이미지 빌드 스크립트
+- [build_plain_dashboard.py](../scripts/build_plain_dashboard.py) — 시험 결과 쉽게 읽기 발행본 생성(틀+요약+일지 원문+주문 로그 → _private/dashboard_plain.html)
 - [build_review_entry.py](../scripts/build_review_entry.py) — 장 마감 리뷰 항목 생성 스크립트
 - [build_study_site.py](../scripts/build_study_site.py) — 주식 스터디 리더 사이트 생성 스크립트
 - [build_trader.ps1](../scripts/build_trader.ps1) — 장중 재빌드 진입구. 한글 TEMP·실행 중 exe 잠금으로 나는 LNK1104 두 가지를 링크 전에 가른다
@@ -1492,6 +1501,7 @@
 - [2026-10-01.md](../strategies/DeviationScale/live/2026-10-01.md) — 10-01 라이브 매매일지
 - [2026-10-02.md](../strategies/DeviationScale/live/2026-10-02.md) — 10-02 라이브 매매일지
 - [2026-10-06.md](../strategies/DeviationScale/live/2026-10-06.md) — 10-06 라이브 매매일지
+- [2026-10-07.md](../strategies/DeviationScale/live/2026-10-07.md) — 10-07 라이브 매매일지
 
 ### strategies/DeviationScale/reviews/
 

@@ -1,0 +1,855 @@
+<title>시험 결과 쉽게 읽기</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=Gowun+Batang:wght@700&display=swap">
+<style>
+:root{
+  --paper:#f5f6f3; --card:#ffffff; --ink:#1d2528; --soft:#56626a; --line:#dde2df;
+  --accent:#2d5d7b; --accent-soft:#e3ecf2;
+  --pass:#2f7a4f; --pass-bg:#e2f1e7; --fail:#a2413a; --fail-bg:#f6e3e1;
+  --hold:#8a6412; --hold-bg:#f5ecd6; --part:#3f6c8a; --part-bg:#e2ecf3;
+  --bar:#2d5d7b; --bar-real:#8a9aa3;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --paper:#141a1d; --card:#1c2428; --ink:#e6ebec; --soft:#9fadb3; --line:#2f3a3f;
+    --accent:#8cbbd8; --accent-soft:#223340;
+    --pass:#86cfa3; --pass-bg:#1f3a2a; --fail:#eba49d; --fail-bg:#43241f;
+    --hold:#e2c178; --hold-bg:#3d321a; --part:#9cc4de; --part-bg:#20323f;
+    --bar:#8cbbd8; --bar-real:#6d7e86;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --paper:#141a1d; --card:#1c2428; --ink:#e6ebec; --soft:#9fadb3; --line:#2f3a3f;
+  --accent:#8cbbd8; --accent-soft:#223340;
+  --pass:#86cfa3; --pass-bg:#1f3a2a; --fail:#eba49d; --fail-bg:#43241f;
+  --hold:#e2c178; --hold-bg:#3d321a; --part:#9cc4de; --part-bg:#20323f;
+  --bar:#8cbbd8; --bar-real:#6d7e86;
+}
+*{box-sizing:border-box}
+body{background:var(--paper);color:var(--ink);font-family:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif;font-size:16px;line-height:1.7;margin:0}
+.wrap{max-width:860px;margin:0 auto;padding-inline:16px;padding-block:32px 64px;display:flex;flex-direction:column;gap:40px}
+h1,h2,h3{font-family:"Gowun Batang","IBM Plex Sans KR",serif;text-wrap:balance;line-height:1.35;margin:0}
+h1{font-size:2rem}
+h2{font-size:1.5rem}
+h3{font-size:1.1rem}
+h4{font-size:.98rem;margin:0;font-weight:700;text-wrap:balance}
+p{margin:0}
+.lede{color:var(--soft);max-width:65ch}
+header{display:flex;flex-direction:column;gap:12px}
+.eyebrow{font-size:.8rem;letter-spacing:.08em;color:var(--accent);font-weight:700}
+nav{display:flex;gap:8px;flex-wrap:wrap}
+nav a{color:var(--accent);background:var(--accent-soft);padding:6px 14px;border-radius:999px;text-decoration:none;font-weight:500;font-size:.92rem}
+nav a:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+section{display:flex;flex-direction:column;gap:20px}
+.summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+.box{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px 20px;display:flex;flex-direction:column;gap:8px}
+.box .big{font-size:1.25rem;font-weight:700;line-height:1.45}
+.box .label{font-size:.82rem;color:var(--soft);letter-spacing:.04em;font-weight:500}
+.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;counter-reset:s}
+.step{border-top:2px solid var(--accent);padding-top:10px;display:flex;flex-direction:column;gap:4px}
+.step b{font-size:.95rem}
+.step span{font-size:.9rem;color:var(--soft)}
+.pill{display:inline-block;font-size:.78rem;font-weight:700;padding:2px 10px;border-radius:999px;white-space:nowrap}
+.pass{color:var(--pass);background:var(--pass-bg)}
+.fail{color:var(--fail);background:var(--fail-bg)}
+.hold{color:var(--hold);background:var(--hold-bg)}
+.part{color:var(--part);background:var(--part-bg)}
+.tally{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.tally .pill{font-size:.9rem;padding:4px 14px}
+.stack{display:flex;height:14px;border-radius:7px;overflow:hidden;border:1px solid var(--line)}
+.stack i{display:block}
+.list{display:flex;flex-direction:column;border-top:1px solid var(--line)}
+details{border-bottom:1px solid var(--line)}
+summary{cursor:pointer;list-style:none;display:grid;grid-template-columns:2.2rem 1fr auto;gap:10px;align-items:start;padding:12px 4px}
+summary::-webkit-details-marker{display:none}
+summary .no{color:var(--soft);font-variant-numeric:tabular-nums;font-size:.9rem;padding-top:2px}
+summary .q{font-weight:500}
+summary .q small{display:block;font-weight:400;color:var(--soft);font-size:.88rem}
+details[open] summary{background:var(--accent-soft);border-radius:8px}
+.detail{padding:4px 4px 16px 3.2rem;display:grid;grid-template-columns:5.5rem 1fr;gap:6px 12px;font-size:.93rem}
+.detail dt{color:var(--soft);font-weight:500}
+.detail dd{margin:0}
+.src{font-size:.8rem;color:var(--soft);font-family:ui-monospace,Consolas,monospace;word-break:break-all}
+.chart{display:flex;flex-direction:column;gap:10px}
+.row{display:grid;grid-template-columns:minmax(120px,11rem) 1fr;gap:12px;align-items:center;font-size:.9rem}
+.track{position:relative;height:22px;background:var(--accent-soft);border-radius:4px}
+.fill{position:absolute;left:0;top:0;bottom:0;border-radius:4px;background:var(--bar)}
+.fill.real{background:var(--bar-real)}
+.val{position:absolute;top:50%;transform:translateY(-50%);font-variant-numeric:tabular-nums;font-weight:700;font-size:.85rem;white-space:nowrap}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 18px;display:flex;flex-direction:column;gap:8px}
+.card .top{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
+.card .date{font-size:.8rem;color:var(--soft);font-variant-numeric:tabular-nums}
+.card p{font-size:.93rem}
+.card .num{font-weight:700}
+.card .fix{font-size:.88rem;color:var(--soft);border-top:1px dashed var(--line);padding-top:8px}
+ul.plain,ol.plain{margin:0;padding-left:1.2rem;display:flex;flex-direction:column;gap:6px}
+.note{font-size:.88rem;color:var(--soft);max-width:65ch}
+.story{margin:12px 0 4px;padding-left:1.4em;display:grid;gap:4px}
+.story li{line-height:1.6}
+.step-tag{display:block;font-style:normal;font-size:.78rem;color:var(--accent,var(--muted));font-weight:700;margin-bottom:2px}
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--card)}
+.tbl table{border-collapse:collapse;width:100%;font-size:.88rem;font-variant-numeric:tabular-nums}
+.tbl th,.tbl td{padding:7px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+.tbl tr:last-child td{border-bottom:0}
+.tbl thead th{background:var(--accent-soft);font-weight:500;white-space:nowrap}
+.tbl td.n,.tbl th.n{text-align:right;white-space:nowrap}
+.tbl td.why{color:var(--soft);font-size:.84rem}
+.tbl tr.hl td{font-weight:700}
+.tbl td.ok{color:var(--pass);font-weight:700;white-space:nowrap}
+.tbl td.no{color:var(--fail);font-weight:700;white-space:nowrap}
+.chart{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.chart .c-title{font-size:.9rem;font-weight:700}
+.chart .c-note{color:var(--soft);font-size:.8rem}
+.hbar{display:grid;grid-template-columns:minmax(84px,34%) 1fr auto;gap:5px 10px;align-items:center;font-size:.82rem;font-variant-numeric:tabular-nums}
+.hbar .hb-label{color:var(--soft);overflow-wrap:anywhere;line-height:1.35}
+.hbar .hb-label.hl{color:var(--ink);font-weight:700}
+.hbar .hb-track{position:relative;height:20px;background:var(--paper);border-radius:3px}
+.hbar .hb-track i{position:absolute;top:3px;bottom:3px;border-radius:2px;background:var(--bar)}
+.hbar .hb-track i.neg{background:var(--fail)}
+.hbar .hb-track i.dim{background:var(--bar-real)}
+.hbar .hb-zero{position:absolute;top:0;bottom:0;border-left:1px solid var(--soft)}
+.hbar .hb-mark{position:absolute;top:-2px;bottom:-2px;border-left:2px dashed var(--hold)}
+.hbar .hb-val{text-align:right;white-space:nowrap}
+.hbar .hb-val.best{font-weight:700}
+.hb-stack{position:absolute;top:3px;bottom:3px;left:0;display:flex;border-radius:2px;overflow:hidden}
+.hb-stack i{position:static!important;flex:none;border-radius:0!important}
+.legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:.78rem;color:var(--soft)}
+.legend span::before{content:"";display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px;background:var(--c)}
+.s-fill{--c:var(--pass);background:var(--pass)!important}
+.s-can{--c:var(--hold);background:var(--hold)!important}
+.s-rej{--c:var(--fail);background:var(--fail)!important}
+.s-acc{--c:var(--bar-real);background:var(--bar-real)!important}
+.s-a{--c:var(--bar);background:var(--bar)!important}
+.s-b{--c:var(--hold);background:var(--hold)!important}
+.s-c{--c:var(--pass);background:var(--pass)!important}
+.s-d{--c:var(--fail);background:var(--fail)!important}
+.s-e{--c:var(--bar-real);background:var(--bar-real)!important}
+.line svg{width:100%;height:auto;display:block}
+.line text{fill:var(--soft);font-size:11px;font-family:inherit}
+.line .axis{stroke:var(--line)}
+.line .zero{stroke:var(--soft);stroke-dasharray:3 3}
+.line .path{fill:none;stroke:var(--bar);stroke-width:2}
+.line .dot{fill:var(--bar)}
+.line .dot.neg{fill:var(--fail)}
+.flow{display:flex;flex-wrap:wrap;align-items:stretch;gap:6px;font-size:.88rem}
+.flow div{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 12px;display:flex;flex-direction:column;gap:2px;flex:1 1 140px}
+.flow div small{color:var(--soft)}
+.flow i{align-self:center;color:var(--accent);font-style:normal}
+.sub{display:flex;flex-direction:column;gap:10px}
+.words{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px 20px;font-size:.92rem}
+.words b{display:block}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.tabs button{font:inherit;font-weight:500;color:var(--soft);background:none;border:0;border-bottom:3px solid transparent;padding:10px 16px;cursor:pointer;margin-bottom:-1px}
+.tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent);font-weight:700}
+.tabs button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.box.lead{background:var(--accent-soft);border-color:transparent}
+.daychart{display:flex;gap:6px;align-items:stretch;height:220px;overflow-x:auto;padding-bottom:4px}
+.dc-col{flex:1 0 38px;display:grid;grid-template-rows:1fr 1fr auto auto;text-align:center;font-size:.72rem;font-variant-numeric:tabular-nums}
+.dc-half{position:relative;border-color:var(--line)}
+.dc-half.top{border-bottom:1px solid var(--soft)}
+.dc-half i{position:absolute;left:18%;right:18%;border-radius:3px}
+.dc-half.top i{bottom:0}
+.dc-half.bottom i{top:0}
+i.up{background:var(--pass)}
+i.down{background:var(--fail)}
+.dc-label{color:var(--soft);padding-top:4px}
+.dc-val{font-weight:700}
+ol.phases{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px;border-left:2px solid var(--line);padding-left:16px}
+ol.phases li{display:flex;flex-direction:column;gap:2px;font-size:.93rem}
+ol.phases .range{font-size:.8rem;color:var(--accent);font-variant-numeric:tabular-nums;font-weight:500}
+details.day>summary{grid-template-columns:3.2rem 1fr auto}
+details.day .no small{display:block;font-size:.78rem}
+.right{display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+.dpnl{font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;font-size:.92rem}
+.dpnl.up{color:var(--pass)}
+.dpnl.down{color:var(--fail)}
+.dpnl.none{color:var(--soft);font-weight:400;font-size:.8rem}
+details.raw{border:1px solid var(--line);border-radius:8px;margin:0 4px 16px 3.2rem;border-bottom:1px solid var(--line)}
+details.raw>summary{display:block;padding:8px 12px;color:var(--accent);font-weight:500;font-size:.9rem}
+details.raw[open]>summary{border-radius:8px 8px 0 0}
+details.data>summary{display:block;padding:10px 4px}
+.box ol.plain{margin:8px 0}
+.md{padding:4px 16px 16px;font-size:.88rem;overflow-x:auto;max-height:70vh;overflow-y:auto}
+.md h1{font-size:1.15rem;margin:12px 0 6px}
+.md h2{font-size:1.02rem;margin:16px 0 6px}
+.md h3{font-size:.95rem;margin:12px 0 4px}
+.md p,.md ul,.md ol{margin:6px 0}
+.md table{border-collapse:collapse;font-size:.82rem;margin:8px 0;font-variant-numeric:tabular-nums}
+.md th,.md td{border:1px solid var(--line);padding:4px 8px;text-align:left;vertical-align:top}
+.md th{background:var(--accent-soft)}
+.md code{font-family:ui-monospace,Consolas,monospace;font-size:.85em;background:var(--accent-soft);padding:0 4px;border-radius:3px}
+.md pre{background:var(--accent-soft);padding:8px;border-radius:6px;overflow-x:auto}
+.md pre code{background:none;padding:0}
+.olog{padding:8px 12px 12px;display:flex;flex-direction:column;gap:8px}
+.ofilter{display:flex;flex-wrap:wrap;gap:6px}
+.ofilter button,.olog .more{font:inherit;font-size:.82rem;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:3px 12px;cursor:pointer}
+.ofilter button[aria-pressed="true"]{background:var(--accent);color:var(--card);border-color:var(--accent)}
+.olog .more{align-self:flex-start;border-radius:6px}
+.olog button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.otable{overflow:auto;max-height:60vh;border:1px solid var(--line);border-radius:6px}
+.otable table{border-collapse:collapse;font-size:.8rem;font-variant-numeric:tabular-nums;width:100%}
+.otable th{position:sticky;top:0;background:var(--accent-soft);text-align:left;font-weight:500;white-space:nowrap}
+.otable th,.otable td{padding:3px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+.otable td.n{text-align:right}
+.otable td.why{white-space:normal;min-width:16rem;color:var(--soft)}
+.ev{font-size:.75rem;font-weight:700;padding:1px 6px;border-radius:4px}
+.ev-fill{color:var(--pass);background:var(--pass-bg)}
+.ev-rej{color:var(--fail);background:var(--fail-bg)}
+.ev-acc{color:var(--part);background:var(--part-bg)}
+.ev-can{color:var(--soft);background:var(--accent-soft)}
+@media (max-width:520px){
+  details.day>summary{grid-template-columns:3rem 1fr}
+  .right{grid-column:2;flex-direction:row;align-items:center}
+  details.raw{margin-left:4px}
+  .detail{padding-left:4px;grid-template-columns:1fr}
+  .detail dt{margin-top:6px}
+  summary{grid-template-columns:1.8rem 1fr}
+  summary .pill{grid-column:2;justify-self:start}
+  .row{grid-template-columns:1fr}
+}
+</style>
+
+<div class="wrap">
+
+<header>
+  <span class="eyebrow">/*ASOF*/ 기준 · 백테스트 7건 · 부하 시험 5가지</span>
+  <h1>시험 결과 쉽게 읽기</h1>
+  <p class="lede">무엇을 기준으로 시험했는지, 결과가 어땠는지를 먼저 적고 자세한 숫자는 항목을 눌러 펼치게 했습니다.</p>
+  <div class="tabs" role="tablist" aria-label="결과 종류">
+    <button type="button" role="tab" id="tab-backtest" aria-controls="backtest" aria-selected="true">백테스트</button>
+    <button type="button" role="tab" id="tab-journal" aria-controls="journal" aria-selected="false">모의매매 일지</button>
+    <button type="button" role="tab" id="tab-load" aria-controls="load" aria-selected="false">부하 테스트</button>
+  </div>
+</header>
+
+<!-- ===================== 백테스트 ===================== -->
+<section id="backtest" role="tabpanel" aria-labelledby="tab-backtest">
+  <div class="box lead">
+    <span class="label">한 줄 요약</span>
+    <span class="big">유명한 신호는 그냥 들고 있기를 못 이겼고, 거래를 줄인 가치 전략과 눌림목 청산선이 살아남아 모의매매에 올라갔습니다.</span>
+    <span class="note">지금까지 돌린 백테스트 25건 중 이야기 하나로 이어지는 7건만 골라 순서대로 놓았습니다. 백테스트는 "이 규칙대로 과거에 사고팔았다면 돈을 벌었을까?"를 컴퓨터로 되짚어 보는 시험이고, 실제 돈은 쓰지 않습니다.</span>
+  </div>
+
+  <h3>어떤 기준으로 시험했나</h3>
+  <div class="steps">
+    <div class="step"><b>과거 주가로 가상 매매</b><span>대형주 100개부터 상장폐지 종목까지 넣은 3,680개까지, 최대 1928년치 지수까지 썼습니다.</span></div>
+    <div class="step"><b>비용을 뺀다</b><span>수수료·세금·원하는 값에 못 사는 손실을 매매마다 뺐습니다(한 번 사고팔 때 약 0.2~0.3%).</span></div>
+    <div class="step"><b>그냥 들고 있기와 비교</b><span>같은 기간 종목을 고르게 사서 가만히 둔 결과보다 나아야 합니다.</span></div>
+    <div class="step"><b>안 본 기간으로 확인</b><span>규칙을 만들 때 안 본 해(주로 2022년 하락장)에도 통해야 합니다. 운으로 맞았는지 가리기 위해서입니다.</span></div>
+  </div>
+
+  <h3>결과 한눈에</h3>
+  <div class="tally">
+    <span class="pill pass">쓸 만함 2</span>
+    <span class="pill part">부분 확인 1</span>
+    <span class="pill fail">탈락 4</span>
+  </div>
+  <div class="stack" role="img" aria-label="7건 중 쓸 만함 2, 부분 확인 1, 탈락 4">
+    <i style="width:28.6%;background:var(--pass)"></i>
+    <i style="width:14.3%;background:var(--part)"></i>
+    <i style="width:57.1%;background:var(--fail)"></i>
+  </div>
+  <ol class="story">
+    <li><b>유명한 신호 세 개는 그냥 들고 있기를 못 이겼다</b> — 11번</li>
+    <li><b>같은 종목 고르기도 매달 바꾸면 지고, 석 달마다 바꾸면 살아남았다</b> — 19번 ↔ 22번</li>
+    <li><b>하락장 방어 장치는 돈 버는 규칙과 따로 검증했다</b> — 3번</li>
+    <li><b>경기·물가·금리를 섞은 복잡한 모델은 도움이 안 됐다</b> — 20번</li>
+    <li><b>그럴듯해도 사건 수가 적으면 쓰지 않는다</b> — 12번</li>
+    <li><b>살아남은 규칙을 실제 운영(모의매매)에 올렸다</b> — 24번</li>
+  </ol>
+  <p class="note">"부분 확인"은 돈 버는 방법이 아니라 "하락폭을 줄이는 장치가 효과가 있는가" 같은 보조 질문에 답이 나온 경우입니다. 각 줄을 누르면 시험 방법·합격 기준·핵심 숫자가 펼쳐집니다.</p>
+
+  <div class="list">
+    <details open>
+      <summary><span class="no">11</span><span class="q"><em class="step-tag">1 · 유명한 신호는 그냥 들고 있기를 못 이겼다</em>잘 오른 종목 / 최고가 돌파 / 많이 떨어진 종목 사기</span><span class="pill fail">탈락</span></summary>
+      <dl class="detail"><dt>결과</dt><dd>그냥 들고 있기 −11.1%에 비해 세 방법 모두 −33.7~−45.7%로 더 잃었습니다.</dd></dl>
+    </details>
+    <details>
+      <summary><span class="no">19</span><span class="q"><em class="step-tag">2 · 같은 전략도 자주 바꾸면 비용이 먹는다</em>싼데 돈 잘 버는 회사 30개, 매달 교체</span><span class="pill fail">탈락</span></summary>
+      <dl class="detail"><dt>결과</dt><dd>1년에 7.0% 더 벌었지만 우연과 구별하기 약했습니다. 설정을 고정하고 22번에서 다시 쟀습니다.</dd></dl>
+    </details>
+    <details>
+      <summary><span class="no">22</span><span class="q"><em class="step-tag">2 · 석 달마다 바꾸니 살아남았다</em>싼데 돈 잘 버는 회사 30개를 석 달마다 바꿔 사면?<small>원래 이름: 저PBR × 고ROE 가치 기울임</small></span><span class="pill pass">쓸 만함</span></summary>
+      <dl class="detail">
+        <dt>시험 방법</dt><dd>상장폐지 종목까지 넣은 3,680종목, 2016~2026년. 비용을 빼고, 매년 "직전 몇 년으로 설정 고르기 → 다음 1년으로 확인"을 5번 반복.</dd>
+        <dt>합격 기준</dt><dd>① 시장보다 더 번 것이 우연이 아닐 것 ② 5년 중 3년 이상 이익 ③ 설정을 조금 바꿔도 결과가 유지될 것</dd>
+        <dt>결과</dt><dd><b>1년에 시장 평균보다 15.7% 더 벌었고</b>, 5년 중 4년이 이익(2022년만 손해).</dd>
+        <dt>그래서</dt><dd>이 설정을 고를 때 같은 기간을 이미 봤기 때문에 확정하지 않고, 모의계좌에서 소액으로 지켜봅니다.</dd>
+      </dl>
+    </details>
+    <details>
+      <summary><span class="no">03</span><span class="q"><em class="step-tag">3 · 방어 장치는 따로 검증했다</em>"시장이 나쁘면 쉬기" 규칙이 2022년 하락장에서 도움이 됐나?<small>원래 이름: 2022 약세장 격리</small></span><span class="pill part">부분 확인</span></summary>
+      <dl class="detail">
+        <dt>결과</dt><dd>규칙을 끄면 1년에 35.4% 손해, 켜면 1년 내내 현금으로 있어 0%. 그냥 들고 있기는 −20.5%.</dd>
+        <dt>그래서</dt><dd>"쉬기 규칙이 이 방법을 지탱한다"는 결론만 기록했습니다.</dd>
+      </dl>
+    </details>
+    <details>
+      <summary><span class="no">20</span><span class="q"><em class="step-tag">4 · 복잡한 거시 모델은 도움이 안 됐다</em>경기·물가·금리 신호로 코스피 비중 조절</span><span class="pill fail">탈락</span></summary>
+      <dl class="detail"><dt>결과</dt><dd>최대 하락은 거의 그대로(−56.0% → −55.3%)이고 1년에 1.35%포인트 덜 벌었습니다. 기준 7개 중 2개 통과.</dd></dl>
+    </details>
+    <details>
+      <summary><span class="no">12</span><span class="q"><em class="step-tag">5 · 표본이 적으면 판단을 보류한다</em>폭락 뒤 다시 오를 때 사서 석 달 들고 있기</span><span class="pill fail">탈락</span></summary>
+      <dl class="detail"><dt>결과</dt><dd>사건이 10번뿐이고, 비용을 빼면 지수보다 0.1% 못했습니다. 다음 폭락 때 주문 없이 기록만 하게 걸어 두었습니다.</dd></dl>
+    </details>
+    <details>
+      <summary><span class="no">24</span><span class="q"><em class="step-tag">6 · 살아남은 규칙을 모의매매에 올렸다</em>눌림목 매매에서 언제 이익을 챙기고 언제 손절할까?<small>원래 이름: DevScale 청산선·하룻밤 넘김</small></span><span class="pill pass">쓸 만함</span></summary>
+      <dl class="detail">
+        <dt>시험 방법</dt><dd>최근 1년치 1분 단위 주가, 상위 100종목. 한 번 사고팔 때마다 비용 0.23%(수수료 0.015%×2 + 파는 쪽 세금 0.20%)를 빼고, 파는 규칙 조합 200가지 넘게(넓은 격자 189개 + 촘촘한 격자 20개 + 당일 청산 격자)를 비교.</dd>
+        <dt>합격 기준</dt><dd>따로 적힌 기준은 없습니다. 비용을 빼도 이익이고, 설정을 조금 바꿔도 비슷하게 좋은 규칙을 골랐습니다.</dd>
+        <dt>결과</dt><dd>그날 안에 다 파는 방식은 <b>어떤 설정이든 손해</b>. 하룻밤을 넘기고 +3%에 팔고 −6.5%에 손절하면 <b>1년에 약 279만 원 이익</b>(평균 832만 원 투입).</dd>
+        <dt>그래서</dt><dd>2026-09-21 모의계좌에 반영. 1년치 한 번만 본 결과라 매일 확인 중입니다.</dd>
+      </dl>
+    </details>
+  </div>
+  <p class="src">근거: research/studies/index.json · research/studies/README.md · research/studies/NN_*/README.md</p>
+
+  <h3>용어 풀이</h3>
+  <div class="words">
+    <div><b>백테스트</b>과거 주가로 규칙을 되짚어 보는 가상 매매.</div>
+    <div><b>그냥 들고 있기</b>같은 종목을 고르게 사서 팔지 않고 둔 결과. 비교의 기준선.</div>
+    <div><b>최대 하락</b>가장 높았던 때에서 가장 많이 떨어진 폭. 버티기 힘든 정도.</div>
+    <div><b>안 본 기간으로 확인</b>규칙을 만들 때 쓰지 않은 해로 다시 시험해, 우연을 거른다.</div>
+    <div><b>우연이 아님</b>같은 결과가 운으로 나올 가능성이 충분히 낮다는 뜻.</div>
+  </div>
+</section>
+
+<!-- ===================== 모의매매 일지 ===================== -->
+<section id="journal" role="tabpanel" aria-labelledby="tab-journal" hidden>
+  <div class="box lead">
+    <span class="label">한 줄 요약</span>
+    <span class="big" id="j-headline">09-08부터 10-02까지 본격적으로 매매한 17거래일 동안 계좌가 약 132만 원 줄었습니다.</span>
+    <span class="note">증권사 모의계좌(가상 돈 약 1억 원)에서 자동매매 프로그램을 실제 장 시간에 돌리고, 매일 매매일지를 남겼습니다. 8월은 주문이 제대로 나가게 고치는 기간이라 매매가 거의 없었습니다.</span>
+  </div>
+  <div class="summary">
+    <div class="box"><span class="label">일지 기간</span><span class="big" id="j-period"></span><span class="note" id="j-period-note"></span></div>
+    <div class="box"><span class="label" id="j-total-label"></span><span class="big" id="j-total"></span><span class="note" id="j-total-note"></span></div>
+    <div class="box"><span class="label">계좌가 늘어난 날</span><span class="big" id="j-updays"></span><span class="note" id="j-worst"></span></div>
+  </div>
+
+  <h3>하루 계좌 변화</h3>
+  <p class="note">일지에 적힌 "전날 대비" 값입니다. 아직 들고 있는 종목의 오르내림도 들어 있습니다. 08-10·08-11·09-03·09-07·09-08은 전날 값이 없어 그날 프로그램을 켠 시점 기준이고, 손익이 적혀 있지 않은 날은 막대에서 뺐습니다.</p>
+  <div id="j-chart" class="daychart" role="img" aria-label="날짜별 계좌 변화 막대그래프"></div>
+  <div id="j-cum"></div>
+
+  <h3>날짜별 주문 결과</h3>
+  <p class="note">그날 주문 기록(trades_날짜.csv)을 줄 종류별로 센 값입니다. 체결은 일부 체결까지 한 줄씩 셉니다. 거부는 증권사나 우리 프로그램의 한도 검사가 주문을 막은 것입니다.</p>
+  <div id="j-orders"></div>
+  <div id="j-rejects"></div>
+
+  <h3>흐름</h3>
+  <p class="note" id="j-overview"></p>
+  <ol class="phases" id="j-phases"></ol>
+
+  <h3>날짜별 일지</h3>
+  <p class="note">날짜를 누르면 쉬운 요약이 펼쳐지고, 그 아래 "주문 로그"에서 그날 낸 주문 한 줄 한 줄을, "일지 원문"에서 그날 쓴 매매일지 전체를 볼 수 있습니다.</p>
+  <div class="list" id="j-days"></div>
+  <p class="src">근거: strategies/DeviationScale/live/*.md · strategies/ITB/live/2026-08-07.md · research/dashboard/live.json</p>
+</section>
+
+<!-- ===================== 부하 시험 ===================== -->
+<section id="load" role="tabpanel" aria-labelledby="tab-load" hidden>
+  <div class="box lead">
+    <span class="label">한 줄 요약</span>
+    <span class="big">실제 장에서 가장 붐빈 순간은 여유 있게 받았고, 가장 좁은 곳은 데이터베이스 기록이었습니다.</span>
+    <span class="note">매매 프로그램(엔진)에 부하 테스트용 체결 데이터를 넣고, 빠뜨린 것은 없는지, 제때 처리하는지, 멈추지 않는지를 봤습니다(09-22~09-26). 실제 증권사에는 아무것도 보내지 않았습니다. 아래 다섯 가지로 정리했습니다.</span>
+  </div>
+
+  <h3>데이터가 지나가는 길</h3>
+  <div class="flow" role="img" aria-label="엔진 안 데이터가 지나가는 다섯 단계와 각 이야기가 다룬 자리">
+    <div><b>① 시세 받기</b><small>체결 알림을 받음</small><small>이야기 1 · 2</small></div><i>→</i>
+    <div><b>② 판단</b><small>전략이 살지 팔지 정함</small><small>이야기 2 · 5</small></div><i>→</i>
+    <div><b>③ 주문 줄</b><small>주문이 창구 앞에 줄 섬</small><small>이야기 5</small></div><i>→</i>
+    <div><b>④ 주문 창구</b><small>한도 확인·기록·전송</small><small>이야기 3</small></div><i>→</i>
+    <div><b>⑤ 데이터베이스 기록</b><small>주문·체결·시세 보관</small><small>이야기 4</small></div>
+  </div>
+
+  <ol class="story">
+    <li><b>실제 장 규모는 여유 있게 받는다</b> — 가장 붐빈 1초(7만 3천 건)를 20초 동안 넣어도 빠뜨린 것 0건, 엔진 안쪽 처리에 코어 0.1개 남짓.</li>
+    <li><b>어디까지 넣어야 막히나 찾아봤다</b> — 1초 80만 건을 넣으면 받는 쪽은 다 받고, 판단 쪽으로 넘기는 통로가 1초 약 41만 건에서 찼습니다.</li>
+    <li><b>주문이 느린 이유를 재서 찾고 고쳤다</b> — 주문마다 파일 하나를 통째로 다시 쓰고 있었습니다. 떼어 내니 약 2.6배 빨라졌습니다.</li>
+    <li><b>가장 좁은 곳은 데이터베이스 기록이었고, 넓히는 중이다</b> — 1초 285줄 → 11,460줄, 나머지 두 원인은 고쳐 두고 다시 재는 중.</li>
+    <li><b>엔진을 셋으로 나눠도 같은 주문이 나오고, 하나가 죽으면 알아채게 했다</b> — 주문 13,685건이 한 건도 다르지 않았습니다.</li>
+  </ol>
+  <p class="note">시간은 ms(1,000분의 1초)로 적었습니다. "보통"은 절반이 이보다 빨랐다는 값, "느린 쪽"은 100건 중 가장 느린 1건 언저리 값입니다.</p>
+
+  <div class="sub">
+  <h4><em class="step-tag">1 · 09-22</em>실제 장 규모는 여유 있게 받는다</h4>
+  <p>09-21 실제 장 기록을 2,700종목 규모로 늘려, 보통 1초부터 가장 붐빈 1초까지 네 경우를 각각 20초 동안 넣었습니다. 네 경우 모두 <b>버린 것 0건</b>이고, 실제 시세 2,700종목을 받아 주문까지 한 바퀴는 평균 0.1초였습니다(기준 1초).</p>
+  <div data-lchart="1"></div>
+  <div class="tbl"><table>
+    <thead><tr><th>상황</th><th class="n">1초에 들어온 체결</th><th class="n">버린 것</th><th class="n">주문 처리 보통</th><th class="n">느린 쪽</th><th class="n">코어 사용(16개 중)</th></tr></thead>
+    <tbody>
+      <tr><td>보통 1초<br><small>중앙값</small></td><td class="n">1,591</td><td class="n">0%</td><td class="n">6.5ms</td><td class="n">35.5ms</td><td class="n">0.03개</td></tr>
+      <tr><td>붐비는 1초<br><small>상위 10%</small></td><td class="n">5,464</td><td class="n">0%</td><td class="n">3.6ms</td><td class="n">17.5ms</td><td class="n">0.02개</td></tr>
+      <tr><td>많이 붐비는 1초<br><small>상위 1%</small></td><td class="n">17,437</td><td class="n">0%</td><td class="n">2.7ms</td><td class="n">50.0ms</td><td class="n">0.05개</td></tr>
+      <tr class="hl"><td>가장 붐빈 1초<br><small>최대</small></td><td class="n">73,266</td><td class="n">0%</td><td class="n">3.7ms</td><td class="n">81.9ms</td><td class="n">0.20개</td></tr>
+    </tbody>
+  </table></div>
+  <p class="note"><b>"실제 장"이 무엇인가</b> — 09-21(월) 모의매매를 하던 날 엔진이 증권사에서 실시간으로 받은 체결 기록입니다(PYQuant/data/ticks_raw/ticks_1789947365.bin). 주문은 모의계좌였지만 시세는 실제 한국 시장 것입니다. 증권사가 계좌 하나에 실시간 시세를 41종목까지만 주므로 39종목, 6시간 20분 동안 체결 891,670건이 들어 있습니다. 이 기록을 1초 단위로 세어 중앙값·상위 10%·상위 1%·가장 많았던 1초를 골라 2,700종목 규모로 늘렸습니다(×2,700/39). 39종목은 거래가 많은 종목 위주라 늘린 값은 실제 전체 시장보다 넉넉한 쪽입니다.</p>
+  <p class="note"><b>코어 0.2개가 맞나</b> — 09-22 값은 2초마다 CPU 사용률을 읽은 표본 평균이라 거칠었습니다(같은 줄 안에서도 0~0.48개). 09-28에 같은 설정으로 다시 돌려 프로그램이 쓴 CPU 시간 전체를 걸린 시간으로 나눠 보니, 가장 붐빈 1초 조건에서 <b>CPU 2.33초 ÷ 22.1초 = 0.105개</b>였습니다. 체결 한 건에 CPU 약 1.6µs(100만분의 1.6초)이고, 1초에 7만 3천 건이면 0.12초어치 일이라 맞는 값입니다. 할 일이 없을 때는 쉬도록 짜여 있어 받는 양에 비례해서만 CPU를 씁니다. 다만 이 값은 <b>엔진 안쪽 처리만</b>입니다 — 시험용 프로그램이 시세를 직접 넣어 증권사에서 받아 글자를 푸는 일이 빠졌고, 20초 동안 낸 주문도 34~55건뿐이었습니다. 실제 장에서 운영 중인 프로그램(41종목, 받기·풀기 포함)은 09-28 평균 코어 0.03개, 가장 높을 때 0.145개였습니다.</p>
+  </div>
+
+  <div class="sub">
+  <h4><em class="step-tag">2 · 09-22</em>어디까지 넣어야 막히나 찾아봤다</h4>
+  <p>실제로는 일어날 수 없는 양을 일부러 넣어, 어디서 먼저 막히는지 봤습니다. 1초에 넣는 양을 10만 → 80만 건으로 올렸습니다.</p>
+  <div data-lchart="2"></div>
+  <div class="tbl"><table>
+    <thead><tr><th class="n">1초에 넣은 양</th><th class="n">받는 쪽이 버린 것</th><th class="n">판단까지 간 것</th><th class="n">판단 쪽으로 넘기다 버린 것</th></tr></thead>
+    <tbody>
+      <tr><td class="n">10만</td><td class="n">0</td><td class="n">99,891</td><td class="n">0</td></tr>
+      <tr><td class="n">20만</td><td class="n">0</td><td class="n">199,475</td><td class="n">0</td></tr>
+      <tr><td class="n">40만</td><td class="n">0</td><td class="n">365,247</td><td class="n">8.6%</td></tr>
+      <tr class="hl"><td class="n">80만</td><td class="n">0</td><td class="n">415,221 (한계)</td><td class="n">48%</td></tr>
+    </tbody>
+  </table></div>
+  <p class="note">받는 쪽은 80만 건을 다 받았고, 판단 쪽으로 넘기는 통로가 1초 약 41만 건에서 찼습니다. 실제 장의 가장 붐빈 1초(7만 3천 건)의 약 5.6배입니다.</p>
+  </div>
+
+  <div class="sub">
+  <h4><em class="step-tag">3 · 09-23</em>주문이 느린 이유를 재서 찾고 고쳤다</h4>
+  <p>주문 한 건이 창구를 지나는 길을 구간별로 나눠 시간을 쟀습니다. 가장 큰 몫은 예상했던 한도 확인이나 전송이 아니라, <b>아직 체결 안 된 주문 목록 파일(951줄, 30KB)을 주문 한 건마다 통째로 다시 쓰는 일</b>이었습니다. 한 구간이 창구 시간의 53%였고, 주문 27,042건이면 디스크에 800MB를 쓰는 셈이었습니다.</p>
+  <p>이 파일 쓰기를 주문 창구에서 떼어 전담 일꾼에게 넘겼고(1단계), 남은 파일 쓰기 둘(주문 장부 한 줄·사유 한 줄)도 같은 방식으로 뺐습니다(2단계). 같은 기계 부하에서 비교하려고 고친 것과 고치기 전 것을 몇 분 간격으로 번갈아 돌렸습니다.</p>
+  <div data-lchart="6"></div>
+  <div class="tbl"><table>
+    <thead><tr><th>단계</th><th class="n">창구 처리(보통) 전 → 후</th><th class="n">첫 60초에 받은 주문 전 → 후</th><th class="n">빨라진 배수</th></tr></thead>
+    <tbody>
+      <tr><td>1단계 · 목록 파일 쓰기를 뗌</td><td class="n">3.6 → 2.0ms</td><td class="n">11,404 → 19,227건</td><td class="n">1.81배</td></tr>
+      <tr><td>2단계 · 남은 파일 쓰기 둘을 뗌</td><td class="n">2.6 → 1.8ms</td><td class="n">14,849 → 25,534건</td><td class="n">1.45배</td></tr>
+      <tr class="hl"><td>합쳐서</td><td class="n">—</td><td class="n">—</td><td class="n">약 2.6배</td></tr>
+    </tbody>
+  </table></div>
+  <p class="note">두 단계는 다른 시각에 쟀으므로 전후 값을 이어 붙이지 않고 배수만 곱했습니다(1.81 × 1.45). 파일 쓰기가 빠지자 다음으로 느린 곳이 드러났습니다 — 주문 창구와 체결 알림이 같은 잠금을 두고 기다리는 자리입니다. 이것은 5번에서 엔진을 셋으로 나누면서 사라졌습니다.</p>
+  </div>
+
+  <div class="sub">
+  <h4><em class="step-tag">4 · 09-23 → 09-26</em>가장 좁은 곳은 데이터베이스 기록이었고, 원인을 하나씩 고치고 있다</h4>
+  <p>엔진은 주문·체결·신호·시세를 내보내고, 따로 도는 파이썬 적재 프로그램이 그것을 받아 데이터베이스에 넣습니다. 09-23에 이 적재 프로그램을 붙이자 <b>데이터베이스에는 1초에 272~372줄만 들어갔습니다.</b></p>
+  <div class="box">
+    <span class="label">왜 1초에 300줄 안팎이었나</span>
+    <ol class="plain">
+      <li><b>한 줄씩 따로 넣었습니다.</b> 적재 프로그램이 한 줄을 받을 때마다 데이터베이스에 넣고, "넣었다"는 답을 받은 뒤에야 다음 줄을 받았습니다. 1초에 285줄이면 한 줄에 평균 약 3.5ms입니다. 넣는 일 자체보다 한 번 오가는 데 드는 고정 시간이 대부분이라, 줄이 많아져도 1초에 오갈 수 있는 횟수가 늘지 않습니다.</li>
+      <li><b>받는 쪽이 하나뿐이었습니다.</b> 엔진은 여러 일꾼이 기록을 내는데, 받아서 넣는 쪽은 파이썬 프로그램 하나였습니다. 앞의 한 줄이 끝나야 다음 줄을 넣으니 나눠서 빨리 할 방법이 없었습니다.</li>
+      <li><b>데이터베이스까지 가는 길이 한 번 더 돌아갔습니다.</b> 데이터베이스는 이 윈도우 컴퓨터 안의 리눅스(WSL)에서 도는데, 윈도우에서 들어가는 길에 중계 프로그램을 한 번 더 거쳤습니다. 09-26에 재 보니 500줄을 한 번 쓰는 데 중계를 거치면 0.044초, 직접 가면 0.001초였습니다. 09-23에도 같은 길이었습니다.</li>
+      <li><b>못 넣은 것은 엔진 쪽에서 버려졌습니다.</b> 엔진은 내보낼 기록을 보관함(최대 10만 건)에 잠시 담아 두는데, 받는 쪽이 느려 보관함이 차면 새 기록을 버립니다. 엔진이 받은 주문 중 데이터베이스까지 간 것은 22~31%였습니다. 엔진이 멈추지 않게 일부러 그렇게 만든 것이라, 매매는 계속됐지만 기록이 빠졌습니다.</li>
+    </ol>
+    <span class="note">넣는 양을 2.3배로 올려도 데이터베이스에 들어간 줄 수는 늘지 않았습니다(285 → 372 → 272줄). 엔진이 아니라 받는 쪽의 천장이라는 뜻입니다. 엔진 쪽에서 기록을 내보내는 데 드는 시간은 주문 한 건에 0.008ms로 그대로였습니다.</span>
+  </div>
+  <p>그래서 원인을 하나씩 고쳤습니다. 아래는 엔진부터 데이터베이스까지 전체를 붙인 큰 시험에서 잰 값만 적었습니다.</p>
+  <div data-lchart="5"></div>
+  <div class="tbl"><table>
+    <thead><tr><th>날짜</th><th>고친 것</th><th class="n">1초에 넣은 줄</th><th>필요량(1초 약 17만 줄) 대비</th></tr></thead>
+    <tbody>
+      <tr><td>09-23</td><td>고치기 전: 한 줄씩 따로 넣음</td><td class="n">285</td><td>0.2%</td></tr>
+      <tr class="hl"><td>09-26</td><td>원인 1: 500줄씩 묶어 넣음</td><td class="n">11,460</td><td>7%</td></tr>
+    </tbody>
+  </table></div>
+  <p class="note">묶어 넣은 뒤(11,460줄)에도 느렸던 이유는 단계별로 재서 찾았습니다. 엔진이 낸 기록 5,215만 줄 중 5분 안에 들어간 것은 347만 줄(6.7%)이었고, 줄을 데이터베이스 형식으로 바꾸는 일은 1초 115만 줄 이상으로 충분했으며, 느린 곳은 쓰기 하나(1초 약 1만 줄)였습니다. 남은 두 원인(중계를 거치는 길, 받는 쪽이 하나뿐)은 코드로 고쳐 두었고(중계를 건너뛰고 통째로 넣기, 엔진 안에 기록 전담 일꾼 두기), 전체를 붙인 큰 시험으로 다시 재어 이 표에 더합니다.</p>
+  </div>
+
+  <div class="sub">
+  <h4><em class="step-tag">5 · 09-25 → 09-26</em>엔진을 셋으로 나눠도 같은 주문이 나오고, 하나가 죽으면 알아채게 했다</h4>
+  <p>한 프로그램(한 덩어리)이던 엔진을 시세 받기·판단·주문 셋으로 나눴습니다. 나눈 뒤에도 똑같이 동작하는지, 빨라졌는지, 하나가 멈추면 나머지가 알아채는지 봤습니다.</p>
+  <div data-lchart="3"></div>
+  <div class="tbl"><table>
+    <thead><tr><th>판</th><th>보는 것</th><th class="n">한 덩어리</th><th class="n">세 덩어리</th></tr></thead>
+    <tbody>
+      <tr><td rowspan="2">작은 판<br><small>300종목 · 30만 주문</small></td><td>나온 주문이 서로 맞는가</td><td class="n">13,685건</td><td class="n"><b>13,685건 모두 같음</b></td></tr>
+      <tr><td>체결 들어와서 주문 끝날 때까지 (보통)</td><td class="n">10.8ms</td><td class="n">6.5ms</td></tr>
+      <tr><td rowspan="3">가장 큰 판<br><small>2,700종목 · 2억 7천만 주문</small></td><td>체결 들어와서 주문 끝날 때까지 (보통)</td><td class="n">502ms</td><td class="n"><b>1.6ms</b></td></tr>
+      <tr><td>버린 시세</td><td class="n">9.1%</td><td class="n"><b>0</b></td></tr>
+      <tr><td>쌓여서 버린 주문</td><td class="n">15,557건</td><td class="n"><b>0</b></td></tr>
+    </tbody>
+  </table></div>
+  <p class="note">가장 큰 판은 개장 동시호가 거래대금 약 1.36조 원 규모입니다. 이 판에서도 처음에는 두 번 막혔고(2,700종목에 한꺼번에 몰리자 명단 칸이 모자라 주문 52,916건을 말없이 버림, 메모리가 모자라 79초에 멈춤), 둘 다 고친 뒤 위 값이 나왔습니다. 나눈 대신 켜는 데는 한 덩어리 2초, 세 덩어리 27~54초가 걸립니다.</p>
+  <p><b>하나가 죽으면 알아채나</b> — 한 부분을 일부러 멈춰 봤습니다. 새 부분이 자리를 이어받는 데는 2초였지만, 주문 부분이 죽은 걸 61초 뒤에야 알았고, 시세 부분이 죽었을 때는 아무도 몰랐습니다. 그래서 <b>시세가 90초 끊기면 새 주문을 막도록</b> 고쳤고, 다시 시험해 88초에 감지했습니다.</p>
+  </div>
+
+  <h3>아직 남은 것</h3>
+  <ul class="plain">
+    <li><b>데이터베이스 기록의 남은 두 원인은 고쳤지만 큰 시험으로 다시 재지 않았습니다.</b> 전체를 붙여 다시 재면 4번 표에 더합니다.</li>
+    <li><b>판단 쪽으로 넘기는 통로(1초 약 41만 건)</b>가 목표 규모와 비슷해 여유가 적습니다.</li>
+    <li><b>일부가 죽은 걸 알기까지 약 1분</b>이 걸립니다.</li>
+    <li>모든 시험을 컴퓨터 한 대에서, 대부분 한 번씩만 돌렸고, 증권사 대신 흉내 내는 프로그램을 썼습니다.</li>
+  </ul>
+
+  <details class="sub data">
+  <summary><b>시험 데이터는 이렇게 만들었습니다</b> <small class="note">(눌러서 펼치기)</small></summary>
+  <p class="note">같은 컴퓨터 안에 모의 거래소를 두고, 투입 프로그램이 가상 주문을 넣으면 모의 거래소가 서로 맞춰 체결을 만들고, 그 체결이 엔진에 실제 시세처럼 들어갑니다. 09-22 시험만은 모의 거래소 없이 체결 데이터를 엔진 안에 바로 넣었습니다.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>항목</th><th>값</th><th>왜 이렇게</th></tr></thead>
+    <tbody>
+      <tr><td>종목 수</td><td>2,700개</td><td class="why">전 시장(코스피+코스닥)을 한 번에 받는 규모. 2,433개는 자리를 채우려고 만든 종목.</td></tr>
+      <tr><td>주문 가격</td><td>기준가 둘레(흔들림 약 1%). 매수는 0.4% 높게, 매도는 0.4% 낮게</td><td class="why">사고파는 값이 겹쳐야 실제로 체결이 생깁니다.</td></tr>
+      <tr><td>주문 수량</td><td>시가총액 순위가 높을수록 크게</td><td class="why">대형주 몇 종목에 거래가 몰리는 실제 모양을 흉내.</td></tr>
+      <tr><td>흐름</td><td>장 전 주문 쌓기 → 동시호가 한 번에 체결 → 60초 장중 주문</td><td class="why">하루 중 가장 몰리는 개장 순간과 그 뒤를 차례로 재현.</td></tr>
+      <tr><td>난수 시드</td><td>20260923 고정</td><td class="why">매번 똑같은 데이터가 나와야 고치기 전후를 비교할 수 있습니다.</td></tr>
+      <tr><td>엔진 쪽 전략</td><td>시험용 전략(1번은 실제 전략 2,700개)</td><td class="why">돈 버는 전략이 아니라 주문 길을 계속 쓰게 하려는 것.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="tbl"><table>
+    <thead><tr><th>판 이름</th><th class="n">종목</th><th class="n">종목당 주문</th><th class="n">전체 주문</th><th>무엇을 보려고</th></tr></thead>
+    <tbody>
+      <tr><td>작은 판</td><td class="n">300</td><td class="n">1,000</td><td class="n">30만</td><td class="why">아무것도 버리지 않는 크기. 구조를 바꿔도 같은 주문이 나오는지 대조.</td></tr>
+      <tr><td>가장 큰 판</td><td class="n">2,700</td><td class="n">100,000</td><td class="n">2억 7천만</td><td class="why">개장 동시호가 거래대금 약 1.36조 원 규모. 실제로는 일어날 수 없는 양.</td></tr>
+    </tbody>
+  </table></div>
+  </details>
+  <p class="src">근거: docs/reports/stresstest/OVERVIEW.md · docs/reports/stresstest/2026-09-22_B_pre_split_baseline.md · docs/reports/stresstest/2026-09-23_db_ingest_cost.md · docs/reports/stresstest/data/*.csv</p>
+
+  <h3>용어 풀이</h3>
+  <div class="words">
+    <div><b>엔진</b>시세를 받고, 판단하고, 주문을 내는 매매 프로그램.</div>
+    <div><b>체결</b>어느 종목이 얼마에 몇 주 거래됐다는 알림 한 건. 시험에서는 실제 장 형식대로 만든 부하 테스트용 데이터를 썼다.</div>
+    <div><b>데이터베이스</b>매매 기록을 오래 보관하고 나중에 찾아보는 저장소. 이 컴퓨터에서는 윈도우 안의 리눅스(WSL)에서 돈다.</div>
+    <div><b>COPY</b>데이터베이스에 여러 줄을 한 번에 흘려 넣는 방식. 한 줄씩 넣을 때 매번 드는 확인 절차를 한 번으로 줄인다.</div>
+    <div><b>세 덩어리 엔진</b>시세 받기·판단·주문을 서로 다른 프로그램 셋이 나눠 맡는 구조.</div>
+    <div><b>동시호가</b>장 시작 전 주문을 모아 한꺼번에 체결하는 시간. 하루 중 가장 몰린다.</div>
+  </div>
+</section>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<script id="journal-data" type="application/json">/*JOURNAL_DATA*/</script>
+<script>
+(function(){
+  var tabs=[].slice.call(document.querySelectorAll('[role="tab"]'));
+  function show(id){
+    tabs.forEach(function(t){
+      var on=t.getAttribute('aria-controls')===id;
+      t.setAttribute('aria-selected',on?'true':'false');
+      t.tabIndex=on?0:-1;
+      document.getElementById(t.getAttribute('aria-controls')).hidden=!on;
+    });
+    try{localStorage.setItem('tab',id);}catch(e){}
+  }
+  tabs.forEach(function(t,index){
+    t.addEventListener('click',function(){show(t.getAttribute('aria-controls'));});
+    t.addEventListener('keydown',function(e){
+      if(e.key!=='ArrowRight'&&e.key!=='ArrowLeft'){return;}
+      var next=tabs[(index+(e.key==='ArrowRight'?1:tabs.length-1))%tabs.length];
+      next.focus();show(next.getAttribute('aria-controls'));
+    });
+  });
+  var start=(location.hash||'').slice(1);
+  if(!document.getElementById(start)||!/^(backtest|journal|load)$/.test(start)){
+    try{start=localStorage.getItem('tab')||'backtest';}catch(e){start='backtest';}
+  }
+  show(/^(backtest|journal|load)$/.test(start)?start:'backtest');
+
+  var data;
+  try{data=JSON.parse(document.getElementById('journal-data').textContent);}catch(e){return;}
+  var won=function(v){return (v>0?'+':v<0?'−':'')+Math.abs(v).toLocaleString('ko-KR')+'원';};
+  var esc=function(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});};
+  var pillOf={'이익':'pass','손해':'fail','매매 없음':'hold','확인 불가':'hold'};
+
+  // 표 칸 글자에서 앞머리 숫자만 읽는다("+278.5만"→278.5, "−56.0%"→-56). 숫자로 시작하지 않으면 null
+  function parseNum(text){
+    var match=String(text==null?'':text).trim().replace(/−/g,'-').replace(/,/g,'').match(/^[+\-]?\d+(\.\d+)?/);
+    return match?parseFloat(match[0]):null;
+  }
+
+  // 가로 막대그래프. items=[{label,value,text,hl,cls}], option={title,note,log,marker,markerText,better}
+  function hbar(items,option){
+    option=option||{};
+    items=items.filter(function(item){return item.value!=null&&isFinite(item.value);});
+    if(items.length<2){return '';}
+    var scale=function(value){return option.log?Math.log10(Math.max(value,1)):value;};
+    var scaled=items.map(function(item){return scale(item.value);});
+    if(option.marker!=null){scaled.push(scale(option.marker));}
+    var low=option.log?0:Math.min(0,Math.min.apply(null,scaled));
+    var high=Math.max(0,Math.max.apply(null,scaled));
+    var span=(high-low)||1;
+    var percent=function(value){return ((value-low)/span*100).toFixed(2);};
+    var best=null;
+    if(option.better){
+      best=items.reduce(function(chosen,item){
+        return chosen===null||(option.better==='low'?item.value<chosen.value:item.value>chosen.value)?item:chosen;
+      },null);
+    }
+
+    var zero=(!option.log&&low<0)?'<span class="hb-zero" style="left:'+percent(0)+'%"></span>':'';
+    var mark=option.marker!=null?'<span class="hb-mark" style="left:'+percent(scale(option.marker))+'%"></span>':'';
+    var rows=items.map(function(item){
+      var value=scale(item.value);
+      var start=Math.min(value,option.log?0:0);
+      var end=Math.max(value,0);
+      var width=Math.max(0.6,(end-start)/span*100);
+      var className=(item.value<0?'neg ':'')+(item.cls||'');
+      return '<span class="hb-label'+(item.hl?' hl':'')+'">'+esc(item.label)+'</span>'
+        +'<span class="hb-track">'+zero+mark+'<i class="'+className+'" style="left:'+percent(start)+'%;width:'+width.toFixed(2)+'%"></i></span>'
+        +'<span class="hb-val'+(item===best?' best':'')+'">'+esc(item.text!=null?item.text:item.value)+'</span>';
+    }).join('');
+    return '<div class="chart" role="img" aria-label="'+esc(option.title||'막대그래프')+'">'
+      +(option.title?'<span class="c-title">'+esc(option.title)+'</span>':'')
+      +'<div class="hbar">'+rows+'</div>'
+      +(option.markerText?'<span class="c-note">점선: '+esc(option.markerText)+'</span>':'')
+      +(option.log?'<span class="c-note">값 차이가 커서 막대 길이는 10배마다 같은 간격(로그 눈금)으로 그렸습니다.</span>':'')
+      +(option.note?'<span class="c-note">'+esc(option.note)+'</span>':'')+'</div>';
+  }
+
+  // 쌓은 가로 막대. rows=[{label,parts:[{value,cls,name}],text}], legend=[[cls,name]]
+  function stackbar(rows,option){
+    var total=function(row){return row.parts.reduce(function(sum,part){return sum+(part.value||0);},0);};
+    var max=Math.max.apply(null,rows.map(total).concat([1]));
+    var body=rows.map(function(row){
+      var width=(total(row)/max*100).toFixed(2);
+      var parts=row.parts.map(function(part){
+        var share=total(row)?(part.value||0)/total(row)*100:0;
+        return share>0?'<i class="'+part.cls+'" style="width:'+share.toFixed(2)+'%" title="'+esc(part.name+' '+part.value)+'"></i>':'';
+      }).join('');
+      return '<span class="hb-label">'+esc(row.label)+'</span><span class="hb-track"><span class="hb-stack" style="width:'+width+'%">'+parts+'</span></span><span class="hb-val">'+esc(row.text)+'</span>';
+    }).join('');
+    var legend='<div class="legend">'+option.legend.map(function(pair){return '<span class="'+pair[0]+'" style="background:none!important">'+esc(pair[1])+'</span>';}).join('')+'</div>';
+    return '<div class="chart" role="img" aria-label="'+esc(option.title)+'"><span class="c-title">'+esc(option.title)+'</span>'+legend+'<div class="hbar">'+body+'</div>'
+      +(option.note?'<span class="c-note">'+esc(option.note)+'</span>':'')+'</div>';
+  }
+
+  // 꺾은선(누적값). points=[{label,value}]
+  function linechart(points,option){
+    var width=640,height=220,left=58,right=14,top=16,bottom=30;
+    var values=points.map(function(point){return point.value;});
+    var low=Math.min(0,Math.min.apply(null,values)),high=Math.max(0,Math.max.apply(null,values));
+    // 눈금은 0을 지나는 반올림한 간격(1·2·5×10^n)으로 잡는다
+    var rough=((high-low)||1)/4,power=Math.pow(10,Math.floor(Math.log10(rough)));
+    var step=[1,2,5,10].map(function(unit){return unit*power;}).filter(function(value){return value>=rough;})[0];
+    low=Math.floor(low/step)*step;high=Math.ceil(high/step)*step;
+    var span=high-low;
+    var x=function(index){return left+(points.length<2?0:index/(points.length-1)*(width-left-right));};
+    var y=function(value){return top+(high-value)/span*(height-top-bottom);};
+    var tickValues=[];for(var tick=low;tick<=high+step/2;tick+=step){tickValues.push(Math.round(tick));}
+    var ticks=tickValues.map(function(value){
+      return '<text x="'+(left-6)+'" y="'+(y(value)+4).toFixed(1)+'" text-anchor="end">'+(value/10000).toFixed(0)+'만</text>';
+    }).join('');
+    var path=points.map(function(point,index){return (index?'L':'M')+x(index).toFixed(1)+' '+y(point.value).toFixed(1);}).join(' ');
+    var dots=points.map(function(point,index){
+      return '<circle class="dot'+(point.value<0?' neg':'')+'" cx="'+x(index).toFixed(1)+'" cy="'+y(point.value).toFixed(1)+'" r="3.5"><title>'+esc(point.label+' '+won(point.value))+'</title></circle>'
+        +'<text x="'+x(index).toFixed(1)+'" y="'+(height-10)+'" text-anchor="middle">'+esc(point.label)+'</text>';
+    }).join('');
+    return '<div class="chart line" role="img" aria-label="'+esc(option.title)+'"><span class="c-title">'+esc(option.title)+'</span>'
+      +'<svg viewBox="0 0 '+width+' '+height+'"><line class="axis" x1="'+left+'" x2="'+(width-right)+'" y1="'+top+'" y2="'+top+'"/><line class="axis" x1="'+left+'" x2="'+(width-right)+'" y1="'+(height-bottom)+'" y2="'+(height-bottom)+'"/>'
+      +'<line class="zero" x1="'+left+'" x2="'+(width-right)+'" y1="'+y(0).toFixed(1)+'" y2="'+y(0).toFixed(1)+'"/>'+ticks+'<path class="path" d="'+path+'"/>'+dots+'</svg>'
+      +(option.note?'<span class="c-note">'+esc(option.note)+'</span>':'')+'</div>';
+  }
+
+  // 백테스트: 시험마다 케이스 비교표를 그 항목의 dl 안 "비교표" 칸에 넣는다
+  var btTables=data.bt_tables||{};
+  var btSpecs=data.bt_specs||{};
+  function specHtml(spec){
+    if(!spec){return '';}
+    var html='';
+    if(spec.data){html+='<dt>데이터와 기간</dt><dd>'+esc(spec.data)+'</dd>';}
+    if(spec.rule){html+='<dt>사고판 규칙</dt><dd>'+esc(spec.rule)+'</dd>';}
+    if(spec.terms&&spec.terms.length){
+      html+='<dt>나온 말과 수치</dt><dd class="sub"><div class="tbl"><table><thead><tr><th>말</th><th>무엇인가</th><th>이 시험에서 쓴 값</th></tr></thead><tbody>'
+        +spec.terms.map(function(term){return '<tr><td><b>'+esc(term.name)+'</b></td><td class="why">'+esc(term.plain)+'</td><td>'+esc(term.value)+'</td></tr>';}).join('')
+        +'</tbody></table></div></dd>';
+    }
+    if(spec.criteria&&spec.criteria.length){
+      var passed=spec.criteria.filter(function(criterion){return criterion.pass===true;}).length;
+      html+='<dt>합격 기준</dt><dd class="sub"><b>'+spec.criteria.length+'개 중 '+passed+'개 통과</b><div class="tbl"><table><thead><tr><th>기준</th><th>넘어야 할 값</th><th>이 시험 값</th><th>판정</th></tr></thead><tbody>'
+        +spec.criteria.map(function(criterion){
+          var mark=criterion.pass===true?'<td class="ok">통과</td>':criterion.pass===false?'<td class="no">미달</td>':'<td>–</td>';
+          return '<tr><td>'+esc(criterion.name)+'</td><td>'+esc(criterion.threshold)+'</td><td>'+esc(criterion.result)+'</td>'+mark+'</tr>';
+        }).join('')+'</tbody></table></div></dd>';
+    }
+    return html;
+  }
+  function tableChart(table,spec){
+    var chart=spec&&spec.chart;
+    if(!chart||chart.column==null){return '';}
+    var items=table.rows.map(function(row,rowIndex){
+      return {label:row[0],value:parseNum(row[chart.column]),text:row[chart.column],hl:rowIndex===table.highlight};
+    });
+    return hbar(items,{title:chart.title||table.columns[chart.column],better:chart.better,note:chart.better==='low'?'짧을수록 좋습니다. 굵은 값이 가장 좋은 케이스.':'길수록 좋습니다. 굵은 값이 가장 좋은 케이스.'});
+  }
+  document.querySelectorAll('#backtest details').forEach(function(item){
+    var numberNode=item.querySelector('.no');
+    var key=numberNode&&numberNode.textContent.trim();
+    var table=key&&btTables[key];
+    var spec=key&&btSpecs[key];
+    var detail=item.querySelector('dl.detail');
+    var firstTerm=detail&&detail.querySelector('dt');
+    var specBlock=specHtml(spec);
+    if(specBlock&&firstTerm){
+      var resultTerm=Array.prototype.find.call(detail.querySelectorAll('dt'),function(term){return term.textContent==='결과';})||firstTerm;
+      resultTerm.insertAdjacentHTML('beforebegin',specBlock);
+    }
+
+    if(!table||!table.rows||!table.rows.length){return;}
+    var head='<tr>'+table.columns.map(function(column,index){return '<th'+(index?' class="n"':'')+'>'+esc(column)+'</th>';}).join('')+'</tr>';
+    var body=table.rows.map(function(row,rowIndex){
+      return '<tr'+(rowIndex===table.highlight?' class="hl"':'')+'>'+row.map(function(cell,index){return '<td'+(index?' class="n"':'')+'>'+esc(cell)+'</td>';}).join('')+'</tr>';
+    }).join('');
+    var html='<dt>케이스 비교</dt><dd class="sub"><b>'+esc(table.caption)+'</b>'+tableChart(table,spec)+'<div class="tbl"><table><thead>'+head+'</thead><tbody>'+body+'</tbody></table></div>'
+      +(table.note?'<span class="note">'+esc(table.note)+'</span>':'')+(table.source?'<span class="src">'+esc(table.source)+'</span>':'')+'</dd>';
+    var conclusion=Array.prototype.find.call(detail.querySelectorAll('dt'),function(term){return term.textContent==='그래서';});
+    if(conclusion){conclusion.insertAdjacentHTML('beforebegin',html);}else{detail.insertAdjacentHTML('beforeend',html);}
+  });
+
+  document.getElementById('j-overview').textContent=(data.overview&&data.overview.note)||'';
+  document.getElementById('j-phases').innerHTML=(data.phases||[]).map(function(p){
+    return '<li><span class="range">'+esc(p.range)+'</span><b>'+esc(p.title)+'</b><span>'+esc(p.text)+'</span></li>';
+  }).join('');
+
+  var days=data.days||[];
+  var withPnl=days.filter(function(d){return typeof d.pnl==='number';});
+  var max=Math.max.apply(null,withPnl.map(function(d){return Math.abs(d.pnl);}).concat([1]));
+  document.getElementById('j-chart').innerHTML=withPnl.map(function(d){
+    var h=Math.max(2,Math.round(Math.abs(d.pnl)/max*100));
+    var cls=d.pnl>=0?'up':'down';
+    return '<div class="dc-col" title="'+esc(d.date+' '+won(d.pnl))+'"><div class="dc-half top">'+(d.pnl>=0?'<i class="'+cls+'" style="height:'+h+'%"></i>':'')+'</div><div class="dc-half bottom">'+(d.pnl<0?'<i class="'+cls+'" style="height:'+h+'%"></i>':'')+'</div><span class="dc-label">'+esc(d.date.slice(5))+'</span><span class="dc-val">'+esc((d.pnl>0?'+':'')+(d.pnl/10000).toFixed(Math.abs(d.pnl)>=100000?0:1))+'만</span></div>';
+  }).join('');
+
+  // 부하 시험: 이야기마다 표 위에 같은 값으로 그래프를 그린다(값은 바로 아래 표와 같다)
+  var loadCharts={
+    1:hbar([
+        {label:'보통 1초',value:1591,text:'1,591건'},{label:'붐비는 1초',value:5464,text:'5,464건'},
+        {label:'많이 붐비는 1초',value:17437,text:'17,437건'},{label:'가장 붐빈 1초',value:73266,text:'73,266건',hl:true}],
+        {title:'1초에 들어온 체결 — 네 경우 모두 버린 것 0%'})
+      +hbar([
+        {label:'보통 1초',value:35.5,text:'보통 6.5 · 느린 쪽 35.5ms'},{label:'붐비는 1초',value:17.5,text:'보통 3.6 · 느린 쪽 17.5ms'},
+        {label:'많이 붐비는 1초',value:50.0,text:'보통 2.7 · 느린 쪽 50.0ms'},{label:'가장 붐빈 1초',value:81.9,text:'보통 3.7 · 느린 쪽 81.9ms',hl:true,cls:'s-b'}],
+        {title:'주문 처리 시간 — 느린 쪽(100건 중 가장 느린 1건 언저리)',note:'들어오는 양이 46배로 늘어도 보통 처리 시간은 늘지 않았습니다.'}),
+    2:stackbar([
+        {label:'1초 10만 넣음',text:'99,891 도착',parts:[{value:99891,cls:'s-c',name:'판단까지 감'},{value:109,cls:'s-d',name:'못 감'}]},
+        {label:'1초 20만 넣음',text:'199,475 도착',parts:[{value:199475,cls:'s-c',name:'판단까지 감'},{value:525,cls:'s-d',name:'못 감'}]},
+        {label:'1초 40만 넣음',text:'8.6% 버림',parts:[{value:365247,cls:'s-c',name:'판단까지 감'},{value:34753,cls:'s-d',name:'못 감'}]},
+        {label:'1초 80만 넣음',text:'48% 버림',parts:[{value:415221,cls:'s-c',name:'판단까지 감'},{value:384779,cls:'s-d',name:'못 감'}]}],
+        {title:'넣은 양 중 판단까지 간 것',legend:[['s-c','판단까지 감'],['s-d','넘기다 버림']],note:'초록이 1초 약 41만 건에서 더 길어지지 않습니다. 그 지점이 받는 쪽 → 판단 쪽 통로의 한계입니다.'}),
+    3:hbar([
+        {label:'작은 판 · 한 덩어리',value:10.8,text:'10.8ms',cls:'dim'},{label:'작은 판 · 세 덩어리',value:6.5,text:'6.5ms'},
+        {label:'가장 큰 판 · 한 덩어리',value:502,text:'502ms',cls:'dim'},{label:'가장 큰 판 · 세 덩어리',value:1.6,text:'1.6ms',hl:true}],
+        {title:'체결 들어와서 주문 끝날 때까지(보통) — 회색 한 덩어리, 파랑 세 덩어리',log:true}),
+    6:hbar([
+        {label:'1단계 전',value:3.6,text:'3.6ms',cls:'dim'},{label:'1단계 후(목록 파일 쓰기 뗌)',value:2.0,text:'2.0ms · 1.81배'},
+        {label:'2단계 전',value:2.6,text:'2.6ms',cls:'dim'},{label:'2단계 후(남은 파일 쓰기 뗌)',value:1.8,text:'1.8ms · 1.45배',hl:true}],
+        {title:'주문 한 건이 창구를 지나는 시간(보통) — 회색 고치기 전, 파랑 고친 뒤',note:'두 단계는 다른 시각에 쟀습니다. 합친 효과는 배수를 곱한 약 2.6배입니다.'}),
+    5:hbar([
+        {label:'09-23 한 줄씩',value:285,text:'285줄',cls:'s-d'},{label:'09-26 500줄 묶음',value:11460,text:'11,460줄',hl:true,cls:'s-b'},
+        ],
+        {title:'1초에 데이터베이스에 넣은 줄 수',log:true,marker:170000,markerText:'필요량 1초 약 17만 줄'})
+  };
+  document.querySelectorAll('[data-lchart]').forEach(function(slot){slot.innerHTML=loadCharts[slot.getAttribute('data-lchart')]||'';});
+
+  var running=0;
+  var cumulative=withPnl.filter(function(d){return d.date>='2026-09-08';}).map(function(d){
+    running+=d.pnl;
+    return {label:d.date.slice(5),value:running};
+  });
+  // 기간·누적·늘어난 날은 일지 요약(days)에서 매번 계산한다 — 손으로 적은 숫자가 날짜를 따라가지 못해 10-02에 멈췄었다.
+  var won=function(value){return (value<0?'−':'+')+Math.abs(Math.round(value)).toLocaleString('ko-KR')+'원';};
+  var active=withPnl.filter(function(d){return d.date>='2026-09-08';});
+  var allDays=data.days.map(function(d){return d.date;}).sort();
+  var firstDay=allDays[0].slice(5), lastDay=allDays[allDays.length-1].slice(5);
+  var lastActive=active.length?active[active.length-1].date.slice(5):lastDay;
+  var upDays=active.filter(function(d){return d.pnl>0;}).length;
+  var worst=active.reduce(function(acc,d){return (!acc||d.pnl<acc.pnl)?d:acc;},null);
+  document.getElementById('j-headline').textContent='09-08부터 '+lastActive+'까지 본격적으로 매매한 '+active.length+'거래일 동안 계좌가 약 '+Math.abs(Math.round(running/10000))+'만 원 '+(running<0?'줄었습니다.':'늘었습니다.');
+  document.getElementById('j-period').textContent=firstDay+' ~ '+lastDay;
+  document.getElementById('j-period-note').textContent='일지 '+allDays.length+'편, 본격 매매는 09-08부터 '+active.length+'거래일';
+  document.getElementById('j-total-label').textContent=active.length+'거래일 계좌 변화';
+  document.getElementById('j-total').textContent=won(running);
+  document.getElementById('j-total-note').textContent='계좌(약 1억 원) 대비 약 '+(running/1e6).toFixed(1).replace('-','−')+'%';
+  document.getElementById('j-updays').textContent=active.length+'일 중 '+upDays+'일';
+  if(worst){document.getElementById('j-worst').textContent='가장 크게 준 날은 '+worst.date.slice(5)+'('+won(worst.pnl)+')';}
+  if(cumulative.length>1){
+    document.getElementById('j-cum').innerHTML=linechart(cumulative,{title:'본격 매매 '+active.length+'거래일(09-08~'+lastActive+') — 계좌 변화 누적',note:'09-08부터 날마다 "전날 대비" 값을 더한 선입니다. 마지막 점이 위 요약의 '+won(running)+'입니다.'});
+  }
+
+  var raw=data.raw||{};
+  var orders=data.orders||{};
+  var num=function(v){return v==null?'–':Number(v).toLocaleString('ko-KR');};
+  var orderRows=Object.keys(orders).sort().map(function(date){
+    var o=orders[date];
+    return {label:date.slice(5),text:num(o.total)+'줄',parts:[
+      {value:o.filled||0,cls:'s-fill',name:'체결'},{value:o.cancelled||0,cls:'s-can',name:'취소'},
+      {value:o.rejected||0,cls:'s-rej',name:'거부'},{value:o.accepted||0,cls:'s-acc',name:'접수'}]};
+  });
+  if(orderRows.length){
+    document.getElementById('j-orders').innerHTML=stackbar(orderRows,{title:'날짜별 주문 기록 줄 수',legend:[['s-fill','체결'],['s-can','취소'],['s-rej','거부'],['s-acc','접수']],note:'막대 길이는 그날 줄 수, 색은 종류별 비율입니다. 막대에 마우스를 올리면 종류별 수가 나옵니다.'});
+  }
+
+  var rejectTotals=data.reject_totals||[];
+  if(rejectTotals.length){
+    var rejectSum=rejectTotals.reduce(function(sum,pair){return sum+pair[1];},0);
+    document.getElementById('j-rejects').innerHTML=hbar(rejectTotals.slice(0,10).map(function(pair){
+      return {label:pair[0],value:pair[1],text:num(pair[1])+'건 ('+(pair[1]/rejectSum*100).toFixed(0)+'%)',cls:'s-rej'};
+    }),{title:'전체 기간 거부 이유 상위 10개 (모두 '+num(rejectSum)+'건)'});
+  }
+  var eventName={ACCEPTED:'접수',CANCELLED:'취소',REJECTED:'거부',RECONCILE:'잔고 대조'};
+  var eventClass={ACCEPTED:'ev-acc',CANCELLED:'ev-can',REJECTED:'ev-rej',FILL:'ev-fill',RECONCILE:'ev-can'};
+  function eventLabel(event,status){
+    if(event==='FILL'){return status==='FILLED'?'체결(전량)':'체결(일부)';}
+    return eventName[event]||event;
+  }
+  function orderSummary(date){
+    var o=orders[date];
+    if(!o){return '';}
+    var line='주문 기록 '+num(o.total)+'줄 — 접수 '+num(o.accepted)+' · 체결 '+num(o.filled)+' · 취소 '+num(o.cancelled)+' · 거부 '+num(o.rejected)
+      +'. 매수 '+num(o.buy)+' · 매도 '+num(o.sell)+', 종목 '+num(o.tickers)+'개';
+    if(o.realized_pnl!=null){line+=', 판 종목 손익 '+won(o.realized_pnl)+', 거래 금액 '+(o.notional/1e6).toFixed(1)+'백만 원';}
+    var rejects=(o.top_rejects||[]).map(function(r){return esc(r[0])+' '+num(r[1])+'건';}).join(' · ');
+    return '<dt>주문 로그</dt><dd>'+esc(line)+'.'+(rejects?'<br><span class="note">거부 이유: '+rejects+'</span>':'')+'</dd>';
+  }
+  var PAGE=300;
+  function renderOrders(box,date,filter,limit){
+    var o=orders[date];
+    var rows=o.rows.filter(function(r){return filter==='ALL'||r[1]===filter;});
+    var filters=[['ALL','전체'],['FILL','체결'],['ACCEPTED','접수'],['CANCELLED','취소'],['REJECTED','거부']];
+    var head='<div class="ofilter" role="group" aria-label="줄 종류 거르기">'+filters.map(function(f){
+      var count=f[0]==='ALL'?o.rows.length:o.rows.filter(function(r){return r[1]===f[0];}).length;
+      return '<button type="button" data-filter="'+f[0]+'" aria-pressed="'+(f[0]===filter)+'">'+f[1]+' '+count.toLocaleString('ko-KR')+'</button>';
+    }).join('')+'</div>';
+    var body=rows.slice(0,limit).map(function(r){
+      return '<tr><td>'+esc(r[0])+'</td><td><span class="ev '+(eventClass[r[1]]||'')+'">'+esc(eventLabel(r[1],r[2]))+'</span></td><td>'+esc(r[3])+'</td><td>'+(r[4]==='BUY'?'매수':r[4]==='SELL'?'매도':'')+'</td>'
+        +'<td class="n">'+esc(r[5])+'</td><td class="n">'+esc(r[6])+'</td><td class="n">'+esc(r[7]==='0'?'':r[7])+'</td><td class="n">'+esc(r[8]==='0'?'':r[8])+'</td><td class="n">'+esc(r[10])+'</td><td class="why">'+esc(r[9])+'</td></tr>';
+    }).join('');
+    var more=rows.length>limit?'<button type="button" class="more" data-more="'+(limit+PAGE)+'">다음 '+Math.min(PAGE,rows.length-limit)+'줄 더 보기 (남은 '+(rows.length-limit).toLocaleString('ko-KR')+'줄)</button>':'';
+    box.innerHTML=head+'<div class="otable"><table><thead><tr><th>시각</th><th>종류</th><th>종목</th><th>방향</th><th>주문 수량</th><th>주문 가격</th><th>체결 수량</th><th>체결 가격</th><th>손익</th><th>사유</th></tr></thead><tbody>'+body+'</tbody></table></div>'+more
+      +'<p class="src">원문: '+esc(o.source)+'</p>';
+    box.dataset.filter=filter;
+  }
+  document.getElementById('j-days').innerHTML=days.slice().reverse().map(function(d,index){
+    var key=d.strategy+'/'+d.date;
+    var pnl=typeof d.pnl==='number'?'<span class="dpnl '+(d.pnl>=0?'up':'down')+'">'+won(d.pnl)+'</span>':'<span class="dpnl none">손익 기록 없음</span>';
+    var happened=(d.happened||[]).map(function(h){return '<li>'+esc(h)+'</li>';}).join('');
+    return '<details class="day"><summary><span class="no">'+esc(d.date.slice(5))+'<small>'+esc(d.weekday||'')+'</small></span>'
+      +'<span class="q">'+esc(d.one_line)+'<small>'+(d.strategy==='ITB'?'보유분 정리 규칙(ITB)':'눌림목 매매(DeviationScale)')+(d.buys!=null?' · 매수 '+d.buys:'')+(d.sells!=null?' · 매도 '+d.sells:'')+'</small></span>'
+      +'<span class="right">'+pnl+'<span class="pill '+(pillOf[d.verdict]||'hold')+'">'+esc(d.verdict)+'</span></span></summary>'
+      +'<dl class="detail">'+(happened?'<dt>있었던 일</dt><dd><ul class="plain">'+happened+'</ul></dd>':'')
+      +(d.fixed?'<dt>고친 것</dt><dd>'+esc(d.fixed)+'</dd>':'')
+      +(d.next?'<dt>다음 날 볼 것</dt><dd>'+esc(d.next)+'</dd>':'')
+      +orderSummary(d.date)+'</dl>'
+      +(orders[d.date]?'<details class="raw orders" data-date="'+esc(d.date)+'"><summary>주문 로그 펼치기 ('+orders[d.date].rows.length.toLocaleString('ko-KR')+'줄)</summary><div class="olog"></div></details>':'')
+      +(raw[key]?'<details class="raw" data-key="'+esc(key)+'"><summary>일지 원문 펼치기</summary><div class="md"></div></details>':'')
+      +'</details>';
+  }).join('');
+  document.getElementById('j-days').addEventListener('toggle',function(e){
+    var el=e.target;
+    if(!el.classList||!el.classList.contains('raw')||!el.open){return;}
+    if(el.classList.contains('orders')){
+      var logBox=el.querySelector('.olog');
+      if(!logBox.dataset.filter){renderOrders(logBox,el.dataset.date,'ALL',PAGE);}
+      return;
+    }
+    var box=el.querySelector('.md');
+    if(box.dataset.done){return;}
+    var text=raw[el.dataset.key]||'';
+    box.innerHTML=window.marked?window.marked.parse(text):'<pre>'+esc(text)+'</pre>';
+    box.dataset.done='1';
+  },true);
+  document.getElementById('j-days').addEventListener('click',function(e){
+    var button=e.target.closest&&e.target.closest('.olog button');
+    if(!button){return;}
+    var logBox=button.closest('.olog');
+    var date=logBox.closest('details.orders').dataset.date;
+    if(button.dataset.filter){renderOrders(logBox,date,button.dataset.filter,PAGE);}
+    else if(button.dataset.more){renderOrders(logBox,date,logBox.dataset.filter,Number(button.dataset.more));}
+  });
+})();
+</script>
