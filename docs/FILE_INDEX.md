@@ -1443,6 +1443,8 @@
 - [check_backtest.py](../scripts/check_backtest.py) — 백테스트 재현성 검사 스크립트
 - [check_market_open.py](../scripts/check_market_open.py) — 오늘 개장인지 KIS 국내휴장일조회로 묻는다(달력 24일치 캐시, 종료코드 0 개장·1 휴장·2 모름)
 - [check_runtime_health.py](../scripts/check_runtime_health.py) — 실행 로그 장애 패턴 검사 스크립트
+- [daily_trade_report.html](../scripts/daily_trade_report.html) — 하루 매매 리포트 화면 틀(계좌 탭·국면·종목별 차트·주문 표·적재 현황·오류). daily_trade_report.py가 데이터와 차트 라이브러리를 채운다
+- [daily_trade_report.py](../scripts/daily_trade_report.py) — 모의·실계좌 하루 매매 리포트 생성기: 주문·체결 장부·원장 바이너리·체결 캡처·국면·DB 적재 수·매매일지·오류를 모아 _private/daily_reports/날짜.html로 만든다(평일 20:10 예약)
 - [dashboard_server.py](../scripts/dashboard_server.py) — 장중 매매 대시보드 서버(계좌·보유·국면·유니버스·차트·테마·종목 뉴스·증권사 리서치)
 - [deploy_guard.py](../scripts/deploy_guard.py) — 매매 창 안 트레이더 exe 교체를 막는 가드(A등급 결함은 --hotfix-a로 통과, D-101 결정 1)
 - [deploy_lock.py](../scripts/deploy_lock.py) — 트레이더 배포를 한 번에 하나만 돌게 하는 운영체제 파일 잠금. 뒤에 온 세션은 잡은 쪽(누구·PID·시작 시각)을 보며 기다린다

@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{TITLE}}</title>
+<!-- scripts/daily_trade_report.py가 채우는 틀. {{DATA}}에 그날 자료가 JSON으로 들어간다. -->
+<style>
+:root {
+  --bg: #f6f7f9; --card: #ffffff; --text: #1d2330; --muted: #667085; --line: #e3e6ec;
+  --buy: #d6336c; --sell: #1c7ed6; --ok: #2b8a3e; --warn: #e67700; --fail: #c92a2a; --accent: #5f3dc4;
+  --chip: #eef0f4;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1218; --card: #171b23; --text: #e6e9ef; --muted: #98a2b3; --line: #2a303b;
+    --buy: #ff6b8b; --sell: #4dabf7; --ok: #51cf66; --warn: #ffa94d; --fail: #ff6b6b; --accent: #9775fa;
+    --chip: #222834;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1218; --card: #171b23; --text: #e6e9ef; --muted: #98a2b3; --line: #2a303b;
+  --buy: #ff6b8b; --sell: #4dabf7; --ok: #51cf66; --warn: #ffa94d; --fail: #ff6b6b; --accent: #9775fa;
+  --chip: #222834;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font-family: system-ui, "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; font-size: 14px; line-height: 1.5; }
+header { position: sticky; top: 0; z-index: 5; background: var(--card); border-bottom: 1px solid var(--line);
+  padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+header h1 { font-size: 18px; margin: 0; }
+header .meta { color: var(--muted); font-size: 12px; }
+nav.tabs { display: flex; gap: 6px; margin-left: auto; }
+nav.tabs button, .filters select, .filters input { font: inherit; padding: 5px 12px; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--card); color: var(--text); cursor: pointer; }
+nav.tabs button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+main { max-width: 1280px; margin: 0 auto; padding: 16px; }
+section { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin-bottom: 16px; }
+section > h2 { font-size: 15px; margin: 0 0 10px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.card { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.card .label { color: var(--muted); font-size: 12px; }
+.card .value { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.pos { color: var(--buy); } .neg { color: var(--sell); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.chip { background: var(--chip); border-radius: 999px; padding: 2px 10px; font-size: 12px; }
+.chart-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(520px, 1fr)); gap: 14px; }
+@media (max-width: 600px) { .chart-grid { grid-template-columns: 1fr; } }
+.chart-card { border: 1px solid var(--line); border-radius: 8px; padding: 8px; min-width: 0; }
+.chart-card h3 { font-size: 14px; margin: 0 0 6px; display: flex; gap: 8px; align-items: baseline; }
+.chart-card h3 small { color: var(--muted); font-weight: 400; }
+.chart { height: 300px; }
+.legend { font-size: 11px; color: var(--muted); display: flex; gap: 12px; flex-wrap: wrap; margin: 4px 0; }
+.legend i { display: inline-block; width: 14px; border-top: 2px solid; vertical-align: middle; margin-right: 4px; }
+details { margin-top: 6px; }
+summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 12px; }
+th, td { border-bottom: 1px solid var(--line); padding: 4px 6px; text-align: left; vertical-align: top; white-space: nowrap; }
+th { color: var(--muted); font-weight: 500; position: sticky; top: 0; background: var(--card); }
+td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+td.reason { min-width: 240px; color: var(--muted); white-space: normal; }
+.BUY { color: var(--buy); font-weight: 600; } .SELL { color: var(--sell); font-weight: 600; }
+.tag { display: inline-block; border-radius: 4px; padding: 0 6px; font-size: 11px; font-weight: 600; }
+.tag.PASS { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
+.tag.WARN { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+.tag.FAIL { background: color-mix(in srgb, var(--fail) 18%, transparent); color: var(--fail); }
+.ev-FILL td { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.ev-REJECTED td:nth-child(2) { color: var(--fail); }
+.filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; font-size: 13px; }
+.kv dt { color: var(--muted); } .kv dd { margin: 0; font-variant-numeric: tabular-nums; }
+.empty { color: var(--muted); font-style: italic; }
+pre { white-space: pre-wrap; font-size: 12px; margin: 4px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title"></h1>
+  <span class="meta" id="meta"></span>
+  <nav class="tabs" id="tabs"></nav>
+</header>
+<main id="main"></main>
+{{CHART_LIBRARY}}
+<script id="data" type="application/json">{{DATA}}</script>
+<script>
+const report = JSON.parse(document.getElementById('data').textContent);
+const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const won = value => (value === '' || value == null || isNaN(value)) ? '' : Math.round(Number(value)).toLocaleString('ko-KR');
+const signed = value => { const n = Math.round(Number(value) || 0); return `<span class="${n > 0 ? 'pos' : n < 0 ? 'neg' : ''}">${n > 0 ? '+' : ''}${n.toLocaleString('ko-KR')}</span>`; };
+const escape = text => String(text ?? '').replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+const hhmm = epoch => new Date(epoch * 1000).toISOString().slice(11, 16);
+const minute = epoch => Math.floor(epoch / 60) * 60;
+let charts = [];
+
+document.getElementById('title').textContent = `매매 리포트 ${report.date}`;
+document.getElementById('meta').textContent = `만든 시각 ${report.generated}`;
+
+function chartOptions(height) {
+  return {
+    height, layout: { background: { color: 'transparent' }, textColor: css('--muted'), fontSize: 11 },
+    grid: { vertLines: { color: css('--line') }, horzLines: { color: css('--line') } },
+    rightPriceScale: { borderColor: css('--line') },
+    timeScale: { borderColor: css('--line'), timeVisible: true, secondsVisible: false },
+    crosshair: { mode: 0 }, localization: { priceFormatter: p => Math.round(p).toLocaleString('ko-KR') },
+  };
+}
+
+function regimeSection(account) {
+  const section = document.createElement('section');
+  const points = report.regime;
+  const last = points[points.length - 1];
+  section.innerHTML = `<h2>국면</h2>` + (last ? `
+    <div class="cards">
+      <div class="card"><div class="label">마지막 국면</div><div class="value">${escape(last.regime)}</div></div>
+      <div class="card"><div class="label">위험 점수</div><div class="value">${last.risk_score}</div></div>
+      <div class="card"><div class="label">신규 매수 배율</div><div class="value">${last.entry_scale}</div></div>
+      <div class="card"><div class="label">신규 진입 정지</div><div class="value">${last.entry_halt ? '예' : '아니오'}</div></div>
+    </div>
+    <div class="chips">${Object.entries(last.pct || {}).map(([k, v]) => `<span class="chip">${k} ${v > 0 ? '+' : ''}${v}%</span>`).join('')}</div>
+    <div class="legend"><span><i style="border-color:${css('--accent')}"></i>위험 점수(왼쪽)</span><span><i style="border-color:${css('--warn')}"></i>신규 매수 배율(오른쪽)</span><span>▲▼ ${account.label} 체결 시점</span></div>
+    <div class="chart" id="regime-chart" style="height:220px"></div>` : `<p class="empty">그날 국면 기록이 없다 (logs/regime_history.jsonl)</p>`);
+  return section;
+}
+
+function drawRegime(account) {
+  const element = document.getElementById('regime-chart');
+  if (!element || !report.regime.length) return;
+  const chart = LightweightCharts.createChart(element, { ...chartOptions(220),
+    leftPriceScale: { visible: true, borderColor: css('--line') } });
+  const score = chart.addLineSeries({ color: css('--accent'), lineWidth: 2, priceScaleId: 'left',
+    priceFormat: { type: 'price', precision: 0, minMove: 1 } });
+  score.setData(report.regime.filter(p => p.risk_score != null).map(p => ({ time: p.time, value: p.risk_score })));
+  const scale = chart.addLineSeries({ color: css('--warn'), lineWidth: 1, priceScaleId: 'right',
+    priceFormat: { type: 'price', precision: 2, minMove: 0.01 } });
+  scale.setData(report.regime.filter(p => p.entry_scale != null).map(p => ({ time: p.time, value: p.entry_scale })));
+  const times = new Set(report.regime.map(p => p.time));
+  const marks = account.charts.flatMap(c => c.marks).map(m => ({ ...m, time: minute(m.time) }))
+    .filter(m => times.has(m.time)).sort((a, b) => a.time - b.time)
+    .map(m => ({ time: m.time, position: m.side === 'BUY' ? 'belowBar' : 'aboveBar', color: css(m.side === 'BUY' ? '--buy' : '--sell'),
+                 shape: m.side === 'BUY' ? 'arrowUp' : 'arrowDown', text: m.ticker }));
+  score.setMarkers(marks);
+  chart.timeScale().fitContent();
+  charts.push(chart);
+}
+
+function summarySection(account) {
+  const s = account.summary;
+  const ledger = account.ledger;
+  const costs = ledger.exists && !ledger.error ? (ledger.commission || 0) + (ledger.tax || 0) : null;
+  const section = document.createElement('section');
+  section.innerHTML = `<h2>${account.label} 요약</h2>
+    <div class="cards">
+      <div class="card"><div class="label">접수</div><div class="value">${s.accepted}</div></div>
+      <div class="card"><div class="label">체결</div><div class="value">${s.fills}</div></div>
+      <div class="card"><div class="label">거부 · 취소</div><div class="value">${s.rejected} · ${s.cancelled}</div></div>
+      <div class="card"><div class="label">매수 금액</div><div class="value">${won(s.buy_amount)}</div></div>
+      <div class="card"><div class="label">매도 금액</div><div class="value">${won(s.sell_amount)}</div></div>
+      <div class="card"><div class="label">실현손익(장부)</div><div class="value">${signed(s.realized)}</div></div>
+      <div class="card"><div class="label">수수료+세금(원장)</div><div class="value">${costs == null ? '—' : won(costs)}</div></div>
+      <div class="card"><div class="label">마감 보유 종목</div><div class="value">${ledger.holdings ? ledger.holdings.length : '—'}</div></div>
+    </div>
+    ${s.reject_reasons.length ? `<details><summary>거부 사유 ${s.rejected}건</summary><div class="chips">${s.reject_reasons.map(([r, n]) => `<span class="chip">${escape(r)} ×${n}</span>`).join('')}</div></details>` : ''}
+    ${ledger.holdings && ledger.holdings.length ? `<details><summary>마감 보유 ${ledger.holdings.length}종목 (원장 기준)</summary><div class="chips">${ledger.holdings.map(h => `<span class="chip">${h.ticker} ${h.quantity}주 @${won(h.average)}</span>`).join('')}</div></details>` : ''}`;
+  return section;
+}
+
+function chartsSection(account) {
+  const section = document.createElement('section');
+  const traded = account.charts.filter(c => c.marks.length || c.spans.length);
+  section.innerHTML = `<h2>종목별 차트 <small style="color:var(--muted);font-weight:400">${traded.length}종목 · 1분봉(체결 캡처)</small></h2>
+    <div class="legend">
+      <span style="color:${css('--buy')}">▲ 매수 체결</span><span style="color:${css('--sell')}">▼ 매도 체결</span>
+      <span><i style="border-color:${css('--buy')};border-top-style:dashed"></i>매수 지정가 대기</span>
+      <span><i style="border-color:${css('--sell')};border-top-style:dashed"></i>매도 지정가 대기(익절 예약 등)</span>
+      <span><i style="border-color:${css('--fail')};border-top-style:dotted"></i>손절 기준선(조건 판정, 주문 아님)</span>
+    </div>
+    <div class="chart-grid" id="charts-${account.key}"></div>`;
+  return section;
+}
+
+function drawCharts(account) {
+  const grid = document.getElementById(`charts-${account.key}`);
+  const traded = account.charts.filter(c => c.marks.length || c.spans.length);
+  if (!traded.length) { grid.innerHTML = '<p class="empty">그날 주문이 없다</p>'; return; }
+  for (const item of traded) {
+    const card = document.createElement('div');
+    card.className = 'chart-card';
+    const buys = item.marks.filter(m => m.side === 'BUY'), sells = item.marks.filter(m => m.side === 'SELL');
+    const strategy = (item.marks[0] || {}).strategy || '';
+    card.innerHTML = `<h3>${item.ticker} <small>${escape(strategy.replace(/_\d+$/, ''))} · 매수 ${buys.length} · 매도 ${sells.length} · 지정가 ${item.spans.length}</small></h3>
+      <div class="chart"></div>
+      <details><summary>체결과 사유</summary><div class="table-wrap"><table>
+        <tr><th>시각</th><th>방향</th><th>수량</th><th>가격</th><th>사유</th></tr>
+        ${item.marks.map(m => `<tr><td>${hhmm(m.time)}</td><td class="${m.side}">${m.side === 'BUY' ? '매수' : '매도'}</td><td class="num">${m.quantity}</td><td class="num">${won(m.price)}</td><td class="reason">${escape(m.reason)}</td></tr>`).join('')}
+        ${item.spans.map(s => `<tr><td>${hhmm(s.start)}–${hhmm(s.end)}</td><td class="${s.side}">${s.side === 'BUY' ? '매수' : '매도'} 지정가</td><td class="num">${s.quantity}</td><td class="num">${won(s.price)}</td><td class="reason">${s.outcome} · ${escape(s.reason)}</td></tr>`).join('')}
+      </table></div></details>`;
+    grid.appendChild(card);
+    const element = card.querySelector('.chart');
+    if (!item.bars.length) { element.innerHTML = '<p class="empty">이 종목의 1분봉이 없다(캡처·백필 둘 다 없음)</p>'; element.style.height = 'auto'; continue; }
+    const chart = LightweightCharts.createChart(element, chartOptions(300));
+    const candles = chart.addCandlestickSeries({ upColor: css('--buy'), downColor: css('--sell'), borderVisible: false,
+      wickUpColor: css('--buy'), wickDownColor: css('--sell') });
+    candles.setData(item.bars);
+    const volume = chart.addHistogramSeries({ priceScaleId: 'volume', priceFormat: { type: 'volume' }, color: css('--line'),
+      lastValueVisible: false, priceLineVisible: false });
+    chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+    volume.setData(item.bars.map(b => ({ time: b.time, value: b.volume })));
+    const span = (from, to, price, color, style) => {
+      const line = chart.addLineSeries({ color, lineWidth: 2, lineStyle: style, lastValueVisible: false, priceLineVisible: false,
+        crosshairMarkerVisible: false });
+      const start = minute(from), end = Math.max(minute(to), start + 60);
+      line.setData([{ time: start, value: price }, { time: end, value: price }]);
+    };
+    for (const s of item.spans) span(s.start, s.end, s.price, css(s.side === 'BUY' ? '--buy' : '--sell'), 2);
+    for (const s of item.stops) span(s.start, Math.min(s.end, item.bars[item.bars.length - 1].time), s.price, css('--fail'), 1);
+    const barTimes = item.bars.map(b => b.time);
+    const snap = t => { const m = minute(t); let best = barTimes[0]; for (const b of barTimes) { if (b <= m) best = b; else break; } return best; };
+    candles.setMarkers(item.marks.map(m => ({ time: snap(m.time), position: m.side === 'BUY' ? 'belowBar' : 'aboveBar',
+      color: css(m.side === 'BUY' ? '--buy' : '--sell'), shape: m.side === 'BUY' ? 'arrowUp' : 'arrowDown',
+      text: `${m.quantity}@${won(m.price)}` })).sort((a, b) => a.time - b.time));
+    chart.timeScale().fitContent();
+    charts.push(chart);
+  }
+}
+
+function tableSection(account) {
+  const section = document.createElement('section');
+  const events = [...new Set(account.table.map(r => r.event))];
+  section.innerHTML = `<h2>주문·체결 표 <small style="color:var(--muted);font-weight:400">${account.trades_file}</small></h2>
+    <div class="filters">
+      <select data-filter="event"><option value="">전체 이벤트</option>${events.map(e => `<option>${e}</option>`).join('')}</select>
+      <input data-filter="ticker" placeholder="종목 코드" size="10">
+    </div>
+    <div class="table-wrap" style="max-height:520px;overflow:auto"><table>
+      <thead><tr><th>시각</th><th>이벤트</th><th>종목</th><th>전략</th><th>방향</th><th>유형</th><th>수량</th><th>가격</th><th>손익</th><th>사유</th></tr></thead>
+      <tbody></tbody></table></div>`;
+  const body = section.querySelector('tbody');
+  const draw = () => {
+    const event = section.querySelector('[data-filter=event]').value;
+    const ticker = section.querySelector('[data-filter=ticker]').value.trim();
+    const rows = account.table.filter(r => (!event || r.event === event) && (!ticker || r.ticker.includes(ticker)));
+    body.innerHTML = rows.map(r => `<tr class="ev-${r.event}"><td>${r.time}</td><td>${r.event}</td><td>${r.ticker}</td>
+      <td>${escape(r.strategy)}</td><td class="${r.side}">${r.side === 'BUY' ? '매수' : r.side === 'SELL' ? '매도' : r.side}</td><td>${r.type}</td>
+      <td class="num">${r.quantity}</td><td class="num">${won(r.price)}</td><td class="num">${r.realized ? signed(r.realized) : ''}</td>
+      <td class="reason">${escape(r.entry_reason)}${r.reason ? `<br><b style="color:var(--fail)">${escape(r.reason)}</b>` : ''}</td></tr>`).join('')
+      || '<tr><td colspan="10" class="empty">없음</td></tr>';
+  };
+  section.querySelectorAll('[data-filter]').forEach(e => e.addEventListener('input', draw));
+  draw();
+  return section;
+}
+
+function storageSection(account) {
+  const ledger = account.ledger, capture = account.capture, database = report.database;
+  const section = document.createElement('section');
+  const kinds = object => Object.entries(object || {}).map(([k, v]) => `<span class="chip">${k} ${Number(v).toLocaleString('ko-KR')}</span>`).join('');
+  let databaseHtml;
+  if (database.error) databaseHtml = `<p class="empty">DB 조회 못 함: ${escape(database.error)}</p>`;
+  else databaseHtml = `<dl class="kv">${Object.entries(database).filter(([k]) => k !== 'regime_row').map(([k, v]) =>
+      `<dt>${k}</dt><dd>${typeof v === 'object' ? Object.entries(v).map(([a, n]) => `${escape(a)} ${n}`).join(' · ') : (typeof v === 'number' ? v.toLocaleString('ko-KR') : escape(v))}</dd>`).join('')}</dl>
+      ${database.regime_row ? `<details><summary>regime 표 그날 행</summary><pre>${escape(JSON.stringify(database.regime_row, null, 1))}</pre></details>` : '<p class="empty">regime 표에 그날 행 없음</p>'}`;
+  section.innerHTML = `<h2>적재 현황</h2><div class="grid2">
+    <div><h3 style="font-size:13px;margin:0 0 6px">원장 바이너리</h3>
+      ${ledger.exists ? (ledger.error ? `<p class="empty">${escape(ledger.error)}</p>` : `<dl class="kv">
+        <dt>파일</dt><dd>${ledger.path}</dd><dt>크기</dt><dd>${(ledger.bytes / 1024).toFixed(0)} KB</dd>
+        <dt>레코드</dt><dd>${ledger.records.toLocaleString('ko-KR')}${ledger.truncated ? ' <b style="color:var(--fail)">꼬리 잘림·CRC 오류</b>' : ''}</dd>
+        <dt>원장 실현손익</dt><dd>${signed(ledger.realized)}</dd><dt>수수료 · 세금</dt><dd>${won(ledger.commission)} · ${won(ledger.tax)}</dd></dl>
+        <div class="chips">${kinds(ledger.kinds)}</div>
+        <div class="chips">체결 순간 국면: ${kinds(ledger.fill_regimes)}</div>`) : `<p class="empty">없음: ${ledger.path}</p>`}</div>
+    <div><h3 style="font-size:13px;margin:0 0 6px">체결 캡처 (${capture.dir})</h3>
+      ${capture.files.length ? `<dl class="kv"><dt>파일</dt><dd>${capture.files.join(', ')}</dd><dt>크기</dt><dd>${(capture.bytes / 1048576).toFixed(1)} MB</dd></dl><div class="chips">${kinds(capture.kinds)}</div>` : '<p class="empty">그날 시작한 캡처 파일 없음</p>'}</div>
+    <div><h3 style="font-size:13px;margin:0 0 6px">DB (TimescaleDB, 그날 행 수 · 두 계좌 합)</h3>${databaseHtml}</div>
+    <div><h3 style="font-size:13px;margin:0 0 6px">매매일지·마감 문서</h3>
+      ${report.docs.length ? `<ul style="margin:0;padding-left:18px">${report.docs.map(d => `<li><a href="${d.url}">${d.path}</a> <span style="color:var(--muted)">${(d.bytes / 1024).toFixed(1)} KB · ${d.modified}</span></li>`).join('')}</ul>` : '<p class="empty">그날 문서 없음</p>'}</div>
+  </div>`;
+  return section;
+}
+
+function errorSection(account) {
+  const events = account.events || {}, counts = events.counts || {};
+  const order = { FAIL: 0, WARN: 1, PASS: 2 };
+  const health = [...account.health].sort((a, b) => (order[a.status] ?? 1) - (order[b.status] ?? 1));
+  const bad = health.filter(r => r.status !== 'PASS');
+  const good = health.filter(r => r.status === 'PASS');
+  const section = document.createElement('section');
+  const names = { error: 'ERROR', http_error: 'HTTP 오류', ws_reconnect: 'WS 재연결', gate_block: '게이트 봉쇄', recon_slow: '잔고조회 지연',
+                  order: '주문', fill: '체결', signal: '신호' };
+  section.innerHTML = `<h2>오류·점검</h2>
+    ${events.error ? `<p class="empty">로그 요약 실패: ${escape(events.error)}</p>` : `
+    <div class="chips">${Object.entries(counts).map(([k, v]) => `<span class="chip" style="${k === 'error' && v ? 'color:var(--fail);font-weight:600' : ''}">${names[k] || k} ${v}</span>`).join('')}</div>
+    ${events.latency ? `<p style="margin:6px 0;color:var(--muted)">${escape(events.latency)}</p>` : ''}
+    ${Object.keys(events.gate_reasons || {}).length ? `<details><summary>게이트 봉쇄 사유</summary><div class="chips">${Object.entries(events.gate_reasons).map(([r, n]) => `<span class="chip">${escape(r)} ×${n}</span>`).join('')}</div></details>` : ''}
+    ${Object.entries(events.samples || {}).map(([k, lines]) => `<details><summary>${names[k] || k} 원문 ${lines.length}줄</summary><pre>${lines.map(escape).join('\n')}</pre></details>`).join('')}`}
+    <h3 style="font-size:13px;margin:12px 0 6px">자동 점검 (scripts/check_runtime_health.py) — 통과 ${good.length} · 경고/실패 ${bad.length}</h3>
+    ${bad.length ? `<div class="table-wrap"><table>${bad.map(r => `<tr><td><span class="tag ${r.status}">${r.status}</span></td><td>${escape(r.name)}</td><td class="reason">${escape(r.detail)}</td></tr>`).join('')}</table></div>` : '<p class="empty">경고·실패 없음</p>'}
+    ${good.length ? `<details><summary>통과 ${good.length}건 보기</summary><div class="table-wrap"><table>${good.map(r => `<tr><td><span class="tag PASS">PASS</span></td><td>${escape(r.name)}</td><td class="reason">${escape(r.detail)}</td></tr>`).join('')}</table></div></details>` : ''}`;
+  return section;
+}
+
+function show(key) {
+  for (const chart of charts) chart.remove();
+  charts = [];
+  const account = report.accounts.find(a => a.key === key);
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('active', b.dataset.key === key));
+  const main = document.getElementById('main');
+  main.innerHTML = '';
+  if (!account.has_trades) main.insertAdjacentHTML('beforeend', `<section><p class="empty">${account.label}: 그날 주문 장부(${account.trades_file})가 없다</p></section>`);
+  main.append(summarySection(account), regimeSection(account), chartsSection(account), tableSection(account),
+              storageSection(account), errorSection(account));
+  drawRegime(account);
+  drawCharts(account);
+  try { localStorage.setItem('daily-report-tab', key); } catch (e) {}
+}
+
+const tabs = document.getElementById('tabs');
+for (const account of report.accounts) {
+  const button = document.createElement('button');
+  button.textContent = `${account.label} ${account.summary.fills}체결`;
+  button.dataset.key = account.key;
+  button.onclick = () => show(account.key);
+  tabs.appendChild(button);
+}
+let initial = report.accounts[0].key;
+try { const saved = localStorage.getItem('daily-report-tab'); if (report.accounts.some(a => a.key === saved)) initial = saved; } catch (e) {}
+show(initial);
+</script>
+</body>
+</html>
