@@ -629,27 +629,24 @@ OrderAck OrderRouter::reconcile_blocked_sell(const OrderSignal& signal, const Or
 {
     std::vector<OpenOrder> opens;
 
-    // 모의투자는 정정취소가능조회(inquire-psbl-rvsecncl) TR을 미지원한다("없는 서비스 코드").
-    //  대안으로 일별주문체결조회(VTTC8001R)도 붙여봤으나 기간을 어떻게 주든 output1이 0행이라
-    //  미체결을 열거할 수 없었다(2026-09-07). 그래서 브로커 대신 라우터 이력을 정본으로 쓴다 —
-    //  접수됐는데 아직 다 안 채워진 이 종목의 매도가 곧 수량을 묶고 있는 예약매도다.
-    //  한계는 분명하다: 이번 세션이 낸 주문만 보인다. 이전 세션·수동 예약은 여전히 안 보이므로
-    //  그때는 아래 "취소할 예약매도 없음"으로 떨어진다. 그래도 통째로 단락하는 것보다 낫다.
-    //  지금은 get_open_orders가 모의에서도 VTTC0081R로 답하지만, 이 경로는 아직 이력을 쓴다.
+    // 브로커 미체결 조회를 정본으로 쓴다 — 실계좌는 TTTC0084R, 모의는 일별주문체결조회 VTTC0081R의 잔여수량
+    //  (KIS 공식 샘플 inquire_daily_ccld, demo·inner = VTTC0081R, 2026-10-07 MCP 확인).
+    //  예전에 모의는 이력만 봤다. 그러면 전송 시간초과(E_TRANSPORT)로 거부 처리됐지만 KIS에는 접수된 매도가
+    //  안 보여, 그 매도가 수량을 묶은 채 익절·손절 매도가 하루 종일 40240000으로 막혔다
+    //  (10-07 09:00 071320 ORD-000024 RTT=18771ms, 같은 날 003490·033780·060720까지 미해소 7건).
+    //  조회가 실패할 때만 이력과 이전 세션 줄로 물러난다 — 이번 세션이 접수를 확인한 주문만 보이지만 아무것도
+    //  안 하는 것보다 낫다.
     int cancelled = 0;
 
-    if (kis_.is_paper())
+    if (fetch_open_orders(opens, "[OrderRouter] 미체결 조회 실패 — 이력으로 찾는다: ",
+                          "[OrderRouter] 미체결 조회 예외 — 이력으로 찾는다: "))
     {
-        collect_session_sells(signal, opens);
+        cancelled = close_vanished_session_sells(signal, opens);
     }
     else
     {
-        if (!fetch_open_orders(opens, "[OrderRouter] 미체결 조회 실패 — ", "[OrderRouter] 미체결 조회 예외 — "))
-        {
-            return OrderAck::fail(kis_error::kTransport);
-        }
-
-        cancelled = close_vanished_session_sells(signal, opens);
+        opens.clear();
+        collect_session_sells(signal, opens);
     }
 
     for (const auto& open : opens)
@@ -838,7 +835,7 @@ bool OrderRouter::close_session_order(uint64_t kis_order_number, const char* rea
     return true;
 }
 
-// 실계좌 — 브로커 미체결 목록에 없는데 이력에는 아직 ACCEPTED로 남은 이 종목 매도를 닫는다. 닫은 건수를 돌려준다.
+// 브로커 미체결 목록에 없는데 이력에는 아직 ACCEPTED로 남은 이 종목 매도를 닫는다. 닫은 건수를 돌려준다.
 //  10-06 237690: 13:46 SOR 익절 지정가 1주가 체결·취소 통보 없이 브로커에서 사라졌는데 이력은 계속 미체결로 세어,
 //  15:42 재매도가 "매도가능 0"으로 4번 막혔다(잔고 주문가능 1주, 원주문 취소는 "정정취소 가능수량이 없습니다").
 //  미체결 조회에 안 보이는 주문은 수량을 묶고 있지 않다. 체결 통보가 늦게 오면 미연결 체결로 장부에 들어간다.

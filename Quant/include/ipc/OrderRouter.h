@@ -340,13 +340,13 @@ private:
                                      bool original_may_have_filled, const char* gone_why);
 
     // ── 청산차단 자가정리 단계 (reconcile_blocked_sell) ─────────────────────
-    // 모의투자 — 이번 세션 이력과 이전 세션 줄에서 그 종목의 예약매도를 모은다.
+    // 미체결 조회가 실패했을 때 — 이번 세션 이력과 이전 세션 줄에서 그 종목의 예약매도를 모은다.
     void collect_session_sells(const OrderSignal& signal, std::vector<OpenOrder>& opens);
     // 예약매도 한 건을 취소하고, 이번 세션 주문이면 이력·선점을, 이전 세션 줄이면 부속 파일을 정리한다. 취소됐으면 참.
     bool cancel_blocking_sell(const OrderSignal& signal, const OpenOrder& open);
     // 이번 세션 주문 한 건을 CANCELLED로 닫고 선점을 푼다(매도면 매도가능수량도 되돌린다). 이력에 ACCEPTED로 있었으면 참.
     bool close_session_order(uint64_t kis_order_number, const char* reason);
-    // 실계좌 — 브로커 미체결 목록에 없는 이번 세션 매도(통보 없이 사라진 주문)를 닫는다. 닫은 건수.
+    // 브로커 미체결 목록에 없는 이번 세션 매도(통보 없이 사라진 주문)를 닫는다. 닫은 건수.
     int close_vanished_session_sells(const OrderSignal& signal, const std::vector<OpenOrder>& opens);
 
     // 재기동 때 되살리는 주문 항목을 만든다. signal의 종목 id·전략 번호는 여기서 채운다(파일의 문자열이라 복원 때 한 번).

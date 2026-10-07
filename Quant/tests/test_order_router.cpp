@@ -1035,14 +1035,15 @@ void test_sequence_propagates_to_rows()
 }
 
 // ─── C-2: 청산차단 해소 — 이번 세션 예약매도를 취소하면 CANCELLED로 닫고 선점을 푼다 ───────
-//   모의투자 경로(is_paper): 미체결을 KIS가 아니라 history_에서 찾는다. 취소 뒤 재매도가
+//   미체결 조회가 실패한 경로: 미체결을 KIS가 아니라 history_에서 찾는다. 취소 뒤 재매도가
 //   접수되면 그 선점만 남아야 한다(취소분 8 + 재매도 8 = 16이 아니라 8).
 void test_blocked_sell_releases_reservation()
 {
     OrderGate         gate(relaxed_config());
     StubOrderExecutor stub(true, "0000000301");
     OrderRouter       router(gate, stub);
-    stub.paper = true;
+    stub.paper            = true;
+    stub.open_orders_fail = true; // 조회 실패 → 이력으로 물러난다
 
     // 원장에 포지션을 심지 않는다 — 심으면 게이트 SELL 클램프가 미체결매도를 빼고 0주로 깎아
     //  KIS까지 가지 않는다. 이 경로는 원장이 종목을 모르는(재기동 직후·WS 모드) 상황이 대상이다.
@@ -1174,6 +1175,40 @@ void test_blocked_sell_keeps_order_open_at_broker()
     assert(stub.cancel_calls == 1 && stub.last_cancel_quantity == 1);
     assert(gate.ledger().reserved("005930") == -1);
     PASS("blocked_sell_keeps_order_open_at_broker");
+}
+
+// ─── 모의: 전송 시간초과로 거부 처리됐지만 KIS에 접수된 예약매도 — 브로커 조회로 찾아 취소한다 ───────
+//   10-07 071320: 09:00 익절 지정가 15주가 E_TRANSPORT(RTT 18.8초)로 거부 처리돼 이력에 없었는데 KIS에는
+//   접수돼 수량을 묶었다. 모의가 이력만 보던 때는 "취소할 예약매도 없음"으로 하루 종일 막혔다.
+void test_paper_blocked_sell_cancels_order_unknown_to_history()
+{
+    OrderGate         gate(relaxed_config());
+    StubOrderExecutor stub(true, "0000000602");
+    OrderRouter       router(gate, stub);
+    stub.paper = true;
+
+    OpenOrder accepted_at_broker;
+    accepted_at_broker.ticker                = "071320";
+    accepted_at_broker.side                  = OrderSide::SELL;
+    accepted_at_broker.psbl_qty              = 15;
+    accepted_at_broker.ord_unpr              = 81400.0;
+    accepted_at_broker.kis_order_no          = "0000000601"; // 라우터 이력에 없는 번호
+    accepted_at_broker.krx_forwarding_org_no = "ORG000777";
+    stub.open_orders = {accepted_at_broker};
+    stub.fail_next   = 1;
+    stub.error_code  = "40240000";
+
+    OrderSignal liquidation     = make_signal("071320", OrderSide::SELL, 15);
+    liquidation.type            = OrderType::MARKET;
+    liquidation.price           = 0.0;
+    liquidation.reference_price = 78300.0;
+    auto acknowledgement        = router.submit(liquidation);
+    assert(acknowledgement.status == OrderStatus::ACCEPTED);
+    assert(acknowledgement.kis_order_no == "0000000602");
+    assert(stub.open_order_calls == 1);
+    assert(stub.cancel_calls == 1 && stub.last_cancel_quantity == 15);
+    assert(gate.ledger().reserved("071320") == -15); // 재매도분만
+    PASS("paper_blocked_sell_cancels_order_unknown_to_history");
 }
 
 // ─── 재기동 미결 주문 대조 (D-113) ─────────────────────────────────────────────
@@ -1567,6 +1602,7 @@ int main()
     test_blocked_sell_releases_reservation();
     test_blocked_sell_closes_vanished_order();
     test_blocked_sell_keeps_order_open_at_broker();
+    test_paper_blocked_sell_cancels_order_unknown_to_history();
     test_adopt_unnumbered_intent_matched();
     test_adopt_unnumbered_intent_not_sent();
     test_adopt_unnumbered_skips_claimed_order();
