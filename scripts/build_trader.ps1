@@ -55,14 +55,15 @@ $env:TMP = "C:\build_tmp"
 #  Windows 는 실행 중인 파일의 rename 은 허용한다 — quant_trader.exe 를
 #  quant_trader_old_<HHmmss>.exe 로 옆에 옮겨 놓고 부르면 링크가 통하고, 그 뒤 프로세스를
 #  내리면 감시견이 새 exe 로 다시 띄운다. 2026-09-23 장중 배포 세 번을 이 길로 했다.
-$targetExe = Join-Path (Get-Location).Path "Quantuild_win\$Target.exe"
+$targetExe = Join-Path (Get-Location).Path "$BuildDirectory\$Target.exe"
+# 옮긴 뒤에도 프로세스의 Path는 원래 이름으로 보인다 — 그 자리에 파일이 아직 있을 때만 잠금으로 본다.
 $locking   = @(Get-Process quant_trader -ErrorAction SilentlyContinue |
-               Where-Object { $_.Path -and ($_.Path -eq $targetExe) })
+               Where-Object { $_.Path -and ($_.Path -eq $targetExe) -and (Test-Path $targetExe) })
 
 if ($locking.Count -gt 0)
 {
   Say "트레이더가 돌고 있다(pid=$($locking.Id -join ', ')) — 링크할 그 자리를 프로세스가 잡고 있다." "Yellow"
-  Say "  옆으로 옮기고 다시 부른다 — Move-Item Quantuild_win\$Target.exe Quantuild_win\${Target}_old_170000.exe" "DarkYellow"
+  Say "  옆으로 옮기고 다시 부른다 — Move-Item $BuildDirectory\$Target.exe $BuildDirectory\${Target}_old_170000.exe" "DarkYellow"
   exit 3
 }
 
