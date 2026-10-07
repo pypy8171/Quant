@@ -12,7 +12,7 @@
 - [Quant](#quant) — 358개
 - [docs](#docs) — 147개
 - [linux_practice](#linux_practice) — 2개
-- [research](#research) — 408개
+- [research](#research) — 428개
 - [scripts](#scripts) — 51개
 - [strategies](#strategies) — 41개
 - [tools](#tools) — 3개
@@ -870,6 +870,7 @@
 - [READING_NUMBERS.md](../research/studies/READING_NUMBERS.md) — 스터디 숫자 읽는 법: t·walk-forward 창·격자·IC·Calmar·용량의 뜻과 문턱(2.0·3/5·70%)의 출처(계산·관행·고른 값 구분), 가짜 전략 통과 확률 표
 - [README.md](../research/studies/README.md) — 폴더형 백테스트 스터디 인덱스 문서
 - [_TEMPLATE.md](../research/studies/_TEMPLATE.md) — 백테스트 결과 표준 템플릿
+- [build_test_ledger.py](../research/studies/build_test_ledger.py) — 시험 원장 페이지 생성기 — 스터디 35·37 시험 7개의 조건·통과 기준·칸별 결과를 산출 파일에서 읽고 parquet으로 다시 계산해 대조(test_ledger.html 출력)
 - [index.json](../research/studies/index.json) — 스터디 23건 색인(번호·질문·방법·데이터·결과·판정·왜·후속·파일). 대시보드 "스터디 · 백테스트 결과" 카드의 원천
 - [render_studies.py](../research/studies/render_studies.py) — 모멘텀·국면필터 롤링검증(1~5년)/02/03 매매 원장 렌더러 스크립트
 - [threshold_check.py](../research/studies/threshold_check.py) — 합격선 검증: 효과 0인 가짜 전략 40만 개로 t ≥ 2.0 통과 비율·격자 최고 칸 문제·창 동전 던지기 확률을 센다(READING_NUMBERS.md의 표)
@@ -1396,6 +1397,33 @@
 - [metrics.json](../research/studies/36_cluster_momentum/metrics.json) — 스터디 36 대상 종목 수·B0·감도(매도세 0.30%, 대표 거래대금 1위)·재현 정보
 - [result.txt](../research/studies/36_cluster_momentum/result.txt) — 스터디 36 결과 요약 — 원안 두 칸, 비교 기준 대비, 연도별, MAE·MFE, 32칸 표
 - [yearly.tsv](../research/studies/36_cluster_momentum/yearly.tsv) — 스터디 36 연도별 B0 수익과 원안 두 칸 수익·초과
+
+### research/studies/37_swing_trend/
+
+- [.gitignore](../research/studies/37_swing_trend/.gitignore) — parquet·cache 산출물 제외
+- [devscale_trend_filter.py](../research/studies/37_swing_trend/devscale_trend_filter.py) — DevScale 매매를 확정 저점·고점 추세(k=3·5)로 걸러 하향 추세에서 안 사면 나아지는지 4칸 시험
+- [devscale_trend_filter.txt](../research/studies/37_swing_trend/devscale_trend_filter.txt) — DevScale 추세 거름 결과(4칸 모두 기각)
+- [ma_support_exits.py](../research/studies/37_swing_trend/ma_support_exits.py) — 오르는 이평선에 닿고 위에서 끝난 날 사는 모양 × 청산 180칸, 걸어가며 고르기·자산 곡선·추세별 비교(E1–E5)
+- [ma_support_exits.txt](../research/studies/37_swing_trend/ma_support_exits.txt) — 이평선 지지 청산 격자 결과(순수익 t 0.88, 자산 곡선 −42.3%, 후보 아님)
+- [ma_support_exits_metrics.json](../research/studies/37_swing_trend/ma_support_exits_metrics.json) — 이평선 지지 180칸 요약 수치
+- [standalone_swing.py](../research/studies/37_swing_trend/standalone_swing.py) — 쌍바닥·상승 추세 이평선 지지를 따로 쓰는 새 전략 8칸+하향 대조 6칸 시험
+- [standalone_swing.txt](../research/studies/37_swing_trend/standalone_swing.txt) — 쌍바닥·추세 단독 전략 결과(하향 대조군이 6쌍 모두 더 좋아 추세 근거 없음)
+- [standalone_swing_metrics.json](../research/studies/37_swing_trend/standalone_swing_metrics.json) — 쌍바닥·추세 14칸 요약 수치
+- [swing_definitions.py](../research/studies/37_swing_trend/swing_definitions.py) — 확정 저점·고점(앞뒤 k일), 추세 판정, 쌍바닥, 이평선 지지 모양 정의 — 스터디 37 시험들이 공유
+
+### research/studies/test_replay/
+
+- [build_test_replay.py](../research/studies/test_replay/build_test_replay.py) — 시험 매매 리플레이 생성기 — 시험 4개 매매를 캔들 차트·근거 계산식으로 그리고 원장 가격을 일봉과 대조
+- [devscale.json](../research/studies/test_replay/devscale.json) — 리플레이 목록 — DevScale 추세 거름 40건
+- [devscale_1.json](../research/studies/test_replay/devscale_1.json) — 리플레이 차트 자료 — DevScale 추세 거름
+- [support.json](../research/studies/test_replay/support.json) — 리플레이 목록 — 이평선 지지 708건
+- [support_1.json](../research/studies/test_replay/support_1.json) — 리플레이 차트 자료 — 이평선 지지
+- [surge.json](../research/studies/test_replay/surge.json) — 리플레이 목록 — 급등 뒤 박스 돌파 263건
+- [surge_1.json](../research/studies/test_replay/surge_1.json) — 리플레이 차트 자료 — 급등 뒤 박스 돌파
+- [swing.json](../research/studies/test_replay/swing.json) — 리플레이 목록 — 쌍바닥·추세 560건
+- [swing_1.json](../research/studies/test_replay/swing_1.json) — 리플레이 차트 자료 — 쌍바닥·추세
+
+## scripts
 
 ### scripts/
 
