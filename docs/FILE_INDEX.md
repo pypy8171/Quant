@@ -12,7 +12,7 @@
 - [Quant](#quant) — 358개
 - [docs](#docs) — 147개
 - [linux_practice](#linux_practice) — 2개
-- [research](#research) — 395개
+- [research](#research) — 401개
 - [scripts](#scripts) — 50개
 - [strategies](#strategies) — 40개
 - [tools](#tools) — 3개
@@ -1329,6 +1329,10 @@
 - [daily_watch.py](../research/studies/35_surge_box_breakout/daily_watch.py) — 스터디 35 앞으로의 기록 — 장 마감 뒤 밤 일봉으로 급등 사건·관찰·6개 규칙(base·c1–c5) 신호와 청산을 날짜별로 적고 규칙별 판정(2026-10-02 이후 50건·평균>0·t≥2)을 낸다. 예약작업 Quant Study35 Watch
 - [flow_test.py](../research/studies/35_surge_box_breakout/flow_test.py) — 1번 칸·기준선을 외국인+기관 순매수 여부로 나눠 비교하는 수급 시험
 - [flow_test.txt](../research/studies/35_surge_box_breakout/flow_test.txt) — 수급 시험 결과(차이 t −1.42, 기각)
+- [halt_trigger.py](../research/studies/35_surge_box_breakout/halt_trigger.py) — SURGE 263건에 매수 정지 조건 30개(국면·지수 이평선·전략 자체 손실)를 걸어 낙폭·손익 비교
+- [halt_trigger.txt](../research/studies/35_surge_box_breakout/halt_trigger.txt) — 정지 조건 결과(국면 RISK_OFF는 7건뿐, 코스닥 120일선이 표본 안 최선)
+- [halt_validate.py](../research/studies/35_surge_box_breakout/halt_validate.py) — 코스닥 이평선 거름 검증 4종(걸어가며 고르기·넓은 표본 2,093건·길이 훑기·연도 재표집)
+- [halt_validate.txt](../research/studies/35_surge_box_breakout/halt_validate.txt) — 검증 결과(4개 중 길이 훑기만 통과, 거름 안 넣음)
 - [ma_reclaim_deep.py](../research/studies/35_surge_box_breakout/ma_reclaim_deep.py) — 이평선 이탈 뒤 회복 횟수와 깊은 되돌림 지정가 매수 시험
 - [ma_reclaim_deep.txt](../research/studies/35_surge_box_breakout/ma_reclaim_deep.txt) — ma_reclaim_deep 결과(회복 횟수 영향 없음, 깊은 자리 매수 통과 0칸)
 - [ma_sweep.py](../research/studies/35_surge_box_breakout/ma_sweep.py) — 스터디 35 이평선 3–21일 × 지정가·종가 확인 매수와 소화 끝 지표(거래량 마름·저가 멈춤) 전수 비교
@@ -1336,6 +1340,8 @@
 - [miss_322000.txt](../research/studies/35_surge_box_breakout/miss_322000.txt) — 322000 추적 결과(날짜별 탈락 사유·가격 흐름)
 - [optimize.py](../research/studies/35_surge_box_breakout/optimize.py) — 28,800칸 조합 탐색·2겹 교차검증·무작위 최대 t
 - [optimize.txt](../research/studies/35_surge_box_breakout/optimize.txt) — 조합 탐색 결과(1번 칸 +3.52% t4.32 n264)
+- [overnight_us.py](../research/studies/35_surge_box_breakout/overnight_us.py) — 07:50에 알 수 있는 밤사이 미국 지표 9개로 매수 거름 시험, 금액 줄이기와 대조
+- [overnight_us.txt](../research/studies/35_surge_box_breakout/overnight_us.txt) — 미국 지표 거름 결과(통과 0, 금액만 줄이기보다 1,524만 적음)
 - [rebuy.py](../research/studies/35_surge_box_breakout/rebuy.py) — 청산 뒤 추세가 살아 있으면 이평선에서 다시 사는 규칙 72칸 시험
 - [rebuy.txt](../research/studies/35_surge_box_breakout/rebuy.txt) — 다시 사기 결과(통과 0칸, 기각)
 - [strength.py](../research/studies/35_surge_box_breakout/strength.py) — 급등일 거래량·뒤 거래량 감소·되돌림 크기로 나눈 강한 종목 시험

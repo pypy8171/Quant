@@ -16,3 +16,12 @@ close_depth_cv_trades.parquet
 ma_reclaim_deep_trades.parquet
 ma_reclaim_deep_fills.parquet
 ma_reclaim_deep_cells.parquet
+halt_trigger_raw/
+halt_trigger_trades.parquet
+halt_trigger_conditions.parquet
+halt_validate_walk.parquet
+halt_validate_sweep.parquet
+halt_validate_wide.parquet
+overnight_us_features.parquet
+overnight_us_trades.parquet
+overnight_us_generic.parquet
