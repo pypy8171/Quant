@@ -114,6 +114,10 @@ public:
         int    min_rebuild_sec = 0;    // 분할 매수 전면 재구성 최소 간격(0=제한 없음). 첫 구성 뒤부터 적용
         //  id_prefix: 전략 id 앞머리(regime_strategies 매칭 키이자 로그 식별자).
         std::string id_prefix = "DEVSCALE";
+        //  startup_check_buy: 기동→첫 매수 점검. 켜면 스캔 유니버스 중 체결이 처음 들어온 종목 하나를 1주 시장가로
+        //   산다(프로세스 전체 한 번). 가격이 startup_check_max_price를 넘는 종목은 건너뛴다. 운영 config에는 넣지 않는다.
+        bool   startup_check_buy = false;
+        double startup_check_max_price = 50000.0;
         //  buy_split_steps: 되돌림 매수(물타기) 층수. -1이면 split_step_count와 같다(기존 동작), 0이면 베이스
         //   매수만 내고 하방 분할 매수를 깔지 않는다. 방향성 이격 게이트에서 하방 분할 매수는 추세
         //   반전에 그대로 노출된다 — 09-08~11 장부에서 매수 수량의 89%가 미청산으로 남았다.

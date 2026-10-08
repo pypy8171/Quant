@@ -106,12 +106,12 @@ flowchart LR
 
 예전에는 파이썬이 종목 목록과 시세 파일을 만들었다. 지금은 전략 프로세스의 `MarketBoard` 스레드가 네이버에서 전 종목 목록과 현재가·거래대금·시총을 받고, `scan_devscale`이 KIS 일봉으로 걸러 점수를 매긴다. 고른 종목은 전략 객체가 되고, 구독 요청은 제어 링으로 시세 프로세스에 간다.
 
-14. [`load_strategies`](../Quant/src/strategy/StrategyFactory.cpp#L580) — config `strategies[]`를 타입별 로더로 나눈다. 새 전략을 붙이는 자리(docs/ENGINE_ARCHITECTURE.md '전략 추가하기')  
-   `Quant/src/strategy/StrategyFactory.cpp:580` · `void load_strategies(StrategyLoadCtx& context, const json& strategies)`
-15. [`strategy_load::load_deviation_scale`](../Quant/src/strategy/DevScaleLoader.cpp#L766) — DEVIATION_SCALE 로더 — 보유 스냅숏 → 시세판 기동 → 초기 스캔 → 종목마다 전략 등록 → 재스캔 job 등록  
-   `Quant/src/strategy/DevScaleLoader.cpp:766` · `void load_deviation_scale(LoadPass& context, const json& node)`
-16. [`start_scan_services`](../Quant/src/strategy/DevScaleLoader.cpp#L468) — `market_board:true`면 MarketBoard 스레드와 DailyWarm 스레드를 띄운다. false면 두 스레드 없이 KIS 랭킹 축과 전날 `universe_scan.json`만 쓴다  
-   `Quant/src/strategy/DevScaleLoader.cpp:468` · `void start_scan_services(const LoadPass& context, const json& node, const universe::DevScanCfg& scan_config)`
+14. [`load_strategies`](../Quant/src/strategy/StrategyFactory.cpp#L582) — config `strategies[]`를 타입별 로더로 나눈다. 새 전략을 붙이는 자리(docs/ENGINE_ARCHITECTURE.md '전략 추가하기')  
+   `Quant/src/strategy/StrategyFactory.cpp:582` · `void load_strategies(StrategyLoadCtx& context, const json& strategies)`
+15. [`strategy_load::load_deviation_scale`](../Quant/src/strategy/DevScaleLoader.cpp#L768) — DEVIATION_SCALE 로더 — 보유 스냅숏 → 시세판 기동 → 초기 스캔 → 종목마다 전략 등록 → 재스캔 job 등록  
+   `Quant/src/strategy/DevScaleLoader.cpp:768` · `void load_deviation_scale(LoadPass& context, const json& node)`
+16. [`start_scan_services`](../Quant/src/strategy/DevScaleLoader.cpp#L470) — `market_board:true`면 MarketBoard 스레드와 DailyWarm 스레드를 띄운다. false면 두 스레드 없이 KIS 랭킹 축과 전날 `universe_scan.json`만 쓴다  
+   `Quant/src/strategy/DevScaleLoader.cpp:470` · `void start_scan_services(const LoadPass& context, const json& node, const universe::DevScanCfg& scan_config)`
 17. [`universe::MarketBoard::run`](../Quant/src/universe/MarketBoard.cpp#L507) — KST 날짜가 바뀌면 목록을 새로 받고, 5초마다 시세 한 바퀴, 60초마다 재랭킹  
    `Quant/src/universe/MarketBoard.cpp:507` · `void MarketBoard::run()` · 시험 [test_market_board](../Quant/tests/test_market_board.cpp)
 18. [`universe::MarketBoard::refresh_listing`](../Quant/src/universe/MarketBoard.cpp#L564) — 네이버 `marketValue/{KOSPI,KOSDAQ}`로 전 종목 목록(ETF·ETN 제외). 900종목씩 묶은 폴링 URL을 만든다. data.go.kr 목록을 대신한 자리  
@@ -219,16 +219,16 @@ flowchart LR
    `Quant/include/core/StrategyShard.h:27` · `struct Emitted`
 58. [`StrategyBase::on_trade_batch`](../Quant/include/strategy/StrategyBase.h#L82) — 전략 훅의 계약(가상 함수 다섯). 기본 구현은 `on_trade` 하나를 out에 담는다. `symbol_of`·`same_symbol`도 이 헤더  
    `Quant/include/strategy/StrategyBase.h:82` · `virtual void on_trade_batch(const TradeData&, std::vector<OrderSignal>& /*out*/)`
-59. [`DeviationScaleStrategy::on_start`](../Quant/include/strategy/DeviationScaleStrategy.h#L207) — 종목 id 받기·REST 봉 시드·프리페치 스레드. 전략 하나를 끝까지 따라가는 예로 이 전략을 쓴다  
-   `Quant/include/strategy/DeviationScaleStrategy.h:207` · `void on_start() override;`
-60. [`DeviationScaleStrategy::on_trade_batch`](../Quant/include/strategy/DeviationScaleStrategy.h#L211) — 틱 → `aggregator_.on_tick` → 판단 직전 `close_stale`·`bars::resample` → 진입/청산 판단 → out. 매매 로직의 본체. 스탑·트레일 뒤 `stop_cooldown_sec`, 전량 청산 뒤 `reentry_cooldown_sec` 동안은 새 베이스를 깔지 않는다  
-   `Quant/include/strategy/DeviationScaleStrategy.h:211` · `void on_trade_batch(const TradeData& trade, std::vector<OrderSignal>& out) override;`
+59. [`DeviationScaleStrategy::on_start`](../Quant/include/strategy/DeviationScaleStrategy.h#L211) — 종목 id 받기·REST 봉 시드·프리페치 스레드. 전략 하나를 끝까지 따라가는 예로 이 전략을 쓴다  
+   `Quant/include/strategy/DeviationScaleStrategy.h:211` · `void on_start() override;`
+60. [`DeviationScaleStrategy::on_trade_batch`](../Quant/include/strategy/DeviationScaleStrategy.h#L215) — 틱 → `aggregator_.on_tick` → 판단 직전 `close_stale`·`bars::resample` → 진입/청산 판단 → out. 매매 로직의 본체. 스탑·트레일 뒤 `stop_cooldown_sec`, 전량 청산 뒤 `reentry_cooldown_sec` 동안은 새 베이스를 깔지 않는다  
+   `Quant/include/strategy/DeviationScaleStrategy.h:215` · `void on_trade_batch(const TradeData& trade, std::vector<OrderSignal>& out) override;`
 61. [`bars::BarAggregator::on_tick`](../Quant/src/core/BarAggregator.cpp#L199) — 체결 틱을 1분봉으로. `close_stale`은 틱이 없어도 시계로 지난 분을 닫는다(D-074)  
    `Quant/src/core/BarAggregator.cpp:199` · `bool BarAggregator::on_tick(const TradeData& trade)` · 시험 [test_bar_aggregator](../Quant/tests/test_bar_aggregator.cpp)
 62. [`bars::resample`](../Quant/include/core/BarAggregator.h#L59) — 1분봉 → `interval_min` 봉. 판단은 언제나 이 봉으로(D-072)  
    `Quant/include/core/BarAggregator.h:59` · `std::vector<MarketData> resample(const std::vector<MarketData>& bars_1m, int interval_min, int max_count = 0);` · 시험 [test_bar_aggregator](../Quant/tests/test_bar_aggregator.cpp)
-63. [`DeviationScaleStrategy::emit_liquidation`](../Quant/include/strategy/DeviationScaleStrategy.h#L365) — 청산 신호 조립 — 시장가면 `reference_price` 스탬프, 매도 가능 수량은 원장 접근자(`sellable_quantity`, 동기 잔고조회 금지)  
-   `Quant/include/strategy/DeviationScaleStrategy.h:365` · `bool emit_liquidation(std::vector<OrderSignal>& out, int position, …`
+63. [`DeviationScaleStrategy::emit_liquidation`](../Quant/include/strategy/DeviationScaleStrategy.h#L369) — 청산 신호 조립 — 시장가면 `reference_price` 스탬프, 매도 가능 수량은 원장 접근자(`sellable_quantity`, 동기 잔고조회 금지)  
+   `Quant/include/strategy/DeviationScaleStrategy.h:369` · `bool emit_liquidation(std::vector<OrderSignal>& out, int position, …`
 64. [`Engine::ledger_sellable`](../Quant/src/core/Engine.cpp#L721) — 전략이 보는 보유·매도 가능 수량의 출처 — 주문 프로세스가 발행한 장부 스냅숏  
    `Quant/src/core/Engine.cpp:721` · `StrategyBase::SellableInfo Engine::ledger_sellable(const std::string&, const std::string& ticker) const`
 65. [`ipc::LedgerSnapshot::begin_optimistic_read`](../Quant/src/ipc/LedgerSnapshot.cpp#L21) — 쓰는 쪽을 막지 않고 읽은 뒤 세대 번호로 그 사이에 바뀌었는지 확인한다(바뀌었으면 다시 읽음)  

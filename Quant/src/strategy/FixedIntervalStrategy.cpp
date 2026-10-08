@@ -1,9 +1,24 @@
 #include "strategy/FixedIntervalStrategy.h"
 
+namespace
+{
+// 출처: KRX 애프터마켓 16:00~20:00(D-097). 주문 게이트의 after_open/close 창과 따로 둔다 — 여기는 신호만 막는다.
+constexpr int kAfterMarketOpenHHMM  = 1600;
+constexpr int kAfterMarketCloseHHMM = 2000;
+} // namespace
+
 std::string FixedIntervalStrategy::describe() const
 {
     return id() + " | BUY=" + std::to_string(buy_quantity_) + " SELL=" + std::to_string(sell_quantity_) + " every " +
            std::to_string(interval_sec_) + "s";
+}
+
+bool FixedIntervalStrategy::is_in_session(int32_t hhmmss) const
+{
+    // 출처: 유가증권시장 업무규정 제4조제3항(정규시장 09:00~15:30), 2026-09-27 확인.
+    const int32_t hhmm = hhmmss / 100;
+
+    return krx::in_session(hhmm) || (after_market_ && hhmm >= kAfterMarketOpenHHMM && hhmm < kAfterMarketCloseHHMM);
 }
 
 void FixedIntervalStrategy::on_start()

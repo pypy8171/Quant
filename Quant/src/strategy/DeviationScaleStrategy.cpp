@@ -1,4 +1,5 @@
 #include "strategy/DeviationScaleStrategy.h"
+#include <atomic>
 
 namespace
 {
@@ -172,6 +173,23 @@ void DeviationScaleStrategy::on_trade_batch(const TradeData& trade, std::vector<
     if (trade.price > 0.0)
     {
         last_price_ = trade.price; // 시장가 청산의 명목 평가 기준가(reference_price). 장 마감 경로보다 먼저 갱신
+    }
+
+    if (parameters_.startup_check_buy && trade.price > 0.0 && trade.price <= parameters_.startup_check_max_price)
+    {
+        // [inv] 프로세스 전체에서 한 번 — 샤드 스레드 여럿이 동시에 와도 exchange가 하나만 통과시킨다.
+        static std::atomic<bool> startup_check_fired{false};
+
+        if (!startup_check_fired.exchange(true))
+        {
+            OrderSignal signal = make_market_sell(1, "STARTUP_CHECK_BUY");
+            signal.side = OrderSide::BUY;
+            signal.reference_price = trade.price;
+            LOG_INFO("[" + id() + "] 기동 점검 매수 1주 — 첫 체결 " + std::to_string(trade.hhmmss) + " " +
+                     std::to_string(static_cast<long long>(trade.price)) + "원");
+            out.push_back(std::move(signal));
+            return;
+        }
     }
 
     feed_bar_aggregator(trade);

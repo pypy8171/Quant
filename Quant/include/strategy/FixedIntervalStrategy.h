@@ -9,14 +9,15 @@
 // FixedIntervalStrategy  —  고정 종목 주기적 매수/매도 (파이프라인 테스트용)
 //
 //  interval_sec마다 BUY(buy_quantity) → SELL(sell_quantity) 를 교대로 발행한다.
-//  장 세션 외 시간에는 신호를 내지 않는다.
+//  장 세션 외 시간에는 신호를 내지 않는다. after_market=true면 애프터마켓(16:00~20:00)에도 낸다.
 // ─────────────────────────────────────────────────────────────────────────────
 class FixedIntervalStrategy : public StrategyBase
 {
 public:
-    FixedIntervalStrategy(std::string ticker, int buy_quantity, int sell_quantity, int interval_sec)
+    FixedIntervalStrategy(std::string ticker, int buy_quantity, int sell_quantity, int interval_sec,
+                          bool after_market = false)
         : ticker_(std::move(ticker)), buy_quantity_(buy_quantity), sell_quantity_(sell_quantity),
-          interval_sec_(interval_sec)
+          interval_sec_(interval_sec), after_market_(after_market)
     {
         id_ = "FIXED_INTERVAL_" + ticker_;}
 
@@ -53,12 +54,9 @@ private:
     std::string id_; // 전략 이름, 생성자에서 한 번
     symbol::SymbolId symbol_id_ = symbol::kNone; // ticker_의 id — on_start에서 한 번(미주입=kNone, 문자열 비교로 폴백)
     int buy_quantity_, sell_quantity_, interval_sec_;
+    bool after_market_ = false; // 애프터마켓(16:00~20:00)에도 신호를 낸다 — 기동→첫 주문 점검용
     Phase phase_ = Phase::BUY;
     std::chrono::steady_clock::time_point last_signal_{};
 
-    bool is_in_session(int32_t hhmmss) const
-    {
-        // 출처: 유가증권시장 업무규정 제4조제3항(정규시장 09:00~15:30), 2026-09-27 확인. 애프터마켓은 이 창 밖이다.
-        return krx::in_session(hhmmss / 100); // 09:00~15:30 정규장 창(core/MarketSession.h)
-    }
+    bool is_in_session(int32_t hhmmss) const;
 };

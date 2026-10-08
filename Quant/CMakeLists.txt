@@ -1172,6 +1172,21 @@ else()
     target_link_libraries(feed_latency_measure PRIVATE nlohmann_json::nlohmann_json winhttp bcrypt)
 endif()
 
+# ─── 도구: 주문 경로 점검 — 첫 체결 수신부터 모의 1주 매수 접수·체결통보까지 단계별 시간 ──
+add_executable(order_path_check
+    tools/order_path_check.cpp
+    ${KIS_WS_SOURCES}
+    ${KIS_CLIENT_SOURCES}
+    src/utils/Logger.cpp
+)
+target_include_directories(order_path_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+if(UNIX)
+    target_link_libraries(order_path_check PRIVATE
+        CURL::libcurl OpenSSL::Crypto nlohmann_json::nlohmann_json pthread stdc++fs)
+else()
+    target_link_libraries(order_path_check PRIVATE nlohmann_json::nlohmann_json winhttp bcrypt)
+endif()
+
 # ─── 도구: 국내 선물 시세 조회 점검 (파생 배선 1단계 — REST inquire-price) ──
 add_executable(future_quote_check
     tools/future_quote_check.cpp

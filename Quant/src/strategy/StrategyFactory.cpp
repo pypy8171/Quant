@@ -306,7 +306,9 @@ static void load_fixed_interval(LoadPass& context, const json& node)
     int buy_quantity          = node.value("buy_qty", 1);
     int sell_quantity         = node.value("sell_qty", 1);
     int interval_sec     = node.value("interval_sec", 300);
-    add_gated(context, std::make_unique<FixedIntervalStrategy>(std::move(ticker), buy_quantity, sell_quantity, interval_sec));
+    bool after_market    = node.value("after_market", false);
+    add_gated(context, std::make_unique<FixedIntervalStrategy>(std::move(ticker), buy_quantity, sell_quantity, interval_sec,
+                                                               after_market));
 }
 
 // ─── MARKET_MAKING ──────────────────────────────────────────────────────────

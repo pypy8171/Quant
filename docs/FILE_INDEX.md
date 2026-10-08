@@ -627,6 +627,7 @@
 - [future_quote_check.cpp](../Quant/tools/future_quote_check.cpp) — 국내 선물 시세 조회 점검 도구(필드명 확정용)
 - [manual_order.cpp](../Quant/tools/manual_order.cpp) — 수동 주문 도구(모의계좌 접수-체결 확인)
 - [ops_client.cpp](../Quant/tools/ops_client.cpp) — 운영단말 콘솔 클라이언트(상태·보유 조회·수동주문, D-043)
+- [order_path_check.cpp](../Quant/tools/order_path_check.cpp) — 주문 경로 점검(첫 체결 수신→1주 매수 접수→체결통보 단계별 시간, 실계좌는 --live 지정가)
 - [query_balance.py](../Quant/tools/query_balance.py) — 모의계좌 잔고 조회 스크립트(연속조회 포함)
 - [ranking_check.cpp](../Quant/tools/ranking_check.cpp) — 거래대금·시가총액 상위 랭킹 점검 도구(행수·ETF 섞임·정렬 판정)
 - [regime_feed_once.cpp](../Quant/tools/regime_feed_once.cpp) — 국면 판정 한 사이클 도구(파이썬 --once와 같은 시각에 돌려 대조, D-147)

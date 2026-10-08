@@ -400,6 +400,8 @@ DevScaleParams parse_devscale_parameters(const json& node)
     read_or_keep(node, "reprice_move_ticks", parameters.reprice_move_ticks);
     read_or_keep(node, "min_rebuild_sec", parameters.min_rebuild_sec);
     read_or_keep(node, "id_prefix", parameters.id_prefix);
+    read_or_keep(node, "startup_check_buy", parameters.startup_check_buy);
+    read_or_keep(node, "startup_check_max_price", parameters.startup_check_max_price);
     read_or_keep(node, "buy_split_steps", parameters.buy_split_steps);
     read_or_keep(node, "stop_loss_pct", parameters.stop_loss_percent);
     read_or_keep(node, "stop_cooldown_sec", parameters.stop_cooldown_sec);
