@@ -580,9 +580,9 @@ void OrderRouter::finalize_new_order(NewRoute& route)
         LOG_ERROR(std::format("[OrderRouter] KIS 거부 [{}] {}{} RTT={}ms 버킷대기={}ms", managed_order.order_id, signal.ticker,
                               managed_order.reject_reason, route.rtt_ms, route.bucket_wait_ms));
 
-        // 전송 타임아웃은 거부가 아니라 '모름'이다. 기동 때만 되묻던 것으로는 부족했다 —
+        // 전송 타임아웃은 거부가 아니라 '모름'이다. 기동 때만 다시 조회하던 것으로는 부족했다 —
         //  2026-09-23 12:51 001120 매도 32주가 접수돼(ODNO=0000022490) 보유 전량을 묶었는데
-        //  다음 기동까지 아무도 몰랐다. 그 자리에서 브로커에 되물어 맞춘다. [why D-101]
+        //  다음 기동까지 아무도 몰랐다. 그 자리에서 브로커에 다시 조회해 맞춘다. [why D-101]
         if (acknowledgement.error_code == kis_error::kTransport)
         {
             reconcile_unknown_order_async(signal.ticker);
@@ -669,7 +669,7 @@ OrderAck OrderRouter::reconcile_blocked_sell(const OrderSignal& signal, const Or
         return OrderAck::fail(kis_error::kNoSellableQty); // 원인은 그대로 — 호출부가 거부 사유로 남긴다
     }
 
-    LOG_INFO(std::format("[OrderRouter] 예약매도 {}건 취소 완료 → {} 시장가 매도 재시도", cancelled, signal.ticker));
+    LOG_INFO(std::format("[OrderRouter] 예약매도 {}건 취소 완료 → {} 매도 신호 그대로 재매도", cancelled, signal.ticker));
 
     if (!intent_taken)
     {

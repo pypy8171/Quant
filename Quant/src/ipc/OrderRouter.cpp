@@ -1,5 +1,5 @@
 // 주문 라우터 — 생성·소멸, 미결주문 스냅샷, 이력 색인, 통계. 파일 쓰기는 OrderJournal.cpp가 맡는다.
-//  발주 경로는 OrderRouterSubmit.cpp, 기동·되묻기 대조는 OrderRouterReconcile.cpp, 체결은 OrderRouterFill.cpp.
+//  발주 경로는 OrderRouterSubmit.cpp, 기동·재확인 대조는 OrderRouterReconcile.cpp, 체결은 OrderRouterFill.cpp.
 #include "ipc/OrderRouter.h"
 
 #include <format>
@@ -137,7 +137,7 @@ OrderRouter::OrderRouter(OrderGate& gate, IOrderExecutor& kis, OrderRouterConfig
 OrderRouter::~OrderRouter()
 {
     // jthread 소멸자가 같은 일을 하지만 그건 멤버 소멸 순서 안에서다 — 스레드가 쓰는 멤버가 먼저 죽지 않게 여기서 회수한다.
-    //  되묻기 스레드가 맨 먼저다 — 이 스레드가 쓰는 reconcile_busy_·kis_calls_는 선언이 뒤라 먼저 소멸한다.
+    //  재확인 스레드가 맨 먼저다 — 이 스레드가 쓰는 reconcile_mutex_·reconcile_pending_·kis_calls_는 선언이 뒤라 먼저 소멸한다.
     stop_join(fill_recovery_); // 조회 중이면 그 조회가 끝나야 멈춘다
     stop_join(transport_reconcile_);
     stop_join(stale_threshold_);

@@ -1,4 +1,4 @@
-// 주문 라우터 — 재기동 미결 대조, 유령 선점 정리, 이전 세션 미체결 취소, 전송 타임아웃 되묻기, 잔고 대조 기록.
+// 주문 라우터 — 재기동 미결 대조, 유령 선점 정리, 이전 세션 미체결 취소, 전송 타임아웃 재확인, 잔고 대조 기록.
 #include "ipc/OrderRouter.h"
 #include "api/KisErrorCodes.h"
 #include "utils/Logger.h"
@@ -273,133 +273,212 @@ int OrderRouter::sweep_stale_reservations()
     return static_cast<int>(gone.size());
 }
 
-// ─── 전송 타임아웃 뒤 되묻기 ────────────────────────────────────────────────
+// ─── 전송 타임아웃 뒤 재확인 ────────────────────────────────────────────────
 //  응답을 못 받은 주문이 KIS에 접수돼 있으면 엔진 장부 밖에서 보유분을 묶는다. 부속 파일이
 //  아는 번호와 견주어, 우리 것이 아닌 미체결만 지운다. 주문 스레드를 막지 않으려고 따로 돈다.
+//  재확인할 종목은 목록에 모아 미체결 조회 한 번으로 함께 확인하고, 조회가 실패하면 끝날 때까지 다시 조회한다 — 2026-10-07 09:00 모의에서
+//  80초 안에 시간초과 9건이 몰렸는데, 앞 건이 도는 동안 온 종목을 버리고 첫 조회 실패에 포기해 접수된 매도 4건이
+//  304분 동안 장부 밖에 남았다(docs/market_close/2026-10-07.md 1-1).
 void OrderRouter::reconcile_unknown_order_async(std::string ticker)
 {
-    if (reconcile_busy_.exchange(true))
-    {
-        return;   // 앞 건이 돌고 있다 — 다음 타임아웃이나 다음 기동이 다시 잡는다
-    }
-
-    // 주문 스레드에서 번호를 받아 둔다 — 종목 표에 새로 넣는 일은 이 스레드 몫이다.
     const symbol::SymbolId symbol_id = gate_.ledger().intern_symbol(ticker);
 
-    transport_reconcile_ = std::jthread([this, ticker = std::move(ticker), symbol_id](std::stop_token stop_token)
     {
-        thread_name::set_current("Reconcile");
+        std::lock_guard<std::mutex> lock(reconcile_mutex_);
+        const bool queued = std::any_of(reconcile_pending_.begin(), reconcile_pending_.end(),
+                                        [symbol_id](const PendingReconcile& pending)
+                                        {
+                                            return pending.symbol_id == symbol_id;
+                                        });
 
-        // KIS가 접수를 조회에 반영할 틈을 준다. 곧바로 물으면 방금 낸 주문이 안 보인다.
-        //  근거 없음(2026-09-27): 공식 샘플에 조회 반영 지연 설명이 없고, 곧바로 물어 안 보였던 실측 기록도 찾지 못했다.
-        //  3초는 커밋 198005a에서 정한 값이다.
-        //  3초를 한 번에 자지 않고 잘게 나눠 멈춤 요청을 본다 — 소멸자가 이 스레드를 기다린다.
-        constexpr int  kSettleSlices = 30;
-        constexpr auto kSettleSlice  = std::chrono::milliseconds(100);
-
-        for (int slice = 0; slice < kSettleSlices && !stop_token.stop_requested(); ++slice)
+        if (!queued)
         {
-            std::this_thread::sleep_for(kSettleSlice);
+            reconcile_pending_.push_back(PendingReconcile{std::move(ticker), symbol_id});
         }
 
-        if (stop_token.stop_requested())
+        if (reconcile_running_)
         {
-            reconcile_busy_ = false;
-            return;
+            return;   // 도는 스레드가 다음 조회에 함께 확인한다
         }
+
+        reconcile_running_ = true;
+    }
+
+    // 앞 스레드가 남아 있으면 대입이 그 스레드를 회수한다 — 목록이 빈 것을 보고 내려가는 중이라 곧 끝난다.
+    transport_reconcile_ = std::jthread([this](std::stop_token stop_token)
+    {
+        reconcile_unknown_orders_loop(stop_token);
+    });
+}
+
+void OrderRouter::reconcile_unknown_orders_loop(std::stop_token stop_token)
+{
+    thread_name::set_current("Reconcile");
+
+    // 멈춤 요청이 오면 곧바로 깬다 — 소멸자가 이 스레드를 기다린다. 멈추지 않았으면 참.
+    const auto wait = [this, &stop_token](std::chrono::milliseconds duration)
+    {
+        std::unique_lock<std::mutex> lock(reconcile_mutex_);
+        reconcile_wake_.wait_for(lock, stop_token, duration, []
+        {
+            return false;
+        });
+        return !stop_token.stop_requested();
+    };
+
+    // KIS가 접수를 조회에 반영할 틈을 준다. 곧바로 조회하면 방금 낸 주문이 안 보인다.
+    //  근거 없음(2026-09-27): 공식 샘플에 조회 반영 지연 설명이 없고, 곧바로 조회해 안 보였던 실측 기록도 찾지 못했다.
+    //  3초는 커밋 198005a에서 정한 값이다.
+    size_t failures = 0;
+    // 조회·취소가 실패하면 간격을 늘려 다시 조회한다(끝 간격을 되풀이). 멈추지 않았으면 참.
+    const auto back_off = [this, &wait, &failures](size_t pending_count)
+    {
+        const auto retry_after = config_.reconcile_retry[std::min(failures, config_.reconcile_retry.size() - 1)];
+        ++failures;
+        LOG_WARN(std::format("[OrderRouter] 전송 타임아웃 재확인 {}회째 실패 — {:.0f}초 뒤 다시 조회한다 ({}종목)", failures,
+                             std::chrono::duration<double>(retry_after).count(), pending_count));
+        return wait(retry_after);
+    };
+    bool running = wait(config_.reconcile_settle);
+
+    while (running)
+    {
+        std::vector<PendingReconcile> batch;
+        {
+            std::lock_guard<std::mutex> lock(reconcile_mutex_);
+            batch = reconcile_pending_;
+        }
+
+        ++kis_calls_;
+        std::vector<OpenOrder> open_orders;
+
+        if (!fetch_open_orders(open_orders, "[OrderRouter] 전송 타임아웃 재확인 — 미체결 조회 실패: ",
+                               "[OrderRouter] 전송 타임아웃 재확인 — 미체결 조회 예외: "))
+        {
+            running = back_off(batch.size());
+            continue;
+        }
+
+        std::vector<symbol::SymbolId> settled;
 
         try
         {
-            std::vector<std::string> known;
-            {
-                std::ifstream in(Logger::instance().path_for("open_orders.txt"));
-                std::string line;
-
-                while (std::getline(in, line))
-                {
-                    const size_t bar = line.find('|');
-
-                    if (bar != std::string::npos)
-                    {
-                        known.push_back(line.substr(0, bar));
-                    }
-                }
-            }
-
-            ++kis_calls_;
-            const auto open_orders = kis_.get_open_orders();
-
-            if (!open_orders)
-            {
-                LOG_WARN("[OrderRouter] 전송 타임아웃 되묻기 — 미체결 조회 실패, 다음 기동이 다시 잡는다: " + error_text(open_orders));
-                reconcile_busy_ = false;
-                return;
-            }
-
-            // 파일은 쓰기 스레드가 늦게 쓰므로 조회가 끝난 뒤의 이력도 본다 — 그 사이 접수된 우리 주문이 파일에
-            //  아직 없을 수 있다. 같은 종목이 KIS 답을 기다리는 중이면 번호를 모르는 우리 주문일 수 있어 건너뛴다.
-            {
-                std::lock_guard<std::mutex> in_flight_lock(in_flight_mutex_);
-
-                if (std::find(in_flight_symbols_.begin(), in_flight_symbols_.end(), symbol_id) !=
-                    in_flight_symbols_.end())
-                {
-                    LOG_INFO("[OrderRouter] 전송 타임아웃 되묻기 건너뜀 — 같은 종목 주문이 전송 중 " + ticker);
-                    reconcile_busy_ = false;
-                    return;
-                }
-            }
-
-            {
-                std::lock_guard<std::mutex> history_lock(history_mutex_);
-
-                for (const auto& managed_order : history_)
-                {
-                    if (!managed_order.kis_order_no.empty())
-                    {
-                        known.push_back(managed_order.kis_order_no);
-                    }
-                }
-            }
-
-            for (const auto& open : *open_orders)
-            {
-                if (open.ticker != ticker || open.kis_order_no.empty() || open.psbl_qty <= 0)
-                {
-                    continue;
-                }
-
-                if (std::find(known.begin(), known.end(), open.kis_order_no) != known.end())
-                {
-                    continue;   // 우리가 아는 주문이다
-                }
-
-                LOG_WARN("[OrderRouter] 전송 타임아웃 뒤 장부 밖 주문 발견 — 취소 " + open.ticker +
-                         " ODNO=" + open.kis_order_no + " " + std::to_string(open.psbl_qty) + "주");
-                const OrderAck cancelled = send_cancel(open.ticker, open.kis_order_no, open.krx_forwarding_org_no,
-                                                       open.psbl_qty);
-
-                if (cancelled.ok())
-                {
-                    if (open.side == OrderSide::SELL)
-                    {
-                        gate_.ledger().restore_sellable(std::string(), open.ticker, open.psbl_qty);
-                    }
-                }
-                else
-                {
-                    LOG_WARN("[OrderRouter] 장부 밖 주문 취소 실패 — 다음 기동이 다시 지운다 " + open.ticker +
-                             " ODNO=" + open.kis_order_no);
-                }
-            }
+            settled = cancel_unknown_open_orders(batch, open_orders);
         }
         catch (const std::exception& exception)
         {
-            LOG_WARN("[OrderRouter] 전송 타임아웃 되묻기 실패 — " + std::string(exception.what()));
+            LOG_WARN("[OrderRouter] 전송 타임아웃 재확인 실패 — " + std::string(exception.what()));
+            running = back_off(batch.size());
+            continue;
         }
 
-        reconcile_busy_ = false;
-    });
+        failures = 0;
+
+        {
+            std::lock_guard<std::mutex> lock(reconcile_mutex_);
+            std::erase_if(reconcile_pending_, [&settled](const PendingReconcile& pending)
+            {
+                return std::find(settled.begin(), settled.end(), pending.symbol_id) != settled.end();
+            });
+
+            if (reconcile_pending_.empty())
+            {
+                reconcile_running_ = false;
+                return;
+            }
+        }
+
+        running = wait(config_.reconcile_settle);   // 전송 중이라 미룬 종목이나 그 사이 들어온 종목
+    }
+
+    std::lock_guard<std::mutex> lock(reconcile_mutex_);
+    reconcile_running_ = false;
+}
+
+std::vector<symbol::SymbolId> OrderRouter::cancel_unknown_open_orders(const std::vector<PendingReconcile>& batch,
+                                                                      const std::vector<OpenOrder>& open_orders)
+{
+    // 파일은 쓰기 스레드가 늦게 쓰므로 조회가 끝난 뒤의 이력도 본다 — 그 사이 접수된 우리 주문이 파일에 아직 없을 수 있다.
+    std::vector<std::string> known;
+    {
+        std::ifstream in(Logger::instance().path_for("open_orders.txt"));
+        std::string   line;
+
+        while (std::getline(in, line))
+        {
+            const size_t bar = line.find('|');
+
+            if (bar != std::string::npos)
+            {
+                known.push_back(line.substr(0, bar));
+            }
+        }
+    }
+
+    std::vector<symbol::SymbolId>  settled;
+    std::vector<std::string_view>  settled_tickers; // [inv] batch 원소를 가리킨다 — batch가 이 함수보다 오래 산다
+    {
+        std::lock_guard<std::mutex> in_flight_lock(in_flight_mutex_);
+
+        for (const auto& pending : batch)
+        {
+            if (std::find(in_flight_symbols_.begin(), in_flight_symbols_.end(), pending.symbol_id) !=
+                in_flight_symbols_.end())
+            {
+                LOG_INFO("[OrderRouter] 전송 타임아웃 재확인 미룸 — 같은 종목 주문이 전송 중 " + pending.ticker);
+                continue;
+            }
+
+            settled.push_back(pending.symbol_id);
+            settled_tickers.push_back(pending.ticker);
+        }
+    }
+
+    {
+        std::lock_guard<std::mutex> history_lock(history_mutex_);
+
+        for (const auto& managed_order : history_)
+        {
+            if (!managed_order.kis_order_no.empty())
+            {
+                known.push_back(managed_order.kis_order_no);
+            }
+        }
+    }
+
+    for (const auto& open : open_orders)
+    {
+        if (open.kis_order_no.empty() || open.psbl_qty <= 0 ||
+            std::find(settled_tickers.begin(), settled_tickers.end(), open.ticker) == settled_tickers.end())
+        {
+            continue;
+        }
+
+        if (std::find(known.begin(), known.end(), open.kis_order_no) != known.end())
+        {
+            continue;   // 우리가 아는 주문이다
+        }
+
+        LOG_WARN("[OrderRouter] 전송 타임아웃 뒤 장부 밖 주문 발견 — 취소 " + open.ticker +
+                 " ODNO=" + open.kis_order_no + " " + std::to_string(open.psbl_qty) + "주");
+        const OrderAck cancelled = send_cancel(open.ticker, open.kis_order_no, open.krx_forwarding_org_no,
+                                               open.psbl_qty);
+
+        if (cancelled.ok())
+        {
+            if (open.side == OrderSide::SELL)
+            {
+                gate_.ledger().restore_sellable(std::string(), open.ticker, open.psbl_qty);
+            }
+        }
+        else
+        {
+            LOG_WARN("[OrderRouter] 장부 밖 주문 취소 실패 — 다음 기동이 다시 지운다 " + open.ticker +
+                     " ODNO=" + open.kis_order_no);
+        }
+    }
+
+    return settled;
 }
 
 // ─── 이전 세션이 남긴 미체결 주문 취소 (기동 시 1회) ──────────────────────

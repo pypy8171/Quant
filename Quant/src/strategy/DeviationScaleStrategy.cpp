@@ -983,7 +983,7 @@ bool DeviationScaleStrategy::rebuild_suppressed(const std::string& signal, int p
             if (cover_missing)
             {
                 LOG_WARN("[" + id() + "] " + display() + " 익절 매도가 보유를 덮지 못함 — 재구성 pos=" +
-                         std::to_string(position) + " 매도가능=" + std::to_string(ledger->sellable) +
+                         std::to_string(position) + " 묶이지않은수량=" + std::to_string(ledger->sellable) +
                          " 계획매도=" + std::to_string(planned_sell_quantity));
             }
         }

@@ -11,10 +11,12 @@
 //   6. order_id 순번 "ORD-000001" 포맷 검증
 
 #include "api/IOrderExecutor.h"
+#include "api/KisErrorCodes.h"
 #include "core/TransportPool.h"
 #include "ipc/OrderRouter.h"
 #include "risk/OrderGate.h"
 #include "utils/Logger.h"
+#include <atomic>
 #include <filesystem>
 #include <cassert>
 #include <chrono>
@@ -43,7 +45,7 @@ struct StubOrderExecutor : IOrderExecutor
     std::string orgno        = "ORG000001"; // submit_order_ack가 반환할 조직번호
     bool        cancel_ok    = true;          // cancel_order 성공 여부
     bool        revise_ok    = true;          // revise_order 성공 여부
-    int         cancel_calls = 0;
+    std::atomic<int> cancel_calls{0}; // 재확인 스레드도 올린다
     int         revise_calls = 0;
     int         last_cancel_quantity = -1;         // 마지막 취소에 전달된 quantity(잔량 재계산 검증)
     // C-2 청산차단 경로 — 다음 fail_next건은 err_code로 실패, 그 뒤 성공
@@ -52,8 +54,8 @@ struct StubOrderExecutor : IOrderExecutor
     std::string error_code;
     // 재기동 대조 — get_open_orders가 돌려줄 KIS 미체결
     std::vector<OpenOrder> open_orders;
-    int                    open_order_calls = 0;
-    bool                   open_orders_fail = false; // 미체결 조회 실패(한 쪽이라도 못 받음)
+    std::atomic<int>       open_order_calls{0};      // 재확인 스레드도 올린다
+    std::atomic<bool>      open_orders_fail{false};  // 미체결 조회 실패(한 쪽이라도 못 받음)
     // 놓친 체결 되찾기 — get_daily_order_fills가 돌려줄 당일 체결 누적
     std::vector<DailyOrderFill> daily_fills;
     int                         daily_fill_calls = 0;
@@ -1540,6 +1542,69 @@ void test_order_number_of_reads_digits_after_prefix()
     PASS("order_number_of_reads_digits_after_prefix");
 }
 
+// ─── 전송 타임아웃 재확인: 몰린 종목을 모아 조회하고, 조회가 실패하면 성공할 때까지 다시 조회한다 ───
+//  2026-10-07 09:00 모의: 시간초과 9건이 몰렸는데 앞 건이 도는 동안 온 종목은 버려졌고, 첫 조회 실패에 포기했다.
+void test_transport_timeout_reconcile_retries_batch()
+{
+    OrderGate         gate(relaxed_config());
+    StubOrderExecutor stub(true);
+    OrderRouterConfig config;
+    config.reconcile_settle = std::chrono::milliseconds(5);
+    config.reconcile_retry  = {std::chrono::milliseconds(5), std::chrono::milliseconds(5), std::chrono::milliseconds(5)};
+#ifdef HAS_ZMQ
+    OrderRouter router(gate, stub, nullptr, config);
+#else
+    OrderRouter router(gate, stub, config);
+#endif
+
+    const auto wait_until = [](const auto& condition)
+    {
+        for (int round = 0; round < 400 && !condition(); ++round)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+
+        return condition();
+    };
+
+    // 응답은 못 받았지만 둘 다 KIS에 접수돼 있다.
+    OpenOrder first;
+    first.ticker       = "005930";
+    first.kis_order_no = "0000009001";
+    first.psbl_qty     = 3;
+    first.side         = OrderSide::SELL;
+    OpenOrder second   = first;
+    second.ticker       = "000660";
+    second.kis_order_no = "0000009002";
+    second.psbl_qty     = 2;
+    stub.open_orders      = {first, second};
+    stub.open_orders_fail = true;
+
+    stub.fail_next  = 2;
+    stub.error_code = kis_error::kTransport;
+    assert(router.submit(make_signal("005930", OrderSide::SELL, 3)).status == OrderStatus::REJECTED);
+    assert(router.submit(make_signal("000660", OrderSide::SELL, 2)).status == OrderStatus::REJECTED);
+
+    // 조회가 계속 실패해도 포기하지 않는다.
+    assert(wait_until([&stub]
+    {
+        return stub.open_order_calls.load() >= 3;
+    }));
+    assert(stub.cancel_calls == 0);
+
+    // 조회가 살아나면 두 종목을 한 번에 지우고 스레드가 내려간다.
+    stub.open_orders_fail = false;
+    assert(wait_until([&stub]
+    {
+        return stub.cancel_calls.load() == 2;
+    }));
+    const int calls_after = stub.open_order_calls.load();
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    assert(stub.open_order_calls.load() == calls_after);
+    assert(stub.cancel_calls == 2);
+    PASS("transport_timeout_reconcile_retries_batch");
+}
+
 int main()
 {
 #ifdef _WIN32
@@ -1573,6 +1638,7 @@ int main()
     }
 
     test_order_number_of_reads_digits_after_prefix();
+    test_transport_timeout_reconcile_retries_batch();
     test_gate_rejected();
     test_kis_accepted();
     test_kis_failed();

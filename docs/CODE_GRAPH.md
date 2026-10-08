@@ -999,9 +999,11 @@ graph LR
 | `PYQuant/tools/walkforward.py` | `backtest.engine`, `main` |
 | `scripts/backfill_fills_db.py` | `_logdir`, `db.client` |
 | `scripts/backfill_studies.py` | `backtest.report` |
+| `scripts/build_plain_dashboard.py` | `_logdir` |
 | `scripts/build_review_entry.py` | `market_close_collect` |
 | `scripts/check_market_open.py` | `kis.client` |
 | `scripts/check_runtime_health.py` | `_logdir`, `capture_stats`, `log_patterns` |
+| `scripts/daily_trade_report.py` | `check_runtime_health` |
 | `scripts/dashboard_server.py` | `_logdir`, `kis.client`, `naver.theme` |
 | `scripts/deploy_trader.py` | `deploy_lock`, `notify_trades`, `restart_verify` |
 | `scripts/exit_ev.py` | `_logdir`, `backtest.costs` |
@@ -1023,7 +1025,7 @@ C++ 엔진·Python 보조 프로세스·스크립트가 파일로 주고받는 �
 | 파일 | 쓰는 쪽 | 읽는 쪽 | 언급만 |
 |---|---|---|---|
 | `regime.json` | `Quant/src/core/EngineRegime.cpp` | `Quant/src/core/AppConfig.cpp`, `Quant/src/core/EngineDataThread.cpp`, `Quant/src/core/EngineRegime.cpp`, `Quant/src/core/RegimeFileJudge.cpp`, `scripts/dashboard_server.py`, `scripts/notify_trades.py` | `Quant/include/core/AppConfig.h`, `Quant/include/core/Engine.h`, `Quant/include/core/RegimeFileJudge.h`, `Quant/src/core/EngineConfigure.cpp`, `Quant/src/ipc/ZmqBridge.cpp`, `Quant/src/strategy/StrategyFactory.cpp` |
-| `trades_*.csv` | `Quant/src/ipc/OrderJournal.cpp`, `scripts/backfill_fills_db.py`, `scripts/check_runtime_health.py`, `scripts/exit_ev_dashboard.py` | `PYQuant/dashboard/backfill_live.py`, `PYQuant/tests/test_stats.py`, `Quant/src/ipc/OrderJournal.cpp`, `Quant/src/strategy/DevScaleLoader.cpp`, `scripts/backfill_fills_db.py`, `scripts/check_runtime_health.py`, `scripts/exit_ev.py`, `scripts/exit_ev_dashboard.py`, `scripts/parse_quant_log.py`, `scripts/trade_costs.py` | `scripts/_logdir.py`, `scripts/notify_trades.py` |
+| `trades_*.csv` | `Quant/src/ipc/OrderJournal.cpp`, `scripts/backfill_fills_db.py`, `scripts/check_runtime_health.py`, `scripts/daily_trade_report.py`, `scripts/exit_ev_dashboard.py` | `PYQuant/dashboard/backfill_live.py`, `PYQuant/tests/test_stats.py`, `Quant/src/ipc/OrderJournal.cpp`, `Quant/src/strategy/DevScaleLoader.cpp`, `scripts/backfill_fills_db.py`, `scripts/check_runtime_health.py`, `scripts/daily_trade_report.py`, `scripts/exit_ev.py`, `scripts/exit_ev_dashboard.py`, `scripts/parse_quant_log.py`, `scripts/trade_costs.py` | `scripts/_logdir.py`, `scripts/notify_trades.py` |
 | `universe*.json` | `PYQuant/tools/load_injector.py`, `Quant/src/universe/MarketBoard.cpp`, `scripts/make_load_test_config.py` | `PYQuant/main.py`, `PYQuant/tools/full_universe_dump.py`, `PYQuant/tools/load_injector.py`, `PYQuant/tools/universe_feed.py`, `Quant/src/strategy/DevScaleLoader.cpp`, `Quant/src/universe/UniverseCandidates.cpp`, `scripts/exit_ev_dashboard.py`, `scripts/make_load_test_config.py`, `scripts/market_close_minute_backfill.py`, `scripts/notify_trades.py` | `Quant/include/universe/MarketBoard.h`, `Quant/include/universe/UniverseScanner.h`, `Quant/src/api/KisUniverse.cpp`, `scripts/dashboard_server.py` |
 | `open_orders.txt` | `Quant/src/ipc/OrderJournal.cpp`, `scripts/seed_open_orders.py` | `Quant/src/ipc/OrderJournal.cpp`, `Quant/src/ipc/OrderRouterReconcile.cpp`, `scripts/seed_open_orders.py` |  |
 | `quant_trader.log` | `PYQuant/tools/log_report.py`, `scripts/build_review_entry.py`, `scripts/dashboard_server.py`, `scripts/summarize_trading_day.py` | `PYQuant/tools/compare_ws_bars.py`, `scripts/check_runtime_health.py`, `scripts/dashboard_server.py`, `scripts/extract_swap_what_if.py`, `scripts/notify_trades.py`, `scripts/parse_quant_log.py`, `scripts/seed_open_orders.py`, `scripts/startup_to_order_timeline.py`, `scripts/summarize_trading_day.py` | `Quant/src/core/CommandLine.cpp`, `scripts/_logdir.py`, `scripts/exit_ev_dashboard.py` |

@@ -459,7 +459,7 @@
 - [OrderJournal.cpp](../Quant/src/ipc/OrderJournal.cpp) — OrderJournal.h 구현 — 미결주문 파일 원자 교체, 원장 CSV·주문 사유 줄 대기열과 쓰기 스레드
 - [OrderRouter.cpp](../Quant/src/ipc/OrderRouter.cpp) — 주문 라우터 구현 — 생성·소멸, 주문 번호, 미결주문 스냅샷, 이력 조회·통계
 - [OrderRouterFill.cpp](../Quant/src/ipc/OrderRouterFill.cpp) — 주문 라우터 체결 쪽 — 체결통보 반영(on_fill)·미연결 체결·끊긴 사이 체결 되찾기
-- [OrderRouterReconcile.cpp](../Quant/src/ipc/OrderRouterReconcile.cpp) — 주문 라우터 대조 쪽 — 재기동 미결 주문 대조, 선점 정리, 전송 타임아웃 되묻기, 이전 세션 미체결 취소
+- [OrderRouterReconcile.cpp](../Quant/src/ipc/OrderRouterReconcile.cpp) — 주문 라우터 대조 쪽 — 재기동 미결 주문 대조, 선점 정리, 전송 타임아웃 재확인, 이전 세션 미체결 취소
 - [OrderRouterSubmit.cpp](../Quant/src/ipc/OrderRouterSubmit.cpp) — 주문 라우터 발주 쪽 — 신규·취소·정정 경로, 청산차단 자가정리, 이력 기록
 - [ProcessIdentity.cpp](../Quant/src/ipc/ProcessIdentity.cpp) — ProcessIdentity.h 구현 — 윈도우는 프로세스 손잡이·만든 시각, 리눅스는 /proc/<번호>/stat 으로 생존을 묻는다(D-114 단계 4-b)
 - [SharedLayout.cpp](../Quant/src/ipc/SharedLayout.cpp) — SharedLayout.h 구현 — 자리 셈·놓기·붙기와, 양쪽 설정이 다르면 붙기를 거절하는 머리 대조(D-114 단계 4)

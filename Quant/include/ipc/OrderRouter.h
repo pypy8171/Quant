@@ -46,12 +46,17 @@
 //    IOrderExecutor::submit_order_acknowledgement() — KIS 전송 → ODNO·조직번호 수신(실패면 error_code)
 //       │
 //       ├─ 성공 → ACCEPTED, 장부 ACCEPT, ZMQ publish_order(ok=true)
-//       └─ 실패 → REJECTED, 장부 REJECT, ZMQ publish_order(ok=false). 전송 타임아웃이면 되묻기 스레드를 띄운다
+//       └─ 실패 → REJECTED, 장부 REJECT, ZMQ publish_order(ok=false). 전송 타임아웃이면 재확인 스레드를 띄운다
 // ─────────────────────────────────────────────────────────────────────────────
 
 struct OrderRouterConfig
 {
     int max_history = 500; // 보관할 최대 주문 이력 건수
+    // 전송 타임아웃 재확인 — 조회 전 기다림, 그리고 조회가 실패했을 때 다시 조회하기까지의 간격(차례로 쓰고 끝 값을 되풀이).
+    //  10·30·60초는 2026-10-07 09:00 모의 서버가 주문·조회 모두 15초 넘게 늦던 1–2분을 넘기려고 고른 값이다. 시험은 짧게 준다.
+    std::chrono::milliseconds                reconcile_settle{3000};
+    std::array<std::chrono::milliseconds, 3> reconcile_retry{std::chrono::seconds(10), std::chrono::seconds(30),
+                                                             std::chrono::seconds(60)};
 };
 
 class OrderRouter
@@ -162,10 +167,10 @@ public:
     };
     Stats statistics() const;
 
-    // KIS 주문 API(신규·취소·정정)와 전송 타임아웃 되묻기의 미체결조회를 부른 누적 횟수. 주문 스레드가
+    // KIS 주문 API(신규·취소·정정)와 전송 타임아웃 재확인의 미체결조회를 부른 누적 횟수. 주문 스레드가
     //  submit 전후 값을 비교해 발주 간격(order_min_interval_ms)을 실제 호출 뒤에만 건다 — 게이트·ENTRY_HALT의
     //  로컬 거부는 KIS에 안 나가는데도 같은 간격을 먹어 재기동 직후 거부 62건이 31초를 삼켰다(09-10 12:58). [why D-035]
-    //  기동 취소 스레드·되묻기 스레드도 이 값을 올리므로, 그 사이에 걸린 로컬 거부도 간격을 먹을 수 있다.
+    //  기동 취소 스레드·재확인 스레드도 이 값을 올리므로, 그 사이에 걸린 로컬 거부도 간격을 먹을 수 있다.
     uint64_t kis_calls() const
     {
         return kis_calls_.load(std::memory_order_relaxed);
@@ -187,7 +192,7 @@ public:
     //  접수되거나 이미 끝난 것으로 확인된 줄만 뺀다. 한도 거부·전송 실패로 남긴 줄은 다음 재기동에 넘어간다. [why D-035]
     //  KisClient는 토큰·레이트리밋을 뮤텍스로 직렬화해 스레드 공유를 전제로 한다.
     void cancel_stale_orders_async();
-    // 전송이 타임아웃 난 주문을 브로커에 되물어 맞춘다. 응답을 못 받았을 뿐 접수됐을 수 있고,
+    // 전송이 타임아웃 난 주문을 브로커에 다시 조회해 맞춘다. 응답을 못 받았을 뿐 접수됐을 수 있고,
     //  그렇게 남은 주문은 엔진 장부 밖이라 보유분을 묶은 채 아무도 못 지운다. [why D-101]
     void reconcile_unknown_order_async(std::string ticker);
 
@@ -196,7 +201,7 @@ public:
     //  읽어 확인해야 하는 시험이 쓴다.
     void flush_file_writes();
 
-    // 되묻기 스레드·기동 취소 스레드·두 쓰기 스레드를 세우고 기다린 뒤, 남은 미결주문 스냅샷·장부 줄을 마저 쓴다.
+    // 재확인 스레드·기동 취소 스레드·두 쓰기 스레드를 세우고 기다린 뒤, 남은 미결주문 스냅샷·장부 줄을 마저 쓴다.
     ~OrderRouter();
     // 스레드·뮤텍스를 소유한다 — 복사는 원본과 사본이 같은 자원을 두 번 닫는 길이라 막는다.
     OrderRouter(const OrderRouter&)            = delete;
@@ -297,6 +302,18 @@ private:
     //  두 문구는 부른 자리의 로그 머리말이다(실패 문구 뒤에 오류 설명, 예외 문구 뒤에 예외 내용이 붙는다).
     bool fetch_open_orders(std::vector<OpenOrder>& open_orders, std::string_view failure_message,
                            std::string_view exception_message);
+    // 전송 타임아웃 뒤 재확인할 종목 하나. 번호는 주문 스레드가 받아 둔다 — 종목 표에 새로 넣는 일은 그 스레드 몫이다.
+    struct PendingReconcile
+    {
+        std::string      ticker;
+        symbol::SymbolId symbol_id;
+    };
+    // 재확인 스레드 본체 — 목록이 빌 때까지 조회하고, 조회가 실패하면 간격을 늘려 다시 조회한다.
+    void reconcile_unknown_orders_loop(std::stop_token stop_token);
+    // 한 번의 미체결 조회 결과로 묶음의 장부 밖 주문을 취소하고, 끝낸 종목 번호를 돌려준다. 같은 종목 주문이
+    //  전송 중이면 번호를 모르는 우리 주문일 수 있어 끝내지 않고 다음 조회로 미룬다.
+    std::vector<symbol::SymbolId> cancel_unknown_open_orders(const std::vector<PendingReconcile>& batch,
+                                                             const std::vector<OpenOrder>& open_orders);
     // 이전 세션 줄(carry_rows_)에서 그 ODNO 줄을 뺀다. 뺐으면 참. carry_mutex_를 안에서 잡는다.
     bool erase_carry_row(const std::string& kis_order_no);
     // 부속 파일의 수량 칸을 읽는다. 숫자가 아니면 빈 값.
@@ -539,16 +556,20 @@ private:
     // 유령주문 취소 스레드. 종료가 몇 분씩 걸리지 않도록 매 건 전에 stop_token을 본다.
     std::jthread       stale_threshold_;
 
-    // 전송 타임아웃 뒤 되묻기 스레드. 주문 스레드를 막지 않도록 한 번에 한 건만 돌리고,
-    //  돌고 있으면 새 요청은 버린다(다음 타임아웃이나 다음 기동이 다시 잡는다).
-    std::jthread       transport_reconcile_;
-    std::atomic<bool>  reconcile_busy_{false};
+    // 전송 타임아웃 뒤 재확인 스레드. 재확인할 종목을 reconcile_pending_에 모아 미체결 조회 한 번으로 함께 확인하고,
+    //  조회가 실패하면 config_.reconcile_retry 간격으로 다시 조회한다. 목록이 비면 스레드가 끝나고 다음 타임아웃이 새로 띄운다.
+    //  [inv] reconcile_pending_·reconcile_running_은 reconcile_mutex_ 아래에서만 읽고 쓴다.
+    std::jthread                transport_reconcile_;
+    std::mutex                    reconcile_mutex_;
+    std::condition_variable_any   reconcile_wake_; // 기다리는 동안 멈춤 요청에만 깬다
+    std::vector<PendingReconcile> reconcile_pending_;
+    bool                          reconcile_running_ = false;
 
     std::atomic<uint64_t> sequence_{0};
     std::atomic<uint64_t> total_count_{0};
     std::atomic<uint64_t> accepted_count_{0};
     std::atomic<uint64_t> rejected_count_{0};
-    std::atomic<uint64_t> kis_calls_{0};      // [inv] kis_ 주문 호출(신규 2곳·취소는 send_cancel과 open_modify·정정은 open_modify)과 되묻기 미체결조회 1곳, 호출 직전에만 올린다
+    std::atomic<uint64_t> kis_calls_{0};      // [inv] kis_ 주문 호출(신규 2곳·취소는 send_cancel과 open_modify·정정은 open_modify)과 재확인 미체결조회 1곳, 호출 직전에만 올린다
 
     // 놓친 체결 되찾기 요청. on_session_resumed가 올리고 복구 스레드가 따라잡는다(fill_recovery_mutex_로 보호).
     std::mutex                  fill_recovery_mutex_;

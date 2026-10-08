@@ -332,14 +332,10 @@
 - 재개 조건: 같은 증상이 실계좌에서 한 번이라도 나오거나, 모의에서 한 주에 3번 넘게 나오면.
 - 2026-09-30 관측: 모의 10:31:36 003490 BUY 38주가 E_TRANSPORT(빈 ODNO)로 거부 확정. KIS 체결조회로 미접수를 확인해 이번에는 확정이 맞았다([docs/market_close/2026-09-30.md](market_close/2026-09-30.md) 3절).
 - 2026-10-07 관측(재개 조건 충족): 모의 09:00 매도 9건이 시간초과로 거부 확정됐고 5건은 접수돼 있었다. 유령 매도 4건이 14:08 재기동까지 약 304분 보유를 묶었다.
-  시간초과 직후 되묻기는 조회도 시간초과로 실패해 포기했고, 동시에 온 종목은 버렸다([docs/market_close/2026-10-07.md](market_close/2026-10-07.md) 1-1).
-
-### D-28. 재시도로 살아난 지수 조회 실패가 ERROR로 찍힌다
-
-- 위치: [Quant/src/core/EngineDataThread.cpp](../Quant/src/core/EngineDataThread.cpp) 업종 강도 관측, [Quant/src/api/KisTransport.cpp](../Quant/src/api/KisTransport.cpp) 실패 로그.
-- 현상: 2026-09-30 실계좌 ERROR 104줄 중 103줄이 업종 지수 조회(inquire-index-price)의 WinHTTP 12152다. GET 재시도가 대부분 살리지만 실패 줄은 ERROR로 남아 감시·판정표의 ERROR 집계를 채운다.
-- 미룬 이유: 매매 판단에 쓰지 않는 관측 조회라 손실로 번지지 않는다. 로그 등급을 재시도 결과에 맞추려면 전송 계층의 로그 위치를 옮겨야 한다.
-- 재개 조건: ERROR 집계가 다른 오류를 가리는 일이 한 번이라도 생기거나, 지수 조회를 매매 판단에 쓰기 시작하면.
+  시간초과 직후 재확인은 조회도 시간초과로 실패해 포기했고, 동시에 온 종목은 버렸다([docs/market_close/2026-10-07.md](market_close/2026-10-07.md) 1-1).
+- 2026-10-08 일부 해결: 재확인이 종목을 목록에 모아 미체결 조회 한 번으로 함께 확인하고, 조회가 실패하면 10·30·60초 간격으로 성공할 때까지 다시 조회한다
+  ([Quant/src/ipc/OrderRouterReconcile.cpp](../Quant/src/ipc/OrderRouterReconcile.cpp) `reconcile_unknown_orders_loop`). 남은 것은 시간초과를 거부로 확정하는 쪽이다 —
+  재확인이 찾아 취소하기 전까지 그 주문은 여전히 장부 밖이다. 판정 행 "엔진밖 미체결"이 0건이면 이 항목을 닫는다.
 
 ### D-29. 바스켓이 엔진이 버린 주문을 모른 채 하루 집행을 끝낸다
 

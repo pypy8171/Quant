@@ -2351,12 +2351,14 @@
       "scripts/_logdir.py",
       "scripts/backfill_fills_db.py",
       "scripts/backfill_studies.py",
+      "scripts/build_plain_dashboard.py",
       "scripts/build_review_entry.py",
       "scripts/build_study_site.py",
       "scripts/capture_stats.py",
       "scripts/check_backtest.py",
       "scripts/check_market_open.py",
       "scripts/check_runtime_health.py",
+      "scripts/daily_trade_report.py",
       "scripts/dashboard_server.py",
       "scripts/deploy_guard.py",
       "scripts/deploy_lock.py",
@@ -2614,6 +2616,9 @@
       "scripts/backfill_studies.py": [
         "backtest.report"
       ],
+      "scripts/build_plain_dashboard.py": [
+        "_logdir"
+      ],
       "scripts/build_review_entry.py": [
         "market_close_collect"
       ],
@@ -2624,6 +2629,9 @@
         "_logdir",
         "capture_stats",
         "log_patterns"
+      ],
+      "scripts/daily_trade_report.py": [
+        "check_runtime_health"
       ],
       "scripts/dashboard_server.py": [
         "_logdir",
@@ -2682,6 +2690,7 @@
         "PYQuant/dashboard/backfill_live.py",
         "PYQuant/tools/load_highwater_reader.py",
         "scripts/backfill_fills_db.py",
+        "scripts/build_plain_dashboard.py",
         "scripts/check_runtime_health.py",
         "scripts/dashboard_server.py",
         "scripts/exit_ev.py",
@@ -2734,6 +2743,7 @@
         "scripts/check_runtime_health.py"
       ],
       "check_runtime_health": [
+        "scripts/daily_trade_report.py",
         "scripts/market_close_autodoc.py",
         "scripts/parse_quant_log.py"
       ],
@@ -3187,6 +3197,7 @@
         "Quant/src/ipc/OrderJournal.cpp",
         "scripts/backfill_fills_db.py",
         "scripts/check_runtime_health.py",
+        "scripts/daily_trade_report.py",
         "scripts/exit_ev_dashboard.py"
       ],
       "readers": [
@@ -3196,6 +3207,7 @@
         "Quant/src/strategy/DevScaleLoader.cpp",
         "scripts/backfill_fills_db.py",
         "scripts/check_runtime_health.py",
+        "scripts/daily_trade_report.py",
         "scripts/exit_ev.py",
         "scripts/exit_ev_dashboard.py",
         "scripts/parse_quant_log.py",
@@ -3209,6 +3221,7 @@
         "scripts/_logdir.py",
         "scripts/backfill_fills_db.py",
         "scripts/check_runtime_health.py",
+        "scripts/daily_trade_report.py",
         "scripts/exit_ev.py",
         "scripts/exit_ev_dashboard.py",
         "scripts/notify_trades.py",
