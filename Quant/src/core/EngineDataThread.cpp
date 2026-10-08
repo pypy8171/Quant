@@ -7,6 +7,7 @@
 //  daily_bars_needed() : data_thread_fn() 가 일봉 조회 전에
 
 #include "core/Engine.h"
+#include "core/HealthSnapshot.h"
 #include "core/KstTime.h"
 #include "core/LatencyTrace.h"
 #include "universe/MarketBoard.h"
@@ -81,10 +82,18 @@ void Engine::data_thread_fn(std::stop_token stop_token)
         //  상관없는 사실이고, 그 값을 보려고 부하시험을 장 외에 돌린다. 아래 !market_now 갈래보다
         //  위에 두지 않으면 장 외에는 한 번도 안 나가 그라파나 큐 칸이 통째로 빈다(2026-09-26 실측:
         //  21:39 회차에서 health 0행). 큐 고수위 로그를 장 외에도 찍는 것과 같은 이유다. [why D-071]
+        // 받는 곳이 ZMQ 발행기와 DB 적재기 둘이다 — 둘 중 하나라도 있으면 만든다. [why D-154]
+        bool health_wanted = false;
 #ifdef HAS_ZMQ
-        if (zmq_bridge_)
+        health_wanted = health_wanted || zmq_bridge_ != nullptr;
+#endif
+#ifdef HAS_PQ
+        health_wanted = health_wanted || database_ != nullptr;
+#endif
+
+        if (health_wanted)
         {
-            ZmqBridge::HealthSnapshot snapshot;
+            HealthSnapshot snapshot;
             snapshot.data_count   = data_count_.load();
             snapshot.signal_count = signal_count_.load();
             snapshot.order_count  = order_count_.load();
@@ -136,9 +145,25 @@ void Engine::data_thread_fn(std::stop_token stop_token)
                                         std::min(previous_latency_snapshot_.segments.back().count,
                                                  current.segments.back().count);
             previous_latency_snapshot_ = current;
-            zmq_bridge_->publish_health(snapshot);
-        }
+#ifdef HAS_ZMQ
+            if (zmq_bridge_)
+            {
+                snapshot.has_publish_drops    = true;
+                snapshot.publish_dropped      = zmq_bridge_->drop_count();
+                snapshot.drop_socket_full     = zmq_bridge_->socket_full_drop_count();
+                snapshot.drop_socket_error    = zmq_bridge_->socket_error_drop_count();
+                snapshot.drop_send_queue_full = zmq_bridge_->send_queue_full_drop_count();
+                snapshot.drop_trade_ring_full = zmq_bridge_->trade_ring_full_drop_count();
+                zmq_bridge_->publish_health(snapshot);
+            }
 #endif
+#ifdef HAS_PQ
+            if (database_)
+            {
+                database_->on_health(snapshot);
+            }
+#endif
+        }
 
         if (!market_now)
         {

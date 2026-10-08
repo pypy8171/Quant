@@ -23,7 +23,7 @@ param(
   [string]$Until = "15:35",          # 이 시각을 넘으면 재기동하지 않는다. 모의는 15:30이 매매 끝. 실계좌 전환 때 20:05(애프터마켓 20:00 + 여유, D-097·T-18)
   [switch]$NoDashboard,
   [switch]$NoNotify,                 # 체결·포지션 메신저 알림 창을 띄우지 않는다
-  [switch]$NoRecorder,               # ZMQ 체결·주문을 TimescaleDB에 적재하는 창을 띄우지 않는다
+  [switch]$NoRecorder,               # TimescaleDB 부속 창(WSL 깨우기·자원 감시·원장 복제)을 띄우지 않는다. 체결·신호·헬스 적재는 엔진이 한다(D-154)
   [switch]$NoMarketClose,                    # 마감 뒤 사실 문서·대시보드 갱신을 건너뛴다
   [switch]$NoBuild,                  # 기동 전 재빌드를 건너뛴다(exe를 손으로 바꾼 날). 이때는 소스가 exe보다 새면 중단
   [switch]$NoTrader,                 # 트레이더를 이 창이 띄우지 않는다(리눅스 등 다른 곳이 띄우는 날). 부속 창·마감 정리는 그대로
@@ -239,7 +239,7 @@ function Wait-Tsdb {
     }
   }
   if ($tsdb -match "healthy") { Say "  quant-tsdb healthy" }
-  else { Say "  quant-tsdb 여전히 미기동(status=$tsdb) — recorder는 재시도 루프로 뜬다, DB 적재는 못 할 수 있다." "WARN" }
+  else { Say "  quant-tsdb 여전히 미기동(status=$tsdb) — 엔진 적재 워커는 스스로 다시 붙는다, 그사이 넘친 행은 버린다." "WARN" }
 }
 
 # candidate 의 부모 사슬을 따라 올라가 ancestor 를 만나는지 본다. ancestor 가 0이면(창 핸들이 없는
@@ -294,7 +294,7 @@ function Restore-Windows {
     if ($procs | Where-Object { $_.CommandLine -like "*$($w.marker)*" -and (Test-Descendant ([int]$_.ProcessId) $ownerPid $parentOf) }) { continue }
     Say "부속 창 '$title' 안에서 $($w.marker)가 죽었다 — 다시 띄운다." "WARN"
     if ($w.proc -and -not $w.proc.HasExited) { Stop-Process -Id $w.proc.Id -Force -ErrorAction SilentlyContinue }
-    if ($title -eq "quant-recorder") { Wait-Tsdb }
+    if ($title -eq "quant-ledger") { Wait-Tsdb }
     Start-Window $title $w.cmd $w.marker
   }
 }
@@ -524,47 +524,17 @@ if (-not $NoDashboard)
   Say "  대시보드 http://127.0.0.1:$dashboardPort  ($Config)"
 }
 if (-not $NoNotify)    { Start-Window "quant-notify"    "& '$py' scripts\notify_trades.py --config $Config --interval 1800" "notify_trades.py" }
-# 네이티브 트레이더는 컨테이너가 아니라 ZMQ PUB(127.0.0.1:5555)만 낸다 — docker-compose의
-# quant-recorder는 quant-engine 컨테이너를 구독하므로 이 프로세스를 못 본다(D-090 후속).
-# 같은 호스트에서 직접 구독해 TimescaleDB에 적재한다.
+# 체결 시세·신호·헬스는 엔진이 TimescaleDB에 바로 넣는다(D-148·D-154) — 예전 파이썬 ZMQ 적재 창(quant-recorder)은
+#  띄우지 않는다. 여기서는 DB가 붙어 있을 WSL을 깨워 두고, 자원 감시와 원장 복제 창만 띄운다.
 if (-not $NoRecorder) {
   Say "WSL 배포판을 하루 종일 깨워 둔다(quant-wsl-keepalive) — TimescaleDB 컨테이너가 붙어 있을 곳"
   Start-Window "quant-wsl-keepalive" "while (`$true) { wsl -e sleep infinity; Start-Sleep -Seconds 2 }" ""
   Say "TimescaleDB 사전 점검 — WSL Docker 깨우기"
   Wait-Tsdb
-  # --record-ticks: 체결 틱을 ticks 표에 모아 넣는다(배치). 그라파나 "피드 지연"·"초당 틱 유입" 패널이
-  #  이 표를 읽는다 — 없으면 피드가 멀쩡해도 패널이 며칠 전 시각을 가리킨다.
-  # --account: 이 계좌의 주문·체결만 받는다. Engine 을 그대로 띄우는 테스트·부하 하네스가 같은 5555에
-  #  bind 하면 리코더가 그쪽을 잡아 합성 데이터가 운영 표에 섞인다(09-22 장중 실측).
-  $recorderAccount = ""
-  try { $recorderAccount = (Get-Content $Config -Raw -Encoding UTF8 | ConvertFrom-Json).kis.account_no } catch { }
-  if (-not $recorderAccount) { Say "config 에서 kis.account_no 를 못 읽었다 — 리코더 계좌 거르기 없이 띄운다." "WARN" }
-  $recorderArgs = if ($recorderAccount) { "--account $recorderAccount" } else { "" }
-  # --port: 주문 프로세스가 PUB 을 여는 포트다. 실계좌는 모의 엔진과 bind 가 겹치지 않게 5565 로 옮겨 놓았으므로
-  #  (config_live.json 의 zmq_pub_port) 5555 를 박아 두면 실계좌 체결·틱이 DB 에 한 건도 안 들어간다.
-  # --feed-port·--strategy-port: 갈라 띄운 날 시세·전략 프로세스가 각자 여는 발행 포트다. config 에 안 적혀
-  #  있으면 리코더가 주문 포트에서 +2·+3 으로 끌어오므로(엔진이 쓰는 규칙과 같다) 대개 안 넘겨도 맞는다 —
-  #  config 가 명시했을 때만 그 값을 그대로 넘긴다.
-  $recorderPort = 0
-  try { $recorderPort = [int](Get-Content $Config -Raw -Encoding UTF8 | ConvertFrom-Json).zmq_pub_port } catch { }
-  if (-not $recorderPort) { $recorderPort = 5555; Say "config 에서 zmq_pub_port 를 못 읽었다 — 기본 $recorderPort 로 띄운다." "WARN" }
-  $recorderFeedPort = 0
-  $recorderStrategyPort = 0
-  try {
-    $zmqConfig = Get-Content $Config -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($zmqConfig.zmq_feed_pub_port)     { $recorderFeedPort     = [int]$zmqConfig.zmq_feed_pub_port }
-    if ($zmqConfig.zmq_strategy_pub_port) { $recorderStrategyPort = [int]$zmqConfig.zmq_strategy_pub_port }
-  } catch { }
-  $recorderPortArgs = ""
-  if ($recorderFeedPort)     { $recorderPortArgs += " --feed-port $recorderFeedPort" }
-  if ($recorderStrategyPort) { $recorderPortArgs += " --strategy-port $recorderStrategyPort" }
-  # config 의 database.enabled 가 켜져 있으면 엔진이 체결을 ticks 에 바로 넣는다(D-148). 리코더까지 넣으면
-  #  같은 체결이 두 번 들어가므로 그날은 --record-ticks 를 뺀다(신호·상태 적재는 그대로).
-  $engineWritesTicks = $false
-  try { $engineWritesTicks = [bool](Get-Content $Config -Raw -Encoding UTF8 | ConvertFrom-Json).database.enabled } catch { }
-  $recordTicksArg = if ($engineWritesTicks) { "" } else { " --record-ticks" }
-  if ($engineWritesTicks) { Say "  체결 시세는 엔진이 DB에 넣는다(database.enabled) — 리코더는 --record-ticks 없이 띄운다" }
-  Start-Window "quant-recorder"  "& '$py' PYQuant\main.py record --host localhost --port $recorderPort$recorderPortArgs$recordTicksArg $recorderArgs" "main.py record"
+  # config 의 database.enabled 가 꺼져 있으면 엔진이 아무것도 넣지 않는다 — 대신 넣어 줄 창이 이제 없으니 알린다.
+  $engineWritesDatabase = $false
+  try { $engineWritesDatabase = [bool](Get-Content $Config -Raw -Encoding UTF8 | ConvertFrom-Json).database.enabled } catch { }
+  if (-not $engineWritesDatabase) { Say "  config 의 database.enabled 가 꺼져 있다 — 오늘 체결 시세·신호·헬스는 DB에 안 들어간다(D-154)." "WARN" }
   # 엔진 자원(CPU·메모리·스레드별 CPU·perf 함수 핫스팟) → 그라파나 ops. -NoTrader 날은 엔진이 WSL(Ubuntu-24.04)에
   # 있어 /proc를 그 배포판에서 읽고, Windows exe 날은 psutil로 본다.
   $procwatchArgs = if ($NoTrader) { "--wsl-distro Ubuntu-24.04" } else { "" }

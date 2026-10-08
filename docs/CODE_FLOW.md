@@ -68,8 +68,8 @@ flowchart LR
 
 감시견이 같은 exe를 `--role`만 달리해 띄운다. 구역을 만드는 쪽은 주문이라 주문을 먼저 띄우고, 전략·시세는 30초까지 붙기를 다시 시도한다. `Engine::start()`와 `spawn_threads()`가 `runs_order_side`·`runs_strategy_side`·`runs_feed_side`로 역할마다 부품과 스레드를 고른다.
 
-1. [`Start-TraderProcess`](../scripts/auto_trade_day.ps1#L586) — 감시견이 `quant_trader.exe <config> --role <역할>`로 띄운다. `-Roles order,strategy,feed`면 셋, 기본은 `both` 하나. 하나가 죽으면 정상 종료면 20초 기다리고, 아니면 나머지를 바로 내린다  
-   `scripts/auto_trade_day.ps1:586` · `function Start-TraderProcess([string]$roleName)`
+1. [`Start-TraderProcess`](../scripts/auto_trade_day.ps1#L556) — 감시견이 `quant_trader.exe <config> --role <역할>`로 띄운다. `-Roles order,strategy,feed`면 셋, 기본은 `both` 하나. 하나가 죽으면 정상 종료면 20초 기다리고, 아니면 나머지를 바로 내린다  
+   `scripts/auto_trade_day.ps1:556` · `function Start-TraderProcess([string]$roleName)`
 2. [`main`](../Quant/src/main.cpp#L318) — 진입. 번호 주석이 초기화 순서다 — 콘솔·로거(역할별 로그 파일) → 인자 → `parse_config` → 로그 임계값 → 크래시 핸들러 → `run_trade`  
    `Quant/src/main.cpp:318` · `int main(int argc, char* argv[])`
 3. [`parse_command_line`](../Quant/src/core/CommandLine.cpp#L88) — `--role X`를 `ProcessRole`(Both·Order·Strategy·Feed)로. 이후 모든 역할 분기는 `CommandLine.h`의 `runs_*_side` 세 함수로 본다  
@@ -179,12 +179,12 @@ flowchart LR
    `Quant/src/core/EngineFeed.cpp:257` · `void Engine::push_feed_trade(uint32_t lane, const TradeData& trade)`
 44. [`ipc::MarketFeedChannel::push_trade`](../Quant/src/ipc/MarketFeedChannel.cpp#L229) — 줄(소켓 N + REST 1)마다 SPSC 링 하나. 가득 차면 버리고 센다  
    `Quant/src/ipc/MarketFeedChannel.cpp:229` · `bool MarketFeedChannel::push_trade(uint32_t lane, const TradeData& trade) noexcept` · 시험 [test_market_feed_channel](../Quant/tests/test_market_feed_channel.cpp)
-45. [`db::DbManager::on_trade`](../Quant/src/ipc/DbManager.cpp#L483) — `database.enabled`일 때만. `symbol_id % 워커 수`로 워커 큐에 넣는다. 운영 config는 아직 끔 — DB는 파이썬 리코더가 채운다  
-   `Quant/src/ipc/DbManager.cpp:483` · `void DbManager::on_trade(const TradeData& trade) noexcept` · 시험 [test_db_manager](../Quant/tests/test_db_manager.cpp)
-46. [`tick_loop`](../Quant/src/ipc/DbManager.cpp#L700) — 적재 워커 — `batch_rows`가 차거나 `flush_ms`가 지나면 묶어서 `COPY ticks(ts,ticker,price,volume,direction,market)`. 끊기면 한 워커만 다시 붙어 본다  
-   `Quant/src/ipc/DbManager.cpp:700` · `void tick_loop(DbManager::State& state, TickWorker& worker, unsigned index)` · 시험 [test_db_manager](../Quant/tests/test_db_manager.cpp)
-47. [`Engine::data_thread_fn`](../Quant/src/core/EngineDataThread.cpp#L29) — REST 축 — 봉 폴링·[전략] `poll_regime_file`·`maybe_rescan_universe`·잔고 대조·하루 경계(`new_trading_day`·`reset_daily`). 폴러 대체 틱은 시세 채널의 마지막 줄로 간다  
-   `Quant/src/core/EngineDataThread.cpp:29` · `void Engine::data_thread_fn(std::stop_token stop_token)`
+45. [`db::DbManager::on_trade`](../Quant/src/ipc/DbManager.cpp#L750) — `database.enabled`일 때만. `symbol_id % 워커 수`로 워커 큐에 넣는다. 신호·헬스는 같은 관리자의 `on_signal`·`on_health`가 따로 워커 하나로 넣는다(D-154)  
+   `Quant/src/ipc/DbManager.cpp:750` · `void DbManager::on_trade(const TradeData& trade) noexcept` · 시험 [test_db_manager](../Quant/tests/test_db_manager.cpp)
+46. [`tick_loop`](../Quant/src/ipc/DbManager.cpp#L1103) — 적재 워커 — `batch_rows`가 차거나 `flush_ms`가 지나면 묶어서 `COPY ticks(ts,ticker,price,volume,direction,market)`. 끊기면 한 워커만 다시 붙어 본다  
+   `Quant/src/ipc/DbManager.cpp:1103` · `void tick_loop(DbManager::State& state, TickWorker& worker, unsigned index)` · 시험 [test_db_manager](../Quant/tests/test_db_manager.cpp)
+47. [`Engine::data_thread_fn`](../Quant/src/core/EngineDataThread.cpp#L30) — REST 축 — 봉 폴링·[전략] `poll_regime_file`·`maybe_rescan_universe`·잔고 대조·하루 경계(`new_trading_day`·`reset_daily`). 폴러 대체 틱은 시세 채널의 마지막 줄로 간다  
+   `Quant/src/core/EngineDataThread.cpp:30` · `void Engine::data_thread_fn(std::stop_token stop_token)`
 48. [`DataPoller::poll_universe`](../Quant/src/core/DataPoller.cpp#L100) — REST 현재가 → 대체 `TradeData`(`received_ns`=0). 구독 상한 넘침·틱 끊긴 보유 보충(`top_up`)도 이 클래스  
    `Quant/src/core/DataPoller.cpp:100` · `int DataPoller::poll_universe(const std::vector<WatchSpec>& specifications, std::time_t now_utc)` · 시험 [test_data_poller](../Quant/tests/test_data_poller.cpp)
 49. [`feed::TickCapture::on_trade`](../Quant/include/core/TickCapture.h#L164) — raw 틱 append-only 캡처(원칙 8). 리플레이(`ReplaySource`)의 입력  
@@ -209,8 +209,8 @@ flowchart LR
    `Quant/src/core/EngineFeed.cpp:322` · `void Engine::fan_out_trade(uint32_t lane, const TradeData& trade)`
 53. [`shard::Matrix::push_to`](../Quant/include/core/ShardMatrix.h#L87) — 행(생산자)×열(소비자) SPSC 셀에 push. `consumer_of(sym)`이 종목 해시로 열을 고른다(원칙 2)  
    `Quant/include/core/ShardMatrix.h:87` · `[[nodiscard]] bool push_to(uint32_t producer, uint32_t consumer, const T& value)` · 시험 [test_shard_matrix](../Quant/tests/test_shard_matrix.cpp)
-54. [`Engine::shard_thread_fn`](../Quant/src/core/EngineStrategyThread.cpp#L481) — 전략 집합 버전이 바뀌면 `rebuild`, 아니면 `step`. 비면 `WakeGate`로 잠든다. `emit`은 `pipeline_.shard_out` push + 디스패치 스레드 깨우기  
-   `Quant/src/core/EngineStrategyThread.cpp:481` · `void Engine::shard_thread_fn(std::stop_token stop_token, uint32_t row)`
+54. [`Engine::shard_thread_fn`](../Quant/src/core/EngineStrategyThread.cpp#L496) — 전략 집합 버전이 바뀌면 `rebuild`, 아니면 `step`. 비면 `WakeGate`로 잠든다. `emit`은 `pipeline_.shard_out` push + 디스패치 스레드 깨우기  
+   `Quant/src/core/EngineStrategyThread.cpp:496` · `void Engine::shard_thread_fn(std::stop_token stop_token, uint32_t row)`
 55. [`strategy::Shard::step`](../Quant/include/core/StrategyShard.h#L96) — 열의 호가·체결·봉 셀을 순서대로 비우고 전략 배치 훅을 부른다. `on_price`로 현재가 캐시 갱신  
    `Quant/include/core/StrategyShard.h:96` · `bool step(Emit&& emit, OnPrice&& on_price, SymbolIdOf&& symbol_id_of)` · 시험 [test_strategy_shard](../Quant/tests/test_strategy_shard.cpp)
 56. [`strategy::Router::for_each`](../Quant/include/core/StrategyRouter.h#L78) — 종목 id → 그 종목을 구독한 전략 목록. 구독을 안 밝힌 전략은 전부 받는다  
@@ -229,8 +229,8 @@ flowchart LR
    `Quant/include/core/BarAggregator.h:59` · `std::vector<MarketData> resample(const std::vector<MarketData>& bars_1m, int interval_min, int max_count = 0);` · 시험 [test_bar_aggregator](../Quant/tests/test_bar_aggregator.cpp)
 63. [`DeviationScaleStrategy::emit_liquidation`](../Quant/include/strategy/DeviationScaleStrategy.h#L365) — 청산 신호 조립 — 시장가면 `reference_price` 스탬프, 매도 가능 수량은 원장 접근자(`sellable_quantity`, 동기 잔고조회 금지)  
    `Quant/include/strategy/DeviationScaleStrategy.h:365` · `bool emit_liquidation(std::vector<OrderSignal>& out, int position, …`
-64. [`Engine::ledger_sellable`](../Quant/src/core/Engine.cpp#L716) — 전략이 보는 보유·매도 가능 수량의 출처 — 주문 프로세스가 발행한 장부 스냅숏  
-   `Quant/src/core/Engine.cpp:716` · `StrategyBase::SellableInfo Engine::ledger_sellable(const std::string&, const std::string& ticker) const`
+64. [`Engine::ledger_sellable`](../Quant/src/core/Engine.cpp#L721) — 전략이 보는 보유·매도 가능 수량의 출처 — 주문 프로세스가 발행한 장부 스냅숏  
+   `Quant/src/core/Engine.cpp:721` · `StrategyBase::SellableInfo Engine::ledger_sellable(const std::string&, const std::string& ticker) const`
 65. [`ipc::LedgerSnapshot::begin_optimistic_read`](../Quant/src/ipc/LedgerSnapshot.cpp#L21) — 쓰는 쪽을 막지 않고 읽은 뒤 세대 번호로 그 사이에 바뀌었는지 확인한다(바뀌었으면 다시 읽음)  
    `Quant/src/ipc/LedgerSnapshot.cpp:21` · `void LedgerSnapshot::begin_optimistic_read() const noexcept` · 시험 [test_ledger_snapshot](../Quant/tests/test_ledger_snapshot.cpp)
 
@@ -368,10 +368,10 @@ flowchart LR
 
 SIGINT·운영단말 종료 → `request_shutdown` → `stop`. 체결 큐는 비울 때까지 돌고 로거는 `flush`한다. 종료 사유는 구역에 남아 붙은 프로세스가 따라 내려간다.
 
-103. [`Engine::request_shutdown`](../Quant/src/core/Engine.cpp#L764) — 시그널 핸들러에서 불려도 되는 최소 동작(플래그·깨우기)만  
-   `Quant/src/core/Engine.cpp:764` · `void Engine::request_shutdown(std::string_view reason, ipc::SharedShutdownReason recorded_reason)`
-104. [`Engine::stop`](../Quant/src/core/Engine.cpp#L795) — stop_token 요청 → join 순서(control → order → 샤드 → strategy → data → WS 끊기 → fill(큐를 비우고 끝난다) → ledger 맨 뒤, 마지막 사본 한 판) → ZMQ·운영단말·DB 정지 → 전략 `on_stop` → 통계 출력. 미체결 예약주문 기억은 여기서 사라진다(재기동 규칙, CLAUDE.md '장중 운영')  
-   `Quant/src/core/Engine.cpp:795` · `void Engine::stop()`
+103. [`Engine::request_shutdown`](../Quant/src/core/Engine.cpp#L769) — 시그널 핸들러에서 불려도 되는 최소 동작(플래그·깨우기)만  
+   `Quant/src/core/Engine.cpp:769` · `void Engine::request_shutdown(std::string_view reason, ipc::SharedShutdownReason recorded_reason)`
+104. [`Engine::stop`](../Quant/src/core/Engine.cpp#L800) — stop_token 요청 → join 순서(control → order → 샤드 → strategy → data → WS 끊기 → fill(큐를 비우고 끝난다) → ledger 맨 뒤, 마지막 사본 한 판) → ZMQ·운영단말·DB 정지 → 전략 `on_stop` → 통계 출력. 미체결 예약주문 기억은 여기서 사라진다(재기동 규칙, CLAUDE.md '장중 운영')  
+   `Quant/src/core/Engine.cpp:800` · `void Engine::stop()`
 105. [`ipc::SharedRegion::mark_clean_shutdown`](../Quant/src/ipc/SharedRegion.cpp#L612) — 종료 사유를 구역에 적는다 — 주인은 머리 칸, 붙은 쪽은 자기 역할 칸. 처음 적은 사유만 남는다(CAS)  
    `Quant/src/ipc/SharedRegion.cpp:612` · `void SharedRegion::mark_clean_shutdown(SharedShutdownReason reason) noexcept` · 시험 [test_shared_region](../Quant/tests/test_shared_region.cpp)
 

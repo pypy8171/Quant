@@ -36,7 +36,7 @@ WS 수신 ×소켓 → 샤드 ×M → 디스패치 → 주문 스레드 1 → �
 
 ## 운영
 
-감시견 `scripts/auto_trade_day.ps1`이 트레이더와 보조 프로세스를 띄웁니다. 보조 프로세스는 `PYQuant/main.py record`, `PYQuant/tools/ledger_recorder.py`, 대시보드 서버, 체결 알림입니다. 트레이더가 죽으면 5초 뒤 다시 띄우고, 30분 안에 세 번 죽으면 멈춥니다. 실계좌는 `scripts/auto_trade_live.ps1`이 설정을 확인한 뒤 같은 감시견을 부릅니다. 장이 끝나면 `scripts/market_close_autodoc.py`가 매매일지와 대시보드를 채웁니다. 수동 개입은 MFC 운영단말(`Quant/tools/ops_terminal`, 엔진과 TCP로 연결)로 합니다.
+감시견 `scripts/auto_trade_day.ps1`이 트레이더와 보조 프로세스를 띄웁니다. 보조 프로세스는 `PYQuant/tools/ledger_recorder.py`, 대시보드 서버, 체결 알림입니다. 체결 시세·신호·헬스는 엔진이 DB에 직접 넣습니다(D-154). 트레이더가 죽으면 5초 뒤 다시 띄우고, 30분 안에 세 번 죽으면 멈춥니다. 실계좌는 `scripts/auto_trade_live.ps1`이 설정을 확인한 뒤 같은 감시견을 부릅니다. 장이 끝나면 `scripts/market_close_autodoc.py`가 매매일지와 대시보드를 채웁니다. 수동 개입은 MFC 운영단말(`Quant/tools/ops_terminal`, 엔진과 TCP로 연결)로 합니다.
 
 ## 저장소 구조
 

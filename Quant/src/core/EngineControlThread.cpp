@@ -180,7 +180,16 @@ void Engine::control_thread_fn(std::stop_token stop_token)
                                     " db_written=" + std::to_string(database_totals.ticks_written) +
                                     " db_dropped=" + std::to_string(database_totals.ticks_dropped) +
                                     " db_failed=" + std::to_string(database_totals.ticks_failed) +
-                                    " db_ambiguous=" + std::to_string(database_totals.ticks_ambiguous);
+                                    " db_ambiguous=" + std::to_string(database_totals.ticks_ambiguous) +
+                                    // 신호·헬스 — 옛 파이썬 적재기의 "발행/받음/넣음" 줄을 대신한다. [why D-154]
+                                    " db_signal_offered=" + std::to_string(database_totals.signals_offered) +
+                                    " db_signal_written=" + std::to_string(database_totals.signals_written) +
+                                    " db_signal_dropped=" + std::to_string(database_totals.signals_dropped) +
+                                    " db_signal_failed=" + std::to_string(database_totals.signals_failed) +
+                                    " db_health_offered=" + std::to_string(database_totals.health_offered) +
+                                    " db_health_written=" + std::to_string(database_totals.health_written) +
+                                    " db_health_dropped=" + std::to_string(database_totals.health_dropped) +
+                                    " db_health_failed=" + std::to_string(database_totals.health_failed);
             }
 
 #endif

@@ -113,6 +113,8 @@ def main() -> int:
 
     database = DbClient()
     database.ensure_ledger_tables()
+    # fills 금액 생성 열은 옛 ZMQ 적재기(main.py record)가 만들어 두었다. 그 창을 띄우지 않으니 여기서 만든다. [why D-154]
+    database.ensure_fills_amount_columns()
 
     directory = Path(arguments.dir) if arguments.dir else None
     path = Path(arguments.file) if arguments.file else journal_for_today(directory)

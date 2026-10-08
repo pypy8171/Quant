@@ -22,6 +22,8 @@
 
 #include <libpq-fe.h>
 
+#include <algorithm>
+#include <array>
 #include <atomic>
 #include <charconv>
 #include <chrono>
@@ -29,6 +31,7 @@
 #include <cstdlib>
 #include <future>
 #include <mutex>
+#include <optional>
 #include <thread>
 #include <vector>
 
@@ -37,7 +40,8 @@ namespace db
 namespace
 {
 
-constexpr const char* kCopyStatement = "COPY ticks(ts,ticker,price,volume,direction,market) FROM STDIN";
+constexpr const char* kTickCopyStatement   = "COPY ticks(ts,ticker,price,volume,direction,market) FROM STDIN";
+constexpr const char* kSignalCopyStatement = "COPY signals(ts,strategy,ticker,side,qty,price,market,regime,account) FROM STDIN";
 constexpr int         kMaxBackoffMs  = 30000;
 constexpr int         kConnectTimeoutSeconds = 5;
 constexpr int         kStatementTimeoutMs = 30000; // COPY 묶음 하나의 서버 쪽 한도
@@ -162,6 +166,12 @@ public:
         return handle_;
     }
 
+    // 연결을 새로 열 때마다 1씩 는다. 연결마다 한 번 할 일(health 열 보장)을 다시 할지 가르는 데 쓴다.
+    [[nodiscard]] uint64_t generation() const
+    {
+        return generation_;
+    }
+
     bool open(const DbConfig& config, const std::string& password, const std::string& label)
     {
         close();
@@ -184,6 +194,7 @@ public:
         if (usable())
         {
             slot_.set(handle_);
+            generation_ += 1;
             LOG_INFO("[DbManager] " + label + " 연결 — " + host + ":" + port);
             return true;
         }
@@ -213,9 +224,25 @@ public:
         kAmbiguous, // 끝 신호는 갔는데 답 전에 끊겼다 — 들어갔는지 모른다
     };
 
-    Outcome copy(const std::string& text, std::string& error)
+    // 결과를 돌려주지 않는 문장 하나(ALTER 등). 실패하면 오류 글을 채우고 false.
+    bool execute(const char* statement, std::string& error)
     {
-        PGresult* start = PQexec(handle_, kCopyStatement);
+        PGresult*            result = PQexec(handle_, statement);
+        const ExecStatusType status = PQresultStatus(result);
+        PQclear(result);
+
+        if (status == PGRES_COMMAND_OK)
+        {
+            return true;
+        }
+
+        error = PQerrorMessage(handle_);
+        return false;
+    }
+
+    Outcome copy(const char* statement, const std::string& text, std::string& error)
+    {
+        PGresult* start = PQexec(handle_, statement);
         const ExecStatusType start_status = PQresultStatus(start);
         PQclear(start);
 
@@ -267,6 +294,7 @@ private:
 
     InterruptSlot& slot_;
     PGconn*        handle_ = nullptr;
+    uint64_t       generation_ = 0;
 };
 
 struct Row
@@ -275,18 +303,58 @@ struct Row
     int64_t   enqueue_ms = 0;
 };
 
-// 적재 워커 하나의 큐·스레드·깨우기·취소 수단.
-struct TickWorker
+struct HealthRow
 {
-    explicit TickWorker(size_t capacity) : queue(capacity), finished(done.get_future()) {}
+    int64_t        ts_ms = 0;
+    HealthSnapshot snapshot;
+};
 
-    MpscQueue<Row>     queue;
+// 적재 워커 하나의 스레드·깨우기·취소 수단. 큐는 아래 두 갈래가 따로 든다.
+struct Worker
+{
+    Worker() : finished(done.get_future()) {}
+
     std::string        label;
     wake::WakeGate     wake;
     InterruptSlot      interrupt;
     std::promise<void> done; // 워커 스레드가 끝나면 채운다 — stop()이 시간 한도를 두고 기다리는 데 쓴다
     std::future<void>  finished;
     std::thread        thread;
+};
+
+// 체결 적재 워커. 수신 스레드 여럿이 넣는다.
+struct TickWorker : Worker
+{
+    explicit TickWorker(size_t capacity) : queue(capacity) {}
+
+    MpscQueue<Row> queue;
+};
+
+// 신호·헬스 적재 워커. 신호는 전략 스레드, 헬스는 데이터 스레드가 넣는다 — 역할을 갈라 띄운 날과 한 프로세스로
+//  띄운 날의 생산자가 달라 MPSC로 둔다(원칙 5). [why D-154]
+struct EventWorker : Worker
+{
+    EventWorker(size_t signal_capacity, size_t health_capacity) : signals(signal_capacity), health(health_capacity) {}
+
+    MpscQueue<SignalRow> signals;
+    MpscQueue<HealthRow> health;
+};
+
+// 표 하나의 행 수 셈. 넣음 + 버림 + 못 넣음 + 모호가 받음에 닿으면 큐가 빈 것이다.
+struct Counters
+{
+    std::atomic<uint64_t> offered{0};
+    std::atomic<uint64_t> written{0};
+    std::atomic<uint64_t> dropped{0};   // 큐가 차서 버린 행
+    std::atomic<uint64_t> failed{0};    // 서버가 거절했거나 끝낼 때 DB가 없어 못 넣은 행
+    std::atomic<uint64_t> ambiguous{0}; // 끝 신호 뒤 답 전에 끊긴 행
+
+    [[nodiscard]] bool settled() const
+    {
+        return written.load(std::memory_order_acquire) + dropped.load(std::memory_order_relaxed) +
+                   failed.load(std::memory_order_relaxed) + ambiguous.load(std::memory_order_relaxed) >=
+               offered.load(std::memory_order_relaxed);
+    }
 };
 
 } // namespace
@@ -296,6 +364,8 @@ struct DbManager::State
     DbConfig                                  config;
     std::string                               password;
     std::vector<std::unique_ptr<TickWorker>> tick_workers;
+    std::unique_ptr<EventWorker>             event_worker; // 계좌가 없으면 비어 있다
+    std::vector<Worker*>                     workers;      // 위 둘을 한 줄로 — stop()이 차례로 거둔다
     std::atomic<bool>                        running{false};
     std::atomic<bool>                        abandon{false}; // stop()이 기다리기를 그만뒀다 — 남은 행은 넣지 않고 센다
     // 연결 상태표 — 모든 워커가 나눠 본다. 접속이 한 번 실패하면 retry_at_ms까지 아무도 다시 붙지 않고,
@@ -303,16 +373,58 @@ struct DbManager::State
     std::atomic<int64_t>  retry_at_ms{0}; // 0이면 실패 기록 없음 — 워커마다 각자 붙는다
     std::atomic<int>      backoff_ms{1000};
     std::atomic<bool>     probing{false};
-    std::atomic<uint64_t> ticks_offered{0};
-    std::atomic<uint64_t> ticks_written{0};
-    std::atomic<uint64_t> ticks_dropped{0};
-    std::atomic<uint64_t> ticks_failed{0};
-    std::atomic<uint64_t> ticks_ambiguous{0};
+    Counters              ticks;
+    Counters              signals;
+    Counters              health;
 };
 
 namespace
 {
 void tick_loop(DbManager::State& state, TickWorker& worker, unsigned index);
+void event_loop(DbManager::State& state, EventWorker& worker);
+
+// 값이 있으면 숫자, 없으면 COPY의 NULL(\N).
+void append_optional(std::string& out, bool present, uint64_t value)
+{
+    if (present)
+    {
+        append_number(out, value);
+        return;
+    }
+
+    out.append("\\N");
+}
+
+// health의 고정 수치 열. 순서는 append_health_row가 값을 쓰는 순서와 같다. [wire] PYQuant/db/client.py _HEALTH_METRIC_COLUMNS
+constexpr std::array<std::string_view, 27> kHealthFixedColumns = {
+    "drop_cnt",
+    "drop_socket_full",
+    "drop_socket_error",
+    "drop_send_queue_full",
+    "drop_trade_ring_full",
+    "queue_shard_high_water",
+    "queue_shard_capacity",
+    "queue_shard_out_size",
+    "queue_shard_out_capacity",
+    "queue_order_high_water",
+    "queue_order_capacity",
+    "queue_fill_high_water",
+    "queue_fill_capacity",
+    "dropped_shard",
+    "dropped_order",
+    "stale_order",
+    "dropped_fill",
+    "latency_samples",
+    "tick_to_signal_p50_us",
+    "tick_to_signal_p99_us",
+    "signal_to_pop_p50_us",
+    "signal_to_pop_p99_us",
+    "pop_to_done_p50_us",
+    "pop_to_done_p99_us",
+    "total_p50_us",
+    "total_p99_us",
+    "latency_interval_samples",
+};
 } // namespace
 
 void append_copy_text(std::string& out, std::string_view text)
@@ -383,6 +495,127 @@ void append_trade_row(std::string& out, const TradeData& trade, int64_t enqueue_
     out.push_back('\n');
 }
 
+SignalRow make_signal_row(const OrderSignal& signal, std::string_view regime, int64_t ts_ms)
+{
+    SignalRow row;
+    row.ts_ms = ts_ms;
+    row.ticker = signal.ticker;
+    const size_t length = std::min(signal.strategy_id.size(), SignalRow::kStrategyMax);
+    std::copy_n(signal.strategy_id.data(), length, row.strategy);
+    row.strategy_length = static_cast<uint8_t>(length);
+    row.side = signal.side;
+    row.quantity = signal.quantity;
+    row.price = signal.price;
+    row.market = signal.market;
+    row.regime = regime;
+    return row;
+}
+
+void append_signal_row(std::string& out, const SignalRow& row, std::string_view account)
+{
+    append_iso_utc(out, row.ts_ms);
+    out.push_back('\t');
+    append_copy_text(out, std::string_view(row.strategy, row.strategy_length));
+    out.push_back('\t');
+    append_copy_text(out, row.ticker.view());
+    out.push_back('\t');
+    out.append(row.side == OrderSide::BUY ? "BUY" : (row.side == OrderSide::SELL ? "SELL" : "NONE"));
+    out.push_back('\t');
+    append_number(out, row.quantity);
+    out.push_back('\t');
+    append_number(out, row.price);
+    out.push_back('\t');
+    out.append(row.market == Market::US ? "US" : "KR");
+    out.push_back('\t');
+    append_copy_text(out, row.regime);
+    out.push_back('\t');
+    append_copy_text(out, account);
+    out.push_back('\n');
+}
+
+std::vector<std::string> health_metric_columns(const HealthSnapshot& snapshot)
+{
+    std::vector<std::string> columns(kHealthFixedColumns.begin(), kHealthFixedColumns.end());
+
+    for (const auto& segment : snapshot.interval_segments)
+    {
+        if (segment.name.empty())
+        {
+            continue;
+        }
+
+        columns.emplace_back(segment.name).append("_p50_interval_us");
+        columns.emplace_back(segment.name).append("_p99_interval_us");
+    }
+
+    return columns;
+}
+
+void append_health_row(std::string& out, const HealthSnapshot& snapshot, int64_t ts_ms, std::string_view role,
+                       std::string_view account)
+{
+    const auto field = [&out](auto value)
+    {
+        out.push_back('\t');
+        append_number(out, value);
+    };
+    const auto optional_field = [&out, &snapshot](uint64_t value)
+    {
+        out.push_back('\t');
+        append_optional(out, snapshot.has_publish_drops, value);
+    };
+
+    append_iso_utc(out, ts_ms);
+    out.push_back('\t');
+    append_copy_text(out, role);
+    out.push_back('\t');
+    append_copy_text(out, account);
+    field(snapshot.data_count);
+    field(snapshot.signal_count);
+    field(snapshot.order_count);
+    // 순서는 kHealthFixedColumns와 같다.
+    optional_field(snapshot.publish_dropped);
+    optional_field(snapshot.drop_socket_full);
+    optional_field(snapshot.drop_socket_error);
+    optional_field(snapshot.drop_send_queue_full);
+    optional_field(snapshot.drop_trade_ring_full);
+    field(snapshot.shard_high_water);
+    field(snapshot.shard_capacity);
+    field(snapshot.shard_out_size);
+    field(snapshot.shard_out_capacity);
+    field(snapshot.order_queue_high_water);
+    field(snapshot.order_queue_capacity);
+    field(snapshot.fill_queue_high_water);
+    field(snapshot.fill_queue_capacity);
+    field(snapshot.shard_dropped);
+    field(snapshot.order_dropped);
+    field(snapshot.order_stale);
+    field(snapshot.fill_dropped);
+    field(snapshot.latency_samples);
+    field(snapshot.tick_to_signal_p50_us);
+    field(snapshot.tick_to_signal_p99_us);
+    field(snapshot.signal_to_pop_p50_us);
+    field(snapshot.signal_to_pop_p99_us);
+    field(snapshot.pop_to_done_p50_us);
+    field(snapshot.pop_to_done_p99_us);
+    field(snapshot.total_p50_us);
+    field(snapshot.total_p99_us);
+    field(snapshot.interval_samples);
+
+    for (const auto& segment : snapshot.interval_segments)
+    {
+        if (segment.name.empty())
+        {
+            continue;
+        }
+
+        field(segment.p50_us);
+        field(segment.p99_us);
+    }
+
+    out.push_back('\n');
+}
+
 std::string resolve_host(const std::string& host)
 {
 #ifdef _WIN32
@@ -440,19 +673,41 @@ DbManager::DbManager(DbConfig config) : state_(std::make_shared<State>())
 
     if (state.password.empty())
     {
-        LOG_ERROR("[DbManager] TSDB_PASSWORD 환경변수가 없다 — 체결을 DB에 넣지 않는다");
+        LOG_ERROR("[DbManager] TSDB_PASSWORD 환경변수가 없다 — 체결·신호·헬스를 DB에 넣지 않는다");
         return;
     }
 
     const unsigned tick_count = state.config.tick_workers;
-    state.running.store(true, std::memory_order_release);
 
     for (unsigned index = 0; index < tick_count; ++index)
     {
         auto worker = std::make_unique<TickWorker>(state.config.tick_queue_capacity);
         worker->label = "적재 워커 " + std::to_string(index);
+        state.workers.push_back(worker.get());
         state.tick_workers.push_back(std::move(worker));
     }
+
+    // 계좌가 없으면 신호·헬스는 넣지 않는다 — 어느 엔진의 행인지 가를 수 없어서다(옛 적재기도 계좌 없는
+    //  메시지를 버렸다). 부하 하네스처럼 계좌 없이 뜨는 엔진이 운영 표에 섞이지 않는다. [why D-154]
+    if (state.config.account.empty())
+    {
+        LOG_WARN("[DbManager] 계좌가 비어 신호·헬스를 DB에 넣지 않는다");
+    }
+    else
+    {
+        state.event_worker = std::make_unique<EventWorker>(state.config.signal_queue_capacity,
+                                                           state.config.health_queue_capacity);
+        state.event_worker->label = "신호·헬스 워커";
+        state.workers.push_back(state.event_worker.get());
+    }
+
+    if (state.workers.empty())
+    {
+        LOG_WARN("[DbManager] 띄울 적재 워커가 없다 — DB에 넣지 않는다");
+        return;
+    }
+
+    state.running.store(true, std::memory_order_release);
 
     // 스레드가 상태를 나눠 가진다 — stop()이 떼어 둔 스레드가 늦게 돌아와도 상태는 살아 있다.
     for (unsigned index = 0; index < tick_count; ++index)
@@ -466,8 +721,20 @@ DbManager::DbManager(DbConfig config) : state_(std::make_shared<State>())
             });
     }
 
+    if (state.event_worker != nullptr)
+    {
+        EventWorker& worker = *state.event_worker;
+        worker.thread = std::thread(
+            [shared = state_, &worker]
+            {
+                event_loop(*shared, worker);
+                worker.done.set_value();
+            });
+    }
+
     LOG_INFO("[DbManager] 시작 — 적재 워커 " + std::to_string(tick_count) + "개, 묶음 " + std::to_string(state.config.batch_rows) + "행, " +
-             std::to_string(state.config.flush_ms) + "ms");
+             std::to_string(state.config.flush_ms) + "ms, 신호·헬스 워커 " +
+             std::to_string(state.event_worker != nullptr ? 1 : 0) + "개(역할 " + state.config.role + ")");
 }
 
 DbManager::~DbManager()
@@ -477,7 +744,7 @@ DbManager::~DbManager()
 
 bool DbManager::ok() const noexcept
 {
-    return !state_->tick_workers.empty();
+    return !state_->workers.empty();
 }
 
 void DbManager::on_trade(const TradeData& trade) noexcept
@@ -489,27 +756,63 @@ void DbManager::on_trade(const TradeData& trade) noexcept
         return;
     }
 
-    state.ticks_offered.fetch_add(1, std::memory_order_relaxed);
+    state.ticks.offered.fetch_add(1, std::memory_order_relaxed);
     TickWorker& worker = *state.tick_workers[trade.symbol_id % state.tick_workers.size()];
 
     if (!worker.queue.push(Row{trade, now_ms()}))
     {
-        state.ticks_dropped.fetch_add(1, std::memory_order_relaxed);
+        state.ticks.dropped.fetch_add(1, std::memory_order_relaxed);
         return;
     }
 
     worker.wake.notify();
 }
 
+void DbManager::on_signal(const OrderSignal& signal, std::string_view regime) noexcept
+{
+    State& state = *state_;
+
+    if (state.event_worker == nullptr)
+    {
+        return;
+    }
+
+    state.signals.offered.fetch_add(1, std::memory_order_relaxed);
+
+    if (!state.event_worker->signals.push(make_signal_row(signal, regime, now_ms())))
+    {
+        state.signals.dropped.fetch_add(1, std::memory_order_relaxed);
+        return;
+    }
+
+    state.event_worker->wake.notify();
+}
+
+void DbManager::on_health(const HealthSnapshot& snapshot) noexcept
+{
+    State& state = *state_;
+
+    if (state.event_worker == nullptr)
+    {
+        return;
+    }
+
+    state.health.offered.fetch_add(1, std::memory_order_relaxed);
+
+    if (!state.event_worker->health.push(HealthRow{now_ms(), snapshot}))
+    {
+        state.health.dropped.fetch_add(1, std::memory_order_relaxed);
+        return;
+    }
+
+    state.event_worker->wake.notify();
+}
+
 void DbManager::flush_ticks()
 {
     const State& state = *state_;
 
-    while (state.ticks_written.load(std::memory_order_acquire) +
-               state.ticks_dropped.load(std::memory_order_relaxed) +
-               state.ticks_failed.load(std::memory_order_relaxed) +
-               state.ticks_ambiguous.load(std::memory_order_relaxed) <
-           state.ticks_offered.load(std::memory_order_relaxed))
+    while (!state.ticks.settled())
     {
         for (const auto& worker : state.tick_workers)
         {
@@ -520,15 +823,41 @@ void DbManager::flush_ticks()
     }
 }
 
+void DbManager::flush_events()
+{
+    const State& state = *state_;
+
+    if (state.event_worker == nullptr)
+    {
+        return;
+    }
+
+    while (!state.signals.settled() || !state.health.settled())
+    {
+        state.event_worker->wake.notify();
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+}
+
 DbStatistics DbManager::statistics() const noexcept
 {
     const State& state = *state_;
     DbStatistics statistics;
-    statistics.ticks_offered = state.ticks_offered.load(std::memory_order_relaxed);
-    statistics.ticks_written = state.ticks_written.load(std::memory_order_relaxed);
-    statistics.ticks_dropped = state.ticks_dropped.load(std::memory_order_relaxed);
-    statistics.ticks_failed = state.ticks_failed.load(std::memory_order_relaxed);
-    statistics.ticks_ambiguous = state.ticks_ambiguous.load(std::memory_order_relaxed);
+    statistics.ticks_offered = state.ticks.offered.load(std::memory_order_relaxed);
+    statistics.ticks_written = state.ticks.written.load(std::memory_order_relaxed);
+    statistics.ticks_dropped = state.ticks.dropped.load(std::memory_order_relaxed);
+    statistics.ticks_failed = state.ticks.failed.load(std::memory_order_relaxed);
+    statistics.ticks_ambiguous = state.ticks.ambiguous.load(std::memory_order_relaxed);
+    statistics.signals_offered = state.signals.offered.load(std::memory_order_relaxed);
+    statistics.signals_written = state.signals.written.load(std::memory_order_relaxed);
+    statistics.signals_dropped = state.signals.dropped.load(std::memory_order_relaxed);
+    statistics.signals_failed = state.signals.failed.load(std::memory_order_relaxed) +
+                                state.signals.ambiguous.load(std::memory_order_relaxed);
+    statistics.health_offered = state.health.offered.load(std::memory_order_relaxed);
+    statistics.health_written = state.health.written.load(std::memory_order_relaxed);
+    statistics.health_dropped = state.health.dropped.load(std::memory_order_relaxed);
+    statistics.health_failed = state.health.failed.load(std::memory_order_relaxed) +
+                               state.health.ambiguous.load(std::memory_order_relaxed);
     return statistics;
 }
 
@@ -537,9 +866,9 @@ void DbManager::stop()
     using namespace std::chrono;
     State& state = *state_;
     state.running.store(false, std::memory_order_release);
-    const auto& workers = state.tick_workers;
+    const auto& workers = state.workers;
 
-    for (const auto& worker : workers)
+    for (Worker* worker : workers)
     {
         worker->wake.notify();
     }
@@ -548,7 +877,7 @@ void DbManager::stop()
     const auto grace_deadline = steady_clock::now() + milliseconds(state.config.stop_grace_ms);
     bool       late = false;
 
-    for (const auto& worker : workers)
+    for (Worker* worker : workers)
     {
         if (worker->thread.joinable() && worker->finished.wait_until(grace_deadline) != std::future_status::ready)
         {
@@ -565,7 +894,7 @@ void DbManager::stop()
                  "ms를 넘김 — DB 연결을 끊고 남은 일은 못 한 것으로 센다");
         state.abandon.store(true, std::memory_order_release);
 
-        for (const auto& worker : workers)
+        for (Worker* worker : workers)
         {
             worker->interrupt.interrupt();
             worker->wake.notify();
@@ -576,7 +905,7 @@ void DbManager::stop()
     const auto last_deadline = steady_clock::now() + seconds(kConnectTimeoutSeconds + 1);
     bool       reaped = false;
 
-    for (const auto& worker : workers)
+    for (Worker* worker : workers)
     {
         if (!worker->thread.joinable())
         {
@@ -596,12 +925,23 @@ void DbManager::stop()
     }
 
     // 소멸자도 stop()을 부른다 — 스레드를 거둔 첫 호출만 결산을 남긴다.
+    //  첫 줄의 모양은 scripts/check_runtime_health.py DB_WRITER_END_RE가 읽는다 — 바꾸면 거기도 고친다. [wire]
     if (reaped)
     {
         const DbStatistics totals = statistics();
         LOG_INFO("[DbManager] 종료 — 받음 " + std::to_string(totals.ticks_offered) + ", 넣음 " +
                  std::to_string(totals.ticks_written) + ", 큐 넘쳐 버림 " + std::to_string(totals.ticks_dropped) +
                  ", 거절 " + std::to_string(totals.ticks_failed) + ", 모호 " + std::to_string(totals.ticks_ambiguous));
+
+        if (state.event_worker != nullptr)
+        {
+            LOG_INFO("[DbManager] 종료(신호·헬스) — 신호 받음 " + std::to_string(totals.signals_offered) + ", 넣음 " +
+                     std::to_string(totals.signals_written) + ", 버림 " + std::to_string(totals.signals_dropped) +
+                     ", 못 넣음 " + std::to_string(totals.signals_failed) + " / 헬스 받음 " +
+                     std::to_string(totals.health_offered) + ", 넣음 " + std::to_string(totals.health_written) +
+                     ", 버림 " + std::to_string(totals.health_dropped) + ", 못 넣음 " +
+                     std::to_string(totals.health_failed));
+        }
     }
 }
 
@@ -610,7 +950,7 @@ namespace
 
 // 연결을 확보한다. 상태표에 실패가 적혀 있으면 retry_at_ms 전에는 붙지 않고, 그 뒤에도 한 워커만 붙어 본다.
 //  멈추라는 말이 올 때까지 기다린다. 멈추는 중에는 기다리지 않고, 붙어 볼 차례면 한 번만 붙어 본다.
-bool acquire_connection(DbManager::State& state, Connection& connection, TickWorker& worker)
+bool acquire_connection(DbManager::State& state, Connection& connection, Worker& worker)
 {
     const auto is_running = [&state]
     {
@@ -683,18 +1023,81 @@ bool acquire_connection(DbManager::State& state, Connection& connection, TickWor
     return true;
 }
 
-// 넣지 못하고 끝낼 때 — 손에 든 묶음과 큐에 남은 행을 거절로 센다.
-void give_up(DbManager::State& state, TickWorker& worker, uint64_t rows, const char* reason)
+template <typename Item>
+uint64_t drain(MpscQueue<Item>& queue)
 {
-    uint64_t remaining = rows;
+    uint64_t count = 0;
 
-    while (worker.queue.pop())
+    while (queue.pop())
     {
-        remaining += 1;
+        count += 1;
     }
 
-    state.ticks_failed.fetch_add(remaining, std::memory_order_release);
-    LOG_ERROR("[DbManager] " + worker.label + " " + reason + ", " + std::to_string(remaining) + "행 못 넣음");
+    return count;
+}
+
+// 넣지 못하고 끝낼 때 — 손에 든 묶음과 큐에 남은 행을 못 넣은 것으로 센다.
+void give_up(const Worker& worker, Counters& counters, const char* table, uint64_t rows, const char* reason)
+{
+    if (rows == 0)
+    {
+        return;
+    }
+
+    counters.failed.fetch_add(rows, std::memory_order_release);
+    LOG_ERROR("[DbManager] " + worker.label + " " + reason + ", " + table + " " + std::to_string(rows) + "행 못 넣음");
+}
+
+// 묶음 하나를 넣는다. 끝 신호 전에 끊긴 것만 다시 붙어 한 번 더 넣는다 — 다시 붙는 동안 쌓이는 것은 큐 용량까지만
+//  두고, 넘치면 on_* 가 버리고 센다. false면 멈추는 중에 DB가 없다 — 부르는 쪽이 이 묶음과 남은 것을 세고 끝낸다.
+bool write_batch(DbManager::State& state, Connection& connection, Worker& worker, const char* statement,
+                 const std::string& text, uint64_t rows, Counters& counters)
+{
+    for (int attempt = 0; attempt < 2; ++attempt)
+    {
+        if (!acquire_connection(state, connection, worker))
+        {
+            return false;
+        }
+
+        std::string error;
+        const auto  outcome = connection.copy(statement, text, error);
+
+        if (outcome == Connection::Outcome::kWritten)
+        {
+            counters.written.fetch_add(rows, std::memory_order_release);
+            return true;
+        }
+
+        if (outcome == Connection::Outcome::kNotSent && attempt == 0 &&
+            !state.abandon.load(std::memory_order_acquire))
+        {
+            LOG_WARN("[DbManager] " + worker.label + " 연결 끊김, 다시 넣는다 — " + error);
+            connection.close();
+            continue;
+        }
+
+        if (outcome == Connection::Outcome::kAmbiguous)
+        {
+            counters.ambiguous.fetch_add(rows, std::memory_order_release);
+            LOG_ERROR("[DbManager] " + worker.label + " 답 전에 끊김, " + std::to_string(rows) +
+                      "행 들어갔는지 모름 — " + error);
+            connection.close();
+            return true;
+        }
+
+        counters.failed.fetch_add(rows, std::memory_order_release);
+        LOG_ERROR("[DbManager] " + worker.label + " COPY 실패 " + std::to_string(rows) + "행 — " + error);
+
+        if (!connection.usable())
+        {
+            connection.close();
+        }
+
+        return true;
+    }
+
+    return true;
 }
 
 void tick_loop(DbManager::State& state, TickWorker& worker, unsigned index)
@@ -776,59 +1179,198 @@ void tick_loop(DbManager::State& state, TickWorker& worker, unsigned index)
 
         if (state.abandon.load(std::memory_order_acquire))
         {
-            give_up(state, worker, rows, "종료 대기 한도를 넘김");
+            give_up(worker, state.ticks, "ticks", rows + drain(worker.queue), "종료 대기 한도를 넘김");
             return;
         }
 
-        // 2) 넣기. 끝 신호 전에 끊긴 것만 다시 붙어 한 번 더 넣는다.
-        //  다시 붙는 동안 쌓이는 것은 큐 용량까지만 두고, 넘치면 on_trade 가 버리고 센다.
-        for (int attempt = 0; attempt < 2; ++attempt)
+        // 2) 넣기.
+        if (!write_batch(state, connection, worker, kTickCopyStatement, text, rows, state.ticks))
         {
-            if (!acquire_connection(state, connection, worker))
-            {
-                // 멈추는 중에 DB가 없다 — 묶음마다 접속 시간을 기다리지 않고 남은 것을 한 번에 세고 끝낸다.
-                give_up(state, worker, rows, "종료 중 DB 연결 없음");
-                return;
-            }
-
-            std::string error;
-            const auto  outcome = connection.copy(text, error);
-
-            if (outcome == Connection::Outcome::kWritten)
-            {
-                state.ticks_written.fetch_add(rows, std::memory_order_release);
-                break;
-            }
-
-            if (outcome == Connection::Outcome::kNotSent && attempt == 0 &&
-                !state.abandon.load(std::memory_order_acquire))
-            {
-                LOG_WARN("[DbManager] " + worker.label + " 연결 끊김, 다시 넣는다 — " + error);
-                connection.close();
-                continue;
-            }
-
-            if (outcome == Connection::Outcome::kAmbiguous)
-            {
-                state.ticks_ambiguous.fetch_add(rows, std::memory_order_release);
-                LOG_ERROR("[DbManager] " + worker.label + " 답 전에 끊김, " + std::to_string(rows) +
-                          "행 들어갔는지 모름 — " + error);
-                connection.close();
-                break;
-            }
-
-            state.ticks_failed.fetch_add(rows, std::memory_order_release);
-            LOG_ERROR("[DbManager] " + worker.label + " COPY 실패 " + std::to_string(rows) + "행 — " + error);
-
-            if (!connection.usable())
-            {
-                connection.close();
-            }
-
-            break;
+            // 멈추는 중에 DB가 없다 — 묶음마다 접속 시간을 기다리지 않고 남은 것을 한 번에 세고 끝낸다.
+            give_up(worker, state.ticks, "ticks", rows + drain(worker.queue), "종료 중 DB 연결 없음");
+            return;
         }
 
         text.clear();
+    }
+}
+
+// 기존 DB의 health 표에도 수치 열이 있게 한다. schema.sql은 DB를 새로 만들 때만 돈다 — 옛 파이썬 적재기의
+//  ensure_health_metric_columns와 같은 일을 문장 하나로 한다. 실패해도 COPY는 해 본다(열이 이미 있으면 들어간다).
+void ensure_health_columns(Connection& connection, const EventWorker& worker, const HealthSnapshot& snapshot)
+{
+    std::string statement = "ALTER TABLE health";
+
+    for (const std::string& column : health_metric_columns(snapshot))
+    {
+        statement.append(" ADD COLUMN IF NOT EXISTS ").append(column).append(" BIGINT,");
+    }
+
+    // 역할·계좌는 글자라 위(BIGINT)에 못 낀다. 역할 기본값 'order'는 이 열이 없던 시절 한 프로세스로 뜨던 날의
+    //  행이 기존 쿼리에 그대로 걸리게 하려고, 계좌에 기본값이 없는 것은 옛 행의 계좌를 지어내지 않으려고다. [why D-129]
+    statement.append(" ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'order',");
+    statement.append(" ADD COLUMN IF NOT EXISTS account TEXT");
+    std::string error;
+
+    if (!connection.execute(statement.c_str(), error))
+    {
+        LOG_WARN("[DbManager] " + worker.label + " health 열 보장 실패 — " + error);
+    }
+}
+
+std::string health_copy_statement(const HealthSnapshot& snapshot)
+{
+    std::string statement = "COPY health(ts,role,account,data_cnt,signal_cnt,order_cnt";
+
+    for (const std::string& column : health_metric_columns(snapshot))
+    {
+        statement.push_back(',');
+        statement.append(column);
+    }
+
+    statement.append(") FROM STDIN");
+    return statement;
+}
+
+// 신호·헬스 워커. 두 큐를 한 묶음 주기로 모아 표마다 COPY 한 번씩 넣는다. 신호는 하루 수천 건, 헬스는 30초에
+//  한 건이라 연결 하나로 넉넉하다. [why D-154]
+void event_loop(DbManager::State& state, EventWorker& worker)
+{
+    thread_name::set_current("DbEvent");
+
+    using namespace std::chrono;
+    const DbConfig& config = state.config;
+    Connection      connection(worker.interrupt);
+    std::string     signal_text;
+    std::string     health_text;
+    std::string     health_statement;
+    uint64_t        health_columns_generation = 0; // 이 연결에서 health 열을 보장했으면 그 연결의 번호
+    const auto      is_running = [&state]
+    {
+        return state.running.load(std::memory_order_acquire);
+    };
+    const auto      is_idle = [&worker, &is_running]
+    {
+        return worker.signals.empty() && worker.health.empty() && is_running();
+    };
+    const auto      give_up_all = [&state, &worker](uint64_t signal_rows, uint64_t health_rows, const char* reason)
+    {
+        give_up(worker, state.signals, "signals", signal_rows + drain(worker.signals), reason);
+        give_up(worker, state.health, "health", health_rows + drain(worker.health), reason);
+    };
+
+    acquire_connection(state, connection, worker);
+
+    while (true)
+    {
+        // 1) 묶음 모으기 — 체결 워커와 같은 규칙이다.
+        size_t              signal_rows = 0;
+        size_t              health_rows = 0;
+        auto                deadline = steady_clock::now();
+        std::optional<HealthSnapshot> first_health;
+
+        while (signal_rows + health_rows < config.batch_rows)
+        {
+            const bool first = signal_rows + health_rows == 0;
+            bool       took = false;
+
+            if (auto row = worker.signals.pop())
+            {
+                append_signal_row(signal_text, *row, config.account);
+                signal_rows += 1;
+                took = true;
+            }
+
+            if (auto row = worker.health.pop())
+            {
+                if (health_rows == 0)
+                {
+                    first_health = row->snapshot;
+                }
+
+                append_health_row(health_text, row->snapshot, row->ts_ms, config.role, config.account);
+                health_rows += 1;
+                took = true;
+            }
+
+            if (took)
+            {
+                if (first)
+                {
+                    deadline = steady_clock::now() + milliseconds(config.flush_ms);
+                }
+
+                continue;
+            }
+
+            if (!is_running())
+            {
+                break;
+            }
+
+            if (signal_rows + health_rows == 0)
+            {
+                worker.wake.wait_for(1s, is_idle);
+                continue;
+            }
+
+            const auto now = steady_clock::now();
+
+            if (now >= deadline)
+            {
+                break;
+            }
+
+            worker.wake.wait_for(deadline - now, is_idle);
+        }
+
+        if (signal_rows + health_rows == 0)
+        {
+            if (!is_running() && worker.signals.empty() && worker.health.empty())
+            {
+                return;
+            }
+
+            continue;
+        }
+
+        if (state.abandon.load(std::memory_order_acquire))
+        {
+            give_up_all(signal_rows, health_rows, "종료 대기 한도를 넘김");
+            return;
+        }
+
+        // 2) 넣기. 신호 먼저 — 헬스는 30초 뒤 다음 행이 같은 누적 값을 다시 싣지만 신호는 한 번뿐이다.
+        if (signal_rows > 0)
+        {
+            if (!write_batch(state, connection, worker, kSignalCopyStatement, signal_text, signal_rows, state.signals))
+            {
+                give_up_all(signal_rows, health_rows, "종료 중 DB 연결 없음");
+                return;
+            }
+        }
+
+        if (health_rows > 0)
+        {
+            // 열 목록은 구간 이름으로 만들고, 이름은 엔진이 기동 때 정한 정적 목록이라 묶음 안에서 같다.
+            health_statement = health_copy_statement(*first_health);
+
+            if (acquire_connection(state, connection, worker) && connection.generation() != health_columns_generation)
+            {
+                ensure_health_columns(connection, worker, *first_health);
+                health_columns_generation = connection.generation();
+            }
+
+            if (!write_batch(state, connection, worker, health_statement.c_str(), health_text, health_rows,
+                             state.health))
+            {
+                give_up_all(0, health_rows, "종료 중 DB 연결 없음");
+                return;
+            }
+        }
+
+        signal_text.clear();
+        health_text.clear();
     }
 }
 

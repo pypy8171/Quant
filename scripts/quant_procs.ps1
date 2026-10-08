@@ -49,7 +49,7 @@ $Roles = @(
   @{ role = "guard";     match = "auto_trade_guard.ps1" },
   @{ role = "dashboard"; match = "dashboard_server.py" },
   @{ role = "notify";    match = "notify_trades.py" },
-  @{ role = "recorder";  match = "main.py record" }   # ZMQ 틱 기록기(auto_trade_day가 띄움)
+  @{ role = "recorder";  match = "main.py record" }   # 옛 ZMQ 적재기 — D-154부터 안 띄운다. 손으로 띄운 것이 남았는지 보려고 둔다
 )
 
 $all  = @(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine })

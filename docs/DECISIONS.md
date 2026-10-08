@@ -7385,6 +7385,45 @@ regime.json 하나를 번갈아 쓰면 어느 쪽 값인지 가릴 수 없어서
 
 **연결**: D-028 · D-029 · D-138 · D-146 · `Quant/src/universe/UniverseCandidates.cpp` · `Quant/src/core/UniverseRescan.cpp` · `Quant/src/core/EngineDataThread.cpp`
 
+### D-154 신호·헬스 적재도 엔진이 하고, 파이썬 ZMQ 적재기(quant-recorder)는 띄우지 않는다 (2026-09-28)
+
+**문제**: D-148 뒤로 체결 시세(ticks)는 엔진이 넣었지만, 신호(signals)·헬스(health)는 여전히 파이썬 적재기
+(`PYQuant/main.py record`)가 ZMQ를 구독해 넣었다. 그래서 DB 적재 경로가 둘이었다. 하나는 엔진 안 워커, 다른 하나는
+감시견이 띄우는 별도 창이다. 창이 죽거나 늦게 뜨거나 포트를 잘못 잡으면 그날 행이 조용히 빠졌다. 09-22에는 42분치가 비었고,
+테스트 하네스가 같은 포트를 물어 합성 행이 섞이기도 했다. 이를 잡으려고 D-137에서 "발행/받음/넣음" 격차 계수를 따로 두었다.
+주문·체결은 이미 D-113에서 원장 저널 복제(`PYQuant/tools/ledger_recorder.py`)로 옮겼으므로, 이 창이 맡은 일은 신호·헬스뿐이었다.
+
+**결정**:
+1. `db::DbManager`에 신호·헬스 워커 하나를 더 둔다(스레드 이름 `DbEvent`, 자기 연결).
+   - 전략 스레드는 신호를 내는 자리에서 `on_signal`, 데이터 스레드는 헬스를 낼 때 `on_health`를 부른다.
+   - 둘 다 고정 크기 행(`db::SignalRow`, 문자열 없음)을 MPSC 큐에 넣고 바로 돌아온다. 큐가 차면 버리고 센다(D-148과 같은 방식).
+   - 표와 열은 옛 적재기와 같다. health의 지표 열은 첫 COPY 전에 `ADD COLUMN IF NOT EXISTS`로 맞춘다(연결마다 한 번).
+   - ZMQ 발행 누락 수(drop_*)는 ZMQ 빌드일 때만 채우고, 없으면 NULL이다.
+2. 계좌 거르기는 "엔진이 자기 계좌만 넣는다"로 바꾼다. `kis.account_no`가 비면 신호·헬스 워커를 띄우지 않는다.
+   받는 쪽에서 남의 행을 거를 필요가 없어진다.
+3. DbManager는 `database.enabled`면 역할과 무관하게 만든다. 체결 워커는 시세를 받는 역할(both·feed)에서만 띄운다.
+   헬스 행의 role 열은 그 프로세스의 역할이다.
+4. 감시견 `scripts/auto_trade_day.ps1`은 quant-recorder 창을 띄우지 않는다(모의·실계좌 모두). WSL 깨우기·자원 감시·원장 복제 창은 그대로 둔다.
+   `database.enabled`가 꺼져 있으면 기동 때 WARN을 남긴다.
+5. D-137 격차 계수 대신 엔진 계수를 쓴다. `[큐 고수위]` 1분 줄에 `db_signal_*`·`db_health_*`(받음·넣음·버림·못 넣음)를 싣고,
+   종료 때 `[DbManager] 종료(신호·헬스)` 줄을 남긴다. `scripts/check_runtime_health.py`의 "DB 적재(신호·헬스)" 행이 버림·못 넣음 0을 본다.
+6. `PYQuant/main.py record`(`cmd_record`)는 지우지 않고 쓰지 않음으로 표시한다. 엔진과 같이 돌리면 행이 두 번 들어간다.
+   이 명령이 하던 `fills` 금액 열 보장은 `PYQuant/tools/ledger_recorder.py`로 옮겼다.
+
+**알려진 한계**:
+- 옛 적재기가 넣던 `db_write_stats`(적재기 자기 계수)는 더 이상 쌓이지 않는다. 같은 정보는 로그 줄에 있다.
+- 국면(regime) 열은 ZMQ 빌드에서만 채운다(`ZmqBridge::current_regime_label`). ZMQ 없이 빌드하면 빈 글자다.
+- 역할을 갈라 띄운 날은 프로세스마다 헬스 행을 하나씩 넣는다(role 열로 가른다).
+- 신호·헬스는 들어갔는지 모르는 행(모호)을 따로 세지 않고 "못 넣음"에 합친다. 다시 넣지 않으므로 중복은 없다.
+
+**버린 대안**:
+- (1) 파이썬 적재기를 남기고 감시만 강화: 경로가 둘인 채로는 창이 죽는 날마다 행이 빠진다. D-137 계수로도 사후에만 안다.
+- (2) 신호·헬스를 체결 워커 큐에 같이 태움: 체결은 초당 수만 행이라 큐가 차면 신호가 같이 밀린다. 표마다 COPY 문도 다르다.
+- (3) 신호마다 바로 INSERT: 전략 스레드가 DB 왕복을 기다리게 된다(원칙 3).
+- (4) 헬스 지표를 JSON 한 열로: 그라파나 패널이 열 이름으로 읽고 있어 패널을 다 고쳐야 한다.
+
+**연결**: D-113 · D-137 · D-148 · `Quant/include/ipc/DbManager.h` · `Quant/src/ipc/DbManager.cpp` · `Quant/include/core/HealthSnapshot.h` · `scripts/auto_trade_day.ps1` · `scripts/check_runtime_health.py`
+
 ### D-155 바스켓 계획 매수는 주문 큐 신호 나이 제한을 받지 않는다 (2026-10-02)
 
 **문제**: 2026-10-02 모의에서 가치 코어 바스켓(BASKET_MAIN)이 14:40:02–14:40:11에 시장가 매수 29건을 냈다. 모의 서버 주문 왕복이

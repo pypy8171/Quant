@@ -251,6 +251,7 @@
 - [Engine.h](../Quant/include/core/Engine.h) — 엔진 클래스 선언 — 파이프라인 스레드 배선
 - [FeedMux.h](../Quant/include/core/FeedMux.h) — 피드 소스 여러 개를 한 소스로 묶는 mux(D-071)
 - [FeedSupervisor.h](../Quant/include/core/FeedSupervisor.h) — WS stale→재연결 백오프→폴백 요구 판정 상태기계(D-071)
+- [HealthSnapshot.h](../Quant/include/core/HealthSnapshot.h) — 데이터 스레드가 1분마다 모으는 헬스 계수 한 벌 — ZMQ 발행과 DB 적재가 같이 쓴다(D-154)
 - [HttpQuoteFeed.h](../Quant/include/core/HttpQuoteFeed.h) — 전 종목 시세를 주기마다 HTTP로 통째로 받는 피드의 설정·계수기·응답 구조체. 왜 있는지(KIS 41종목 한계)와 조심할 것이 머리말에 있다
 - [IFeedSource.h](../Quant/include/core/IFeedSource.h) — 실시간 피드 소스 인터페이스(D-071)
 - [KstTime.h](../Quant/include/core/KstTime.h) — UTC → KST 시각 분해 변환 유틸
@@ -292,7 +293,7 @@
 ### Quant/include/ipc/
 
 - [ControlChannel.h](../Quant/include/ipc/ControlChannel.h) — 전략→주문 제어 요청 레코드와 표 모으기 규칙(문자열·포인터 없음, D-114 단계 2.5 갈래 B)
-- [DbManager.h](../Quant/include/ipc/DbManager.h) — 엔진 DB 적재 — 수신 스레드는 체결을 큐에 넣기만 하고, 전용 적재 워커가 TimescaleDB ticks 표에 COPY로 넣는다(파이썬 적재기와 같은 표·열, D-148)
+- [DbManager.h](../Quant/include/ipc/DbManager.h) — 엔진 DB 적재 — 수신 스레드는 체결을 큐에 넣기만 하고, 전용 적재 워커가 TimescaleDB ticks 표에 COPY로 넣는다(D-148). 신호·헬스도 워커 하나가 signals·health 표에 넣는다(옛 파이썬 적재기와 같은 표·열, D-154)
 - [FillChannel.h](../Quant/include/ipc/FillChannel.h) — 시세→주문 체결통보 통로 — 체결 한 건을 고정 칸 레코드(FillNotice)로 옮겨 큐 하나로 나른다(문자열·포인터 없음, D-114 단계 5)
 - [FillKey.h](../Quant/include/ipc/FillKey.h) — 체결통보 중복 키 — 날짜·주문번호·시각·수량·가격 정수 5개와 해시(D-112)
 - [Heartbeat.h](../Quant/include/ipc/Heartbeat.h) — 심장박동 — 박동 공백만으로 상대의 생사를 판정한다(시계·스레드 없음, D-114 단계 2)

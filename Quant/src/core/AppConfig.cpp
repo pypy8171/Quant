@@ -244,6 +244,8 @@ AppConfig parse_config(const json& document)
     database.batch_rows                    = database_node.value("batch_rows", database.batch_rows);
     database.flush_ms                      = database_node.value("flush_ms", database.flush_ms);
     database.stop_grace_ms                 = database_node.value("stop_grace_ms", database.stop_grace_ms);
+    database.signal_queue_capacity         = database_node.value("signal_queue_capacity", database.signal_queue_capacity);
+    database.health_queue_capacity         = database_node.value("health_queue_capacity", database.health_queue_capacity);
 
     app.regime_file                   = document.value("regime_file", std::string());
     app.regime_stale_sec              = document.value("regime_stale_sec", app.regime_stale_sec);

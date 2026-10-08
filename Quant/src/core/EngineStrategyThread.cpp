@@ -274,6 +274,21 @@ void Engine::strategy_thread_fn(std::stop_token stop_token)
                 zmq_bridge_->publish_signal(signal);
             }
 #endif
+#ifdef HAS_PQ
+            // signals 표 적재 — 고정 크기 행을 큐에 넣기만 한다. 글자는 적재 워커가 만든다.
+            //  국면 라벨은 발행기가 읽는 공유 칸에서 가져온다 — 발행기가 없는 빌드면 빈 값이다. [why D-154]
+            if (database_)
+            {
+                std::string_view regime_label;
+#ifdef HAS_ZMQ
+                if (zmq_bridge_)
+                {
+                    regime_label = zmq_bridge_->current_regime_label();
+                }
+#endif
+                database_->on_signal(signal, regime_label);
+            }
+#endif
             // 경계를 건너는 모양으로 바꾼다. 신호 안의 글자 칸 넷(종목코드·계좌·주문 이름·판단 근거)은
             //  std::string 이라 포인터를 물고 있어 그대로는 공유 쪽지를 건널 수 없다. [why D-114]
             bool                    truncated = false;

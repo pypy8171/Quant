@@ -3,6 +3,7 @@
 
 #include "core/MpscQueue.h"
 #include "core/WakeGate.h"
+#include "core/HealthSnapshot.h"
 #include "core/Types.h"
 #include "ipc/RegimeCell.h"
 #include <array>
@@ -87,48 +88,8 @@ public:
     void publish_trade(const TradeData& trade);
     void publish_signal(const OrderSignal& signal);
     void publish_order(const OrderSignal& signal, bool ok);
-    // HEALTH 한 건에 싣는 엔진 내부 수치. 큐 고수위와 지연 분위수는 기동 후 누적이라 줄지 않는다 —
-    // 구간 값이 필요하면 읽는 쪽이 직전 행과 뺀다. 표본이 없는 지연은 -1. [why D-071]
-    struct HealthSnapshot
-    {
-        uint64_t data_count             = 0;
-        uint64_t signal_count           = 0;
-        uint64_t order_count            = 0;
-        uint64_t shard_high_water       = 0;   // 샤드 셀 가운데 가장 높았던 값
-        uint64_t shard_capacity         = 0;
-        uint64_t shard_out_size         = 0;   // 지금 쌓여 있는 깊이(누적 최대가 아니다)
-        uint64_t shard_out_capacity     = 0;
-        uint64_t order_queue_high_water = 0;
-        uint64_t order_queue_capacity   = 0;
-        uint64_t fill_queue_high_water  = 0;
-        uint64_t fill_queue_capacity    = 0;
-        uint64_t shard_dropped          = 0;
-        uint64_t order_dropped          = 0;
-        uint64_t order_stale            = 0;
-        uint64_t fill_dropped           = 0;
-        uint64_t latency_samples        = 0;
-        int64_t  tick_to_signal_p50_us  = -1;
-        int64_t  tick_to_signal_p99_us  = -1;
-        int64_t  signal_to_pop_p50_us   = -1;
-        int64_t  signal_to_pop_p99_us   = -1;
-        int64_t  pop_to_done_p50_us     = -1;
-        int64_t  pop_to_done_p99_us     = -1;
-        int64_t  total_p50_us           = -1;
-        int64_t  total_p99_us           = -1;
-
-        // 직전 HEALTH 이후에 들어온 표본만의 구간 분위수. 누적 분위수는 한 번 튀면 안 내려와
-        //  "언제 느려졌나"를 못 본다 — 그래서 같은 구간을 두 벌 싣는다. 표본이 없으면 -1. [why D-071]
-        struct IntervalSegment
-        {
-            std::string_view name;        // health 열 이름 앞머리(<name>_p50_interval_us)
-            int64_t          p50_us = -1;
-            int64_t          p99_us = -1;
-        };
-
-        // [inv] name이 빈 칸은 안 싣는다 — 엔진이 구간 수만큼만 채운다.
-        std::array<IntervalSegment, 16> interval_segments{};
-        uint64_t                        interval_samples = 0; // 이번 구간에 들어온 주문 표본 수
-    };
+    // HEALTH 한 건. 정의는 core/HealthSnapshot.h — DB 적재기도 같은 값을 받는다. [why D-154]
+    using HealthSnapshot = ::HealthSnapshot;
 
     void publish_health(const HealthSnapshot& snapshot);
     void publish_fill(const FillNotification& fill_notification, const std::string& strategy_id,
@@ -186,6 +147,10 @@ public:
     //  ticks 표에 섞지 않도록 거르는 근거다(09-22 장중 실측). 하네스는 계좌를 안 주므로 빈 문자열로 나간다.
     static void format_trade(const TradeEnvelope& envelope, std::string_view account, std::string& out);
 
+    // 지금 국면 라벨(RISK_ON 등). 판정 전이면 빈 값. 정적 문자열이라 수명 걱정이 없다 — DB 적재기가 신호 행에
+    //  이 값을 담아 넘긴다. 원자 값만 읽어 어느 스레드에서 불러도 된다. [inv] [why D-154]
+    [[nodiscard]] std::string_view current_regime_label() const;
+
 private:
     // 토픽은 정수로 들고 이름은 송신 직전에 붙인다 — enqueue마다 문자열 비교 세 번을 하지 않으려고.
     enum class Topic : uint8_t
@@ -207,7 +172,6 @@ private:
     // 큐에 넣은 뒤 송신 스레드를 깨운다. queue_mutex_를 놓은 뒤에만 부른다. [lock-order]
     void mark_work_pending();
     static const char* topic_name(Topic topic);
-    std::string_view   current_regime_label() const;
     void thread_fn();
 
     int pub_port_;

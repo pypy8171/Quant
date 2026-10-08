@@ -9,7 +9,7 @@ Python 퀀트 트레이딩 시스템 진입점
   python main.py live --dry-run                  # 주문 없이 시뮬
   python main.py monitor                         # C++ 엔진 이벤트 실시간 출력
   python main.py monitor --topics TRADE SIGNAL   # 특정 토픽만 구독
-  python main.py record                          # ZMQ 이벤트 → TimescaleDB 적재
+  python main.py record                          # (쓰지 않음, D-154) ZMQ 이벤트 → TimescaleDB 적재. 엔진이 직접 넣는다
   python main.py operate status                  # 엔진 상태 조회
   python main.py operate kill                    # 엔진 종료
 """
@@ -303,6 +303,10 @@ class RecordBuffer:
 
 
 def cmd_record(args):
+    """쓰지 않는다 — 체결 시세·신호·헬스는 엔진(DbManager)이, 주문·체결은 ledger_recorder가 넣는다. [why D-154]
+
+    감시견도 이 명령을 더 띄우지 않는다. 엔진과 같이 돌리면 signals·health 행이 두 번 들어간다.
+    """
     from db.client import DbClient
     db = DbClient()
     db.ensure_fills_amount_columns()

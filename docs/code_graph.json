@@ -70,7 +70,7 @@
     {
       "from": "ipc",
       "to": "core",
-      "weight": 22
+      "weight": 25
     },
     {
       "from": "ipc",
@@ -194,6 +194,7 @@
     "core/Engine.h": "core",
     "core/FeedMux.h": "core",
     "core/FeedSupervisor.h": "core",
+    "core/HealthSnapshot.h": "core",
     "core/HttpQuoteFeed.h": "core",
     "core/IFeedSource.h": "core",
     "core/KstTime.h": "core",
@@ -626,6 +627,7 @@
     ],
     "core/EngineDataThread.cpp": [
       "core/Engine.h",
+      "core/HealthSnapshot.h",
       "core/KstTime.h",
       "core/LatencyTrace.h",
       "universe/MarketBoard.h",
@@ -920,6 +922,8 @@
       "utils/ThreadName.h"
     ],
     "ipc/DbManager.h": [
+      "core/HealthSnapshot.h",
+      "core/SymbolTable.h",
       "core/Types.h"
     ],
     "ipc/FillChannel.cpp": [
@@ -1063,6 +1067,7 @@
       "utils/ThreadName.h"
     ],
     "ipc/ZmqBridge.h": [
+      "core/HealthSnapshot.h",
       "core/MpscQueue.h",
       "core/Types.h",
       "core/WakeGate.h",
@@ -1517,6 +1522,11 @@
       "core/Engine.h",
       "core/FeedSupervisor.cpp"
     ],
+    "core/HealthSnapshot.h": [
+      "core/EngineDataThread.cpp",
+      "ipc/DbManager.h",
+      "ipc/ZmqBridge.h"
+    ],
     "core/HttpQuoteFeed.h": [
       "core/HttpQuoteFeed.cpp"
     ],
@@ -1680,6 +1690,7 @@
       "core/UniverseRescan.h",
       "exchange/MatchingEngine.h",
       "exchange/ZmqOrderFeed.h",
+      "ipc/DbManager.h",
       "ipc/LedgerSnapshot.h",
       "ipc/SharedSymbolDictionary.h",
       "risk/EntryPriority.h",
@@ -2191,7 +2202,7 @@
     },
     {
       "header": "core/SymbolTable.h",
-      "in_degree": 22
+      "in_degree": 23
     },
     {
       "header": "core/Engine.h",
@@ -3181,6 +3192,7 @@
         "Quant/include/core/AppConfig.h",
         "Quant/include/core/Engine.h",
         "Quant/include/core/RegimeFileJudge.h",
+        "Quant/include/ipc/DbManager.h",
         "Quant/src/core/AppConfig.cpp",
         "Quant/src/core/EngineConfigure.cpp",
         "Quant/src/core/EngineDataThread.cpp",

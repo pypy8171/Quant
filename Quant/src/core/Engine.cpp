@@ -619,10 +619,15 @@ void Engine::start()
 
 #ifdef HAS_PQ
     // DB 적재 워커는 다른 스레드보다 먼저 띄워 끝까지 둔다. 체결은 시세 쪽 수신 스레드로만 들어오므로
-    //  시세 쪽 프로세스에만 둔다. [why D-148]
-    if (database_config_.enabled && runs_feed_side())
+    //  체결 워커는 시세 쪽 프로세스에만 둔다. [why D-148]
+    //  신호·헬스는 역할마다 제 것을 넣는다 — 신호는 전략 쪽, 헬스는 모든 역할의 데이터 스레드. [why D-154]
+    if (database_config_.enabled)
     {
-        database_ = std::make_unique<db::DbManager>(database_config_);
+        db::DbConfig config = database_config_;
+        config.tick_workers = runs_feed_side() ? config.tick_workers : 0;
+        config.account      = kis_config_.account_no;
+        config.role         = role_.to_string();
+        database_           = std::make_unique<db::DbManager>(std::move(config));
     }
 #endif
 

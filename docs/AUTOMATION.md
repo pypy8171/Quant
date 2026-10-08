@@ -126,7 +126,7 @@ PC가 꺼져 있어도 돈다는 점이 OS 예약작업과 다르다. 대신 이
 | 층 | 담당 | 하는 일 |
 |---|---|---|
 | 감시자 | `scripts/auto_trade_guard.ps1` | 평일 5분 주기 예약작업. 장중인데 워치독이 없으면 기동한다. 남은 트레이더가 남아 있으면 먼저 내린다 |
-| 워치독 | `scripts/auto_trade_day.ps1` | 사전 점검(중복 프로세스·계좌 모드), 기동 전 `quant_trader` 재빌드(증분, 실패면 `build_failed`로 중단, `-NoBuild`로 생략), 보조 프로세스·유니버스·대시보드·알림·체결 기록기(`quant-recorder`)·엔진 자원 표본기(`quant-procwatch`, 리눅스 트레이더면 `--wsl-distro Ubuntu-24.04`)·원장 저널 적재기(`quant-ledger`, `PYQuant/tools/ledger_recorder.py --dir <ledger_journal_dir>`, D-113) 기동, KIS 토큰 캐시를 `KIS_TOKEN_CACHE_DIR`로 트레이더와 한 파일로 맞춤, 트레이더를 마감까지 감시·재기동, 마감 뒤 `market_close_autodoc.py` 실행. `-Roles order,strategy,feed`를 주면 트레이더를 주문·전략·시세 세 프로세스로 띄우고, 하나가 내려가면 나머지도 내려 셋을 같이 다시 띄운다(공유 쪽지가 옛 값인 채 남는 것을 막는다, D-114). 셋 중 하나라도 빠진 역할 목록은 뜨기 전에 거절한다 — 실시간 소켓을 쥐는 것이 시세 역할이다 |
+| 워치독 | `scripts/auto_trade_day.ps1` | 사전 점검(중복 프로세스·계좌 모드), 기동 전 `quant_trader` 재빌드(증분, 실패면 `build_failed`로 중단, `-NoBuild`로 생략), 보조 프로세스·유니버스·대시보드·알림·엔진 자원 표본기(`quant-procwatch`, 리눅스 트레이더면 `--wsl-distro Ubuntu-24.04`)·원장 저널 적재기(`quant-ledger`, `PYQuant/tools/ledger_recorder.py --dir <ledger_journal_dir>`, D-113) 기동, KIS 토큰 캐시를 `KIS_TOKEN_CACHE_DIR`로 트레이더와 한 파일로 맞춤, 트레이더를 마감까지 감시·재기동, 마감 뒤 `market_close_autodoc.py` 실행. `-Roles order,strategy,feed`를 주면 트레이더를 주문·전략·시세 세 프로세스로 띄우고, 하나가 내려가면 나머지도 내려 셋을 같이 다시 띄운다(공유 쪽지가 옛 값인 채 남는 것을 막는다, D-114). 셋 중 하나라도 빠진 역할 목록은 뜨기 전에 거절한다 — 실시간 소켓을 쥐는 것이 시세 역할이다 |
 | 워치독(리눅스) | `scripts/auto_trade_day.sh` | 트레이더를 WSL2에서 띄우는 날의 하루 루프 — 사전 점검(WSL·Windows 양쪽 중복 프로세스, 모의계좌), `ninja` 증분 재빌드, 미체결 복원, 마감까지 감시·재기동, 크래시 루프 판정. 부속 창·마감 정리는 Windows 워치독 `-NoTrader`가 맡는다. 상태 `_private/_auto_trade_linux.json`. 절차 `docs/RUNBOOK.md` 1.1절 |
 | 감독 | `.claude/commands/auto-trade-day.md` | 국면 판단, 증분 로그 감시, **무발주 감시**, 결함을 코드/상황으로 분류, 코드면 수정·재빌드, **이슈 대장 누적**, 마감 뒤 해석 문서 |
 
@@ -178,7 +178,7 @@ Windows에는 리눅스의 프로세스 그룹 cascade가 없다. 부모가 죽�
 반대 방향, 즉 부속 창 안의 파이썬만 죽는 경우도 잡는다. 창은 `-NoExit`로 띄우므로 안의 스크립트가
 끝나도 빈 창은 남고, 창 목록만 보면 살아 있는 것처럼 보인다. 워치독은 트레이더를 기다리는 동안
 60초마다 `python`/`py` 프로세스의 명령줄을 훑어 등록된 스크립트 이름(`dashboard_server.py`,
-`notify_trades.py`, `main.py record`, `main.py procwatch`, `ledger_recorder.py`)이 있는지 확인하고, 없으면 남은 창을 내리고 같은 명령으로
+`notify_trades.py`, `main.py procwatch`, `ledger_recorder.py`)이 있는지 확인하고, 없으면 남은 창을 내리고 같은 명령으로
 다시 띄운다. 기동 직후 45초는 아직 파이썬이 뜨는 중일 수 있어 건너뛴다. 알림 보조 프로세스가 조용히
 사라진 것을 사람이 화면을 봐야 아는 상태를 없애기 위한 것이다.
 

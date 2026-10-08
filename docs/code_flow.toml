@@ -344,7 +344,7 @@ review = [
   [[stage.step]]
   sym = "db::DbManager::on_trade"
   file = "Quant/src/ipc/DbManager.cpp"
-  what = "`database.enabled`일 때만. `symbol_id % 워커 수`로 워커 큐에 넣는다. 운영 config는 아직 끔 — DB는 파이썬 리코더가 채운다"
+  what = "`database.enabled`일 때만. `symbol_id % 워커 수`로 워커 큐에 넣는다. 신호·헬스는 같은 관리자의 `on_signal`·`on_health`가 따로 워커 하나로 넣는다(D-154)"
   test = "test_db_manager"
 
   [[stage.step]]

@@ -161,6 +161,13 @@ LEDGER_WRITE_FAIL_RE = re.compile(r"\[(?:OrderRouter|PositionLedger)\] (?:원장
 DB_WRITER_START_RE = re.compile(r"\[DbManager\] 시작 — ")
 DB_WRITER_NO_PASSWORD_RE = re.compile(r"\[DbManager\] TSDB_PASSWORD 환경변수가 없다")
 DB_WRITER_END_RE = re.compile(r"\[DbManager\] 종료 — 받음 (\d+), 넣음 (\d+), 큐 넘쳐 버림 (\d+), 거절 (\d+), 모호 (\d+)")
+# 신호·헬스 적재(D-154) — 옛 파이썬 적재기의 "발행/받음/넣음" 격차 계수(D-137)를 대신한다. 1분마다 [큐 고수위] 줄에
+#  누계가 실리고, 정상 종료면 종료 줄이 한 번 더 남는다. 두 줄의 숫자 순서는 같다: 신호 받음·넣음·버림·못 넣음,
+#  헬스 받음·넣음·버림·못 넣음. 둘 다 없으면 database.enabled가 꺼졌거나 배포 전 exe다.
+DB_EVENTS_RE = re.compile(r"db_signal_offered=(\d+) db_signal_written=(\d+) db_signal_dropped=(\d+) db_signal_failed=(\d+)"
+                          r" db_health_offered=(\d+) db_health_written=(\d+) db_health_dropped=(\d+) db_health_failed=(\d+)")
+DB_EVENTS_END_RE = re.compile(r"\[DbManager\] 종료\(신호·헬스\) — 신호 받음 (\d+), 넣음 (\d+), 버림 (\d+), 못 넣음 (\d+)"
+                              r" / 헬스 받음 (\d+), 넣음 (\d+), 버림 (\d+), 못 넣음 (\d+)")
 # 하루 리셋은 거래일당 한 번이다 — 같은 날짜로 두 번 찍히면 재기동이 되살린 선점·당일 손익을 지운 것이다(전수조사 A-4)
 DAILY_RESET_RE = re.compile(r"\[OrderGate\] 하루 리셋 - 거래일\((\d{8})\)")
 # 미체결 조회가 실패하면 재기동 대조는 접수된 주문을 살려 두고 넘어간다 — 잦으면 선점 대조가 그날 안 된 것이다(전수조사 B1-2)
@@ -385,7 +392,7 @@ def resource_sampling_rows(date: str) -> list:
 
 
 def feed_ledger_rows(date: str) -> list:
-    """리코더가 그날 적재한 체결 틱과 원장 계좌를 본다 — 09-22 실측한 두 가지를 다시 겪지 않기 위한 행.
+    """엔진(DbManager, D-148·D-154)이 그날 적재한 체결 틱과 원장 계좌를 본다 — 09-22 실측한 두 가지를 다시 겪지 않기 위한 행.
 
     ① 체결 틱이 ticks 표에 안 들어가면 그라파나 "피드 지연"·"초당 틱 유입" 패널이 며칠 전 시각을
        가리킨다(피드는 멀쩡한데 화면만 죽는다).
@@ -455,7 +462,7 @@ def feed_ledger_rows(date: str) -> list:
         return [("피드 적재", True, "WARN", detail), ("개장부터 적재", True, "WARN", detail),
                 ("원장 계좌 단일", True, "WARN", detail), ("신호 계좌 적재", True, "WARN", detail)]
 
-    # 27종목을 장중 내내 받으면 수만 건이다. 1,000건이면 리코더가 잠깐만 붙어 있던 것
+    # 27종목을 장중 내내 받으면 수만 건이다. 1,000건이면 적재가 잠깐만 붙어 있던 것
     feed_row = ("피드 적재", tick_count >= 1000 and data_count > 0, "WARN",
                 f"ticks {tick_count}행·{tick_tickers}종목, HEALTH data 계좌별 "
                 + (", ".join(f"{name} {value}" for name, value in sorted(data_by_account.items())) or "행 없음")
@@ -469,14 +476,14 @@ def feed_ledger_rows(date: str) -> list:
                   + (f" — {', '.join(mixed)}에 계좌가 둘 이상이다. 두 엔진이 같은 저널 폴더(ledger_journal_dir)를"
                      " 쓰거나, (ZMQ)면 다른 엔진이 같은 ZMQ 포트를 물었다" if mixed else ""))
 
-    # 리코더는 감시견이 개장 전에 띄우므로 첫 틱은 09:00 동시호가 체결이어야 한다. 09-22에 감시견이
-    #  --record-ticks 없이 띄운 리코더를 09:42에 손으로 다시 띄워 42분치가 비었다 — 그날 안에 다시 안 보이도록
+    # 엔진은 감시견이 개장 전에 띄우므로 첫 틱은 09:00 동시호가 체결이어야 한다. 09-22에 옛 파이썬 적재기가
+    #  틱 없이 떠서 42분치가 비었다(적재기는 D-154에서 없앴다) — 그날 안에 다시 안 보이도록
     #  첫 틱 시각을 본다. 틱이 아예 없는 날은 위 "피드 적재" 행이 이미 잡으므로 여기서는 넘어간다.
     first_tick_late = tick_count > 0 and first_tick_time > "09:05:00"
     opening_row = ("개장부터 적재", not first_tick_late, "WARN",
                    f"첫 틱 {first_tick_time or '없음'}"
-                   + (" — 09:05 뒤다. 리코더가 개장 뒤에 (다시) 떴거나 --record-ticks 없이 떴다"
-                      "(scripts/auto_trade_day.ps1 quant-recorder 줄)" if first_tick_late else ""))
+                   + (" — 09:05 뒤다. 엔진이 개장 뒤에 (다시) 떴거나 그 사이 DB가 잠들어 있었다"
+                      "(로그의 [DbManager] 줄 확인)" if first_tick_late else ""))
 
     # 신호에 계좌가 실리는지. 주문은 났는데 신호가 0이면 받는 쪽 계좌 필터가 전부 떨군 것이고(옛 exe가 떠 있다),
     #  신호는 들어왔는데 계좌가 비면 그 행으로는 남의 엔진 신호를 가려낼 수 없다.
@@ -530,8 +537,8 @@ def queue_latency_row(date: str) -> tuple:
                           in cursor.fetchall()}
 
         connection.close()
-    except psycopg2.errors.UndefinedColumn:   # 열을 아직 안 만든 DB — 새 적재기가 첫 HEALTH에서 만든다
-        return ("큐·지연 적재", True, "WARN", "health 표에 큐·지연 열 없음 — 적재기 배포 전")
+    except psycopg2.errors.UndefinedColumn:   # 열을 아직 안 만든 DB — 엔진 DB 관리자가 첫 HEALTH에서 만든다(D-154)
+        return ("큐·지연 적재", True, "WARN", "health 표에 큐·지연 열 없음 — 적재 배포 전")
     except Exception as error:   # DB가 없거나 잠든 날은 판정을 미룬다
         return ("큐·지연 적재", True, "WARN", f"DB 조회 실패 — 판정 안 함 ({str(error).strip()[:80]})")
 
@@ -614,8 +621,8 @@ def role_publish_row(date: str) -> tuple:
                 by_account.setdefault(account, {})[role] = (count, data, signal, order)
 
         connection.close()
-    except psycopg2.errors.UndefinedColumn:   # role 열이 아직 없는 DB — 새 적재기가 첫 HEALTH에서 만든다
-        return ("역할별 발행", True, "WARN", "health 표에 role 열 없음 — 적재기 배포 전")
+    except psycopg2.errors.UndefinedColumn:   # role 열이 아직 없는 DB — 엔진 DB 관리자가 첫 HEALTH에서 만든다(D-154)
+        return ("역할별 발행", True, "WARN", "health 표에 role 열 없음 — 적재 배포 전")
     except Exception as error:   # DB가 없거나 잠든 날은 판정을 미룬다
         return ("역할별 발행", True, "WARN", f"DB 조회 실패 — 판정 안 함 ({str(error).strip()[:80]})")
 
@@ -2441,8 +2448,8 @@ def order_latency_breakdown_row(date: str) -> tuple:
             samples, gate, journal, rate_limit, bucket_wait, transport = cursor.fetchone()
 
         connection.close()
-    except psycopg2.errors.UndefinedColumn:   # 열을 아직 안 만든 DB — 새 적재기가 첫 HEALTH에서 만든다
-        return ("주문 구간 지연", True, "WARN", "health 표에 구간 열 없음 — 적재기 배포 전")
+    except psycopg2.errors.UndefinedColumn:   # 열을 아직 안 만든 DB — 엔진 DB 관리자가 첫 HEALTH에서 만든다(D-154)
+        return ("주문 구간 지연", True, "WARN", "health 표에 구간 열 없음 — 적재 배포 전")
     except Exception as error:   # DB가 없거나 잠든 날은 판정을 미룬다
         return ("주문 구간 지연", True, "WARN", f"DB 조회 실패 — 판정 안 함 ({str(error).strip()[:80]})")
 
@@ -3402,6 +3409,7 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
     db_writer_starts = 0                         # 엔진 DB 관리자 시작 줄 수(D-148)
     db_writer_counts = [0, 0, 0, 0, 0]           # 종료 줄 합: 받음·넣음·큐 넘쳐 버림·거절·모호
     db_writer_no_password = 0                    # 켰는데 비밀번호가 없어 적재 워커를 못 띄운 기동 수
+    db_events: list[int] = []                    # 신호·헬스 계수 최댓값(D-154). 비면 줄이 없다
     daily_resets: dict[str, int] = {}            # 거래일(yyyymmdd) → 하루 리셋 횟수. 1보다 크면 A-4 재발
     open_order_fails = 0                         # 미체결 조회 실패 줄 수
     beat_dead = 0                                # 주문 스레드가 전략을 죽었다고 본 횟수
@@ -3502,6 +3510,9 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
                 db_writer_no_password += 1
             if found := DB_WRITER_END_RE.search(line):
                 db_writer_counts = [total + int(value) for total, value in zip(db_writer_counts, found.groups())]
+            if found := DB_EVENTS_RE.search(line) or DB_EVENTS_END_RE.search(line):
+                values = [int(value) for value in found.groups()]
+                db_events = [max(old, new) for old, new in zip(db_events, values)] if db_events else values
             if found := DAILY_RESET_RE.search(line):
                 daily_resets[found.group(1)] = daily_resets.get(found.group(1), 0) + 1
             if OPEN_ORDER_FAIL_RE.search(line):
@@ -4093,12 +4104,20 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
         ("DB 적재(엔진)",
          db_writer_no_password == 0 and (db_writer_starts == 0 or sum(db_writer_counts[2:]) == 0),
          "FAIL" if db_writer_no_password else "WARN",
-         f"database.enabled인데 TSDB_PASSWORD가 없어 체결을 넣지 않은 기동 {db_writer_no_password}회"
-         " — 리코더도 --record-ticks 없이 떠서 그날 ticks가 빈다(저장소 루트 .env 확인)" if db_writer_no_password else
-         "적재기 꺼짐 — 판정 안 함" if db_writer_starts == 0 else
+         f"database.enabled인데 TSDB_PASSWORD가 없어 체결·신호·헬스를 넣지 않은 기동 {db_writer_no_password}회"
+         " — 대신 넣던 파이썬 적재기는 없앴으므로(D-154) 그날 ticks·signals·health가 빈다(저장소 루트 .env 확인)"
+         if db_writer_no_password else
+         "엔진 DB 적재 꺼짐(database.enabled) — 판정 안 함. 이날은 DB에 아무것도 안 들어간다(D-154)"
+         if db_writer_starts == 0 else
          f"받음 {db_writer_counts[0]} · 넣음 {db_writer_counts[1]} · 큐 넘쳐 버림 {db_writer_counts[2]}"
          f" · 거절 {db_writer_counts[3]} · 모호 {db_writer_counts[4]} (기대: 버림·거절·모호 0."
          f" 모호는 들어갔는지 모르는 행, 종료 줄이 없는 기동은 세지 못한다)"),
+        ("DB 적재(신호·헬스)",
+         not db_events or sum(db_events[2:4]) + sum(db_events[6:8]) == 0, "WARN",
+         "신호·헬스 계수 줄 없음 — database.enabled 꺼짐이거나 D-154 배포 전 exe, 판정 안 함" if not db_events else
+         f"신호 받음 {db_events[0]} · 넣음 {db_events[1]} · 버림 {db_events[2]} · 못 넣음 {db_events[3]}"
+         f" / 헬스 받음 {db_events[4]} · 넣음 {db_events[5]} · 버림 {db_events[6]} · 못 넣음 {db_events[7]}"
+         f" (기대: 버림·못 넣음 0. 기동별 최댓값이라 재기동한 날은 가장 큰 기동 하나만 보인다) [why D-154]"),
         ledger_row("원장 재기동 대조", ledger_released == 0 and ledger_truncated == 0, "WARN",
                    f"되살림 {ledger_restored}건(접수 응답 전 끊김 짝지음 {ledger_unnumbered}) · 선점해제 {ledger_released}건 · 꼬리 잘림 {ledger_truncated}회"
                    f" (리플레이 최대 {max(ledger_replays, default=0)}건 — 선점해제는 원장에 적고 KIS엔 안 간 주문,"

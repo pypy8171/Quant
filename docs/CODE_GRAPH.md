@@ -30,7 +30,7 @@ graph LR
   exchange -->|7| core
   exchange -->|3| utils
   ipc -->|3| api
-  ipc -->|22| core
+  ipc -->|25| core
   ipc --> risk
   ipc -->|13| utils
   main -->|4| core
@@ -64,7 +64,7 @@ graph LR
 | `core/Types.h` | 51 |
 | `core/KstTime.h` | 33 |
 | `utils/ThreadName.h` | 30 |
-| `core/SymbolTable.h` | 22 |
+| `core/SymbolTable.h` | 23 |
 | `core/Engine.h` | 18 |
 | `core/WakeGate.h` | 14 |
 | `strategy/StrategyBase.h` | 14 |
@@ -434,6 +434,7 @@ graph LR
   n_core_EngineControlThread_cpp --> n_utils_Logger_h
   n_core_EngineControlThread_cpp --> n_utils_ThreadName_h
   n_core_EngineDataThread_cpp --> n_core_Engine_h
+  n_core_EngineDataThread_cpp --> n_core_HealthSnapshot_h
   n_core_EngineDataThread_cpp --> n_core_KstTime_h
   n_core_EngineDataThread_cpp --> n_core_LatencyTrace_h
   n_core_EngineDataThread_cpp --> n_universe_MarketBoard_h
@@ -592,6 +593,8 @@ graph LR
   n_ipc_DbManager_cpp --> n_ipc_DbManager_h
   n_ipc_DbManager_cpp --> n_utils_Logger_h
   n_ipc_DbManager_cpp --> n_utils_ThreadName_h
+  n_ipc_DbManager_h --> n_core_HealthSnapshot_h
+  n_ipc_DbManager_h --> n_core_SymbolTable_h
   n_ipc_DbManager_h --> n_core_Types_h
   n_ipc_FillChannel_cpp --> n_ipc_FillChannel_h
   n_ipc_FillChannel_h --> n_core_Types_h
@@ -667,6 +670,7 @@ graph LR
   n_ipc_ZmqBridge_cpp --> n_ipc_ZmqBridge_h
   n_ipc_ZmqBridge_cpp --> n_utils_Logger_h
   n_ipc_ZmqBridge_cpp --> n_utils_ThreadName_h
+  n_ipc_ZmqBridge_h --> n_core_HealthSnapshot_h
   n_ipc_ZmqBridge_h --> n_core_MpscQueue_h
   n_ipc_ZmqBridge_h --> n_core_Types_h
   n_ipc_ZmqBridge_h --> n_core_WakeGate_h
@@ -1024,7 +1028,7 @@ C++ 엔진·Python 보조 프로세스·스크립트가 파일로 주고받는 �
 
 | 파일 | 쓰는 쪽 | 읽는 쪽 | 언급만 |
 |---|---|---|---|
-| `regime.json` | `Quant/src/core/EngineRegime.cpp` | `Quant/src/core/AppConfig.cpp`, `Quant/src/core/EngineDataThread.cpp`, `Quant/src/core/EngineRegime.cpp`, `Quant/src/core/RegimeFileJudge.cpp`, `scripts/dashboard_server.py`, `scripts/notify_trades.py` | `Quant/include/core/AppConfig.h`, `Quant/include/core/Engine.h`, `Quant/include/core/RegimeFileJudge.h`, `Quant/src/core/EngineConfigure.cpp`, `Quant/src/ipc/ZmqBridge.cpp`, `Quant/src/strategy/StrategyFactory.cpp` |
+| `regime.json` | `Quant/src/core/EngineRegime.cpp` | `Quant/src/core/AppConfig.cpp`, `Quant/src/core/EngineDataThread.cpp`, `Quant/src/core/EngineRegime.cpp`, `Quant/src/core/RegimeFileJudge.cpp`, `scripts/dashboard_server.py`, `scripts/notify_trades.py` | `Quant/include/core/AppConfig.h`, `Quant/include/core/Engine.h`, `Quant/include/core/RegimeFileJudge.h`, `Quant/include/ipc/DbManager.h`, `Quant/src/core/EngineConfigure.cpp`, `Quant/src/ipc/ZmqBridge.cpp`, `Quant/src/strategy/StrategyFactory.cpp` |
 | `trades_*.csv` | `Quant/src/ipc/OrderJournal.cpp`, `scripts/backfill_fills_db.py`, `scripts/check_runtime_health.py`, `scripts/daily_trade_report.py`, `scripts/exit_ev_dashboard.py` | `PYQuant/dashboard/backfill_live.py`, `PYQuant/tests/test_stats.py`, `Quant/src/ipc/OrderJournal.cpp`, `Quant/src/strategy/DevScaleLoader.cpp`, `scripts/backfill_fills_db.py`, `scripts/check_runtime_health.py`, `scripts/daily_trade_report.py`, `scripts/exit_ev.py`, `scripts/exit_ev_dashboard.py`, `scripts/parse_quant_log.py`, `scripts/trade_costs.py` | `scripts/_logdir.py`, `scripts/notify_trades.py` |
 | `universe*.json` | `PYQuant/tools/load_injector.py`, `Quant/src/universe/MarketBoard.cpp`, `scripts/make_load_test_config.py` | `PYQuant/main.py`, `PYQuant/tools/full_universe_dump.py`, `PYQuant/tools/load_injector.py`, `PYQuant/tools/universe_feed.py`, `Quant/src/strategy/DevScaleLoader.cpp`, `Quant/src/universe/UniverseCandidates.cpp`, `scripts/exit_ev_dashboard.py`, `scripts/make_load_test_config.py`, `scripts/market_close_minute_backfill.py`, `scripts/notify_trades.py` | `Quant/include/universe/MarketBoard.h`, `Quant/include/universe/UniverseScanner.h`, `Quant/src/api/KisUniverse.cpp`, `scripts/dashboard_server.py` |
 | `open_orders.txt` | `Quant/src/ipc/OrderJournal.cpp`, `scripts/seed_open_orders.py` | `Quant/src/ipc/OrderJournal.cpp`, `Quant/src/ipc/OrderRouterReconcile.cpp`, `scripts/seed_open_orders.py` |  |

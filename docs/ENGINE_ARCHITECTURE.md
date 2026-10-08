@@ -10,9 +10,9 @@
 
 ### 스레드 모델
 
-<!-- sync: Quant/include/core/Engine.h@bb6a7ab Quant/src/core/Engine.cpp@01396f9 Quant/include/core/DataPoller.h@ff8f3ca Quant/include/core/SignalDispatcher.h@beada4c Quant/include/core/OrderRateLimiter.h@2650fb2 Quant/include/core/LedgerReconciler.h@6ebdf62 Quant/include/core/WakeGate.h@a9c7f38 Quant/include/core/BarAggregator.h@dabda6f Quant/include/core/LatencyTrace.h@cd2a5a5 Quant/include/core/ReconcilePlan.h@023d414 -->
+<!-- sync: Quant/include/core/Engine.h@bb6a7ab Quant/src/core/Engine.cpp@376f688 Quant/include/core/DataPoller.h@ff8f3ca Quant/include/core/SignalDispatcher.h@beada4c Quant/include/core/OrderRateLimiter.h@2650fb2 Quant/include/core/LedgerReconciler.h@6ebdf62 Quant/include/core/WakeGate.h@a9c7f38 Quant/include/core/BarAggregator.h@dabda6f Quant/include/core/LatencyTrace.h@cd2a5a5 Quant/include/core/ReconcilePlan.h@023d414 -->
 스레드는 여섯 개(데이터·전략·주문·체결·제어·장부)에 전략 샤드 M개(config `strategy_shards`, 기본 1, 상한 64), 소켓마다
-수신 스레드 하나, 프리페치 풀(코어/4, 2~8개)을 더한다. `database.enabled`면 시세 쪽에 DB 적재 워커 M개가 더 붙는다(D-148). 주문 쪽에는 신규 주문의 KIS 왕복을 맡는 전송 스레드 N개(`risk.order_transport_threads`, 기본 4, 0이면 없음, D-151)가 붙는다. 설정에 따라 보조 스레드가 더 뜬다 — 시세판(`MarketBoard`, `market_board`, D-147), 장 전 일봉 데우기(`DailyWarm`, 08:00까지), 국면 판정(`RegimeFeed`), REST 폴러(`RestPoller`), ZMQ 발행(`ZmqBridge`), 운영 서버(`OpsServer`), 틱 캡처(`TickCapture`), 로그 기록(`LogWriter`). 스레드끼리는 락 없는 큐로만 넘긴다. 각 스레드는 기동 직후
+수신 스레드 하나, 프리페치 풀(코어/4, 2~8개)을 더한다. `database.enabled`면 시세 쪽에 DB 적재 워커 M개(D-148)와 신호·헬스 워커 하나(`DbEvent`, D-154)가 더 붙는다. 주문 쪽에는 신규 주문의 KIS 왕복을 맡는 전송 스레드 N개(`risk.order_transport_threads`, 기본 4, 0이면 없음, D-151)가 붙는다. 설정에 따라 보조 스레드가 더 뜬다 — 시세판(`MarketBoard`, `market_board`, D-147), 장 전 일봉 데우기(`DailyWarm`, 08:00까지), 국면 판정(`RegimeFeed`), REST 폴러(`RestPoller`), ZMQ 발행(`ZmqBridge`), 운영 서버(`OpsServer`), 틱 캡처(`TickCapture`), 로그 기록(`LogWriter`). 스레드끼리는 락 없는 큐로만 넘긴다. 각 스레드는 기동 직후
 `thread_name::set_current`(`Quant/include/utils/ThreadName.h`)로 이름을 붙여 procwatch와 디버거에 그 이름으로 보인다.
 
 #### 한 프로세스로 띄울 때 (`Both`, 기본)
@@ -216,7 +216,7 @@ flowchart LR
 | 장부 일지 `ledger_YYYYMMDD.bin` | 주문 의도·접수·거부·체결·취소·조정·시드·현금·당일손익 | 바이너리 — 192바이트 고정 레코드, 순번·CRC32 ([LedgerJournal.h](../Quant/include/risk/LedgerJournal.h)) | `ledger_journal_dir` | [PYQuant/tools/ledger_recorder.py](../PYQuant/tools/ledger_recorder.py)가 파일 꼬리를 따라 읽어 `ledger_events`, 거기서 `fills`·`orders`·`positions`로 옮긴다 |
 | 시세 캡처 `ticks_<기동시각>.bin` | 체결·호가·일봉·그날 유니버스 | 바이너리 — QTCAP v2 ([TickCapture.h](../Quant/include/core/TickCapture.h)) | `capture_dir` | 안 간다. 리플레이 백테스트 입력이다 |
 | ZMQ 발행 | 체결틱·신호·주문·체결·엔진 상태 | 토픽 한 프레임 + JSON 한 프레임 ([ZmqBridge.cpp](../Quant/src/ipc/ZmqBridge.cpp)) | `zmq_pub_port` 블록 (ZeroMQ가 링크돼 있으면 늘 켜짐) | [PYQuant/main.py](../PYQuant/main.py) `record`가 구독해 체결틱·신호·엔진 상태만 넣는다. 주문·체결은 장부 일지 쪽이 넣는다(D-113) |
-| 엔진 DB 적재 | 체결틱 | libpq COPY 글자 — 파이썬 적재기와 같은 `ticks` 표·열, `ts`는 큐에 넣은 벽시계 ms([DbManager.cpp](../Quant/src/ipc/DbManager.cpp)) | `database.enabled` (기본 꺼짐, 비밀번호는 환경변수 `TSDB_PASSWORD`) | 엔진이 바로 넣는다. 운영 설정(`config_dev_paper`·`config_live`)은 09-26부터 켬. 켠 설정이면 감시견이 `record`를 `--record-ticks` 없이 띄운다 — 둘 다 넣으면 같은 체결이 두 번 들어간다(D-148) |
+| 엔진 DB 적재 | 체결틱·신호·헬스 | libpq COPY 글자 — 옛 파이썬 적재기와 같은 `ticks`·`signals`·`health` 표·열, `ts`는 큐에 넣은 벽시계 ms([DbManager.cpp](../Quant/src/ipc/DbManager.cpp)) | `database.enabled` (기본 꺼짐, 비밀번호는 환경변수 `TSDB_PASSWORD`) | 엔진이 바로 넣는다. 운영 설정(`config_dev_paper`·`config_live`)은 09-26부터 켬. 신호·헬스는 자기 계좌(`kis.account_no`)가 있을 때만 넣는다. 파이썬 적재기(`main.py record`)는 감시견이 더 띄우지 않는다(D-148·D-154) |
 
 읽을 때 헷갈리기 쉬운 세 가지.
 
