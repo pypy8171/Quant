@@ -237,7 +237,7 @@
 - [KisRateBucket.h](../Quant/include/api/KisRateBucket.h) — KIS REST 초당 한도 버킷의 크기 계산 — 공표 한도·몰아치기·채우기·호출별 요구량(헤더 전용 constexpr, D-118)
 - [KisRestDecode.h](../Quant/include/api/KisRestDecode.h) — KIS REST JSON 응답 디코드 순수 함수(D-051·D-059)
 - [KisResult.h](../Quant/include/api/KisResult.h) — KIS REST 결과 봉투 — 값과 실패를 구분(D-059·D-070)
-- [KisTypes.h](../Quant/include/api/KisTypes.h) — KIS 잔고·선물 전광판 응답 값 타입(D-059)
+- [KisTypes.h](../Quant/include/api/KisTypes.h) — KIS 잔고·선물 전광판·순위·투자자 수급 응답 값 타입(D-059, 순위·수급 4개는 2026-10-10에 KisClient 밖으로)
 - [KisWebSocket.h](../Quant/include/api/KisWebSocket.h) — KIS 실시간 WebSocket 클라이언트 선언(D-049)
 - [KisWsDecode.h](../Quant/include/api/KisWsDecode.h) — KIS 실시간 채널 레코드 디코더 순수 함수(D-037·D-042)
 
@@ -296,6 +296,7 @@
 - [DbManager.h](../Quant/include/ipc/DbManager.h) — 엔진 DB 적재 — 수신 스레드는 체결을 큐에 넣기만 하고, 전용 적재 워커가 TimescaleDB ticks 표에 COPY로 넣는다(D-148). 신호·헬스도 워커 하나가 signals·health 표에 넣는다(옛 파이썬 적재기와 같은 표·열, D-154)
 - [FillChannel.h](../Quant/include/ipc/FillChannel.h) — 시세→주문 체결통보 통로 — 체결 한 건을 고정 칸 레코드(FillNotice)로 옮겨 큐 하나로 나른다(문자열·포인터 없음, D-114 단계 5)
 - [FillKey.h](../Quant/include/ipc/FillKey.h) — 체결통보 중복 키 — 날짜·주문번호·시각·수량·가격 정수 5개와 해시(D-112)
+- [FixedText.h](../Quant/include/ipc/FixedText.h) — 공유 메모리 레코드의 고정 글자 칸 도우미 — 글자 경계에서 자르며 옮기기·0으로 끝나는지 보기·읽기(주문·체결 통로 공용, D-114)
 - [Heartbeat.h](../Quant/include/ipc/Heartbeat.h) — 심장박동 — 박동 공백만으로 상대의 생사를 판정한다(시계·스레드 없음, D-114 단계 2)
 - [LedgerSnapshot.h](../Quant/include/ipc/LedgerSnapshot.h) — 장부 사본 — 전략이 주문 쪽 장부 대신 읽을 한 판(판 번호로 묶고 줄마다 판 번호를 찍는다, D-114 단계 2.5)
 - [MarketFeedChannel.h](../Quant/include/ipc/MarketFeedChannel.h) — 주문 → 전략 시세 통로 — 소켓 한 줄이 나르는 체결·호가 두 큐 한 벌(D-114 단계 4)
@@ -313,6 +314,7 @@
 - [SharedStrategyDictionary.h](../Quant/include/ipc/SharedStrategyDictionary.h) — 공유 쪽지 위 전략 이름표 — 재스캔이 새로 등록하는 전략도 양쪽에서 같은 번호를 갖게 한다(D-114 단계 4)
 - [SharedSymbolDictionary.h](../Quant/include/ipc/SharedSymbolDictionary.h) — 공유 쪽지 위 종목 표 — 프로세스를 갈라도 같은 종목에 같은 번호가 붙게 한다(D-114 단계 4)
 - [SharedWriteLock.h](../Quant/include/ipc/SharedWriteLock.h) — 공유 쪽지 위 표에 넣는 동안만 잡는 자물쇠 한 벌(D-114 단계 4)
+- [SideLabel.h](../Quant/include/ipc/SideLabel.h) — 주문 방향 라벨 "BUY"/"SELL"/"NONE"을 한 곳에서 정한다(라우터 로그·부속 파일)
 - [ZmqBridge.h](../Quant/include/ipc/ZmqBridge.h) — C++ 엔진 ↔ Python ZMQ IPC 브릿지
 
 ### Quant/include/regime/
@@ -542,6 +544,8 @@
 
 ### Quant/tests/
 
+- [bench_common.cpp](../Quant/tests/bench_common.cpp) — 벤치 공용 도우미 구현 — 지연 분위수 요약·나노초 표기·빌드 종류·`--key value` 인자 읽기
+- [bench_common.h](../Quant/tests/bench_common.h) — 벤치 공용 도우미 선언 — bench_feed_ingest·bench_market_firehose·Quant/tools/feed_latency_measure.cpp가 같이 쓴다
 - [bench_engine_load.cpp](../Quant/tests/bench_engine_load.cpp) — 전 종목 부하 하네스. 합성 체결 2,700종목을 진짜 Engine에 밀어넣고 수신 스레드 N × 전략 샤드 M을 쓸어 처리량·드롭·지연을 CSV로 낸다
 - [bench_feed_ingest.cpp](../Quant/tests/bench_feed_ingest.cpp) — 시세 피드 수신 부하테스트, TCP loopback 네트워크·처리 구간 분해
 - [bench_gate_contention.cpp](../Quant/tests/bench_gate_contention.cpp) — OrderGate 락 경합 벤치(읽기 지연 분포)

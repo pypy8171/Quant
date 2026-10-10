@@ -91,6 +91,187 @@ std::vector<std::string> load_string_list(const std::string& filename, const std
 } // namespace
 
 // ══════════════════════════════════════════════════════════════════════════
+//  순위 조회 공용 — 시가총액(market-cap)·거래대금(volume-rank) 두 순위와 추정 수급 순위가 같이 쓴다.
+// ══════════════════════════════════════════════════════════════════════════
+namespace
+{
+// 응답의 문자열 숫자 칸. 칸이 비거나 숫자가 아니면 0.
+double number_or_zero(const nlohmann::json& node, const char* key)
+{
+    std::string text = node.value(key, "");
+
+    if (text.empty())
+    {
+        return 0.0;
+    }
+
+    try
+    {
+        return std::stod(text);
+    }
+    catch (...)
+    {
+        return 0.0;
+    }
+}
+
+int64_t integer_or_zero(const nlohmann::json& node, const char* key)
+{
+    std::string text = node.value(key, "");
+
+    if (text.empty())
+    {
+        return 0;
+    }
+
+    try
+    {
+        return std::stoll(text);
+    }
+    catch (...)
+    {
+        return 0;
+    }
+}
+
+// ETF/ETN/ELW 제외용 이름 목록: 브랜드 접두사(경계검사) + 상품 토큰(채권·액티브·레버리지…).
+//  접두사는 KODEX·TIGER 등 브랜드를, 토큰은 접두사 목록 밖 비브랜드 액티브(KIWOOM 단기채권ESG액티브 등)를 잡는다.
+//  처음 부를 때 파일을 한 번 읽고 두 순위가 같이 쓴다.
+struct EtfNameLists
+{
+    std::vector<std::string> prefixes;
+    std::vector<std::string> tokens;
+};
+
+const EtfNameLists& etf_name_lists()
+{
+    static const EtfNameLists lists{
+        load_string_list("etf_prefixes.json", "", ETF_PREFIXES_FALLBACK, "ETF 접두"),
+        load_string_list("etf_name_tokens.json", "", etf_filter::default_tokens(), "ETF 토큰")};
+    return lists;
+}
+
+// 순위 한 페이지 응답을 읽는 방식 — 시가총액과 거래대금 순위가 다른 곳만 담는다.
+struct RankingPageFormat
+{
+    const char* label = "";                        // 로그 이름("시총 랭킹" / "거래대금 랭킹")
+    const char* first_array_key = "";              // 이 키가 있으면 그 배열을 읽고
+    const char* second_array_key = "";             //  없으면 이 키를 읽는다
+    bool reads_stock_short_code = false;           // mksc_shrn_iscd가 비면 stck_shrn_iscd를 읽나
+    const char* extra_field = "";                  // 순위마다 다른 숫자 칸
+    double RankingStock::* extra_member = nullptr; // 그 칸을 담을 자리
+    std::string diagnosis_head;                    // 진단 로그에서 "raw=" 앞
+    std::string diagnosis_tail;                    // 진단 로그에서 "생존=N" 뒤
+};
+
+// 순위 한 페이지 응답 → 개별 보통주 행. 티커가 6자리 숫자가 아니거나 이름이 ETF류면 버린다.
+//  자르기·재정렬은 하지 않고 걸러낸 행을 그대로 돌려준다. 파싱 오류는 로그만 남기고 그때까지 읽은 행을 돌려준다.
+std::vector<RankingStock> rows_from_ranking_response(const std::string& response, const std::string& market_div,
+                                                     const RankingPageFormat& format)
+{
+    if (response.empty())
+    {
+        LOG_WARN(std::string("[KIS] ") + format.label + " 조회 실패 (" + market_div + ")");
+        return {};
+    }
+
+    LOG_DEBUG(std::string("[KIS] ") + format.label + " 응답: " + response.substr(0, kRankingPreviewChars));
+
+    std::vector<RankingStock> result;
+
+    try
+    {
+        auto document = json::parse(response);
+        const EtfNameLists& etf_lists = etf_name_lists();
+
+        auto& array = document.contains(format.first_array_key) ? document[format.first_array_key]
+                                                                : document[format.second_array_key];
+        int drop_etf = 0, drop_ticker = 0; // 진단: raw 행이 어디서 새는지 계측
+
+        for (const auto& item : array)
+        {
+            std::string name = item.value("hts_kor_isnm", "");
+            std::string ticker = item.value("mksc_shrn_iscd", "");
+
+            // 거래대금 순위는 티커 키가 mksc_shrn_iscd 또는 stck_shrn_iscd 둘 다 관측됨 → 양쪽 시도
+            // 근거 없음(2026-09-27): stck_shrn_iscd가 온 로그 기록을 찾지 못했다. 공식 샘플 volume_rank 응답은 mksc_shrn_iscd다.
+            if (format.reads_stock_short_code && ticker.empty())
+            {
+                ticker = item.value("stck_shrn_iscd", "");
+            }
+
+            // KOSPI 보통주 티커는 반드시 6자리 숫자
+            // 근거 없음(2026-09-27): 공식 샘플은 종목코드 6자리 예시만 들고 숫자 전용이라고 하지 않는다. 신규 상장에는 알파벳이
+            //  섞인 코드가 있다(docs/DECISIONS.md D-105의 0N123A 예시) — 이 필터는 그런 종목을 떨어뜨린다.
+            if (!symbol::is_korean_ticker(ticker))
+            {
+                ++drop_ticker;
+                continue;
+            }
+
+            if (etf_filter::is_etf_like(name, etf_lists.prefixes, etf_lists.tokens))
+            {
+                ++drop_etf;
+                continue;
+            }
+
+            RankingStock stock;
+            stock.ticker = std::move(ticker);
+            stock.name = std::move(name);
+            stock.price = number_or_zero(item, "stck_prpr");
+            stock.change = number_or_zero(item, "prdy_vrss");
+            stock.change_rate = number_or_zero(item, "prdy_ctrt");
+            stock.volume = integer_or_zero(item, "acml_vol");
+            stock.*format.extra_member = number_or_zero(item, format.extra_field);
+            result.push_back(std::move(stock));
+        }
+
+        LOG_INFO(format.diagnosis_head + "raw=" + std::to_string(array.size()) +
+                 " ETF드롭=" + std::to_string(drop_etf) + " 티커드롭=" + std::to_string(drop_ticker) +
+                 " 생존=" + std::to_string(result.size()) + format.diagnosis_tail);
+    }
+    catch (const std::exception& exception)
+    {
+        LOG_ERROR(std::string("[KIS] ") + format.label + " 파싱 오류: " + std::string(exception.what()));
+    }
+
+    return result;
+}
+
+// 가격 구간을 갈라 받은 두 페이지를 잇는다. 두 조회 사이에 가격이 경계를 넘으면 같은 종목이 양쪽에 걸린다 —
+//  먼저 온 쪽만 남긴다. label은 로그 이름("시총랭킹" / "거래대금랭킹").
+std::vector<RankingStock> merge_price_split_pages(std::vector<RankingStock> lower, std::vector<RankingStock> upper,
+                                                  const char* label)
+{
+    lower.insert(lower.end(), std::make_move_iterator(upper.begin()), std::make_move_iterator(upper.end()));
+
+    std::unordered_set<std::string> seen;
+    std::erase_if(lower, [&seen](const RankingStock& stock)
+    {
+        return !seen.insert(stock.ticker).second;
+    });
+
+    LOG_INFO(std::string("[KIS] ") + label + " 두 페이지 합침: 유니크 " + std::to_string(lower.size()) + "종목 (경계 " +
+             std::to_string(KisClient::kRankingPriceSplit) + "원)");
+    return lower;
+}
+
+// count행에서 자르고 순위를 다시 매긴다 — 페이지별 순위는 합친 뒤에는 뜻이 달라지므로 합집합 기준으로 매긴다.
+void truncate_and_rerank(std::vector<RankingStock>& rows, int count)
+{
+    if (static_cast<int>(rows.size()) > count)
+    {
+        rows.resize(count);
+    }
+
+    for (int row_index = 0; row_index < static_cast<int>(rows.size()); ++row_index)
+    {
+        rows[row_index].rank = row_index + 1;
+    }
+}
+} // namespace
+
+// ══════════════════════════════════════════════════════════════════════════
 //  국내 시가총액 순위 한 페이지 — market-cap API
 //  tr_id: FHPST01740000, 화면코드 20174 (KIS 공식 샘플 market_cap.py로 2026-09-23 확인).
 //  [inv] 화면코드와 tr_id는 이 짝만 시가총액 순위를 준다 — 옛 코드가 쓰던 20171/FHPST01720000은
@@ -115,121 +296,21 @@ std::vector<KisClient::RankingStock> KisClient::fetch_kr_ranking_page(const std:
 
     std::string response = http_get(url, authentication_headers("FHPST01740000"));
 
-    if (response.empty())
-    {
-        LOG_WARN("[KIS] 시총 랭킹 조회 실패 (" + market_div + ")");
-        return {};
-    }
-
-    LOG_DEBUG("[KIS] 시총 랭킹 응답: " + response.substr(0, kRankingPreviewChars));
-
-    std::vector<RankingStock> result;
-
-    try
-    {
-        auto document = json::parse(response);
-        auto safe_d = [](const nlohmann::json& node, const char* key) -> double
-        {
-            std::string text = node.value(key, "");
-
-            if (text.empty())
-            {
-                return 0.0;
-            }
-
-            try
-            {
-                return std::stod(text);
-            }
-            catch (...)
-            {
-                return 0.0;
-            }
-        };
-        auto safe_i = [](const nlohmann::json& node, const char* key) -> int64_t
-        {
-            std::string text = node.value(key, "");
-
-            if (text.empty())
-            {
-                return 0;
-            }
-
-            try
-            {
-                return std::stoll(text);
-            }
-            catch (...)
-            {
-                return 0;
-            }
-        };
-
-        // ETF/ETN/ELW 제외: 브랜드 접두사(경계검사) + 상품 토큰(채권·액티브·레버리지…) + 6자리 숫자 티커.
-        //  접두사는 KODEX·TIGER 등 브랜드를, 토큰은 접두사 목록 밖 비브랜드 액티브(KIWOOM 단기채권ESG액티브 등)를 잡는다.
-        static const std::vector<std::string> ETF_PREFIXES =
-            load_string_list("etf_prefixes.json", "", ETF_PREFIXES_FALLBACK, "ETF 접두");
-        static const std::vector<std::string> ETF_TOKENS =
-            load_string_list("etf_name_tokens.json", "", etf_filter::default_tokens(), "ETF 토큰");
-        auto is_etf_name = [&](const std::string& name)
-        {
-            return etf_filter::is_etf_like(name, ETF_PREFIXES, ETF_TOKENS);
-        };
-        // KOSPI 보통주 티커는 반드시 6자리 숫자
-        // 근거 없음(2026-09-27): 공식 샘플은 종목코드 6자리 예시만 들고 숫자 전용이라고 하지 않는다. 신규 상장에는 알파벳이
-        //  섞인 코드가 있다(docs/DECISIONS.md D-105의 0N123A 예시) — 이 필터는 그런 종목을 떨어뜨린다.
-        auto is_normal_ticker = [](const std::string& ticker)
-        {
-            return symbol::is_korean_ticker(ticker);
-        };
-
-        // API 응답 키: "output2"가 있으면 그것을, 없으면 "output"
-        // [wire] KIS 공식 샘플 market_cap은 output 키를 읽는다(2026-09-27 MCP 확인). output2는 방어용이다.
-        auto& array = document.contains("output2") ? document["output2"] : document["output"];
-        int drop_etf = 0, drop_ticker = 0; // 진단: raw 행이 어디서 새는지 계측
-
-        for (const auto& item : array)
-        {
-            std::string name = item.value("hts_kor_isnm", "");
-            std::string ticker = item.value("mksc_shrn_iscd", "");
-
-            if (!is_normal_ticker(ticker))
-            {
-                ++drop_ticker;
-                continue;
-            }
-
-            if (is_etf_name(name))
-            {
-                ++drop_etf;
-                continue;
-            }
-
-            RankingStock stock;
-            stock.ticker = std::move(ticker);
-            stock.name = std::move(name);
-            stock.price = safe_d(item, "stck_prpr");
-            stock.change = safe_d(item, "prdy_vrss");
-            stock.change_rate = safe_d(item, "prdy_ctrt");
-            stock.volume = safe_i(item, "acml_vol");
-            stock.market_cap = safe_d(item, "stck_avls"); // 시가총액(억원)
-            result.push_back(std::move(stock));
-        }
-
-        // 진단: raw 행수 vs 필터 후. raw가 30보다 적으면 가격 구간이 그만큼 좁은 것이고, ETF드롭이
-        //  크면 보통주 구분값이 안 먹는 것이다.
-        std::string price_range =
-            price_from.empty() && price_to.empty() ? std::string("전체") : price_from + "~" + price_to;
-        LOG_INFO("[KIS] 시총랭킹 진단: raw=" + std::to_string(array.size()) +
-                 " ETF드롭=" + std::to_string(drop_etf) + " 티커드롭=" + std::to_string(drop_ticker) +
-                 " 생존=" + std::to_string(result.size()) + " (가격 " + price_range + ")");
-    }
-    catch (const std::exception& exception)
-    {
-        LOG_ERROR("[KIS] 시총 랭킹 파싱 오류: " + std::string(exception.what()));
-    }
-
-    return result;
+    // 진단: raw 행수 vs 필터 후. raw가 30보다 적으면 가격 구간이 그만큼 좁은 것이고, ETF드롭이
+    //  크면 보통주 구분값이 안 먹는 것이다.
+    const std::string price_range =
+        price_from.empty() && price_to.empty() ? std::string("전체") : price_from + "~" + price_to;
+    RankingPageFormat format;
+    format.label = "시총 랭킹";
+    // API 응답 키: "output2"가 있으면 그것을, 없으면 "output"
+    // [wire] KIS 공식 샘플 market_cap은 output 키를 읽는다(2026-09-27 MCP 확인). output2는 방어용이다.
+    format.first_array_key = "output2";
+    format.second_array_key = "output";
+    format.extra_field = "stck_avls"; // 시가총액(억원)
+    format.extra_member = &RankingStock::market_cap;
+    format.diagnosis_head = "[KIS] 시총랭킹 진단: ";
+    format.diagnosis_tail = " (가격 " + price_range + ")";
+    return rows_from_ranking_response(response, market_div, format);
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -247,35 +328,16 @@ std::vector<KisClient::RankingStock> KisClient::fetch_kr_ranking(int count, cons
     }
     else
     {
-        result = fetch_kr_ranking_page(market_div, "0", std::to_string(kRankingPriceSplit));
+        // 아래쪽 구간을 먼저 받는다 — 합칠 때 먼저 온 쪽이 남는다.
+        std::vector<RankingStock> lower = fetch_kr_ranking_page(market_div, "0", std::to_string(kRankingPriceSplit));
         std::vector<RankingStock> upper =
             fetch_kr_ranking_page(market_div, std::to_string(kRankingPriceSplit + 1), "");
-        result.insert(result.end(), std::make_move_iterator(upper.begin()), std::make_move_iterator(upper.end()));
-
-        // 두 조회 사이에 가격이 경계를 넘으면 같은 종목이 양쪽에 걸린다 — 먼저 온 쪽만 남긴다.
-        std::unordered_set<std::string> seen;
-        std::erase_if(result, [&seen](const RankingStock& stock)
-        {
-            return !seen.insert(stock.ticker).second;
-        });
-
-        LOG_INFO("[KIS] 시총랭킹 두 페이지 합침: 유니크 " + std::to_string(result.size()) + "종목 (경계 " +
-                 std::to_string(kRankingPriceSplit) + "원)");
+        result = merge_price_split_pages(std::move(lower), std::move(upper), "시총랭킹");
     }
 
     // 한 페이지는 API가 이미 시가총액 내림차순으로 주지만, 두 페이지를 이어 붙이면 그 순서가 끊긴다.
     std::ranges::sort(result, std::ranges::greater{}, &RankingStock::market_cap);
-
-    if (static_cast<int>(result.size()) > count)
-    {
-        result.resize(count);
-    }
-
-    // 페이지별 순위는 합친 뒤에는 뜻이 달라진다 — 합집합 기준으로 다시 매긴다.
-    for (int result_index = 0; result_index < static_cast<int>(result.size()); ++result_index)
-    {
-        result[result_index].rank = result_index + 1;
-    }
+    truncate_and_rerank(result, count);
 
     // 요청이 두 페이지 상한을 넘으면 그 사실을 같이 적는다 — 80을 달라고 해도 60행이 끝이고,
     //  ETF·비보통주를 거르고 나면 50행 안팎이 남는다(2026-09-23 실측).
@@ -308,7 +370,7 @@ std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking_page(const s
     //  정리매매 · 불성실공시 · 우선주 · 거래정지 · ETF · ETN · 신용주문불가 · SPAC
     //  (KIS 공식 샘플 volume_rank.py로 2026-09-23 확인). 7·8번째를 켜서 ETF·ETN을 API단에서 뺀다 —
     //  안 빼면 30행 중 18행이 ETF라 개별주가 12행밖에 안 남았다(2026-09-23 장중 실측).
-    //  아래 이름 필터는 그대로 둔다 — 마스크가 놓치는 ELW·신형 상품명을 받는 두 번째 그물이다.
+    //  이름 필터는 그대로 둔다 — 마스크가 놓치는 ELW·신형 상품명을 받는 두 번째 그물이다.
     // FID_BLNG_CLS_CODE 정렬축: 0=평균거래량 1=거래증가율 3=거래금액순(기본) — 호출자가 지정.
     //  (2026-09-27 샘플 대조로 고침 — KIS 공식 샘플 volume_rank 파라미터 설명, 0은 평균거래량이다)
     // FID_INPUT_PRICE_1/2는 가격 구간. 둘 다 비면 전체 가격이다.
@@ -321,124 +383,19 @@ std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking_page(const s
 
     std::string response = http_get(url, authentication_headers("FHPST01710000"));
 
-    if (response.empty())
-    {
-        LOG_WARN("[KIS] 거래대금 랭킹 조회 실패 (" + market_div + ")");
-        return {};
-    }
-
-    LOG_DEBUG("[KIS] 거래대금 랭킹 응답: " + response.substr(0, kRankingPreviewChars));
-
-    std::vector<RankingStock> result;
-
-    try
-    {
-        auto document = json::parse(response);
-        auto safe_d = [](const nlohmann::json& node, const char* key) -> double
-        {
-            std::string text = node.value(key, "");
-
-            if (text.empty())
-            {
-                return 0.0;
-            }
-
-            try
-            {
-                return std::stod(text);
-            }
-            catch (...)
-            {
-                return 0.0;
-            }
-        };
-        auto safe_i = [](const nlohmann::json& node, const char* key) -> int64_t
-        {
-            std::string text = node.value(key, "");
-
-            if (text.empty())
-            {
-                return 0;
-            }
-
-            try
-            {
-                return std::stoll(text);
-            }
-            catch (...)
-            {
-                return 0;
-            }
-        };
-
-        // ETF/ETN/ELW 제외: 브랜드 접두사(경계검사) + 상품 토큰 + 6자리 숫자 티커(fetch_kr_ranking과 동일 규칙)
-        static const std::vector<std::string> ETF_PREFIXES =
-            load_string_list("etf_prefixes.json", "", ETF_PREFIXES_FALLBACK, "ETF 접두");
-        static const std::vector<std::string> ETF_TOKENS =
-            load_string_list("etf_name_tokens.json", "", etf_filter::default_tokens(), "ETF 토큰");
-        auto is_etf_name = [&](const std::string& name)
-        {
-            return etf_filter::is_etf_like(name, ETF_PREFIXES, ETF_TOKENS);
-        };
-        auto is_normal_ticker = [](const std::string& ticker)
-        {
-            return symbol::is_korean_ticker(ticker);
-        };
-
-        // volume-rank 응답 배열 키: "output" (표준). output2도 방어적으로 수용.
-        // [wire] 출처: KIS 공식 샘플 volume_rank(output 키), 2026-09-27 MCP 확인.
-        auto& array = document.contains("output") ? document["output"] : document["output2"];
-        int drop_etf = 0, drop_ticker = 0; // 진단: raw 행이 어디서 새는지 계측
-
-        for (const auto& item : array)
-        {
-            std::string name = item.value("hts_kor_isnm", "");
-            // 티커 키가 mksc_shrn_iscd 또는 stck_shrn_iscd 둘 다 관측됨 → 양쪽 시도
-            // 근거 없음(2026-09-27): stck_shrn_iscd가 온 로그 기록을 찾지 못했다. 공식 샘플 volume_rank 응답은 mksc_shrn_iscd다.
-            std::string ticker = item.value("mksc_shrn_iscd", "");
-
-            if (ticker.empty())
-            {
-                ticker = item.value("stck_shrn_iscd", "");
-            }
-
-            if (!is_normal_ticker(ticker))
-            {
-                ++drop_ticker;
-                continue;
-            }
-
-            if (is_etf_name(name))
-            {
-                ++drop_etf;
-                continue;
-            }
-
-            RankingStock stock;
-            stock.ticker = std::move(ticker);
-            stock.name = std::move(name);
-            stock.price = safe_d(item, "stck_prpr");
-            stock.change = safe_d(item, "prdy_vrss");
-            stock.change_rate = safe_d(item, "prdy_ctrt");
-            stock.volume = safe_i(item, "acml_vol");
-            stock.trade_value = safe_d(item, "acml_tr_pbmn"); // 누적 거래대금(원)
-            result.push_back(std::move(stock));
-        }
-
-        // 진단: raw 행수 vs 필터 후. ETF드롭이 계속 크면 제외 마스크가 안 먹고 있다는 뜻이다.
-        LOG_INFO("[KIS] 거래대금랭킹 진단(축=" + blng_cls + " 가격=" +
-                 (price_from.empty() ? std::string("전체") : price_from + "~" + (price_to.empty() ? "" : price_to)) +
-                 "): raw=" + std::to_string(array.size()) +
-                 " ETF드롭=" + std::to_string(drop_etf) + " 티커드롭=" + std::to_string(drop_ticker) +
-                 " 생존=" + std::to_string(result.size()));
-
-    }
-    catch (const std::exception& exception)
-    {
-        LOG_ERROR("[KIS] 거래대금 랭킹 파싱 오류: " + std::string(exception.what()));
-    }
-
-    return result;
+    // 진단: raw 행수 vs 필터 후. ETF드롭이 계속 크면 제외 마스크가 안 먹고 있다는 뜻이다.
+    RankingPageFormat format;
+    format.label = "거래대금 랭킹";
+    // volume-rank 응답 배열 키: "output" (표준). output2도 방어적으로 수용.
+    // [wire] 출처: KIS 공식 샘플 volume_rank(output 키), 2026-09-27 MCP 확인.
+    format.first_array_key = "output";
+    format.second_array_key = "output2";
+    format.reads_stock_short_code = true;
+    format.extra_field = "acml_tr_pbmn"; // 누적 거래대금(원)
+    format.extra_member = &RankingStock::trade_value;
+    format.diagnosis_head = "[KIS] 거래대금랭킹 진단(축=" + blng_cls + " 가격=" +
+                            (price_from.empty() ? std::string("전체") : price_from + "~" + price_to) + "): ";
+    return rows_from_ranking_response(response, market_div, format);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -460,20 +417,12 @@ std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking(int count, c
     }
     else
     {
-        result = fetch_value_ranking_page(market_div, blng_cls, "0", std::to_string(kRankingPriceSplit));
+        // 아래쪽 구간을 먼저 받는다 — 합칠 때 먼저 온 쪽이 남는다.
+        std::vector<RankingStock> lower =
+            fetch_value_ranking_page(market_div, blng_cls, "0", std::to_string(kRankingPriceSplit));
         std::vector<RankingStock> upper =
             fetch_value_ranking_page(market_div, blng_cls, std::to_string(kRankingPriceSplit + 1), "");
-        result.insert(result.end(), std::make_move_iterator(upper.begin()), std::make_move_iterator(upper.end()));
-
-        // 두 조회 사이에 가격이 경계를 넘으면 같은 종목이 양쪽에 걸린다 — 먼저 온 쪽만 남긴다.
-        std::unordered_set<std::string> seen;
-        std::erase_if(result, [&seen](const RankingStock& stock)
-        {
-            return !seen.insert(stock.ticker).second;
-        });
-
-        LOG_INFO("[KIS] 거래대금랭킹 두 페이지 합침: 유니크 " + std::to_string(result.size()) +
-                 "종목 (경계 " + std::to_string(kRankingPriceSplit) + "원)");
+        result = merge_price_split_pages(std::move(lower), std::move(upper), "거래대금랭킹");
     }
 
     if (can_merge_pages)
@@ -481,16 +430,7 @@ std::vector<KisClient::RankingStock> KisClient::fetch_value_ranking(int count, c
         std::ranges::sort(result, std::ranges::greater{}, &RankingStock::trade_value);
     }
 
-    if (static_cast<int>(result.size()) > count)
-    {
-        result.resize(count);
-    }
-
-    // 페이지별 순위는 합친 뒤에는 뜻이 달라진다 — 합집합 기준으로 다시 매긴다.
-    for (int result_index = 0; result_index < static_cast<int>(result.size()); ++result_index)
-    {
-        result[result_index].rank = result_index + 1;
-    }
+    truncate_and_rerank(result, count);
 
     LOG_INFO("[KIS] 거래대금 랭킹 조회 완료: " + std::to_string(result.size()) + "종목 (요청 count=" +
              std::to_string(count) + ")");
@@ -528,43 +468,6 @@ std::vector<KisClient::EstInvestorFlow> KisClient::fetch_est_investor_ranking(
     {
         auto document = json::parse(response);
         // 스키마 확정 전: 파싱 결과가 비면 원문을 로깅해 필드명/구조를 눈으로 확인한다.
-        auto safe_i = [](const nlohmann::json& node, const char* key) -> int64_t
-        {
-            std::string text = node.value(key, "");
-
-            if (text.empty())
-            {
-                return 0;
-            }
-
-            try
-            {
-                return std::stoll(text);
-            }
-            catch (...)
-            {
-                return 0;
-            }
-        };
-        auto safe_d = [](const nlohmann::json& node, const char* key) -> double
-        {
-            std::string text = node.value(key, "");
-
-            if (text.empty())
-            {
-                return 0.0;
-            }
-
-            try
-            {
-                return std::stod(text);
-            }
-            catch (...)
-            {
-                return 0.0;
-            }
-        };
-
         const nlohmann::json* array = nullptr;
 
         if (document.contains("output"))
@@ -593,9 +496,9 @@ std::vector<KisClient::EstInvestorFlow> KisClient::fetch_est_investor_ranking(
                 }
 
                 est_investor_flow.name = item.value("hts_kor_isnm", "");
-                est_investor_flow.foreign_net_quantity = safe_i(item, "frgn_ntby_qty");
-                est_investor_flow.institution_net_quantity    = safe_i(item, "orgn_ntby_qty");
-                est_investor_flow.foreign_net_amount = safe_d(item, "frgn_ntby_tr_pbmn");
+                est_investor_flow.foreign_net_quantity = integer_or_zero(item, "frgn_ntby_qty");
+                est_investor_flow.institution_net_quantity    = integer_or_zero(item, "orgn_ntby_qty");
+                est_investor_flow.foreign_net_amount = number_or_zero(item, "frgn_ntby_tr_pbmn");
 
                 if (!est_investor_flow.ticker.empty())
                 {

@@ -88,6 +88,18 @@ static bool is_rate_limited(const std::string& body)
            body.find("초당 거래건수") != std::string::npos;
 }
 
+// 풀링 해제 스위치(두 플랫폼 공용). 환경변수 QUANT_HTTP_NOPOOL=1이면 매 요청 뒤 상주 연결(WinHTTP 연결·curl 핸들)을
+// 파기해 풀링 도입 전(요청마다 TCP+TLS 재수립) 거동을 그대로 재현한다. 측정용으로만 쓴다 —
+// 바이너리 하나에서 변수 하나(풀링 유무)만 바꿔 before/after를 비교하려는 목적.
+static bool http_nopool()
+{
+    static const bool disabled = [] {
+        const char* end = std::getenv("QUANT_HTTP_NOPOOL");
+        return end && *end == '1';
+    }();
+    return disabled;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 //  플랫폼별 HTTP 구현
 // ═══════════════════════════════════════════════════════════════════════════
@@ -190,18 +202,6 @@ struct WinHttpConn
 
 // 스레드별 상주 연결. 호스트/포트가 바뀌면(현재는 사실상 단일 호스트라 최초 1회) 재수립한다.
 static thread_local WinHttpConn thread_connection;
-
-// 풀링 해제 스위치. 환경변수 QUANT_HTTP_NOPOOL=1이면 매 요청 뒤 상주 연결을 파기해
-// 풀링 도입 전(요청마다 TCP+TLS 재수립) 거동을 그대로 재현한다. 측정용으로만 쓴다 —
-// 바이너리 하나에서 변수 하나(풀링 유무)만 바꿔 before/after를 비교하려는 목적.
-static bool http_nopool()
-{
-    static const bool disabled = [] {
-        const char* end = std::getenv("QUANT_HTTP_NOPOOL");
-        return end && *end == '1';
-    }();
-    return disabled;
-}
 
 // (host,port)에 대한 상주 connect_handle 확보. 실패 시 nullptr.
 static HINTERNET acquire_connection(const WinHttpResult& win_http_result)
@@ -341,67 +341,6 @@ static std::string winhttp_request_once(const std::string& method, const std::st
     return response;
 }
 
-// 재시도 래퍼. ⚠ 조회(GET) 요청(여러 번 보내도 서버 상태 불변이라 재시도 안전)만 재시도한다 — (a) 전송 계층 실패(12152 등, 제한 시간 초과 12002는 제외), (b) 5xx 서버 일시장애.
-//  KIS 시세/일봉 TR은 부하 시 간헐 HTTP 500을 뱉는데(전송은 정상, transport_ok=true), 이때 일봉이 <60봉으로
-//  잘려 스캔 후보가 통째로 탈락한다 → 조회(GET)에 한해 5xx도 재시도해 후보 유실을 막는다.
-//  근거: 실측 — DAILY_LOG.md 2026-08-12 항목(실도메인 GET 5xx 재시도로 데이터 부족 6→1~2).
-//  주문 등 POST는 재시도하지 않는다 — 빈 응답(12152)이 "미접수"라는 보장이 없어(서버엔 접수됐을 수 있음)
-//  블라인드 재시도는 이중주문 위험. POST 실패는 호출자가 잔고 대조로 확정해야 한다.
-static std::string winhttp_request(const std::string& method, const std::string& url,
-                                   const std::vector<std::string>& headers, const HeaderOverlay& overlay,
-                                   const std::string& body)
-{
-    constexpr int      kMaxGetAttempts    = 3;   // 조회(GET) 최대 시도(원 시도 + 재시도 2)
-    constexpr unsigned kRetryBackoffMsBase = 500; // 선형 백오프 기준(attempt배: 500ms, 1000ms)
-    const bool idempotent = (method == "GET");
-    const int max_attempts = (idempotent && g_fastfail_depth == 0) ? kMaxGetAttempts : 1;
-    std::string response;
-
-    for (int attempt = 1; attempt <= max_attempts; ++attempt)
-    {
-        bool transport_ok = false;
-        int status = 0;
-        response = winhttp_request_once(method, url, headers, overlay, body, transport_ok, status);
-        // 재시도 대상: 전송 실패(항상) 또는 조회(GET)의 5xx. 그 외(2xx/4xx)는 즉시 반환.
-        const bool retryable = !transport_ok || (idempotent && status >= 500);
-
-        if (!retryable)
-        {
-            return response;
-        }
-
-        // 한도 초과는 여기서 되보내지 않는다 — 버킷을 쥔 KisClient::http_get이 기다릴 시간을 계산해 되보낸다.
-        if (is_rate_limited(response))
-        {
-            return response;
-        }
-
-        // 수신 제한 시간을 넘긴 실패는 재시도하지 않는다 — 느린 서버에 같은 요청을 다시 넣어 봐야 같은 시간이
-        //  또 간다. 호출자(잔고 대조 등)가 자기 주기에 다시 부른다.
-        if (!transport_ok && g_last_attempt_timed_out)
-        {
-            LOG_ERROR(g_last_transport_error + " — 수신 제한 시간 초과 — 재시도 없이 실패 처리  url=" + url);
-            return response;
-        }
-
-        if (attempt < max_attempts)
-        {
-            LOG_WARN((transport_ok ? "[WinHTTP] HTTP " + std::to_string(status) : g_last_transport_error) +
-                     " — 재시도 " + std::to_string(attempt + 1) + "/" + std::to_string(max_attempts) +
-                     "  url=" + url);
-            Sleep(kRetryBackoffMsBase * attempt);
-            continue;
-        }
-
-        if (!transport_ok) // 재시도를 다 썼거나 재시도하지 않는 요청(주문 POST·즉시 실패 스코프)
-        {
-            LOG_ERROR(g_last_transport_error + " — 시도 " + std::to_string(attempt) + "회 모두 실패  url=" + url);
-        }
-    }
-
-    return response; // 재시도 소진 — 마지막 응답(빈 문자열 또는 5xx 바디)
-}
-
 #else
 // ─── Linux: libcurl ────────────────────────────────────────────────────────
 #include <curl/curl.h>
@@ -445,17 +384,6 @@ struct CurlHandle
 // 스레드별 상주 핸들. 프로그램은 호스트 하나만 부르므로 호스트별 구분은 두지 않는다 —
 // libcurl이 핸들 안 연결 캐시에서 (호스트,포트)를 보고 골라 쓴다.
 static thread_local CurlHandle thread_curl;
-
-// 풀링 해제 스위치 — 윈도우 경로와 같은 환경변수. QUANT_HTTP_NOPOOL=1이면 매 요청 뒤 핸들을 파기해
-// 풀링 도입 전(요청마다 TCP+TLS 재수립) 거동을 그대로 재현한다. 측정용으로만 쓴다.
-static bool http_nopool()
-{
-    static const bool disabled = [] {
-        const char* end = std::getenv("QUANT_HTTP_NOPOOL");
-        return end && *end == '1';
-    }();
-    return disabled;
-}
 
 // 상주 핸들 확보. 실패 시 nullptr.
 static CURL* acquire_curl()
@@ -536,10 +464,36 @@ static std::string curl_request_once(const std::string& method, const std::strin
     return response;
 }
 
-// 재시도 래퍼. ⚠ 조회(GET) 요청만 재시도 — 전송 계층 실패 또는 5xx(WinHTTP 경로와 동일 규약 — 주문 POST 제외).
-static std::string curl_request(const std::string& method, const std::string& url,
-                                const std::vector<std::string>& headers, const HeaderOverlay& overlay,
-                                const std::string& body)
+#endif
+
+// 플랫폼 단발 시도 — 위 두 구현 중 이 빌드의 것. 재시도 규약은 아래 request_with_retry 하나가 갖는다.
+static std::string platform_request_once(const std::string& method, const std::string& url,
+                                         const std::vector<std::string>& headers, const HeaderOverlay& overlay,
+                                         const std::string& body, bool& transport_ok, int& status_code)
+{
+#ifdef _WIN32
+    return winhttp_request_once(method, url, headers, overlay, body, transport_ok, status_code);
+#else
+    return curl_request_once(method, url, headers, overlay, body, transport_ok, status_code);
+#endif
+}
+
+// 재시도 로그의 HTTP 상태 앞머리 — 플랫폼마다 단발 시도 로그와 같은 이름을 쓴다.
+#ifdef _WIN32
+static constexpr const char* kHttpStatusLogPrefix = "[WinHTTP] HTTP ";
+#else
+static constexpr const char* kHttpStatusLogPrefix = "[CURL] HTTP ";
+#endif
+
+// 재시도 래퍼(두 플랫폼 공용). ⚠ 조회(GET) 요청(여러 번 보내도 서버 상태 불변이라 재시도 안전)만 재시도한다 — (a) 전송 계층 실패(12152 등, 제한 시간 초과 12002·curl 28은 제외), (b) 5xx 서버 일시장애.
+//  KIS 시세/일봉 TR은 부하 시 간헐 HTTP 500을 뱉는데(전송은 정상, transport_ok=true), 이때 일봉이 <60봉으로
+//  잘려 스캔 후보가 통째로 탈락한다 → 조회(GET)에 한해 5xx도 재시도해 후보 유실을 막는다.
+//  근거: 실측 — DAILY_LOG.md 2026-08-12 항목(실도메인 GET 5xx 재시도로 데이터 부족 6→1~2).
+//  주문 등 POST는 재시도하지 않는다 — 빈 응답(12152)이 "미접수"라는 보장이 없어(서버엔 접수됐을 수 있음)
+//  블라인드 재시도는 이중주문 위험. POST 실패는 호출자가 잔고 대조로 확정해야 한다.
+static std::string request_with_retry(const std::string& method, const std::string& url,
+                                      const std::vector<std::string>& headers, const HeaderOverlay& overlay,
+                                      const std::string& body)
 {
     constexpr int kMaxGetAttempts     = 3;   // 조회(GET) 최대 시도(원 시도 + 재시도 2)
     constexpr int kRetryBackoffMsBase = 500; // 선형 백오프 기준(attempt배: 500ms, 1000ms)
@@ -551,7 +505,8 @@ static std::string curl_request(const std::string& method, const std::string& ur
     {
         bool transport_ok = false;
         int status = 0;
-        response = curl_request_once(method, url, headers, overlay, body, transport_ok, status);
+        response = platform_request_once(method, url, headers, overlay, body, transport_ok, status);
+        // 재시도 대상: 전송 실패(항상) 또는 조회(GET)의 5xx. 그 외(2xx/4xx)는 즉시 반환.
         const bool retryable = !transport_ok || (idempotent && status >= 500);
 
         if (!retryable)
@@ -559,12 +514,15 @@ static std::string curl_request(const std::string& method, const std::string& ur
             return response;
         }
 
-        if (is_rate_limited(response)) // WinHTTP 경로와 같은 규약 — 한도 초과는 KisClient::http_get이 되보낸다
+        // 한도 초과는 여기서 되보내지 않는다 — 버킷을 쥔 KisClient::http_get이 기다릴 시간을 계산해 되보낸다.
+        if (is_rate_limited(response))
         {
             return response;
         }
 
-        if (!transport_ok && g_last_attempt_timed_out) // WinHTTP 경로와 같은 규약 — 제한 시간 초과는 재시도 없음
+        // 수신 제한 시간을 넘긴 실패는 재시도하지 않는다 — 느린 서버에 같은 요청을 다시 넣어 봐야 같은 시간이
+        //  또 간다. 호출자(잔고 대조 등)가 자기 주기에 다시 부른다.
+        if (!transport_ok && g_last_attempt_timed_out)
         {
             LOG_ERROR(g_last_transport_error + " — 수신 제한 시간 초과 — 재시도 없이 실패 처리  url=" + url);
             return response;
@@ -572,7 +530,7 @@ static std::string curl_request(const std::string& method, const std::string& ur
 
         if (attempt < max_attempts)
         {
-            LOG_WARN((transport_ok ? "[CURL] HTTP " + std::to_string(status) : g_last_transport_error) +
+            LOG_WARN((transport_ok ? kHttpStatusLogPrefix + std::to_string(status) : g_last_transport_error) +
                      " — 재시도 " + std::to_string(attempt + 1) + "/" + std::to_string(max_attempts) +
                      "  url=" + url);
             std::this_thread::sleep_for(std::chrono::milliseconds(kRetryBackoffMsBase * attempt));
@@ -585,9 +543,8 @@ static std::string curl_request(const std::string& method, const std::string& ur
         }
     }
 
-    return response;
+    return response; // 재시도 소진 — 마지막 응답(빈 문자열 또는 5xx 바디)
 }
-#endif
 
 // ─── HTTP 래퍼 ────────────────────────────────────────────────────────────
 
@@ -608,11 +565,7 @@ std::string get(const std::string& url, const std::vector<std::string>& headers)
 {
     // 헤더를 덧입히지 않는다 — 부르는 쪽이 준 것만 그대로 나간다. KIS 토큰도 Content-Type도 붙이지 않는다.
     HeaderOverlay overlay;
-#ifdef _WIN32
-    return winhttp_request("GET", url, headers, overlay, "");
-#else
-    return curl_request("GET", url, headers, overlay, "");
-#endif
+    return request_with_retry("GET", url, headers, overlay, "");
 }
 
 } // namespace http
@@ -711,11 +664,7 @@ std::string KisClient::http_get(const std::string& url, const std::vector<std::s
     }
 
     rate_limit_acquire(url);
-#ifdef _WIN32
-    std::string response = winhttp_request("GET", url, headers, overlay, "");
-#else
-    std::string response = curl_request("GET", url, headers, overlay, "");
-#endif
+    std::string response = request_with_retry("GET", url, headers, overlay, "");
 
     // 한도 초과면 버킷을 비우고, 버킷이 다시 찰 때까지만 기다려 한 번 되보낸다. 기다리는 시간은
     //  rate_limit_acquire가 계산한다(실전 약 0.07~0.13초, 모의 약 1초). 예전의 고정 1.1초 대기는
@@ -735,11 +684,7 @@ std::string KisClient::http_get(const std::string& url, const std::vector<std::s
         LOG_WARN("[KIS] 조회 (초당 한도) — 재시도 2/2, 버킷이 찰 때까지 약 " +
                  std::to_string(static_cast<int>(wait_ms)) + "ms 기다린다  url=" + url);
         rate_limit_acquire(url);
-#ifdef _WIN32
-        response = winhttp_request("GET", url, headers, overlay, "");
-#else
-        response = curl_request("GET", url, headers, overlay, "");
-#endif
+        response = request_with_retry("GET", url, headers, overlay, "");
 
         if (is_rate_limited(response))
         {
@@ -765,11 +710,7 @@ std::string KisClient::http_post(const std::string& url, const std::vector<std::
 
     rate_limit_acquire(url);
 
-#ifdef _WIN32
-    std::string response = winhttp_request("POST", url, headers, overlay, body);
-#else
-    std::string response = curl_request("POST", url, headers, overlay, body);
-#endif
+    std::string response = request_with_retry("POST", url, headers, overlay, body);
 
     if (is_rate_limited(response))
     {

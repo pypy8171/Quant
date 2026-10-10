@@ -21,17 +21,16 @@
 
 #include "api/KisClient.h"
 #include "api/KisWebSocket.h"
+#include "core/AppConfig.h"
 #include "core/TickSize.h"
 #include "core/Types.h"
-
-#include <nlohmann/json.hpp>
 
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <cstdio>
-#include <fstream>
+#include <exception>
 #include <iostream>
 #include <mutex>
 #include <string>
@@ -51,8 +50,6 @@
 #undef ERROR // wingdi.h — LogLevel::ERROR와 부딪힌다
 #endif
 #endif
-
-using json = nlohmann::json;
 
 namespace
 {
@@ -153,32 +150,32 @@ int main(int argc, char** argv)
     const std::string config_path = arguments[1];
     const std::string ticker      = arguments[2];
 
-    std::ifstream file(config_path);
+    // 엔진과 같은 parse_config로 읽는다(규약 8.3). 실시간 채널(H0STCNT0 / 통합 H0UNCNT0)도 kis.exchange로
+    //  엔진과 같게 고른다(WebSocketClient.cpp kis_unified_feed).
+    AppConfig app;
 
-    if (!file)
+    try
     {
-        std::cerr << "[중단] config 못 엶: " << config_path << "\n";
+        app = parse_config(load_config_file(config_path));
+    }
+    catch (const std::exception& error)
+    {
+        std::cerr << "[중단] config 읽기 실패: " << config_path << "\n"
+                  << "       - error(" << error.what() << ")\n";
         return 1;
     }
 
-    const json config = json::parse(file);
-    const auto kis_node = config.find("kis");
+    KisConfig kis_config = app.kis;
 
-    if (kis_node == config.end())
+    // feed_keys 중 하나가 체결통보를 맡으면 parse_config가 기본 키의 hts_id를 비운다. 이 도구는 자기 세션 하나로
+    //  체결통보를 받으므로, 그 키에 남은 hts_id를 되가져온다(예전처럼 kis.hts_id를 쓴다).
+    for (const KisConfig& feed_key : app.feed_keys)
     {
-        std::cerr << "[중단] config에 kis 블록이 없다\n";
-        return 1;
+        if (kis_config.hts_id.empty() && !feed_key.hts_id.empty())
+        {
+            kis_config.hts_id = feed_key.hts_id;
+        }
     }
-
-    KisConfig kis_config;
-    kis_config.app_key      = kis_node->at("app_key").get<std::string>();
-    kis_config.app_secret   = kis_node->at("app_secret").get<std::string>();
-    kis_config.account_no   = kis_node->at("account_no").get<std::string>();
-    kis_config.account_type = kis_node->at("account_type").get<std::string>();
-    kis_config.hts_id       = kis_node->value("hts_id", "");
-    kis_config.is_paper     = kis_node->at("is_paper").get<bool>();
-    // 실시간 채널(H0STCNT0 / 통합 H0UNCNT0)을 엔진과 같게 고른다(WebSocketClient.cpp kis_unified_feed).
-    kis_config.exchange     = kis_node->value("exchange", "KRX");
 
     // [inv] 실계좌는 argv에 "--live"가 있을 때만 돈다. 그때는 늘 지정가다.
     if (!kis_config.is_paper)

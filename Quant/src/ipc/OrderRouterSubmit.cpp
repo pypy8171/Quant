@@ -1,5 +1,6 @@
 // 주문 라우터 — 발주 경로(신규·취소·정정), 청산차단 자가정리, 이력 저장.
 #include "ipc/OrderRouter.h"
+#include "ipc/SideLabel.h"
 #include "api/KisErrorCodes.h"
 #include "core/LatencyTrace.h"
 #include "utils/Logger.h"
@@ -27,11 +28,66 @@ static constexpr int kCancelMissGuardSec = 10;
 //  발주 스레드가 밀리면 통보까지 몇 분이 걸릴 수 있어 전략 백오프(30초)보다 길게 잡는다. 지나면 통보를 잃은
 //  것으로 보고 놓아준다 — 그 뒤는 게이트 선점 클램프·자가정리가 막는다.
 static constexpr int kDupMarketSellGuardSec = 120;
+
+// 계측 구간(ns)을 단계 칸 단위(us)로 바꾼다. 나머지는 버린다.
+static constexpr int64_t kNanosecondsPerMicrosecond = 1000;
+
+static constexpr int64_t to_microseconds(int64_t nanoseconds)
+{
+    return nanoseconds / kNanosecondsPerMicrosecond;
+}
+
+// 이번 세션에 낸 매도가 그 종목에 아직 살아 있는가 — 접수됐고, 주문번호가 있고, 미체결 잔량이 남았다.
+static bool is_open_session_sell(const ManagedOrder& managed_order, symbol::SymbolId symbol_id)
+{
+    return managed_order.status == OrderStatus::ACCEPTED && managed_order.signal.side == OrderSide::SELL &&
+           managed_order.signal.symbol_id == symbol_id && managed_order.kis_order_number != 0 &&
+           outstanding_of(managed_order) > 0;
+}
+
+// 전송 호출의 예외를 경로에 적는다 — 접수 여부를 모르는 실패라 닫는 쪽이 transport_failed를 보고 마무리한다.
+template <typename Route, typename Call>
+static void capture_transport(Route& route, Call&& call) noexcept
+{
+    try
+    {
+        call();
+    }
+    catch (const std::exception& exception)
+    {
+        route.transport_failed = true;
+        route.transport_error  = exception.what();
+    }
+    catch (...)
+    {
+        route.transport_failed = true;
+        route.transport_error  = "알 수 없는 예외";
+    }
+}
+
+// 닫기를 하고, 성공이든 예외든 보내는 중 수(finish)를 한 번 내린다. 수를 안 내리면 그 뒤 연결 안 되는 체결을
+//  끝없이 붙든다. 소멸자로 하지 않는 것은 finish가 던질 수 있어서다 — 소멸자에서 던지면 프로세스가 끝난다.
+template <typename Close, typename Finish>
+static void close_then_finish(Close&& close, Finish&& finish)
+{
+    try
+    {
+        close();
+    }
+    catch (...)
+    {
+        finish();
+        throw;
+    }
+
+    finish();
+}
+
 void OrderRouter::NewRoute::stamp_gate_stages()
 {
-    managed_order.stages.gate_us              = (trace::now_ns() - entered_ns - history_guard_ns) / 1000;
-    managed_order.stages.history_guard_us     = history_guard_ns / 1000;
-    managed_order.stages.history_lock_wait_us = history_lock_wait_ns / 1000;
+    managed_order.stages.gate_us              = to_microseconds(trace::now_ns() - entered_ns - history_guard_ns);
+    managed_order.stages.history_guard_us     = to_microseconds(history_guard_ns);
+    managed_order.stages.history_lock_wait_us = to_microseconds(history_lock_wait_ns);
 }
 
 // ─── 발주 경로 공통 조각 ─────────────────────────────────────────────────
@@ -210,26 +266,23 @@ ManagedOrder OrderRouter::close_new(NewOrderSend&& send)
     const std::unique_ptr<InFlightMark> in_flight = std::move(send.in_flight);
     NewRoute&                           route     = send.route;
 
-    try
-    {
-        if (route.transport_failed)
+    // ODNO가 이력에 들어간 뒤 수를 내리므로 붙든 체결 중 이 주문 것은 그때 연결된다.
+    close_then_finish(
+        [this, &route]
         {
-            close_transport_failure(route);
-        }
-        else
+            if (route.transport_failed)
+            {
+                close_transport_failure(route);
+            }
+            else
+            {
+                finalize_new_order(route);
+            }
+        },
+        [this]
         {
-            finalize_new_order(route);
-        }
-    }
-    catch (...)
-    {
-        // 수를 안 내리면 그 뒤 연결 안 되는 체결을 끝없이 붙든다.
-        finish_sending_new();
-        throw;
-    }
-
-    // ODNO가 이력에 들어간 뒤라 붙든 체결 중 이 주문 것은 이제 연결된다.
-    finish_sending_new();
+            finish_sending_new();
+        });
     return std::move(route.managed_order);
 }
 
@@ -459,7 +512,7 @@ bool OrderRouter::prepare_transmit(NewRoute& route)
         ++kis_calls_; // 셈은 주문 스레드가 한다 — 주문 스레드가 이 수의 증가로 호출 여부를 가른다
     }
 
-    managed_order.stages.journal_us = (trace::now_ns() - journal_started_ns) / 1000;
+    managed_order.stages.journal_us = to_microseconds(trace::now_ns() - journal_started_ns);
     return true;
 }
 
@@ -471,20 +524,10 @@ void OrderRouter::send_new(NewOrderSend& send) const noexcept
     const std::uint64_t bucket_wait_before_ns = kis_.rate_limit_wait_ns_this_thread();
     const int64_t       transport_started_ns  = trace::now_ns();
 
-    try
+    capture_transport(route, [this, &route]
     {
         route.acknowledgement = kis_.submit_order_acknowledgement(route.signal);
-    }
-    catch (const std::exception& exception)
-    {
-        route.transport_failed = true;
-        route.transport_error  = exception.what();
-    }
-    catch (...)
-    {
-        route.transport_failed = true;
-        route.transport_error  = "알 수 없는 예외";
-    }
+    });
 
     route.rtt_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                        std::chrono::steady_clock::now() - route.send_started)
@@ -497,7 +540,7 @@ void OrderRouter::send_new(NewOrderSend& send) const noexcept
     const int64_t bucket_wait_us               = static_cast<int64_t>(bucket_wait_ns / 1000ULL);
     route.managed_order.stages.bucket_wait_us = bucket_wait_us;
     route.managed_order.stages.transport_us =
-        std::max<int64_t>(0, (trace::now_ns() - transport_started_ns) / 1000 - bucket_wait_us);
+        std::max<int64_t>(0, to_microseconds(trace::now_ns() - transport_started_ns) - bucket_wait_us);
 }
 
 // 전송 예외는 접수 여부를 모른다. 선점을 풀고 REJECT를 적는다 — 실제로 접수됐다면 체결통보·잔고 대조가
@@ -564,7 +607,7 @@ void OrderRouter::finalize_new_order(NewRoute& route)
         ledger.on_accepted(signal.account_id, signal.ticker, signal.side, signal.quantity, route.order_reference);
 
         LOG_INFO(std::format("[OrderRouter] 접수 [{}] ODNO={} {} {} {}주 RTT={}ms 버킷대기={}ms", managed_order.order_id, managed_order.kis_order_no,
-                             signal.ticker, signal.side == OrderSide::BUY ? "BUY" : "SELL", signal.quantity, route.rtt_ms, route.bucket_wait_ms));
+                             signal.ticker, side_label(signal.side), signal.quantity, route.rtt_ms, route.bucket_wait_ms));
     }
     else
     {
@@ -590,16 +633,16 @@ void OrderRouter::finalize_new_order(NewRoute& route)
     }
 
     const int64_t publish_started_ns = trace::now_ns();
-    managed_order.stages.accept_us   = (publish_started_ns - record_started_ns) / 1000;
+    managed_order.stages.accept_us   = to_microseconds(publish_started_ns - record_started_ns);
     publish_order_result(signal, accepted);
-    managed_order.stages.publish_us = (trace::now_ns() - publish_started_ns) / 1000;
+    managed_order.stages.publish_us = to_microseconds(trace::now_ns() - publish_started_ns);
 
     // 이력 저장 몫 — 이력 잠금·미결주문 스냅숏·두 파일 넘기기. 접수 확정·발행과 갈라 둬야 다음에
     //  어디를 손댈지 고를 수 있다(회차 H에서 record 잔여가 1,096us였다). [why D-126]
     const int64_t history_store_started_ns = trace::now_ns();
     record(managed_order, &managed_order.stages.open_orders_us);
-    managed_order.stages.history_store_us = (trace::now_ns() - history_store_started_ns) / 1000;
-    managed_order.stages.record_us        = (trace::now_ns() - record_started_ns) / 1000;
+    managed_order.stages.history_store_us = to_microseconds(trace::now_ns() - history_store_started_ns);
+    managed_order.stages.record_us        = to_microseconds(trace::now_ns() - record_started_ns);
 }
 
 // ─── 전송 직전 장부 기록 ────────────────────────────────────────────────────
@@ -699,18 +742,12 @@ void OrderRouter::collect_session_sells(const OrderSignal& signal, std::vector<O
 
     for (const auto& managed_order : history_)
     {
-        if (managed_order.status != OrderStatus::ACCEPTED || managed_order.signal.side != OrderSide::SELL ||
-            managed_order.signal.symbol_id != signal.symbol_id || managed_order.kis_order_number == 0)
+        if (!is_open_session_sell(managed_order, signal.symbol_id))
         {
             continue;
         }
 
         const int outstanding = outstanding_of(managed_order);
-
-        if (outstanding <= 0)
-        {
-            continue;
-        }
 
         OpenOrder open_order;
         open_order.ticker                = managed_order.signal.ticker;
@@ -854,9 +891,7 @@ int OrderRouter::close_vanished_session_sells(const OrderSignal& signal, const s
 
         for (const auto& managed_order : history_)
         {
-            if (managed_order.status != OrderStatus::ACCEPTED || managed_order.signal.side != OrderSide::SELL ||
-                managed_order.signal.symbol_id != signal.symbol_id || managed_order.kis_order_number == 0 ||
-                outstanding_of(managed_order) <= 0)
+            if (!is_open_session_sell(managed_order, signal.symbol_id))
             {
                 continue;
             }
@@ -916,11 +951,11 @@ int64_t OrderRouter::record(const ManagedOrder& managed_order, int64_t* open_ord
 
     if (open_orders_us != nullptr)
     {
-        *open_orders_us = (trace::now_ns() - open_orders_started_ns) / 1000;
+        *open_orders_us = to_microseconds(trace::now_ns() - open_orders_started_ns);
     }
 
     journal_.append_order_reason(managed_order);
-    return (trace::now_ns() - started_ns) / 1000;
+    return to_microseconds(trace::now_ns() - started_ns);
 }
 
 // ─── 취소·정정 공통 — 원주문 스냅샷과 닫기 ────────────────────────────────
@@ -1150,7 +1185,7 @@ void OrderRouter::send_modify(ModifyOrderSend& send) const noexcept
     ModifyRoute&         route    = send.route;
     const OriginalOrder& original = route.original;
 
-    try
+    capture_transport(route, [this, &route, &original]
     {
         if (route.signal.action == OrderAction::CANCEL)
         {
@@ -1164,17 +1199,7 @@ void OrderRouter::send_modify(ModifyOrderSend& send) const noexcept
                                                       original.krx_forwarding_org_no, route.new_quantity,
                                                       route.signal.price);
         }
-    }
-    catch (const std::exception& exception)
-    {
-        route.transport_failed = true;
-        route.transport_error  = exception.what();
-    }
-    catch (...)
-    {
-        route.transport_failed = true;
-        route.transport_error  = "알 수 없는 예외";
-    }
+    });
 }
 
 // 닫기 — 표시는 이력에 적은 뒤 풀리도록 지역으로 옮겨 둔다(지역 변수는 선언 역순으로 소멸).
@@ -1189,19 +1214,16 @@ ManagedOrder OrderRouter::close_modify(ModifyOrderSend&& send)
         return std::move(route.managed_order);
     }
 
-    try
-    {
-        close_replace(route);
-    }
-    catch (...)
-    {
-        // 수를 안 내리면 그 뒤 연결 안 되는 체결을 끝없이 붙든다.
-        finish_sending_new();
-        throw;
-    }
-
-    // 새 ODNO가 이력에 들어간 뒤라 붙든 체결 중 이 정정본 것은 이제 연결된다.
-    finish_sending_new();
+    // 새 ODNO가 이력에 들어간 뒤 수를 내리므로 붙든 체결 중 이 정정본 것은 그때 연결된다.
+    close_then_finish(
+        [this, &route]
+        {
+            close_replace(route);
+        },
+        [this]
+        {
+            finish_sending_new();
+        });
     return std::move(route.managed_order);
 }
 

@@ -1,7 +1,10 @@
 #pragma once
-// KIS REST 응답을 옮겨 담는 값 타입 — 잔고(inquire-balance)와 선물 전광판(display-board-futures).
+// KIS REST 응답을 옮겨 담는 값 타입 — 잔고(inquire-balance)·선물 전광판(display-board-futures)·선물 현재가·
+//  순위(market-cap·volume-rank)·장중 추정 수급·투자자별 매매동향.
 //  공개 API가 `nlohmann::json`을 돌려주지 않게 하려고 둔다. 필드명·부재 처리는 디코더
 //  (`Quant/include/api/KisRestDecode.h`)가 소유하고, 호출자는 여기 필드만 본다. [why D-059]
+//  선물 현재가·순위·수급 네 타입은 KisClient 안에 중첩돼 있던 것을 옮겼다 — KisClient::RankingStock 같은 이름도 그대로 통한다.
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <vector>
@@ -39,4 +42,53 @@ struct FutureContract
 {
     std::string issue_code;  // [wire] futs_shrn_iscd — inquire-price의 FID_INPUT_ISCD로 넣는 코드
     std::string name;  // [wire] hts_kor_isnm
+};
+
+// 국내 선물/옵션 현재가 한 건 — inquire-price(FHMIF10000000) output1. 필드 출처는 KisClient::get_future_price 주석.
+struct FuturePrice
+{
+    std::string issue_code;
+    double price = 0.0;
+    double change = 0.0;       // 전일 대비
+    double change_rate = 0.0;  // 전일 대비율(%)
+    int sign = 3;              // 1=상한 2=상승 3=보합 4=하한 5=하락
+    // 근거: api/IMarketDataSource.h IndexPrice::sign 주석 참고(값 1~5의 공식 출처를 찾지 못했다).
+    double open = 0.0;
+    double high = 0.0;
+    double low = 0.0;
+    int64_t volume = 0;        // 누적 거래량
+    int64_t open_interest = 0; // 미결제약정(open interest)
+    bool ok = false;           // 가격 파싱 성공 여부
+};
+
+// 순위 한 행 — 시가총액(market-cap)·거래대금(volume-rank) 순위가 같이 쓴다. 현재가·등락률·시가총액 포함.
+struct RankingStock
+{
+    int rank = 0;
+    std::string ticker;
+    std::string name;
+    double price = 0.0;
+    double change = 0.0;      // 전일 대비
+    double change_rate = 0.0; // 등락률(%)
+    int64_t volume = 0;       // 누적 거래량
+    double market_cap = 0.0;  // 시가총액(억원) — market-cap 경로에서만 채워짐
+    double trade_value = 0.0; // 누적 거래대금(원) — volume-rank 경로에서만 채워짐
+};
+
+// 장중 외국인·기관 추정 순매수 한 행 — foreign-institution-total(FHPTJ04400000). 출처는 KisClient::fetch_est_investor_ranking 주석.
+struct EstInvestorFlow
+{
+    std::string ticker;             // mksc_shrn_iscd
+    std::string name;               // hts_kor_isnm
+    int64_t foreign_net_quantity = 0;    // frgn_ntby_qty (외국인 추정 순매수 수량, +담기/-던지기)
+    int64_t institution_net_quantity    = 0;    // orgn_ntby_qty (기관 추정)
+    double  foreign_net_amount = 0.0;  // frgn_ntby_tr_pbmn (금액, 원)
+};
+
+// 투자자별 매매동향 — 외국인·기관 순매수 확인 (단일 최신값)
+struct InvestorTrend
+{
+    std::string ticker;
+    int64_t foreign_net = 0; // 외국인 순매수 수량 (양수=순매수)
+    int64_t institution_net    = 0; // 기관 순매수 수량
 };

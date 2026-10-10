@@ -1,5 +1,6 @@
 // FillChannel.h 구현 — 체결통보 한 건을 고정 칸 레코드로 옮기고, 그 레코드를 큐 하나로 나른다.
 #include "ipc/FillChannel.h"
+#include "ipc/FixedText.h"
 
 #include <algorithm>
 #include <chrono>
@@ -10,52 +11,13 @@ namespace ipc
 namespace
 {
 
-// 고정 칸에 글자를 옮긴다. 칸을 넘으면 자르되 **글자 경계에서** 자른다 — 체결통보 칸은 다 아스키지만,
-//  거래소 구분처럼 나중에 글자가 섞일 수 있는 칸이 있어 OrderChannel 과 같은 규칙을 쓴다. 항상 0으로
-//  끝낸다. 잘렸으면 참을 준다.
-bool copy_text(char* destination, size_t capacity, std::string_view text) noexcept
-{
-    size_t     length = std::min(text.size(), capacity - 1);
-    const bool cut    = length < text.size();
-
-    if (cut)
-    {
-        while (length > 0 && (static_cast<unsigned char>(text[length]) & 0xC0) == 0x80)
-        {
-            --length;
-        }
-    }
-
-    if (length > 0)
-    {
-        std::memcpy(destination, text.data(), length);
-    }
-
-    destination[length] = '\0';
-    return cut;
-}
-
-// 칸 안에서 0으로 끝나는가. 끝나지 않으면 읽는 쪽이 칸을 넘어 읽는다.
-bool is_terminated(const char* field, size_t capacity) noexcept
-{
-    return std::memchr(field, '\0', capacity) != nullptr;
-}
-
-// 칸을 글자로 읽는다. [inv] 0으로 끝나는 것을 확인한 뒤에만 부른다(is_plausible).
-std::string_view text_of(const char* field, size_t capacity) noexcept
-{
-    const void*  end    = std::memchr(field, '\0', capacity);
-    const size_t length = (end != nullptr) ? static_cast<size_t>(static_cast<const char*>(end) - field) : capacity;
-    return std::string_view(field, length);
-}
-
 // 글자 칸이 모두 0으로 끝나는가.
 bool texts_terminated(const FillNotice& notice) noexcept
 {
-    return is_terminated(notice.kis_order_no, kFillOrderNumberMax) &&
-           is_terminated(notice.original_order_no, kFillOrderNumberMax) &&
-           is_terminated(notice.ticker, kFillTickerMax) && is_terminated(notice.fill_time, kFillTimeMax) &&
-           is_terminated(notice.exchange, kFillExchangeMax);
+    return is_terminated(notice.kis_order_no) &&
+           is_terminated(notice.original_order_no) &&
+           is_terminated(notice.ticker) && is_terminated(notice.fill_time) &&
+           is_terminated(notice.exchange);
 }
 
 } // namespace
@@ -124,11 +86,11 @@ FillNotice to_notice(const FillNotification& fill, uint64_t sequence, int64_t se
     notice.kind            = static_cast<uint8_t>(fill.kind);
     notice.side            = static_cast<uint8_t>(static_cast<OrderSide::Value>(fill.side));
 
-    bool cut = copy_text(notice.kis_order_no, kFillOrderNumberMax, fill.kis_order_no);
-    cut      = copy_text(notice.original_order_no, kFillOrderNumberMax, fill.original_order_no) || cut;
-    cut      = copy_text(notice.ticker, kFillTickerMax, fill.ticker) || cut;
-    cut      = copy_text(notice.fill_time, kFillTimeMax, fill.fill_time) || cut;
-    cut      = copy_text(notice.exchange, kFillExchangeMax, fill.exchange) || cut;
+    bool cut = copy_text(notice.kis_order_no, fill.kis_order_no);
+    cut      = copy_text(notice.original_order_no, fill.original_order_no) || cut;
+    cut      = copy_text(notice.ticker, fill.ticker) || cut;
+    cut      = copy_text(notice.fill_time, fill.fill_time) || cut;
+    cut      = copy_text(notice.exchange, fill.exchange) || cut;
 
     if (truncated != nullptr)
     {
@@ -141,17 +103,17 @@ FillNotice to_notice(const FillNotification& fill, uint64_t sequence, int64_t se
 FillNotification to_fill(const FillNotice& notice)
 {
     FillNotification fill;
-    fill.kis_order_no      = std::string(text_of(notice.kis_order_no, kFillOrderNumberMax));
-    fill.original_order_no = std::string(text_of(notice.original_order_no, kFillOrderNumberMax));
-    fill.ticker            = std::string(text_of(notice.ticker, kFillTickerMax));
+    fill.kis_order_no      = std::string(text_of(notice.kis_order_no));
+    fill.original_order_no = std::string(text_of(notice.original_order_no));
+    fill.ticker            = std::string(text_of(notice.ticker));
     fill.side              = static_cast<OrderSide::Value>(notice.side);
     fill.filled_quantity   = notice.filled_quantity;
     fill.filled_price      = notice.filled_price;
-    fill.fill_time         = std::string(text_of(notice.fill_time, kFillTimeMax));
+    fill.fill_time         = std::string(text_of(notice.fill_time));
     fill.session_generation = notice.session_generation;
     fill.kind              = static_cast<FillKind>(notice.kind);
     fill.order_quantity    = notice.order_quantity;
-    fill.exchange          = std::string(text_of(notice.exchange, kFillExchangeMax));
+    fill.exchange          = std::string(text_of(notice.exchange));
     fill.timestamp         = std::chrono::system_clock::time_point(
         std::chrono::duration_cast<std::chrono::system_clock::duration>(
             std::chrono::nanoseconds(notice.timestamp_ns)));

@@ -228,6 +228,8 @@ void Engine::control_thread_fn(std::stop_token stop_token)
                      // 장부 사본 — 몇 판 나왔는지와 못 실은 남의 계좌 줄 수. 뒤엣것은 0이어야 한다. [why D-114]
                      " ledger_gen=" + std::to_string(ledger_snapshot_->generation()) +
                      " ledger_foreign=" + std::to_string(order_gate_.ledger().ledger_foreign_account_rows()) +
+                     // 판이 기한 안에 안 닫혀 보수값(정지·빈 줄)을 돌려준 읽기 수. 0이어야 한다. [why D-114]
+                     " ledger_stale_read=" + std::to_string(ledger_snapshot_->stale_read_count()) +
                      // 제어 요청 — 못 보낸 줄, 경계 너머로 못 옮긴 줄, 반쪽 표로 보고 버린 줄. 셋 다 0이어야 한다. [why D-114]
                      " control_dropped=" + std::to_string(control_plane_.dropped()) +
                      " control_relay_dropped=" +

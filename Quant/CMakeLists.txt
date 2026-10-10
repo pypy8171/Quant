@@ -617,7 +617,7 @@ if(ZMQ_FOUND)
 endif()
 
 # ─── 벤치 타겟: 전종목 규모 시세 파이프라인 부하 (market firehose) ────────
-add_executable(bench_market_firehose tests/bench_market_firehose.cpp)
+add_executable(bench_market_firehose tests/bench_market_firehose.cpp tests/bench_common.cpp)
 target_include_directories(bench_market_firehose PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
@@ -637,7 +637,7 @@ if(UNIX)
 endif()
 
 # ─── 벤치 타겟: 시세 피드 수신·처리 부하 (TCP loopback, KOSCOM→broker) ────
-add_executable(bench_feed_ingest tests/bench_feed_ingest.cpp)
+add_executable(bench_feed_ingest tests/bench_feed_ingest.cpp tests/bench_common.cpp)
 target_include_directories(bench_feed_ingest PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
@@ -1164,6 +1164,7 @@ endif()
 # ─── 도구: 실 KIS 실시간 시세 수신·처리 지연 측정 (bench_feed_ingest 자매 실증) ──
 add_executable(feed_latency_measure
     tools/feed_latency_measure.cpp
+    tests/bench_common.cpp
     ${KIS_WS_SOURCES}
     ${KIS_CLIENT_SOURCES}
     src/utils/Logger.cpp

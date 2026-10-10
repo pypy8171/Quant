@@ -170,17 +170,6 @@ std::string SurgeHoldStrategy::describe() const
                        parameters_.plan_file);
 }
 
-std::optional<OrderSignal> SurgeHoldStrategy::on_data(const MarketData&)
-{
-    return std::nullopt;
-}
-
-int SurgeHoldStrategy::kst_hhmm() const
-{
-    const auto time_of_day = kst::time_of_day(clock_());
-    return static_cast<int>(time_of_day.hours().count()) * 100 + static_cast<int>(time_of_day.minutes().count());
-}
-
 std::string SurgeHoldStrategy::kst_date() const
 {
     return kst::date_yyyymmdd(clock_());
@@ -189,7 +178,7 @@ std::string SurgeHoldStrategy::kst_date() const
 // 손절·익절 주문을 내는 창 — 09:00–15:19. 장 마감 뒤 NXT 체결이나 장 시작 전에 닿은 판정은 여기서 걸러 다음 창으로 미룬다.
 bool SurgeHoldStrategy::in_exit_window() const
 {
-    const int hhmm = kst_hhmm();
+    const int hhmm = kst_hhmm(clock_());
     return hhmm >= parameters_.exit_start_hhmm && hhmm < parameters_.close_start_hhmm;
 }
 
@@ -581,19 +570,11 @@ bool SurgeHoldStrategy::wants_clock() const
 OrderSignal SurgeHoldStrategy::make_signal(const std::string& ticker, OrderSide side, int quantity, double reference_price,
                                            const std::string& reason) const
 {
-    OrderSignal signal;
-    signal.ticker          = ticker;
-    signal.symbol_id       = symbol_of(ticker);
-    signal.side            = side;
-    signal.type            = OrderType::MARKET;
-    signal.quantity        = quantity;
+    OrderSignal signal = StrategyBase::make_signal(ticker, symbol_of(ticker), side, OrderType::MARKET, quantity);
     signal.price           = 0.0;
     signal.reference_price = reference_price; // 시장가는 price=0이라 이 값이 없으면 1주문 명목 상한이 비어 버린다
-    signal.strategy_id     = id_;
-    signal.market          = Market::KR;
     signal.account_id      = parameters_.account;
     signal.reason          = reason;
-    signal.timestamp       = std::chrono::system_clock::now();
     // 계획 주문은 몇 초 늦어도 판단이 낡지 않는다 — 큐 나이 제한에서 뺀다(D-155와 같은 이유).
     signal.exempt_from_age_limit = true;
     return signal;
@@ -672,7 +653,7 @@ bool SurgeHoldStrategy::bought_same_signal(const std::string& ticker, const std:
 
 void SurgeHoldStrategy::run_buys(std::vector<OrderSignal>& out)
 {
-    const int hhmm = kst_hhmm();
+    const int hhmm = kst_hhmm(clock_());
 
     if (!plan_ || hhmm < parameters_.buy_start_hhmm || hhmm > parameters_.buy_end_hhmm || buys_stopped_today_)
     {
@@ -846,7 +827,7 @@ void SurgeHoldStrategy::run_buys(std::vector<OrderSignal>& out)
 //  0이 되는 것을 보고 track_fills가 PENDING을 지운다.
 void SurgeHoldStrategy::run_unfilled_cancels(std::vector<OrderSignal>& out)
 {
-    if (parameters_.dry_run || kst_hhmm() < parameters_.fill_wait_hhmm)
+    if (parameters_.dry_run || kst_hhmm(clock_()) < parameters_.fill_wait_hhmm)
     {
         return;
     }
@@ -879,7 +860,7 @@ void SurgeHoldStrategy::run_unfilled_cancels(std::vector<OrderSignal>& out)
 void SurgeHoldStrategy::track_fills()
 {
     bool      changed = false;
-    const int hhmm    = kst_hhmm();
+    const int hhmm    = kst_hhmm(clock_());
 
     for (auto iterator = positions_.begin(); iterator != positions_.end();)
     {
@@ -1002,7 +983,7 @@ void SurgeHoldStrategy::run_due_exits(std::vector<OrderSignal>& out)
 
 void SurgeHoldStrategy::run_close_exits(std::vector<OrderSignal>& out)
 {
-    const int hhmm = kst_hhmm();
+    const int hhmm = kst_hhmm(clock_());
 
     if (hhmm < parameters_.close_start_hhmm || hhmm > parameters_.close_end_hhmm)
     {

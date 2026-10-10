@@ -50,11 +50,6 @@ public:
     }
 
     std::string                describe() const override;
-    std::optional<OrderSignal> on_data(const MarketData&) override
-    {
-        return std::nullopt;
-    }
-
     void                   on_start() override;
     void                   on_stop() override;
     void                   on_trade_batch(const TradeData& trade, std::vector<OrderSignal>& out) override;
@@ -100,7 +95,6 @@ private:
     };
 
     std::time_t now() const;
-    int         kst_hhmm() const;
     void        feed_closed_bars();
     void        handle_step(const vwap_pullback::MinuteBar& bar, const vwap_pullback::StepResult& step);
     void        track_shadow_position(const vwap_pullback::MinuteBar& bar);

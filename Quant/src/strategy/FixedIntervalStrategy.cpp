@@ -50,14 +50,8 @@ std::optional<OrderSignal> FixedIntervalStrategy::on_trade(const TradeData& trad
         return std::nullopt;
     }
 
-    OrderSignal signal;
-    signal.ticker = ticker_;
-    signal.symbol_id = symbol_id_;
-    signal.market = Market::KR;
-    signal.type = OrderType::MARKET;
+    OrderSignal signal = make_signal(ticker_, symbol_id_, OrderSide::NONE, OrderType::MARKET, 0); // 방향·수량은 아래 단계에서
     signal.reference_price = trade.price; // 시장가는 price=0 — 이 값이 없으면 1주문 명목 상한이 비어 버린다
-    signal.strategy_id = id();
-    signal.timestamp = std::chrono::system_clock::now();
 
     if (phase_ == Phase::BUY)
     {

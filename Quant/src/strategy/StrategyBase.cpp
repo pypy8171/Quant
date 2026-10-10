@@ -1,6 +1,10 @@
 #include "strategy/StrategyBase.h"
+#include "core/KstTime.h"
 
-// placeholder
+namespace
+{
+constexpr int kHourToHhmm = 100; // HHMM 정수에서 시가 차지하는 자리값
+} // namespace
 
 int StrategyBase::confirmed_position(const std::string& account, symbol::SymbolId symbol,
                                      const std::string& ticker) const
@@ -61,4 +65,25 @@ bool StrategyBase::same_symbol(symbol::SymbolId symbol_id_a, std::string_view a_
     }
 
     return a_ticker == b_ticker;
+}
+
+OrderSignal StrategyBase::make_signal(std::string_view ticker, symbol::SymbolId symbol, OrderSide side, OrderType type,
+                                      int quantity, std::chrono::system_clock::time_point timestamp) const
+{
+    OrderSignal signal;
+    signal.ticker      = ticker;
+    signal.symbol_id   = symbol;
+    signal.side        = side;
+    signal.type        = type;
+    signal.quantity    = quantity;
+    signal.strategy_id = id();
+    signal.market      = Market::KR;
+    signal.timestamp   = timestamp;
+    return signal;
+}
+
+int StrategyBase::kst_hhmm(std::time_t now_utc)
+{
+    const auto time_of_day = kst::time_of_day(now_utc);
+    return static_cast<int>(time_of_day.hours().count()) * kHourToHhmm + static_cast<int>(time_of_day.minutes().count());
 }

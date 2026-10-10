@@ -225,7 +225,7 @@ meaning = "GET 최대 시도(원 시도 + 재시도). POST(주문)는 1회"
 [[code_value]]
 id = "kis_rest_retry_backoff_ms"
 file = "Quant/src/api/KisTransport.cpp"
-regex = 'constexpr unsigned kRetryBackoffMsBase\s*=\s*(\d+);'
+regex = 'constexpr int kRetryBackoffMsBase\s*=\s*(\d+);'
 unit = "ms"
 group = "KIS REST — 호출 속도·재시도·토큰"
 meaning = "GET 재시도 선형 백오프 기준(attempt 배)"

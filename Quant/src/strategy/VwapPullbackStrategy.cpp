@@ -228,11 +228,6 @@ std::time_t VwapPullbackStrategy::now() const
     return clock_ ? clock_() : std::time(nullptr);
 }
 
-int VwapPullbackStrategy::kst_hhmm() const
-{
-    return kst::hhmmss_int(now()) / kHhmmShift;
-}
-
 std::vector<WatchSpec> VwapPullbackStrategy::get_watch_specifications() const
 {
     WatchSpec specification;
@@ -284,7 +279,7 @@ void VwapPullbackStrategy::run_prefetch_once()
         need_recheck   = recheck_wanted_ && !recheck_bars_;
     }
 
-    const int hhmm = kst_hhmm();
+    const int hhmm = kst_hhmm(now());
 
     if ((!need_bootstrap && !need_recheck) || hhmm < kSessionOpenHhmm)
     {
@@ -381,7 +376,7 @@ void VwapPullbackStrategy::on_trade_batch(const TradeData& trade, std::vector<Or
 
 void VwapPullbackStrategy::feed_closed_bars()
 {
-    const int now_hhmm     = kst_hhmm();
+    const int now_hhmm     = kst_hhmm(now());
     const int closed_count = aggregator_.closed_count(symbol_id_);
 
     if (closed_count == fed_closed_count_ && now_hhmm == last_feed_hhmm_)
@@ -491,7 +486,7 @@ int VwapPullbackStrategy::own_exit_quantity() const
 
 void VwapPullbackStrategy::run_exit_checks(double last_price)
 {
-    const int hhmm = kst_hhmm();
+    const int hhmm = kst_hhmm(now());
 
     if (!vwap_pullback::exit_due(hhmm, parameters_.rules.exit_hhmm))
     {

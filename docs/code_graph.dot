@@ -22,7 +22,7 @@ digraph code_graph {
   "exchange" -> "core" [label="7"];
   "exchange" -> "utils" [label="3"];
   "ipc" -> "api" [label="3"];
-  "ipc" -> "core" [label="26"];
+  "ipc" -> "core" [label="27"];
   "ipc" -> "risk" [label="1"];
   "ipc" -> "utils" [label="15"];
   "main" -> "core" [label="4"];
@@ -35,7 +35,7 @@ digraph code_graph {
   "risk" -> "ipc" [label="2"];
   "risk" -> "utils" [label="5"];
   "strategy" -> "api" [label="6"];
-  "strategy" -> "core" [label="28"];
+  "strategy" -> "core" [label="29"];
   "strategy" -> "risk" [label="1"];
   "strategy" -> "universe" [label="7"];
   "strategy" -> "utils" [label="15"];

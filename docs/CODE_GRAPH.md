@@ -30,7 +30,7 @@ graph LR
   exchange -->|7| core
   exchange -->|3| utils
   ipc -->|3| api
-  ipc -->|26| core
+  ipc -->|27| core
   ipc --> risk
   ipc -->|15| utils
   main -->|4| core
@@ -43,7 +43,7 @@ graph LR
   risk -->|2| ipc
   risk -->|5| utils
   strategy -->|6| api
-  strategy -->|28| core
+  strategy -->|29| core
   strategy --> risk
   strategy -->|7| universe
   strategy -->|15| utils
@@ -61,8 +61,8 @@ graph LR
 | 헤더 | 유입 수 |
 |---|---|
 | `utils/Logger.h` | 64 |
-| `core/Types.h` | 52 |
-| `core/KstTime.h` | 35 |
+| `core/Types.h` | 53 |
+| `core/KstTime.h` | 36 |
 | `utils/ThreadName.h` | 30 |
 | `core/SymbolTable.h` | 23 |
 | `core/Engine.h` | 19 |
@@ -217,6 +217,7 @@ graph LR
     n_ipc_SharedSymbolDictionary_cpp["ipc/SharedSymbolDictionary.cpp"]
     n_ipc_SharedSymbolDictionary_h["ipc/SharedSymbolDictionary.h"]
     n_ipc_SharedWriteLock_cpp["ipc/SharedWriteLock.cpp"]
+    n_ipc_SideLabel_h["ipc/SideLabel.h"]
     n_ipc_ZmqBridge_cpp["ipc/ZmqBridge.cpp"]
     n_ipc_ZmqBridge_h["ipc/ZmqBridge.h"]
   end
@@ -609,6 +610,7 @@ graph LR
   n_ipc_DbManager_h --> n_core_SymbolTable_h
   n_ipc_DbManager_h --> n_core_Types_h
   n_ipc_FillChannel_cpp --> n_ipc_FillChannel_h
+  n_ipc_FillChannel_cpp --> n_ipc_FixedText_h
   n_ipc_FillChannel_h --> n_core_Types_h
   n_ipc_FillChannel_h --> n_ipc_SharedSpscRing_h
   n_ipc_FillKey_cpp --> n_ipc_FillKey_h
@@ -624,6 +626,7 @@ graph LR
   n_ipc_OpsServer_cpp --> n_utils_Logger_h
   n_ipc_OpsServer_cpp --> n_utils_ThreadName_h
   n_ipc_OpsServer_h --> n_ipc_OpsProtocol_h
+  n_ipc_OrderChannel_cpp --> n_ipc_FixedText_h
   n_ipc_OrderChannel_cpp --> n_ipc_OrderChannel_h
   n_ipc_OrderChannel_h --> n_core_Types_h
   n_ipc_OrderHistory_cpp --> n_ipc_OrderHistory_h
@@ -634,6 +637,7 @@ graph LR
   n_ipc_OrderJournal_cpp --> n_utils_ThreadName_h
   n_ipc_OrderJournal_h --> n_core_Types_h
   n_ipc_OrderRouter_cpp --> n_ipc_OrderRouter_h
+  n_ipc_OrderRouter_cpp --> n_ipc_SideLabel_h
   n_ipc_OrderRouter_h --> n_api_IOrderExecutor_h
   n_ipc_OrderRouter_h --> n_core_ReconcilePlan_h
   n_ipc_OrderRouter_h --> n_core_Types_h
@@ -644,16 +648,19 @@ graph LR
   n_ipc_OrderRouter_h --> n_risk_OrderGate_h
   n_ipc_OrderRouterFill_cpp --> n_core_KstTime_h
   n_ipc_OrderRouterFill_cpp --> n_ipc_OrderRouter_h
+  n_ipc_OrderRouterFill_cpp --> n_ipc_SideLabel_h
   n_ipc_OrderRouterFill_cpp --> n_utils_Logger_h
   n_ipc_OrderRouterFill_cpp --> n_utils_ThreadName_h
   n_ipc_OrderRouterReconcile_cpp --> n_api_KisErrorCodes_h
   n_ipc_OrderRouterReconcile_cpp --> n_core_WakeGate_h
   n_ipc_OrderRouterReconcile_cpp --> n_ipc_OrderRouter_h
+  n_ipc_OrderRouterReconcile_cpp --> n_ipc_SideLabel_h
   n_ipc_OrderRouterReconcile_cpp --> n_utils_Logger_h
   n_ipc_OrderRouterReconcile_cpp --> n_utils_ThreadName_h
   n_ipc_OrderRouterSubmit_cpp --> n_api_KisErrorCodes_h
   n_ipc_OrderRouterSubmit_cpp --> n_core_LatencyTrace_h
   n_ipc_OrderRouterSubmit_cpp --> n_ipc_OrderRouter_h
+  n_ipc_OrderRouterSubmit_cpp --> n_ipc_SideLabel_h
   n_ipc_OrderRouterSubmit_cpp --> n_utils_Logger_h
   n_ipc_ProcessIdentity_cpp --> n_ipc_ProcessIdentity_h
   n_ipc_SharedLayout_cpp --> n_ipc_SharedLayout_h
@@ -679,6 +686,7 @@ graph LR
   n_ipc_SharedSymbolDictionary_h --> n_core_SymbolTable_h
   n_ipc_SharedSymbolDictionary_h --> n_ipc_SharedSpscRing_h
   n_ipc_SharedWriteLock_cpp --> n_ipc_SharedWriteLock_h
+  n_ipc_SideLabel_h --> n_core_Types_h
   n_ipc_ZmqBridge_cpp --> n_core_RegimeFileJudge_h
   n_ipc_ZmqBridge_cpp --> n_ipc_ZmqBridge_h
   n_ipc_ZmqBridge_cpp --> n_utils_Logger_h
@@ -779,6 +787,7 @@ graph LR
   n_strategy_SeedPeakStore_cpp --> n_strategy_SeedPeakStore_h
   n_strategy_SeedPeakStore_h --> n_core_KstTime_h
   n_strategy_SeedPeakStore_h --> n_utils_Logger_h
+  n_strategy_StrategyBase_cpp --> n_core_KstTime_h
   n_strategy_StrategyBase_cpp --> n_strategy_StrategyBase_h
   n_strategy_StrategyBase_h --> n_core_StrategyTable_h
   n_strategy_StrategyBase_h --> n_core_Types_h

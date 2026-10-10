@@ -38,6 +38,7 @@
 //     --trade-only 0|1   : 1(기본)=체결만(H0STCNT0, 밀도↑), 0=호가+체결
 //     --duration SEC     : 수신 시간(기본 60)
 
+#include "../tests/bench_common.h"
 #include "api/KisClient.h"
 #include "api/KisWebSocket.h"
 #include "core/RingBuffer.h"
@@ -73,6 +74,9 @@
 #endif
 #endif
 
+using bench::format_ns;
+using bench::percentiles;
+using bench::PercentileSummary;
 using steady_clock = std::chrono::steady_clock;
 static inline int64_t now_ns()
 {
@@ -85,53 +89,6 @@ struct SampleMessage
     int64_t recv_ts_ns;
     char    type; // 'O'=orderbook, 'T'=trade
 };
-
-struct PercentileSummary
-{
-    int64_t p50 = 0, p99 = 0, p999 = 0, max_value = 0;
-    size_t  count = 0;
-};
-static PercentileSummary percentiles(std::vector<int64_t>& values)
-{
-    PercentileSummary percentiles;
-    percentiles.count = values.size();
-
-    if (values.empty())
-    {
-        return percentiles;
-    }
-
-    std::sort(values.begin(), values.end());
-    auto at = [&](double price)
-    {
-        return values[static_cast<size_t>(price * (values.size() - 1))];
-    };
-    percentiles.p50 = at(0.50);
-    percentiles.p99 = at(0.99);
-    percentiles.p999 = at(0.999);
-    percentiles.max_value = values.back();
-    return percentiles;
-}
-
-static std::string format_ns(int64_t count)
-{
-    char byte_value[32];
-
-    if (count < 1000)
-    {
-        std::snprintf(byte_value, sizeof(byte_value), "%lld ns", static_cast<long long>(count));
-    }
-    else if (count < 1'000'000)
-    {
-        std::snprintf(byte_value, sizeof(byte_value), "%.2f us", count / 1000.0);
-    }
-    else
-    {
-        std::snprintf(byte_value, sizeof(byte_value), "%.2f ms", count / 1'000'000.0);
-    }
-
-    return std::string(byte_value);
-}
 
 static std::string argument_string(int argc, char** argv, const char* key, const std::string& default_value)
 {

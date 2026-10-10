@@ -394,16 +394,8 @@ OrderSignal IntradayBreakoutStrategy::make_signal(OrderSide side, int quantity, 
                                                   std::chrono::system_clock::time_point timestamp,
                                                   const std::string& reason)
 {
-    OrderSignal signal;
-    signal.ticker = ticker_;
-    signal.symbol_id = symbol_id_;
-    signal.side = side;
-    signal.type = OrderType::MARKET;
-    signal.quantity = quantity;
+    OrderSignal signal = StrategyBase::make_signal(ticker_, symbol_id_, side, OrderType::MARKET, quantity, timestamp);
     signal.price = price; // MARKET은 미사용이나 로깅·명목 상한 계산·향후 LIMIT 대비
-    signal.market = Market::KR;
-    signal.strategy_id = id();
     signal.reason = reason; // G4: 판단 근거(돌파/청산 사유)를 신호에 실어 영속
-    signal.timestamp = timestamp;
     return signal; // account_id="" (기본) — OrderGate 장부 시드 계좌키와 일치(C-1)
 }

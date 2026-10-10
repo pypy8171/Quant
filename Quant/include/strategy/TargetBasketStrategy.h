@@ -47,11 +47,6 @@ public:
     }
 
     std::string        describe() const override;
-    std::optional<OrderSignal> on_data(const MarketData&) override
-    {
-        return std::nullopt;
-    }
-
     void on_start() override;
     void on_stop() override;
     void on_trade_batch(const TradeData& trade, std::vector<OrderSignal>& out) override;
@@ -92,7 +87,6 @@ private:
     void load_state();
     void save_state() const;
     void publish_owned();
-    int  kst_hhmm() const;
     std::string kst_date() const;
 
     Params                            parameters_;

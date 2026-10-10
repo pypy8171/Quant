@@ -42,6 +42,8 @@ sys.path.insert(0, str(_HERE.parent))
 import _logdir  # noqa: E402
 # 접수 지연 판정(RTT·버킷대기 정규식과 임계)은 건전성 점검과 한 벌이어야 한다 — 그쪽이 소유
 from check_runtime_health import RTT_RE, SLOW_ORDER_MS, BUCKET_WAIT_MS, median  # noqa: E402
+# 장부 사본 기한초과 칸도 건전성 점검과 같은 정규식을 쓴다 — 장중 감시와 마감 판정이 같은 값을 본다
+from check_runtime_health import LEDGER_STALE_READ_RE  # noqa: E402
 
 # 로그 폴더 규칙은 _logdir 하나다(QUANT_LOG_DIR > 가장 최근에 쓰인 quant_trader.log).
 #  예전에는 저장소 루트 logs/로 못박아, 빌드 폴더에서 돌던 엔진의 로그를 못 찾고도
@@ -208,9 +210,13 @@ def watch():
     n_timeout = len(buckets.get("http_timeout", []))
     n_recon_slow = len(buckets.get("recon_slow", []))
     n_ledger = len(buckets.get("ledger_fail", []))
+    # 사본 읽기 기한초과는 기동 후 누계라 이 창의 [큐 고수위] 줄 중 가장 큰 값을 본다. 0이 아니면 FAIL —
+    #  그 읽기에서 전략은 정지·보유 0인 보수값을 받았다(check_runtime_health "장부 사본 기한초과"와 같은 판정).
+    stale_reads = max((int(found.group(1)) for line in new if (found := LEDGER_STALE_READ_RE.search(line))),
+                      default=0)
 
     # 유의미 판단: 주문·체결·거부·게이트·WS·에러·청산차단·매핑실패 중 하나라도 / HTTP 스파이크
-    significant = (any([n_order, n_fill, n_kis, n_gate, n_ws, n_err, n_liq, n_unmapped, n_ledger])
+    significant = (any([n_order, n_fill, n_kis, n_gate, n_ws, n_err, n_liq, n_unmapped, n_ledger, stale_reads])
                    or n_http > HTTP_SPIKE)
     if not significant:
         return
@@ -221,8 +227,11 @@ def watch():
             + (f" 매핑실패{n_unmapped}" if n_unmapped else "")
             + (f" 제한시간초과{n_timeout}" if n_timeout else "")
             + (f" 잔고조회걸침{n_recon_slow}" if n_recon_slow else "")
-            + (f" 원장기록실패{n_ledger}" if n_ledger else ""))
+            + (f" 원장기록실패{n_ledger}" if n_ledger else "")
+            + (f" 사본기한초과{stale_reads}" if stale_reads else ""))
     out = [head]
+    if stale_reads:
+        out.append(f"  ‼ FAIL 장부 사본 기한초과: 보수값을 받은 읽기 누계 {stale_reads}번 (기대 0)")
     latency = latency_line(buckets)
     if latency:
         out.append(latency)

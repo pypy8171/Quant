@@ -202,12 +202,6 @@ public:
         return {{parameters_.ticker, Market::KR, "", /*trade_only=*/true}};
     }
 
-    // 일봉 이벤트 미사용(자가조회) — 순수가상 충족용 no-op.
-    std::optional<OrderSignal> on_data(const MarketData&) override
-    {
-        return std::nullopt;
-    }
-
     void on_start() override;
 
     void on_stop() override;

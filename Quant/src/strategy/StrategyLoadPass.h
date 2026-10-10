@@ -1,5 +1,5 @@
 // strategy/StrategyLoadPass.h — 전략 로더 파일들이 함께 쓰는 로드 상태와 도우미. 공개 헤더가 아니다.
-//  구현은 StrategyFactory.cpp(디스패치·공용 도우미·다른 전략 로더)와 DevScaleLoader.cpp(DEVIATION_SCALE)로 나뉜다.
+//  구현은 StrategyFactory.cpp(디스패치·공용 도우미·다른 전략 로더)·DevScaleLoader.cpp(DEVIATION_SCALE)·VwapPullbackLoader.cpp(VWAP_PULLBACK)로 나뉜다.
 //  스레드: 전부 메인 스레드(load_strategies 안)에서 부른다.
 #pragma once
 
@@ -92,5 +92,17 @@ template <typename T>
 void read_or_keep(const nlohmann::json& node, const char* key, T& field)
 {
     field = node.value(key, field);
+}
+
+// 슬리브형 전략(TARGET_BASKET·SURGE_HOLD)이 같이 읽는 키 — label·account·state_file·reload_sec·dry_run.
+//  기본값은 각 Params 멤버 기본값이다(label "MAIN", account 빈값, reload_sec 60, dry_run false).
+template <typename SleeveParams>
+void read_sleeve_common(const nlohmann::json& node, SleeveParams& parameters)
+{
+    read_or_keep(node, "label", parameters.label);
+    read_or_keep(node, "account", parameters.account);
+    read_or_keep(node, "state_file", parameters.state_file);
+    read_or_keep(node, "reload_sec", parameters.reload_sec);
+    read_or_keep(node, "dry_run", parameters.dry_run);
 }
 } // namespace strategy_load

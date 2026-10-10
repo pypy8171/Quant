@@ -57,12 +57,6 @@ public:
         return {{ticker_, Market::KR, "", /*trade_only=*/false}};
     }
 
-    // 일봉 이벤트 미사용 — 인터페이스 요구(순수가상) 충족용 no-op.
-    std::optional<OrderSignal> on_data(const MarketData&) override
-    {
-        return std::nullopt;
-    }
-
     void on_start() override;
 
     void on_order_book_batch(const OrderBook& order_book, std::vector<OrderSignal>& out) override;

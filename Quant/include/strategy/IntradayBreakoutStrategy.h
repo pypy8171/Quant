@@ -110,12 +110,6 @@ public:
 
     void on_start() override;
 
-    // 일봉 경로 미사용(라이브 소스는 WS 체결) — 순수가상 요건 충족용 no-op.
-    std::optional<OrderSignal> on_data(const MarketData&) override
-    {
-        return std::nullopt;
-    }
-
     std::optional<OrderSignal> on_trade(const TradeData& trade) override;
 
 private:

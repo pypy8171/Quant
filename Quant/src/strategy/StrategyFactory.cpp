@@ -459,18 +459,14 @@ static bool parse_active_regimes(const json& node, const std::string& type, std:
 static void load_target_basket(LoadPass& context, const json& node)
 {
     TargetBasketStrategy::Params parameters;
-    parameters.label                = node.value("label", std::string("MAIN"));
-    parameters.account              = node.value("account", std::string());
-    parameters.targets_file         = node.value("targets_file", parameters.targets_file);
-    parameters.state_file           = node.value("state_file", parameters.state_file);
+    read_sleeve_common(node, parameters);
+    read_or_keep(node, "targets_file", parameters.targets_file);
     parameters.capital_krw          = node.value("capital_krw", 0.0);
     parameters.band                 = node.value("band_pct", 10.0) / 100.0;
     parameters.window_start_hhmm    = node.value("window_start_hhmm", 1440);
     parameters.window_end_hhmm      = node.value("window_end_hhmm", 1500);
     parameters.buy_leg_delay_sec    = node.value("buy_leg_delay_sec", 90);
     parameters.max_signals_per_pass = node.value("max_signals_per_pass", 3);
-    parameters.reload_sec           = node.value("reload_sec", 60);
-    parameters.dry_run              = node.value("dry_run", false);
 
     if (parameters.capital_krw <= 0.0)
     {
@@ -507,24 +503,20 @@ static void load_target_basket(LoadPass& context, const json& node)
 static void load_surge_hold(LoadPass& context, const json& node)
 {
     SurgeHoldStrategy::Params parameters;
-    parameters.label             = node.value("label", std::string("MAIN"));
-    parameters.account           = node.value("account", std::string());
-    parameters.plan_file         = node.value("plan_file", parameters.plan_file);
-    parameters.state_file        = node.value("state_file", parameters.state_file);
-    parameters.amount_krw        = node.value("amount_krw", parameters.amount_krw);
-    parameters.max_positions     = node.value("max_positions", parameters.max_positions);
-    parameters.max_daily_buys    = node.value("max_daily_buys", parameters.max_daily_buys);
-    parameters.buy_start_hhmm    = node.value("buy_start_hhmm", parameters.buy_start_hhmm);
-    parameters.buy_end_hhmm      = node.value("buy_end_hhmm", parameters.buy_end_hhmm);
-    parameters.close_start_hhmm  = node.value("close_start_hhmm", parameters.close_start_hhmm);
-    parameters.close_end_hhmm    = node.value("close_end_hhmm", parameters.close_end_hhmm);
-    parameters.exit_start_hhmm   = node.value("exit_start_hhmm", parameters.exit_start_hhmm);
-    parameters.backstop_weekdays = node.value("backstop_weekdays", parameters.backstop_weekdays);
-    parameters.fill_wait_hhmm    = node.value("fill_wait_hhmm", parameters.fill_wait_hhmm);
-    parameters.exit_retry_sec    = node.value("exit_retry_sec", parameters.exit_retry_sec);
-    parameters.max_exit_attempts = node.value("max_exit_attempts", parameters.max_exit_attempts);
-    parameters.reload_sec        = node.value("reload_sec", parameters.reload_sec);
-    parameters.dry_run           = node.value("dry_run", false);
+    read_sleeve_common(node, parameters);
+    read_or_keep(node, "plan_file", parameters.plan_file);
+    read_or_keep(node, "amount_krw", parameters.amount_krw);
+    read_or_keep(node, "max_positions", parameters.max_positions);
+    read_or_keep(node, "max_daily_buys", parameters.max_daily_buys);
+    read_or_keep(node, "buy_start_hhmm", parameters.buy_start_hhmm);
+    read_or_keep(node, "buy_end_hhmm", parameters.buy_end_hhmm);
+    read_or_keep(node, "close_start_hhmm", parameters.close_start_hhmm);
+    read_or_keep(node, "close_end_hhmm", parameters.close_end_hhmm);
+    read_or_keep(node, "exit_start_hhmm", parameters.exit_start_hhmm);
+    read_or_keep(node, "backstop_weekdays", parameters.backstop_weekdays);
+    read_or_keep(node, "fill_wait_hhmm", parameters.fill_wait_hhmm);
+    read_or_keep(node, "exit_retry_sec", parameters.exit_retry_sec);
+    read_or_keep(node, "max_exit_attempts", parameters.max_exit_attempts);
 
     if (parameters.amount_krw <= 0.0 || parameters.max_positions <= 0)
     {

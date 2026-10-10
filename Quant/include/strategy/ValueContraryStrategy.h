@@ -64,12 +64,6 @@ public:
     // ── WS 구독 스펙 — on_start() 이후 candidates_ 기준 ──────────────────
     std::vector<WatchSpec> get_watch_specifications() const override;
 
-    // ── 일봉 — 이 전략은 이벤트 드리븐으로만 동작 ────────────────────────
-    std::optional<OrderSignal> on_data(const MarketData&) override
-    {
-        return std::nullopt;
-    }
-
     // ── 호가 이벤트 (국내 전용) ───────────────────────────────────────────
     std::optional<OrderSignal> on_order_book(const OrderBook& order_book) override;
 

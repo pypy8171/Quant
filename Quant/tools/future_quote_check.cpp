@@ -16,8 +16,9 @@
 //         (KOSPI200 선물 최근월물 코드는 만기마다 바뀐다 — KRX 또는 선물 전광판에서 확인)
 
 #include "api/KisClient.h"
+#include "core/AppConfig.h"
 
-#include <fstream>
+#include <exception>
 #include <iostream>
 #include <nlohmann/json.hpp>
 #include <string>
@@ -44,25 +45,25 @@ int main(int argc, char** argv)
     const std::string issue_code = argv[2];
     const std::string market = (argc > 3) ? argv[3] : "F";
 
-    std::ifstream file(config_path);
+    // 엔진과 같은 parse_config로 읽는다(규약 8.3). 시세키는 quote_kis(실전 시세) 우선, 없으면 kis.
+    //  실계좌 config는 quote_kis가 없어도 parse_config가 kis를 시세키로 채우므로 같은 키가 나온다.
+    json      document;
+    AppConfig app;
 
-    if (!file)
+    try
     {
-        std::cerr << "[중단] config 못 엶: " << config_path << "\n";
+        document = load_config_file(config_path);
+        app      = parse_config(document);
+    }
+    catch (const std::exception& error)
+    {
+        std::cerr << "[중단] config 읽기 실패: " << config_path << "\n"
+                  << "       - error(" << error.what() << ")\n";
         return 1;
     }
 
-    json config = json::parse(file);
-
-    // 시세키 선택: quote_kis(실전 시세) 우선, 없으면 kis.
-    const char* block = config.contains("quote_kis") ? "quote_kis" : "kis";
-    const json& kis_block = config[block];
-
-    KisConfig kis_config;
-    kis_config.app_key    = kis_block.value("app_key", "");
-    kis_config.app_secret = kis_block.value("app_secret", "");
-    kis_config.is_paper   = kis_block.value("is_paper", false);
-    // 시세 조회는 계좌 불필요(quote 전용). account_no/type는 비워둔다.
+    const char*      block      = document.contains("quote_kis") ? "quote_kis" : "kis";
+    const KisConfig& kis_config = app.quote_kis ? *app.quote_kis : app.kis;
 
     std::cout << "=== 선물 시세 점검 ===\n";
     std::cout << "config=" << config_path << "  키블록=" << block

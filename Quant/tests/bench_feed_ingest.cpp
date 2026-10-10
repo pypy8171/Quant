@@ -28,6 +28,7 @@
 //   serve/send를 두 콘솔로 나눠 돌려도 steady_clock은 QPC 기반(부팅 기준 시스템 전역)이라
 //   같은 머신이면 프로세스 간에도 타임스탬프가 정합이다.
 
+#include "bench_common.h"
 #include "core/RingBuffer.h"
 
 #include <algorithm>
@@ -65,6 +66,13 @@ using socket_t = int;
 static const socket_t kBadSock = -1;
 #endif
 
+using bench::argument_double;
+using bench::argument_int64;
+using bench::argument_string;
+using bench::build_type;
+using bench::format_ns;
+using bench::percentiles;
+using bench::PercentileSummary;
 using steady_clock = std::chrono::steady_clock;
 
 static inline int64_t now_ns()
@@ -609,65 +617,6 @@ static void order_fn(RingBuffer<MockOrderSignal>& order_queue,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Percentile 유틸
-// ─────────────────────────────────────────────────────────────────────────────
-struct PercentileSummary
-{
-    int64_t p50 = 0, p99 = 0, p999 = 0, max_value = 0;
-    size_t  count = 0;
-};
-static PercentileSummary percentiles(std::vector<int64_t>& values)
-{
-    PercentileSummary percentiles;
-    percentiles.count = values.size();
-
-    if (values.empty())
-    {
-        return percentiles;
-    }
-
-    std::sort(values.begin(), values.end());
-    auto at = [&](double price)
-    {
-        return values[static_cast<size_t>(price * (values.size() - 1))];
-    };
-    percentiles.p50 = at(0.50);
-    percentiles.p99 = at(0.99);
-    percentiles.p999 = at(0.999);
-    percentiles.max_value = values.back();
-    return percentiles;
-}
-
-static std::string format_ns(int64_t count)
-{
-    char byte_value[32];
-
-    if (count < 1000)
-    {
-        std::snprintf(byte_value, sizeof(byte_value), "%lld ns", static_cast<long long>(count));
-    }
-    else if (count < 1'000'000)
-    {
-        std::snprintf(byte_value, sizeof(byte_value), "%.2f us", count / 1000.0);
-    }
-    else
-    {
-        std::snprintf(byte_value, sizeof(byte_value), "%.2f ms", count / 1'000'000.0);
-    }
-
-    return std::string(byte_value);
-}
-
-static const char* build_type()
-{
-#ifdef NDEBUG
-    return "Release (NDEBUG)";
-#else
-    return "Debug (⚠ 측정 무의미 — Release로 재빌드)";
-#endif
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // 수신 서버 소켓 준비: listen → accept 1건.
 // ─────────────────────────────────────────────────────────────────────────────
 static socket_t make_listener(uint16_t port)
@@ -860,34 +809,6 @@ static RunResult run_self(const std::vector<std::string>& tickers, const ZipfPic
     run_result.recv_rate = run_result.wire_recv / (run_result.elapsed_sec > 0 ? run_result.elapsed_sec : 1);
     run_result.lossless = (run_result.drops == 0) && (run_result.bad_magic == 0) && (run_result.signals == run_result.orders);
     return run_result;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 인자 파서
-// ─────────────────────────────────────────────────────────────────────────────
-static std::string argument_string(int argc, char** argv, const char* key, const std::string& default_value)
-{
-    for (int index = 2; index + 1 < argc; ++index)
-    {
-        if (std::strcmp(argv[index], key) == 0)
-        {
-            return argv[index + 1];
-        }
-    }
-
-    return default_value;
-}
-
-static int64_t argument_int64(int argc, char** argv, const char* key, int64_t default_value)
-{
-    std::string text = argument_string(argc, argv, key, "");
-    return text.empty() ? default_value : std::atoll(text.c_str());
-}
-
-static double argument_double(int argc, char** argv, const char* key, double default_value)
-{
-    std::string text = argument_string(argc, argv, key, "");
-    return text.empty() ? default_value : std::atof(text.c_str());
 }
 
 static void print_banner(const char* mode, const std::vector<std::string>& tickers,

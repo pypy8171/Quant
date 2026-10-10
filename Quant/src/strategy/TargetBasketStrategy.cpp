@@ -74,12 +74,6 @@ std::string TargetBasketStrategy::describe() const
                        parameters_.dry_run ? "dry-run" : "실주문", parameters_.targets_file);
 }
 
-int TargetBasketStrategy::kst_hhmm() const
-{
-    const auto time_of_day = kst::time_of_day(clock_());
-    return static_cast<int>(time_of_day.hours().count()) * 100 + static_cast<int>(time_of_day.minutes().count());
-}
-
 std::string TargetBasketStrategy::kst_date() const
 {
     return kst::date_yyyymmdd(clock_());
@@ -290,19 +284,13 @@ bool TargetBasketStrategy::emit_leg(std::vector<basket::PlannedOrder>& orders, s
         }
 
         save_state(); // 먼저 적고 낸다 — 재기동 뒤 같은 주문이 두 번 나가지 않는다
-        OrderSignal signal;
-        signal.ticker          = order.ticker;
-        signal.symbol_id       = symbol_of(order.ticker);
-        signal.side            = order.side;
-        signal.type            = OrderType::MARKET;
-        signal.quantity        = order.quantity;
+        OrderSignal signal =
+            make_signal(order.ticker, symbol_of(order.ticker), order.side, OrderType::MARKET, order.quantity);
         signal.price           = 0.0;
         signal.reference_price = order.reference_price; // 시장가는 price=0이라 이 값이 없으면 1주문 명목 상한이 비어 버린다
-        signal.strategy_id     = order.strategy_id;
-        signal.market          = Market::KR;
+        signal.strategy_id     = order.strategy_id; // 슬리브 이름(BASKET_<슬리브>) — id()가 아니다
         signal.account_id      = parameters_.account;
         signal.reason          = order.reason;
-        signal.timestamp       = std::chrono::system_clock::now();
         // 계획 매수는 하루 한 번 일봉으로 짠 것이라 주문 큐에서 몇 초 기다려도 판단이 낡지 않는다. 한 번에 수십 건을
         //  내므로 1초 나이 제한에 걸리면 대부분 버려진다(10-02 모의 29건 중 19건). 매도는 원래 나이를 안 본다. [why D-155]
         signal.exempt_from_age_limit = (order.side == OrderSide::BUY);
@@ -328,7 +316,7 @@ void TargetBasketStrategy::run_pass(std::vector<OrderSignal>& out)
         return;
     }
 
-    const int         hhmm  = kst_hhmm();
+    const int         hhmm  = kst_hhmm(clock_());
     const std::string today = kst_date();
 
     if (hhmm < parameters_.window_start_hhmm)

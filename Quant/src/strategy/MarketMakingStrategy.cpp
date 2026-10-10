@@ -102,36 +102,21 @@ void MarketMakingStrategy::on_order_book_batch(const OrderBook& order_book, std:
 OrderSignal MarketMakingStrategy::make_new(const std::string& order_id, uint64_t order_number, OrderSide side,
                                            double price)
 {
-    OrderSignal signal;
-    signal.ticker = ticker_;
-    signal.symbol_id = symbol_id_;
-    signal.side = side;
-    signal.type = OrderType::LIMIT;
-    signal.quantity = quantity_;
+    OrderSignal signal = make_signal(ticker_, symbol_id_, side, OrderType::LIMIT, quantity_);
     signal.price = price;
-    signal.strategy_id = id();
-    signal.market = Market::KR;
     signal.action = OrderAction::NEW;
     signal.client_order_id = order_id;
     signal.client_order_number = order_number;
-    signal.timestamp = std::chrono::system_clock::now();
     return signal;
 }
 
 OrderSignal MarketMakingStrategy::make_cancel(std::string original_order_id, uint64_t original_order_number,
                                               OrderSide side)
 {
-    OrderSignal signal;
-    signal.ticker = ticker_;
-    signal.symbol_id = symbol_id_;
-    signal.side = side; // 참고용(취소 라우팅은 원주문 정보 사용). Engine NONE 가드는 action으로 우회.
-    signal.type = OrderType::LIMIT;
-    signal.quantity = 0;
-    signal.strategy_id = id();
-    signal.market = Market::KR;
+    // side는 참고용(취소 라우팅은 원주문 정보 사용). Engine NONE 가드는 action으로 우회.
+    OrderSignal signal = make_signal(ticker_, symbol_id_, side, OrderType::LIMIT, 0);
     signal.action = OrderAction::CANCEL;
     signal.original_client_order_id = std::move(original_order_id);
     signal.original_client_order_number = original_order_number;
-    signal.timestamp = std::chrono::system_clock::now();
     return signal;
 }

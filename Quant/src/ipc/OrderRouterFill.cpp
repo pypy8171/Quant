@@ -1,5 +1,6 @@
 // 주문 라우터 — 체결통보 반영, 재연결 뒤 놓친 체결 되찾기, 일별 리셋.
 #include "ipc/OrderRouter.h"
+#include "ipc/SideLabel.h"
 #include "core/KstTime.h"
 #include "utils/Logger.h"
 #include <algorithm>
@@ -58,9 +59,18 @@ void OrderRouter::load_order_reasons_locked()
             continue;
         }
 
+        // 방향은 OrderJournal이 "BUY"/"SELL"로만 적는다. 그 밖의 글자는 깨진 줄로 보고 버린다 — 예전처럼 매수로
+        //  읽으면 복구한 주문이 반대 방향으로 장부에 오른다.
+        const std::optional<OrderSide> side = OrderSide::parse(fields[2]);
+
+        if (!side)
+        {
+            continue;
+        }
+
         OrderReason order_reason;
         order_reason.ticker      = std::move(fields[1]);
-        order_reason.side        = OrderSide::from_string(fields[2]);
+        order_reason.side        = *side;
         order_reason.strategy_id = std::move(fields[6]);
         order_reason.reason      = std::move(fields[7]);
 
@@ -254,8 +264,7 @@ void OrderRouter::restore_from_order_reason(const FillNotification& fill_notific
                                    OrderGate::OrderRef{order_number_of(record.order_id), order_number, record.signal.type},
                                    record.signal.strategy_index);
     LOG_INFO("[OrderRouter] 재기동 복원 [" + record.order_id + "] ODNO=" + fill_notification.kis_order_no + " " +
-             record.signal.ticker +
-             (record.signal.side == OrderSide::BUY ? " BUY " : " SELL ") +
+             record.signal.ticker + " " + std::string(side_label(record.signal.side)) + " " +
              std::to_string(record.signal.quantity) + "주 전략=" + record.signal.strategy_id +
              " (주문 사유 기록에서 복구)");
 
@@ -400,7 +409,7 @@ void OrderRouter::apply_unlinked_fill(std::unique_lock<std::mutex>& lock, const 
     unlinked_fill.kis_order_no          = fill_notification.kis_order_no;
     unlinked_fill.status                = OrderStatus::FILLED;
     unlinked_fill.confirmed_quantity    = unlinked_quantity;
-    unlinked_fill.signal.strategy_id    = "UNLINKED";
+    unlinked_fill.signal.strategy_id    = std::string(kUnlinkedStrategy);
     unlinked_fill.signal.strategy_index = unlinked_strategy_index_;
     unlinked_fill.signal.ticker         = fill_notification.ticker;
     unlinked_fill.signal.side           = fill_notification.side;
@@ -430,7 +439,7 @@ void OrderRouter::apply_unlinked_fill(std::unique_lock<std::mutex>& lock, const 
                                                  unlinked_fill.signal.strategy_index, unlinked_reference);
 
     LOG_WARN(std::format("[OrderRouter] 미매핑 체결 장부 반영 [{}] ODNO={} {} {} {}주 @{} (주문수량 {}) — 이전 세션 주문으로 추정(재시작 전 접수분)",
-                         unlinked_fill.order_id, fill_notification.kis_order_no, fill_notification.ticker, fill_notification.side == OrderSide::BUY ? "BUY" : "SELL",
+                         unlinked_fill.order_id, fill_notification.kis_order_no, fill_notification.ticker, side_label(fill_notification.side),
                          unlinked_quantity, static_cast<int>(fill_notification.filled_price),
                          unlinked_order_quantity > 0 ? std::to_string(unlinked_order_quantity) + "주" : std::string("미상")));
 
@@ -495,7 +504,7 @@ void OrderRouter::apply_linked_fill(std::unique_lock<std::mutex>& lock, ManagedO
 
     LOG_INFO(std::format("[OrderRouter] 체결 확인 [{}] ODNO={} {} {} {}주 @{} (누적 {}/{}주){}", snapshot.order_id,
                          fill_notification.kis_order_no, fill_notification.ticker,
-                         fill_notification.side == OrderSide::BUY ? "BUY" : "SELL", apply_quantity,
+                         side_label(fill_notification.side), apply_quantity,
                          static_cast<int>(fill_notification.filled_price), snapshot.confirmed_quantity,
                          snapshot.signal.quantity, note.empty() ? std::string() : " — " + std::string(note)));
 

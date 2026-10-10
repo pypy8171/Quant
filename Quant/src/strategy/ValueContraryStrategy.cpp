@@ -171,17 +171,10 @@ std::optional<OrderSignal> ValueContraryStrategy::check_entry_exit(symbol::Symbo
             candidates_.erase(found);
         }
 
-        OrderSignal signal;
-        signal.ticker = ticker;
-        signal.symbol_id = symbol_id;
-        signal.side = OrderSide::BUY;
-        signal.type = OrderType::MARKET;
-        signal.quantity = quantity_;
+        OrderSignal signal = make_signal(ticker, symbol_id, OrderSide::BUY, OrderType::MARKET, quantity_);
         signal.reference_price = reference_price; // 시장가 명목 백스톱 기준가(현재가/체결가)
         signal.market = market_;
         signal.exchange = exchange_;
-        signal.strategy_id = id();
-        signal.timestamp = std::chrono::system_clock::now();
 
         LOG_INFO("[ValueContrary] BUY: " + std::string(ticker) + " @" + krx::hhmmss_string(hhmmss));
         return signal;
@@ -193,17 +186,10 @@ std::optional<OrderSignal> ValueContraryStrategy::check_entry_exit(symbol::Symbo
     {
         sell_sent_.insert(symbol_id);
 
-        OrderSignal signal;
-        signal.ticker = ticker;
-        signal.symbol_id = symbol_id;
-        signal.side = OrderSide::SELL;
-        signal.type = OrderType::MARKET;
-        signal.quantity = quantity_;
+        OrderSignal signal = make_signal(ticker, symbol_id, OrderSide::SELL, OrderType::MARKET, quantity_);
         signal.reference_price = reference_price; // 시장가 명목 백스톱 기준가(현재가/체결가)
         signal.market = market_;
         signal.exchange = exchange_;
-        signal.strategy_id = id();
-        signal.timestamp = std::chrono::system_clock::now();
 
         LOG_INFO("[ValueContrary] SELL(장 마감): " + std::string(ticker) + " @" + krx::hhmmss_string(hhmmss));
         return signal;

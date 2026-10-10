@@ -70,7 +70,7 @@
     {
       "from": "ipc",
       "to": "core",
-      "weight": 26
+      "weight": 27
     },
     {
       "from": "ipc",
@@ -135,7 +135,7 @@
     {
       "from": "strategy",
       "to": "core",
-      "weight": 28
+      "weight": 29
     },
     {
       "from": "strategy",
@@ -233,6 +233,7 @@
     "ipc/DbManager.h": "ipc",
     "ipc/FillChannel.h": "ipc",
     "ipc/FillKey.h": "ipc",
+    "ipc/FixedText.h": "ipc",
     "ipc/Heartbeat.h": "ipc",
     "ipc/LedgerSnapshot.h": "ipc",
     "ipc/MarketFeedChannel.h": "ipc",
@@ -250,6 +251,7 @@
     "ipc/SharedStrategyDictionary.h": "ipc",
     "ipc/SharedSymbolDictionary.h": "ipc",
     "ipc/SharedWriteLock.h": "ipc",
+    "ipc/SideLabel.h": "ipc",
     "ipc/ZmqBridge.h": "ipc",
     "regime/RegimeFeed.h": "regime",
     "risk/DisplacementDesk.h": "risk",
@@ -942,7 +944,8 @@
       "core/Types.h"
     ],
     "ipc/FillChannel.cpp": [
-      "ipc/FillChannel.h"
+      "ipc/FillChannel.h",
+      "ipc/FixedText.h"
     ],
     "ipc/FillChannel.h": [
       "core/Types.h",
@@ -980,6 +983,7 @@
       "ipc/OpsProtocol.h"
     ],
     "ipc/OrderChannel.cpp": [
+      "ipc/FixedText.h",
       "ipc/OrderChannel.h"
     ],
     "ipc/OrderChannel.h": [
@@ -1001,7 +1005,8 @@
       "core/Types.h"
     ],
     "ipc/OrderRouter.cpp": [
-      "ipc/OrderRouter.h"
+      "ipc/OrderRouter.h",
+      "ipc/SideLabel.h"
     ],
     "ipc/OrderRouter.h": [
       "api/IOrderExecutor.h",
@@ -1016,6 +1021,7 @@
     "ipc/OrderRouterFill.cpp": [
       "core/KstTime.h",
       "ipc/OrderRouter.h",
+      "ipc/SideLabel.h",
       "utils/Logger.h",
       "utils/ThreadName.h"
     ],
@@ -1023,6 +1029,7 @@
       "api/KisErrorCodes.h",
       "core/WakeGate.h",
       "ipc/OrderRouter.h",
+      "ipc/SideLabel.h",
       "utils/Logger.h",
       "utils/ThreadName.h"
     ],
@@ -1030,6 +1037,7 @@
       "api/KisErrorCodes.h",
       "core/LatencyTrace.h",
       "ipc/OrderRouter.h",
+      "ipc/SideLabel.h",
       "utils/Logger.h"
     ],
     "ipc/ProcessIdentity.cpp": [
@@ -1075,6 +1083,9 @@
     ],
     "ipc/SharedWriteLock.cpp": [
       "ipc/SharedWriteLock.h"
+    ],
+    "ipc/SideLabel.h": [
+      "core/Types.h"
     ],
     "ipc/ZmqBridge.cpp": [
       "core/RegimeFileJudge.h",
@@ -1247,6 +1258,7 @@
       "utils/Logger.h"
     ],
     "strategy/StrategyBase.cpp": [
+      "core/KstTime.h",
       "strategy/StrategyBase.h"
     ],
     "strategy/StrategyBase.h": [
@@ -1620,6 +1632,7 @@
       "strategy/DevScaleLoader.cpp",
       "strategy/DeviationScaleStrategy.h",
       "strategy/SeedPeakStore.h",
+      "strategy/StrategyBase.cpp",
       "strategy/SurgeHoldStrategy.cpp",
       "strategy/TargetBasketStrategy.cpp",
       "strategy/VwapPullbackLoader.cpp",
@@ -1811,6 +1824,7 @@
       "ipc/OrderHistory.h",
       "ipc/OrderJournal.h",
       "ipc/OrderRouter.h",
+      "ipc/SideLabel.h",
       "ipc/ZmqBridge.h",
       "main.cpp",
       "risk/DisplacementDesk.h",
@@ -1878,6 +1892,10 @@
     "ipc/FillKey.h": [
       "ipc/FillKey.cpp",
       "ipc/OrderRouter.h"
+    ],
+    "ipc/FixedText.h": [
+      "ipc/FillChannel.cpp",
+      "ipc/OrderChannel.cpp"
     ],
     "ipc/Heartbeat.h": [
       "core/Engine.h",
@@ -1962,6 +1980,12 @@
       "ipc/SharedStrategyDictionary.cpp",
       "ipc/SharedSymbolDictionary.cpp",
       "ipc/SharedWriteLock.cpp"
+    ],
+    "ipc/SideLabel.h": [
+      "ipc/OrderRouter.cpp",
+      "ipc/OrderRouterFill.cpp",
+      "ipc/OrderRouterReconcile.cpp",
+      "ipc/OrderRouterSubmit.cpp"
     ],
     "ipc/ZmqBridge.h": [
       "core/Engine.h",
@@ -2288,11 +2312,11 @@
     },
     {
       "header": "core/Types.h",
-      "in_degree": 52
+      "in_degree": 53
     },
     {
       "header": "core/KstTime.h",
-      "in_degree": 35
+      "in_degree": 36
     },
     {
       "header": "utils/ThreadName.h",

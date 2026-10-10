@@ -315,10 +315,29 @@ OrderAck KisClient::submit_order_acknowledgement(const OrderSignal& signal)
 OrderAck KisClient::cancel_order(const std::string& ticker, const std::string& orig_odno,
                                  const std::string& krx_forwarding_org_no, int quantity, bool all_remaining)
 {
+    return amend_order(AmendKind::Cancel, ticker, orig_odno, krx_forwarding_org_no, quantity, 0.0, all_remaining);
+}
+
+// 정정은 잔량 전체(QTY_ALL_ORD_YN=Y)로 낸다 — 이유는 amend_order 안 QTY_ALL_ORD_YN 주석.
+OrderAck KisClient::revise_order(const std::string& ticker, const std::string& orig_odno,
+                                 const std::string& krx_forwarding_org_no, int new_quantity, double new_price)
+{
+    return amend_order(AmendKind::Revise, ticker, orig_odno, krx_forwarding_org_no, new_quantity, new_price, true);
+}
+
+// 취소·정정 공용 몸. 두 갈래가 다른 곳은 다섯 군데다 — RVSE_CNCL_DVSN_CD(02/01), ORD_DVSN(취소는 원주문 구분,
+//  정정은 지금 구간), ORD_UNPR(취소 0), 로그 문구, 정정 성공 시 새 번호의 거래소 기억.
+OrderAck KisClient::amend_order(AmendKind kind, const std::string& ticker, const std::string& orig_odno,
+                                const std::string& krx_forwarding_org_no, int quantity, double price,
+                                bool all_remaining)
+{
+    const bool        is_cancel = kind == AmendKind::Cancel;
+    const char* const what      = is_cancel ? "cancel_order" : "revise_order";
+    const char* const label     = is_cancel ? "취소" : "정정";
 
     if (orig_odno.empty())
     {
-        LOG_ERROR("[KIS] cancel_order 원주문번호(ODNO) 없음 — " + ticker);
+        LOG_ERROR(std::string("[KIS] ") + what + " 원주문번호(ODNO) 없음 — " + ticker);
         return OrderAck::fail("E_NO_ORIG_ODNO");
     }
 
@@ -329,18 +348,26 @@ OrderAck KisClient::cancel_order(const std::string& ticker, const std::string& o
     const OrderRoute    original = original_order_route(orig_odno);
     // 원주문 거래소·구분을 모르면(모의 응답에 칸이 없을 때 등) 지금 구간 규칙으로 낸다 — 같은 구간에서 낸 주문이면 맞다.
     const std::string exchange = original.exchange.empty() ? kis_session_exchange(config_, session) : original.exchange;
-    const std::string division =
-        original.order_division.empty() ? kis_amend_order_division(session) : original.order_division;
+    // 취소는 원주문 구분을 싣는다. 정정은 지금 구간으로 정한다 — 애프터 41 · 그 밖 00.
+    const std::string division = (is_cancel && !original.order_division.empty())
+                                     ? original.order_division
+                                     : std::string(kis_amend_order_division(session));
+    const std::string price_text = is_cancel ? std::string("0") : std::to_string(static_cast<int>(price));
 
     json body = {{"CANO", config_.account_no},
                  {"ACNT_PRDT_CD", config_.account_type},
                  {"KRX_FWDG_ORD_ORGNO", krx_forwarding_org_no},              // 원주문 조직번호
                  {"ORGN_ODNO", orig_odno},                       // 원주문번호
-                 {"ORD_DVSN", division},                         // 원주문 구분
-                 {"RVSE_CNCL_DVSN_CD", "02"},                    // 02=취소
-                 {"ORD_QTY", std::to_string(quantity)},               // 취소 수량 (QTY_ALL_ORD_YN=Y면 무시됨)
-                 {"ORD_UNPR", "0"},                              // 취소는 단가 0
-                 {"QTY_ALL_ORD_YN", all_remaining ? "Y" : "N"}, // 잔량 전체 취소
+                 {"ORD_DVSN", division},
+                 {"RVSE_CNCL_DVSN_CD", is_cancel ? "02" : "01"}, // 02=취소, 01=정정
+                 {"ORD_QTY", std::to_string(quantity)},               // 취소·정정 수량 (QTY_ALL_ORD_YN=Y면 무시됨)
+                 {"ORD_UNPR", price_text},                       // 취소는 단가 0, 정정은 정정 단가
+                 // 정정은 늘 "Y"다. QTY_ALL_ORD_YN="Y"는 KIS가 잔량 전체를 정정하게 하므로, 위 ORD_QTY(부분 정정
+                 // 수량)는 실제로 반영되지 않는다. 현재 호출부는 단가 정정만 쓰므로 무해하나,
+                 // 부분수량 정정이 필요해지면 "N"으로 바꾸고 ORD_QTY를 살려야 한다(보류 목록).
+                 // [wire] 샘플 order_rvsecncl은 QTY_ALL_ORD_YN을 "잔량전부주문여부 Y:전량, N:일부"로만 적는다. Y일 때
+                 //  ORD_QTY가 무시된다는 설명은 샘플에 없다 — 근거 없음(2026-09-27).
+                 {"QTY_ALL_ORD_YN", all_remaining ? "Y" : "N"}, // 잔량 전체 취소·정정
                  {"EXCG_ID_DVSN_CD", exchange}};                 // 원주문 거래소 [why D-096]
 
     std::string response = http_post(url,
@@ -349,13 +376,13 @@ OrderAck KisClient::cancel_order(const std::string& ticker, const std::string& o
 
     if (response.empty())
     {
-        LOG_ERROR("[KIS] cancel_order 전송 실패: " + ticker + " ODNO=" + orig_odno);
+        LOG_ERROR(std::string("[KIS] ") + what + " 전송 실패: " + ticker + " ODNO=" + orig_odno);
         return OrderAck::fail(kis_error::kTransport);
     }
 
     json document;
 
-    if (!kis_parse_order_response(response, document, "cancel_order"))
+    if (!kis_parse_order_response(response, document, what))
     {
         return OrderAck::fail(kis_error::kTransport);
     }
@@ -363,95 +390,35 @@ OrderAck KisClient::cancel_order(const std::string& ticker, const std::string& o
     if (document["rt_cd"].get_ref<const std::string&>() != "0")
     {
         // 이미 체결/취소된 주문이면 KIS가 거부 → 자가치유(호출부가 reserved 미변경). 로그만.
-        LOG_WARN("[KIS] 취소 거부: " + ticker + " ODNO=" + orig_odno + " 거래소=" + exchange + " 구분=" + division +
+        const std::string route_detail = is_cancel ? " 거래소=" + exchange + " 구분=" + division : std::string();
+        LOG_WARN(std::string("[KIS] ") + label + " 거부: " + ticker + " ODNO=" + orig_odno + route_detail +
                  " — " + document.value("msg1", std::string("")));
         return OrderAck::fail(kis_reject_code(document));
     }
 
-    std::string cancel_order_no = jsonx::object_or_empty(document, "output").value("ODNO", "");
+    // 성공 시 응답 ODNO가 취소 접수번호, 정정이면 새 주문번호다(호출부가 kis_order_no 갱신).
+    std::string amended_order_no = jsonx::object_or_empty(document, "output").value("ODNO", "");
 
-    if (cancel_order_no.empty())
+    if (amended_order_no.empty())
     {
-        LOG_ERROR("[KIS] 취소 응답에 ODNO 없음: " + ticker + " 원ODNO=" + orig_odno + " — 취소 여부 모름");
+        LOG_ERROR(std::string("[KIS] ") + label + " 응답에 ODNO 없음: " + ticker + " 원ODNO=" + orig_odno + " — " +
+                  label + " 여부 모름");
         return OrderAck::fail(kis_error::kTransport);
     }
 
-    LOG_INFO("[KIS] 취소 접수: " + ticker + " 원ODNO=" + orig_odno +
-             " 취소ODNO=" + cancel_order_no);
-    return OrderAck{std::move(cancel_order_no), std::string(), std::string()};
-}
-
-OrderAck KisClient::revise_order(const std::string& ticker, const std::string& orig_odno,
-                                 const std::string& krx_forwarding_org_no, int new_quantity, double new_price)
-{
-
-    if (orig_odno.empty())
+    if (is_cancel)
     {
-        LOG_ERROR("[KIS] revise_order 원주문번호(ODNO) 없음 — " + ticker);
-        return OrderAck::fail("E_NO_ORIG_ODNO");
+        LOG_INFO("[KIS] 취소 접수: " + ticker + " 원ODNO=" + orig_odno +
+                 " 취소ODNO=" + amended_order_no);
+    }
+    else
+    {
+        // 정정 주문은 새 번호로 남는다 — 그 번호를 다시 취소할 때도 같은 거래소로 나가게 한다.
+        remember_order_route(amended_order_no, OrderRoute{exchange, division});
+
+        LOG_INFO("[KIS] 정정 접수: " + ticker + " 원ODNO=" + orig_odno +
+                 " 새ODNO=" + amended_order_no + " @" + price_text);
     }
 
-    std::string transaction_id = config_.is_paper ? "VTTC0013U" : "TTTC0013U";
-    std::string url   = base_url() + "/uapi/domestic-stock/v1/trading/order-rvsecncl";
-
-    const MarketSession session  = market_session_now();
-    const OrderRoute    original = original_order_route(orig_odno);
-    const std::string   exchange =
-        original.exchange.empty() ? kis_session_exchange(config_, session) : original.exchange;
-
-    json body = {{"CANO", config_.account_no},
-                 {"ACNT_PRDT_CD", config_.account_type},
-                 {"KRX_FWDG_ORD_ORGNO", krx_forwarding_org_no},
-                 {"ORGN_ODNO", orig_odno},
-                 {"ORD_DVSN", kis_amend_order_division(session)}, // 지금 구간으로 정한다 — 애프터 41 · 그 밖 00
-                 {"RVSE_CNCL_DVSN_CD", "01"},                     // 01=정정
-                 {"ORD_QTY", std::to_string(new_quantity)},            // 정정 수량
-                 {"ORD_UNPR", std::to_string(static_cast<int>(new_price))},    // 정정 단가
-                 // QTY_ALL_ORD_YN="Y"는 KIS가 잔량 전체를 정정하게 하므로, 위 ORD_QTY(부분 정정
-                 // 수량)는 실제로 반영되지 않는다. 현재 호출부는 단가 정정만 쓰므로 무해하나,
-                 // 부분수량 정정이 필요해지면 "N"으로 바꾸고 ORD_QTY를 살려야 한다(보류 목록).
-                 // [wire] 샘플 order_rvsecncl은 QTY_ALL_ORD_YN을 "잔량전부주문여부 Y:전량, N:일부"로만 적는다. Y일 때
-                 //  ORD_QTY가 무시된다는 설명은 샘플에 없다 — 근거 없음(2026-09-27).
-                 {"QTY_ALL_ORD_YN", "Y"},                         // 잔량 전체 정정
-                 {"EXCG_ID_DVSN_CD", exchange}};                  // 원주문 거래소 [why D-096]
-
-    std::string response = http_post(url,
-        authentication_headers(transaction_id, {"Content-Type: application/json"}),
-        body.dump());
-
-    if (response.empty())
-    {
-        LOG_ERROR("[KIS] revise_order 전송 실패: " + ticker + " ODNO=" + orig_odno);
-        return OrderAck::fail(kis_error::kTransport);
-    }
-
-    json document;
-
-    if (!kis_parse_order_response(response, document, "revise_order"))
-    {
-        return OrderAck::fail(kis_error::kTransport);
-    }
-
-    if (document["rt_cd"].get_ref<const std::string&>() != "0")
-    {
-        LOG_WARN("[KIS] 정정 거부: " + ticker + " ODNO=" + orig_odno + " — " +
-                 document.value("msg1", std::string("")));
-        return OrderAck::fail(kis_reject_code(document));
-    }
-
-    // 정정 성공 시 새 ODNO 발급 → 반환 (호출부가 kis_order_no 갱신)
-    std::string new_order_no = jsonx::object_or_empty(document, "output").value("ODNO", "");
-
-    if (new_order_no.empty())
-    {
-        LOG_ERROR("[KIS] 정정 응답에 ODNO 없음: " + ticker + " 원ODNO=" + orig_odno + " — 정정 여부 모름");
-        return OrderAck::fail(kis_error::kTransport);
-    }
-
-    // 정정 주문은 새 번호로 남는다 — 그 번호를 다시 취소할 때도 같은 거래소로 나가게 한다.
-    remember_order_route(new_order_no, OrderRoute{exchange, kis_amend_order_division(session)});
-
-    LOG_INFO("[KIS] 정정 접수: " + ticker + " 원ODNO=" + orig_odno +
-             " 새ODNO=" + new_order_no + " @" + std::to_string(static_cast<int>(new_price)));
-    return OrderAck{std::move(new_order_no), std::string(), std::string()};
+    return OrderAck{std::move(amended_order_no), std::string(), std::string()};
 }

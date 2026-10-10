@@ -85,14 +85,8 @@ double MACrossStrategy::calculate_moving_average(int period) const
 
 OrderSignal MACrossStrategy::make_signal(const MarketData& market_data, OrderSide side)
 {
-    OrderSignal signal;
-    signal.ticker = ticker_;
-    signal.symbol_id = symbol_id_;
-    signal.side = side;
-    signal.type = OrderType::MARKET;
-    signal.quantity = quantity_;
+    OrderSignal signal =
+        StrategyBase::make_signal(ticker_, symbol_id_, side, OrderType::MARKET, quantity_, market_data.timestamp);
     signal.reference_price = market_data.close; // 시장가 명목 백스톱 평가 기준가(price=0이라 없으면 우회됨)
-    signal.strategy_id = id();
-    signal.timestamp = market_data.timestamp;
     return signal;
 }

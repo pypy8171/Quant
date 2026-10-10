@@ -106,8 +106,8 @@ flowchart LR
 
 예전에는 파이썬이 종목 목록과 시세 파일을 만들었다. 지금은 전략 프로세스의 `MarketBoard` 스레드가 네이버에서 전 종목 목록과 현재가·거래대금·시총을 받고, `scan_devscale`이 KIS 일봉으로 걸러 점수를 매긴다. 고른 종목은 전략 객체가 되고, 구독 요청은 제어 링으로 시세 프로세스에 간다.
 
-14. [`load_strategies`](../Quant/src/strategy/StrategyFactory.cpp#L582) — config `strategies[]`를 타입별 로더로 나눈다. 새 전략을 붙이는 자리(docs/ENGINE_ARCHITECTURE.md '전략 추가하기')  
-   `Quant/src/strategy/StrategyFactory.cpp:582` · `void load_strategies(StrategyLoadCtx& context, const json& strategies)`
+14. [`load_strategies`](../Quant/src/strategy/StrategyFactory.cpp#L574) — config `strategies[]`를 타입별 로더로 나눈다. 새 전략을 붙이는 자리(docs/ENGINE_ARCHITECTURE.md '전략 추가하기')  
+   `Quant/src/strategy/StrategyFactory.cpp:574` · `void load_strategies(StrategyLoadCtx& context, const json& strategies)`
 15. [`strategy_load::load_deviation_scale`](../Quant/src/strategy/DevScaleLoader.cpp#L768) — DEVIATION_SCALE 로더 — 보유 스냅숏 → 시세판 기동 → 초기 스캔 → 종목마다 전략 등록 → 재스캔 job 등록  
    `Quant/src/strategy/DevScaleLoader.cpp:768` · `void load_deviation_scale(LoadPass& context, const json& node)`
 16. [`start_scan_services`](../Quant/src/strategy/DevScaleLoader.cpp#L470) — `market_board:true`면 MarketBoard 스레드와 DailyWarm 스레드를 띄운다. false면 두 스레드 없이 KIS 랭킹 축과 전날 `universe_scan.json`만 쓴다  
@@ -217,18 +217,18 @@ flowchart LR
    `Quant/include/core/StrategyRouter.h:78` · `void for_each(symbol::SymbolId id, Fn&& callback) const` · 시험 [test_strategy_router](../Quant/tests/test_strategy_router.cpp)
 57. [`strategy::Emitted`](../Quant/include/core/StrategyShard.h#L27) — 샤드 → 디스패치 봉투: 신호 + 전략 id + 활성 여부. 이 구조체가 두 스레드의 계약이다  
    `Quant/include/core/StrategyShard.h:27` · `struct Emitted`
-58. [`StrategyBase::on_trade_batch`](../Quant/include/strategy/StrategyBase.h#L82) — 전략 훅의 계약(가상 함수 다섯). 기본 구현은 `on_trade` 하나를 out에 담는다. `symbol_of`·`same_symbol`도 이 헤더  
-   `Quant/include/strategy/StrategyBase.h:82` · `virtual void on_trade_batch(const TradeData&, std::vector<OrderSignal>& /*out*/)`
-59. [`DeviationScaleStrategy::on_start`](../Quant/include/strategy/DeviationScaleStrategy.h#L211) — 종목 id 받기·REST 봉 시드·프리페치 스레드. 전략 하나를 끝까지 따라가는 예로 이 전략을 쓴다  
-   `Quant/include/strategy/DeviationScaleStrategy.h:211` · `void on_start() override;`
-60. [`DeviationScaleStrategy::on_trade_batch`](../Quant/include/strategy/DeviationScaleStrategy.h#L215) — 틱 → `aggregator_.on_tick` → 판단 직전 `close_stale`·`bars::resample` → 진입/청산 판단 → out. 매매 로직의 본체. 스탑·트레일 뒤 `stop_cooldown_sec`, 전량 청산 뒤 `reentry_cooldown_sec` 동안은 새 베이스를 깔지 않는다  
-   `Quant/include/strategy/DeviationScaleStrategy.h:215` · `void on_trade_batch(const TradeData& trade, std::vector<OrderSignal>& out) override;`
+58. [`StrategyBase::on_trade_batch`](../Quant/include/strategy/StrategyBase.h#L87) — 전략 훅의 계약(가상 함수 다섯). 기본 구현은 `on_trade` 하나를 out에 담는다. `symbol_of`·`same_symbol`도 이 헤더  
+   `Quant/include/strategy/StrategyBase.h:87` · `virtual void on_trade_batch(const TradeData&, std::vector<OrderSignal>& /*out*/)`
+59. [`DeviationScaleStrategy::on_start`](../Quant/include/strategy/DeviationScaleStrategy.h#L205) — 종목 id 받기·REST 봉 시드·프리페치 스레드. 전략 하나를 끝까지 따라가는 예로 이 전략을 쓴다  
+   `Quant/include/strategy/DeviationScaleStrategy.h:205` · `void on_start() override;`
+60. [`DeviationScaleStrategy::on_trade_batch`](../Quant/include/strategy/DeviationScaleStrategy.h#L209) — 틱 → `aggregator_.on_tick` → 판단 직전 `close_stale`·`bars::resample` → 진입/청산 판단 → out. 매매 로직의 본체. 스탑·트레일 뒤 `stop_cooldown_sec`, 전량 청산 뒤 `reentry_cooldown_sec` 동안은 새 베이스를 깔지 않는다  
+   `Quant/include/strategy/DeviationScaleStrategy.h:209` · `void on_trade_batch(const TradeData& trade, std::vector<OrderSignal>& out) override;`
 61. [`bars::BarAggregator::on_tick`](../Quant/src/core/BarAggregator.cpp#L199) — 체결 틱을 1분봉으로. `close_stale`은 틱이 없어도 시계로 지난 분을 닫는다(D-074)  
    `Quant/src/core/BarAggregator.cpp:199` · `bool BarAggregator::on_tick(const TradeData& trade)` · 시험 [test_bar_aggregator](../Quant/tests/test_bar_aggregator.cpp)
 62. [`bars::resample`](../Quant/include/core/BarAggregator.h#L59) — 1분봉 → `interval_min` 봉. 판단은 언제나 이 봉으로(D-072)  
    `Quant/include/core/BarAggregator.h:59` · `std::vector<MarketData> resample(const std::vector<MarketData>& bars_1m, int interval_min, int max_count = 0);` · 시험 [test_bar_aggregator](../Quant/tests/test_bar_aggregator.cpp)
-63. [`DeviationScaleStrategy::emit_liquidation`](../Quant/include/strategy/DeviationScaleStrategy.h#L370) — 청산 신호 조립 — 시장가면 `reference_price` 스탬프, 매도 가능 수량은 원장 접근자(`sellable_quantity`, 동기 잔고조회 금지)  
-   `Quant/include/strategy/DeviationScaleStrategy.h:370` · `bool emit_liquidation(std::vector<OrderSignal>& out, int position, …`
+63. [`DeviationScaleStrategy::emit_liquidation`](../Quant/include/strategy/DeviationScaleStrategy.h#L364) — 청산 신호 조립 — 시장가면 `reference_price` 스탬프, 매도 가능 수량은 원장 접근자(`sellable_quantity`, 동기 잔고조회 금지)  
+   `Quant/include/strategy/DeviationScaleStrategy.h:364` · `bool emit_liquidation(std::vector<OrderSignal>& out, int position, …`
 64. [`Engine::ledger_sellable`](../Quant/src/core/Engine.cpp#L721) — 전략이 보는 보유·매도 가능 수량의 출처 — 주문 프로세스가 발행한 장부 스냅숏  
    `Quant/src/core/Engine.cpp:721` · `StrategyBase::SellableInfo Engine::ledger_sellable(const std::string&, const std::string& ticker) const`
 65. [`ipc::LedgerSnapshot::read_stable`](../Quant/include/ipc/LedgerSnapshot.h#L153) — 쓰는 쪽을 막지 않고 읽은 뒤 판 번호로 그 사이에 바뀌었는지 확인한다(바뀌었으면 다시 읽고, 쓰는 쪽이 멈춘 채면 기한 뒤 실패를 돌려준다)  
@@ -254,8 +254,8 @@ flowchart LR
    `Quant/src/core/SignalDispatcher.cpp:202` · `void SignalDispatcher::submit(OrderSignal signal)` · 시험 [test_signal_dispatcher](../Quant/tests/test_signal_dispatcher.cpp)
 69. [`dispatch::SignalDispatcher::force_liquidate`](../Quant/src/core/SignalDispatcher.cpp#L246) — 보유 전량 시장가 매도를 2초 간격 재발주. `reference_price`가 여기서 찍히는지 본다  
    `Quant/src/core/SignalDispatcher.cpp:246` · `void SignalDispatcher::force_liquidate(Clock::time_point now)` · 시험 [test_signal_dispatcher](../Quant/tests/test_signal_dispatcher.cpp)
-70. [`ipc::to_request`](../Quant/src/ipc/OrderChannel.cpp#L173) — `OrderSignal` → 고정 크기 `OrderRequest`(문자열 필드는 잘리면 센다). 보낸 순번은 `PendingRequests`가 응답과 짝짓는다  
-   `Quant/src/ipc/OrderChannel.cpp:173` · `OrderRequest to_request(const OrderSignal& signal, bool* truncated) noexcept` · 시험 [test_order_channel](../Quant/tests/test_order_channel.cpp)
+70. [`ipc::to_request`](../Quant/src/ipc/OrderChannel.cpp#L129) — `OrderSignal` → 고정 크기 `OrderRequest`(문자열 필드는 잘리면 센다). 보낸 순번은 `PendingRequests`가 응답과 짝짓는다  
+   `Quant/src/ipc/OrderChannel.cpp:129` · `OrderRequest to_request(const OrderSignal& signal, bool* truncated) noexcept` · 시험 [test_order_channel](../Quant/tests/test_order_channel.cpp)
 
 리뷰할 때 볼 것:
 
@@ -276,10 +276,10 @@ flowchart LR
    `Quant/src/core/OrderRateLimiter.cpp:97` · `OrderRateLimiter::Clock::duration OrderRateLimiter::wait_before_send(Clock::time_point now) const` · 시험 [test_order_rate_limiter](../Quant/tests/test_order_rate_limiter.cpp)
 74. [`order_rate::OrderRateLimiter::on_rejected`](../Quant/src/core/OrderRateLimiter.cpp#L103) — 거부 → 재시도 여부·다음 시각. 유량 한도 문장은 `GateReasons.h`와 맞춰 본다  
    `Quant/src/core/OrderRateLimiter.cpp:103` · `bool OrderRateLimiter::on_rejected(Pending pending, OrderStatus status, const std::string& reject_reason, …` · 시험 [test_order_rate_limiter](../Quant/tests/test_order_rate_limiter.cpp)
-75. [`OrderRouter::submit`](../Quant/src/ipc/OrderRouterSubmit.cpp#L135) — `action`으로 분기만 — NEW는 `new_route`, CANCEL·REPLACE는 `modify_route`  
-   `Quant/src/ipc/OrderRouterSubmit.cpp:135` · `ManagedOrder OrderRouter::submit(const OrderSignal& signal)` · 시험 [test_order_router](../Quant/tests/test_order_router.cpp)
-76. [`OrderRouter::new_route`](../Quant/src/ipc/OrderRouterSubmit.cpp#L148) — `clamp_buy_quantity` → 매도가능수량 0이면 `reconcile_blocked_sell` → 시장가 매도 중복 가드(`history_`) → `gate_.check` → `take_intent`(원장 INTENT 선기록·선점, 실패면 전송 안 함) → `kis_.submit_order_acknowledgement`(ODNO) → `gate_.on_accepted` → `record`·`write_trade_row`(`seq` 동반). 실패 경로마다 무엇이 되돌려지는지  
-   `Quant/src/ipc/OrderRouterSubmit.cpp:148` · `ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)` · 시험 [test_order_router](../Quant/tests/test_order_router.cpp)
+75. [`OrderRouter::submit`](../Quant/src/ipc/OrderRouterSubmit.cpp#L191) — `action`으로 분기만 — NEW는 `new_route`, CANCEL·REPLACE는 `modify_route`  
+   `Quant/src/ipc/OrderRouterSubmit.cpp:191` · `ManagedOrder OrderRouter::submit(const OrderSignal& signal)` · 시험 [test_order_router](../Quant/tests/test_order_router.cpp)
+76. [`OrderRouter::new_route`](../Quant/src/ipc/OrderRouterSubmit.cpp#L204) — `clamp_buy_quantity` → 매도가능수량 0이면 `reconcile_blocked_sell` → 시장가 매도 중복 가드(`history_`) → `gate_.check` → `take_intent`(원장 INTENT 선기록·선점, 실패면 전송 안 함) → `kis_.submit_order_acknowledgement`(ODNO) → `gate_.on_accepted` → `record`·`write_trade_row`(`seq` 동반). 실패 경로마다 무엇이 되돌려지는지  
+   `Quant/src/ipc/OrderRouterSubmit.cpp:204` · `ManagedOrder OrderRouter::new_route(const OrderSignal& in_signal)` · 시험 [test_order_router](../Quant/tests/test_order_router.cpp)
 77. [`OrderGate::check`](../Quant/src/risk/OrderGate.cpp#L269) — 거부 검사 사슬 — 킬스위치 → 방향 → entry_halt(국면 자동 + 운영단말 수동, OR, D-091) → 매매 창(정규장+애프터마켓, D-097) → 1주문 수량·명목 → 종목당 포지션·명목 → 슬롯(교체·쿨다운·점수 우선) → 총노출 → 일손실 → PNL_STALE → 중복 → 유량. 순서가 곧 우선순위다. 매도가능수량은 라우터가 본다  
    `Quant/src/risk/OrderGate.cpp:269` · `bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)` · 시험 [test_order_gate](../Quant/tests/test_order_gate.cpp)
 78. [`OrderGate::clamp_buy_quantity`](../Quant/src/risk/OrderGate.cpp#L123) — 매수 수량을 현금·명목 한도로 깎는다. 0이 되면 거부  
@@ -290,8 +290,8 @@ flowchart LR
    `Quant/src/risk/PositionLedger.cpp:42` · `bool PositionLedger::on_intent(const std::string& account, const std::string& ticker, OrderSide side, int quantity, …` · 시험 [test_position_ledger](../Quant/tests/test_position_ledger.cpp)
 81. [`KisClient::submit_order_acknowledgement`](../Quant/src/api/KisOrder.cpp#L182) — 현금 주문 REST. tr_id(실/모의)·`EXCG_ID_DVSN_CD`(KRX/NXT/SOR, D-096)·`authentication_headers`·응답에서 ODNO. 여기서만 KIS에 주문이 닿는다  
    `Quant/src/api/KisOrder.cpp:182` · `OrderAck KisClient::submit_order_acknowledgement(const OrderSignal& signal)`
-82. [`ipc::make_response`](../Quant/src/ipc/OrderChannel.cpp#L257) — 결과(접수·거부·ODNO)를 응답 레코드로. 전략 쪽 `strategy_thread_fn`이 받아 전략에 되돌린다  
-   `Quant/src/ipc/OrderChannel.cpp:257` · `OrderResponse make_response(uint64_t sequence, OrderResult result, uint64_t kis_order_number, …` · 시험 [test_order_channel](../Quant/tests/test_order_channel.cpp)
+82. [`ipc::make_response`](../Quant/src/ipc/OrderChannel.cpp#L213) — 결과(접수·거부·ODNO)를 응답 레코드로. 전략 쪽 `strategy_thread_fn`이 받아 전략에 되돌린다  
+   `Quant/src/ipc/OrderChannel.cpp:213` · `OrderResponse make_response(uint64_t sequence, OrderResult result, uint64_t kis_order_number, …` · 시험 [test_order_channel](../Quant/tests/test_order_channel.cpp)
 83. [`trace::LatencyTrace::record`](../Quant/include/core/LatencyTrace.h#L141) — 틱 수신→신호→pop→라우터 반환 네 시각을 `logs/latency_trace.csv` 한 줄로  
    `Quant/include/core/LatencyTrace.h:141` · `void record(const OrderSignal& signal, const Marks& marks, const OrderStageTiming& stages, bool kis_called, …` · 시험 [test_latency_trace](../Quant/tests/test_latency_trace.cpp)
 
@@ -313,12 +313,12 @@ flowchart LR
    `Quant/include/api/KisWsDecode.h:177` · `Decode decode_fill(Fields fields, FillNotification& fill_notification);` · 시험 [test_ws_decode](../Quant/tests/test_ws_decode.cpp)
 86. [`Engine::push_fill_notice`](../Quant/src/core/EngineFeed.cpp#L418) — 시세 역할이면 체결 채널로, 아니면 프로세스 안 `fill_queue`로. 채널이 차면 넘침 칸에 쌓고 control 스레드가 5초마다 다시 보낸다  
    `Quant/src/core/EngineFeed.cpp:418` · `bool Engine::push_fill_notice(const ipc::FillNotice& notice)`
-87. [`ipc::FillChannel::push`](../Quant/src/ipc/FillChannel.cpp#L197) — 고정 크기 `FillNotice` 링. 받는 쪽은 `pop` → `is_plausible` → `to_fill`  
-   `Quant/src/ipc/FillChannel.cpp:197` · `bool FillChannel::push(const FillNotice& notice) noexcept` · 시험 [test_fill_channel](../Quant/tests/test_fill_channel.cpp)
+87. [`ipc::FillChannel::push`](../Quant/src/ipc/FillChannel.cpp#L159) — 고정 크기 `FillNotice` 링. 받는 쪽은 `pop` → `is_plausible` → `to_fill`  
+   `Quant/src/ipc/FillChannel.cpp:159` · `bool FillChannel::push(const FillNotice& notice) noexcept` · 시험 [test_fill_channel](../Quant/tests/test_fill_channel.cpp)
 88. [`Engine::fill_thread_fn`](../Quant/src/core/EngineFillThread.cpp#L23) — 주문 역할이면 체결 채널에서(100ms 폴링), 아니면 `fill_queue`에서 꺼낸다 → `on_fill` → `ledger_->note_fill`(대조 5초 유예, D-074) → 운영단말 `broadcast`(FILL). 원장 사본 발행은 `ledger_thread_fn`이 맡는다  
    `Quant/src/core/EngineFillThread.cpp:23` · `void Engine::fill_thread_fn(std::stop_token stop_token)`
-89. [`OrderRouter::on_fill`](../Quant/src/ipc/OrderRouterFill.cpp#L103) — ODNO로 주문 찾기 → 상태 갱신 → `gate_.ledger().on_fill_confirmed` → 원장 CSV. 못 찾으면 미연결 체결 경로  
-   `Quant/src/ipc/OrderRouterFill.cpp:103` · `void OrderRouter::on_fill(const FillNotification& fill_notification)` · 시험 [test_order_router](../Quant/tests/test_order_router.cpp)
+89. [`OrderRouter::on_fill`](../Quant/src/ipc/OrderRouterFill.cpp#L113) — ODNO로 주문 찾기 → 상태 갱신 → `gate_.ledger().on_fill_confirmed` → 원장 CSV. 못 찾으면 미연결 체결 경로  
+   `Quant/src/ipc/OrderRouterFill.cpp:113` · `void OrderRouter::on_fill(const FillNotification& fill_notification)` · 시험 [test_order_router](../Quant/tests/test_order_router.cpp)
 90. [`PositionLedger::on_fill_confirmed`](../Quant/src/risk/PositionLedger.cpp#L849) — 포지션·평단·실현손익 갱신, `reserved_` 해제. `FillResult`가 실현 PnL을 돌려준다  
    `Quant/src/risk/PositionLedger.cpp:849` · `PositionLedger::FillResult PositionLedger::on_fill_confirmed( …` · 시험 [test_position_ledger](../Quant/tests/test_position_ledger.cpp)
 91. [`OrderGate::publish_ledger`](../Quant/src/risk/OrderGate.cpp#L1099) — 보유·매도 가능 수량·진입 정지·배율을 원장 스냅숏에 쓴다(세대 번호를 올리며). 전담 `ledger_thread_fn`이 주문 유무와 상관없이 100ms마다 낸다 — 주문마다 내던 한 판(2,700종목에 98µs)이 주문 고리의 61%를 먹어서 뗐다  

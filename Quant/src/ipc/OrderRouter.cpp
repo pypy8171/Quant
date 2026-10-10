@@ -1,6 +1,7 @@
 // 주문 라우터 — 생성·소멸, 미결주문 스냅샷, 이력 색인, 통계. 파일 쓰기는 OrderJournal.cpp가 맡는다.
 //  발주 경로는 OrderRouterSubmit.cpp, 기동·재확인 대조는 OrderRouterReconcile.cpp, 체결은 OrderRouterFill.cpp.
 #include "ipc/OrderRouter.h"
+#include "ipc/SideLabel.h"
 
 #include <format>
 #include <iterator>
@@ -9,8 +10,13 @@
 // ─── 내부 순번 ID 생성  "ORD-000001" ─────────────────────────────────────
 std::string OrderRouter::next_id()
 {
-    // 주문마다 부르는 곳이라 스트림을 쓰지 않는다(D-042). 6자리를 넘으면 자릿수만 늘어난다.
-    return std::format("ORD-{:06}", ++sequence_);
+    return format_order_id(++sequence_);
+}
+
+std::string OrderRouter::format_order_id(uint64_t order_number)
+{
+    // 주문마다 부르는 곳이라 스트림을 쓰지 않는다(D-042).
+    return std::format("{}{:06}", kOrderIdPrefix, order_number);
 }
 
 void OrderRouter::continue_order_numbers(uint64_t highest) noexcept
@@ -26,14 +32,12 @@ uint64_t OrderRouter::order_number_of(std::string_view order_id) noexcept
 {
     // next_id가 붙이는 머리글을 떼고 숫자만 읽는다 — 통째로 읽으면 'O'에서 멈춰 늘 0이 되었다(09-28 확인,
     //  D-113 저널 도입부터 order_id가 전부 0이라 재기동 미결 주문 대조가 한 번도 짝을 못 찾았다).
-    constexpr std::string_view prefix = "ORD-";
-
-    if (!order_id.starts_with(prefix))
+    if (!order_id.starts_with(kOrderIdPrefix))
     {
         return 0;
     }
 
-    return digits_to_number(order_id.substr(prefix.size()));
+    return digits_to_number(order_id.substr(kOrderIdPrefix.size()));
 }
 
 OrderRouter::InFlightMark::InFlightMark(OrderRouter& router, symbol::SymbolId symbol_id)
@@ -89,7 +93,7 @@ std::string OrderRouter::snapshot_open_orders_locked() const
         }
 
         std::format_to(std::back_inserter(buffer), "{}|{}|{}|{}|{}\n", history_entry.kis_order_no, history_entry.krx_forwarding_org_no, history_entry.signal.ticker,
-                       history_entry.signal.side == OrderSide::BUY ? "BUY" : "SELL", outstanding_of(history_entry));
+                       side_label(history_entry.signal.side), outstanding_of(history_entry));
     }
 
     // 이전 세션 줄은 아직 취소가 안 끝난 것만 남아 있다 — 이번 세션 줄과 합쳐 쓴다.
@@ -128,7 +132,7 @@ void OrderRouter::flush_file_writes()
 #ifdef HAS_ZMQ
 OrderRouter::OrderRouter(OrderGate& gate, IOrderExecutor& kis, ZmqBridge* zmq, OrderRouterConfig config)
     : gate_(gate), kis_(kis), config_(config), zmq_(zmq),
-      unlinked_strategy_index_(gate.ledger().strategy_index_of("UNLINKED")),
+      unlinked_strategy_index_(gate.ledger().strategy_index_of(kUnlinkedStrategy)),
       fill_recovery_([this](std::stop_token stop_token)
       {
           fill_recovery_loop(stop_token);
@@ -138,7 +142,7 @@ OrderRouter::OrderRouter(OrderGate& gate, IOrderExecutor& kis, ZmqBridge* zmq, O
 #else
 OrderRouter::OrderRouter(OrderGate& gate, IOrderExecutor& kis, OrderRouterConfig config)
     : gate_(gate), kis_(kis), config_(config),
-      unlinked_strategy_index_(gate.ledger().strategy_index_of("UNLINKED")),
+      unlinked_strategy_index_(gate.ledger().strategy_index_of(kUnlinkedStrategy)),
       fill_recovery_([this](std::stop_token stop_token)
       {
           fill_recovery_loop(stop_token);

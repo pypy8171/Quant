@@ -202,6 +202,8 @@ ORDER_TRUNCATED_RE = re.compile(r"order_truncated=(\d+)")
 # 장부 사본(D-114 단계 2.5) — 낸 판 수와, 한 계좌만 담는 사본에 못 실은 남의 계좌 줄 수.
 LEDGER_GEN_RE = re.compile(r"ledger_gen=(\d+)")
 LEDGER_FOREIGN_RE = re.compile(r"ledger_foreign=(\d+)")
+# 사본 읽기가 기한(50ms) 안에 안정된 판을 못 잡아 보수값을 돌려준 누계. 쓰는 쪽이 판을 연 채 멈춘 것이다.
+LEDGER_STALE_READ_RE = re.compile(r"ledger_stale_read=(\d+)")
 # 제어 요청(D-114 단계 2.5 갈래 B) — 전략이 큐가 가득 차 못 보낸 줄 수, 주문 쪽이 반쪽 표로 보고 버린 줄 수.
 CONTROL_DROP_RE = re.compile(r"control_dropped=(\d+)")
 # 체결통보 큐(D-056) — [큐 고수위] 줄의 최고 수위·버린 건수와, 잔고 대조가 메운 줄(CODE_REVIEW W-1).
@@ -3570,6 +3572,7 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
     ledger_gen_previous = -1                     # 직전 고수위 줄의 판 번호. 같으면 그사이에 한 판도 안 나간 것
     ledger_stall_at = []                         # 판이 안 늘어난 지점의 초
     ledger_foreign = -1                          # 사본에 못 실은 남의 계좌 줄 수. -1이면 그 줄이 없는 구 exe
+    ledger_stale_read = -1                       # 사본 읽기가 기한을 넘겨 보수값을 받은 누계. -1이면 그 칸이 없는 구 exe
     control_dropped = 0                          # 앞 토막이 가득 차 전략이 못 보낸 제어 요청 줄 수
     fill_queue_high = -1                         # 체결통보 큐 최고 수위. -1이면 [큐 고수위] 줄이 없다
     fill_queue_capacity = 0
@@ -3693,6 +3696,8 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
                 ledger_gen = max(ledger_gen, generation)
             if found := LEDGER_FOREIGN_RE.search(line):
                 ledger_foreign = max(ledger_foreign, int(found.group(1)))
+            if found := LEDGER_STALE_READ_RE.search(line):
+                ledger_stale_read = max(ledger_stale_read, int(found.group(1)))
             if found := FILL_QUEUE_RE.search(line):
                 fill_queue_high = max(fill_queue_high, int(found.group(1)))
                 fill_queue_capacity = int(found.group(2))
@@ -4112,6 +4117,11 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
                    f"다른 계좌 줄 {ledger_foreign}건 · 낸 판 {ledger_gen}판 (어긋남 기대 0)"),
         # 전략은 이제 장부가 아니라 사본을 본다 — 판이 안 늘면 보유·여력이 굳어 같은 종목을 또 산다(A등급).
         #  주문이 없는 회차에도 주문 스레드가 100ms마다 한 판씩 내므로, 고수위 줄 사이에 0판은 멈춘 것이다.
+        # 판이 50ms 안에 안 닫히면 읽는 쪽은 보수값(진입·매도 정지, 보유 0)을 받는다. 그 바퀴의 신호가
+        #  한 번 쉰 것이고, 0이 아니면 쓰는 쪽이 판을 연 채 멈춘 적이 있다.
+        ("장부 사본 기한초과", ledger_stale_read <= 0, "FAIL",
+         "[큐 고수위] 줄에 ledger_stale_read 칸 없음 — 판정 안 함" if ledger_stale_read < 0 else
+         f"기한을 넘겨 보수값을 받은 읽기 {ledger_stale_read}번 (기대 0 — 그만큼 신호가 정지·보유 0으로 읽혔다)"),
         ledger_row("장부 사본 갱신", not ledger_stall_at, "FAIL",
                    f"판이 안 늘어난 구간 {len(ledger_stall_at)}곳 · 낸 판 {ledger_gen}판 (기대 0곳)"
                    + (f" — {', '.join(hhmm(second) for second in ledger_stall_at[:5])}" if ledger_stall_at else "")),

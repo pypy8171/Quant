@@ -3,6 +3,8 @@
 #include "core/Types.h"
 #include "risk/ProtectiveRule.h"
 #include <atomic>
+#include <chrono>
+#include <ctime>
 #include <functional>
 #include <optional>
 #include <string>
@@ -41,11 +43,14 @@ public:
     virtual const std::string& id() const = 0;
     virtual std::string describe() const = 0;
 
-    // 일봉 시세 이벤트
-    virtual std::optional<OrderSignal> on_data(const MarketData&) = 0;
+    // 일봉 시세 이벤트. 기본은 아무 신호도 내지 않는다 — 일봉을 쓰는 전략(MACross)만 덮어쓴다.
+    virtual std::optional<OrderSignal> on_data(const MarketData&)
+    {
+        return std::nullopt;
+    }
 
     // 이 전략이 on_data(일봉)를 실제로 쓰는가. 기본 false — 대부분의 전략은 호가·체결
-    //  이벤트로만 동작하고 on_data는 인터페이스 충족용 no-op이다. Engine은 활성 전략 중
+    //  이벤트로만 동작하고 on_data는 기본 no-op 그대로다. Engine은 활성 전략 중
     //  하나라도 true일 때만 일봉을 폴링한다. 아무도 안 쓰면 종목 수만큼의 차트 TR 호출이
     //  매 사이클 그대로 버려지고, 그 호출량이 초당 한도를 밀어올려 다른 조회까지 500으로 떨어뜨린다.
     virtual bool wants_daily_bars() const
@@ -294,6 +299,15 @@ protected:
     {
         return symbol_resolver_ ? symbol_resolver_(ticker) : symbol::kNone;
     }
+
+    // 주문 신호의 공통 칸을 채운다 — 종목·종목 id·방향·주문 종류·수량·전략 이름(id())·시장(KR)·시각.
+    //  가격·계좌·주문 이름·사유 같은 나머지 칸은 부른 쪽이 채운다.
+    OrderSignal make_signal(std::string_view ticker, symbol::SymbolId symbol, OrderSide side, OrderType type,
+                            int quantity,
+                            std::chrono::system_clock::time_point timestamp = std::chrono::system_clock::now()) const;
+
+    // KST 시각을 HHMM 정수로(09:05 → 905). 초는 버린다.
+    static int kst_hhmm(std::time_t now_utc);
 
     // 보호 주문 등록 — "이 종목은 평단 -stop_loss_percent면 판다"를 주문 쪽 표에 미리 올려둔다.
     //  전략이 멈춰도 그 표만 보고 청산이 나간다. 조건이 없으면(전부 0) 해제로 친다. [why D-114]

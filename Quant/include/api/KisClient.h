@@ -171,21 +171,7 @@ public:
     //   output2/3=기초지수(종합·KOSPI200). 첫 호출 1회 raw를 로그로 남긴다(스키마 변동 대비).
     // [wire] 출처: KIS 공식 샘플 inquire_price(국내선물옵션, FHMIF10000000, F=지수선물 O=지수옵션), 2026-09-27 MCP 확인.
     //  샘플은 모의에도 같은 TR을 쓴다고 적는다. 모의 도메인 HTTP 500은 실측(Quant/logs/archive/quant_trader_2026-08-06.log 509행, 시세 REST 전반).
-    struct FuturePrice
-    {
-        std::string issue_code;
-        double price = 0.0;
-        double change = 0.0;       // 전일 대비
-        double change_rate = 0.0;  // 전일 대비율(%)
-        int sign = 3;              // 1=상한 2=상승 3=보합 4=하한 5=하락
-        // 근거: api/IMarketDataSource.h IndexPrice::sign 주석 참고(값 1~5의 공식 출처를 찾지 못했다).
-        double open = 0.0;
-        double high = 0.0;
-        double low = 0.0;
-        int64_t volume = 0;        // 누적 거래량
-        int64_t open_interest = 0; // 미결제약정(open interest)
-        bool ok = false;           // 가격 파싱 성공 여부
-    };
+    using FuturePrice = ::FuturePrice; // 구조체는 api/KisTypes.h
     FuturePrice get_future_price(const std::string& issue_code, const std::string& market_div = "F");
 
     // 선물 전광판 — display-board-futures (transaction_id FHPIF05030200). 현재 거래가능 선물 계약 목록.
@@ -197,18 +183,7 @@ public:
                                                                          const std::string& market_div = "F");
 
     // 시가총액 순위 — 현재가·등락률·시가총액 포함
-    struct RankingStock
-    {
-        int rank = 0;
-        std::string ticker;
-        std::string name;
-        double price = 0.0;
-        double change = 0.0;      // 전일 대비
-        double change_rate = 0.0; // 등락률(%)
-        int64_t volume = 0;       // 누적 거래량
-        double market_cap = 0.0;  // 시가총액(억원) — market-cap 경로에서만 채워짐
-        double trade_value = 0.0; // 누적 거래대금(원) — volume-rank 경로에서만 채워짐
-    };
+    using RankingStock = ::RankingStock; // 구조체는 api/KisTypes.h
     std::vector<RankingStock> fetch_kr_ranking(int count = 200, const std::string& market_div = "J");
 
     // 한 번에 오는 행수 상한. 시가총액·거래대금 두 순위 모두 같은 값이고, KIS가 고정한 값이라
@@ -239,14 +214,7 @@ public:
     //  ⚠️ 추정치(확정 아님) — 장중 정해진 시각에 입력되는 가집계라 부호·상대크기만 신뢰. 실전 도메인 전용(모의 시세 REST가 HTTP 500인 것은
     //  Quant/logs/archive/quant_trader_2026-08-06.log 509행 실측). FID 파라미터(시장 V, 화면 16449)·필드명은 KIS 공식 샘플 foreign_institution_total로
     //  2026-09-27 MCP 확인했다(2026-09-27 샘플 대조로 고침 — 전에는 미확정이라 적혀 있었다).
-    struct EstInvestorFlow
-    {
-        std::string ticker;             // mksc_shrn_iscd
-        std::string name;               // hts_kor_isnm
-        int64_t foreign_net_quantity = 0;    // frgn_ntby_qty (외국인 추정 순매수 수량, +담기/-던지기)
-        int64_t institution_net_quantity    = 0;    // orgn_ntby_qty (기관 추정)
-        double  foreign_net_amount = 0.0;  // frgn_ntby_tr_pbmn (금액, 원)
-    };
+    using EstInvestorFlow = ::EstInvestorFlow; // 구조체는 api/KisTypes.h
     // market: "0000"=전체 "0001"=코스피 "1001"=코스닥. sort: "0"=순매수상위 "1"=순매도상위.
     // etc_cls: "0"=전체 "1"=외국인 "2"=기관계 (필드가 한 행에 동거 안 하면 분리 조회).
     // [wire] 출처: KIS 공식 샘플 foreign_institution_total 파라미터 설명(정렬 0 순매수상위/1 순매도상위, 구분 0 전체/1 외국인/2 기관계/3 기타), 2026-09-27 MCP 확인.
@@ -255,12 +223,7 @@ public:
                                                             const std::string& etc_cls = "0");
 
     // 투자자별 매매동향 — 외국인·기관 순매수 확인 (단일 최신값)
-    struct InvestorTrend
-    {
-        std::string ticker;
-        int64_t foreign_net = 0; // 외국인 순매수 수량 (양수=순매수)
-        int64_t institution_net    = 0; // 기관 순매수 수량
-    };
+    using InvestorTrend = ::InvestorTrend; // 구조체는 api/KisTypes.h
     InvestorTrend get_investor_trend(const std::string& ticker);
 
     // ── 해외 (US) ──────────────────────────────────────────────────────────
@@ -348,6 +311,16 @@ private:
     void remember_order_route(const std::string& kis_order_no, OrderRoute route);
     // 원주문의 거래소·주문구분. 모르면 정정취소가능조회를 한 번 부르고, 거기도 없으면 빈 값을 돌려준다.
     OrderRoute original_order_route(const std::string& kis_order_no);
+
+    // 취소·정정(order-rvsecncl) 공용 몸 — cancel_order·revise_order가 이것에 넘긴다. price는 정정에서만 쓴다.
+    enum class AmendKind
+    {
+        Cancel,
+        Revise,
+    };
+    [[nodiscard]] OrderAck amend_order(AmendKind kind, const std::string& ticker, const std::string& orig_odno,
+                                       const std::string& krx_forwarding_org_no, int quantity, double price,
+                                       bool all_remaining);
 
     // 초당 호출 한도 토큰버킷. 한도는 app_key 단위라 같은 키를 쓰는 클라이언트끼리 버킷 하나를 나눠 쥔다
     //  (share_rate_limit_with). 모든 호출이 http_get/http_post를 지나므로 여기서 재우면 우회하는 호출 경로가 없다.

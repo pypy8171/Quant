@@ -140,6 +140,13 @@ public:
     //  겹치므로, 리플레이가 본 가장 큰 번호를 넘긴다. 이미 그보다 크면 그대로 둔다. [inv] 스레드 시작 전에 부른다.
     void continue_order_numbers(uint64_t highest) noexcept;
 
+    // 내부 주문번호 머리글("ORD-")과 미매핑 체결의 전략 이름 — 파일마다 따로 적던 글자를 여기서만 정한다.
+    static constexpr std::string_view kOrderIdPrefix    = "ORD-";
+    static constexpr std::string_view kUnlinkedStrategy = "UNLINKED";
+
+    // 내부 주문번호 정수(123) → 문자열("ORD-000123"). 6자리를 넘으면 자릿수만 늘어난다.
+    [[nodiscard]] static std::string format_order_id(uint64_t order_number);
+
     // 내부 주문번호 문자열("ORD-000123") → 저널에 적는 정수(123). 형식이 다르면 0.
     [[nodiscard]] static uint64_t order_number_of(std::string_view order_id) noexcept;
 

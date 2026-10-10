@@ -1,5 +1,6 @@
 // 주문 라우터 — 재기동 미결 대조, 유령 선점 정리, 이전 세션 미체결 취소, 전송 타임아웃 재확인, 잔고 대조 기록.
 #include "ipc/OrderRouter.h"
+#include "ipc/SideLabel.h"
 #include "api/KisErrorCodes.h"
 #include "utils/Logger.h"
 #include <algorithm>
@@ -122,7 +123,7 @@ OrderRouter::AdoptResult OrderRouter::adopt_open_intents(const std::vector<Order
                                    OrderGate::OrderRef{intent.order_id, kis_order_number, intent.type});
                 LOG_WARN(std::format("[OrderRouter] 재기동 미결 주문 짝 [{}] 접수 응답 전에 끊긴 주문 — KIS 미체결 ODNO={} {} {} {}주로 되살림",
                                      intent.order_id, kis_order_number, intent.ticker,
-                                     intent.side == OrderSide::BUY ? "BUY" : "SELL", open->psbl_qty));
+                                     side_label(intent.side), open->psbl_qty));
             }
         }
         else if (asked_broker && !kis_.is_paper())
@@ -142,7 +143,7 @@ OrderRouter::AdoptResult OrderRouter::adopt_open_intents(const std::vector<Order
         {
             LOG_WARN(std::format("[OrderRouter] 재기동 미결 주문 선점 해제 [{}] ODNO={} {} {} {}주 — {}",
                                  intent.order_id, intent.kis_order_number, intent.ticker,
-                                 intent.side == OrderSide::BUY ? "BUY" : "SELL", intent.remaining,
+                                 side_label(intent.side), intent.remaining,
                                  asked_broker ? "KIS 미체결에 없다" : "미체결 조회를 못 했고 접수 기록도 없다"));
             ledger.on_cancel(intent.account, intent.ticker, intent.side, intent.remaining,
                             OrderGate::OrderRef{intent.order_id, intent.kis_order_number, intent.type});
@@ -168,9 +169,9 @@ void OrderRouter::restore_intent(const OrderGate::OpenIntent& intent, uint64_t k
     signal.type        = intent.type;
     signal.quantity    = intent.remaining;
     signal.price       = intent.price;
-    signal.strategy_id = intent.strategy_name.empty() ? std::string("UNLINKED") : intent.strategy_name;
+    signal.strategy_id = intent.strategy_name.empty() ? std::string(kUnlinkedStrategy) : intent.strategy_name;
     signal.reason      = "재기동 복원(장부 저널 미결 주문)";
-    ManagedOrder managed_order = make_restored_order(std::format("ORD-{:06}", intent.order_id),
+    ManagedOrder managed_order = make_restored_order(format_order_id(intent.order_id),
                                                      std::format("{:010}", kis_order_number), std::move(signal),
                                                      std::chrono::system_clock::now());
 
@@ -187,11 +188,7 @@ void OrderRouter::restore_intent(const OrderGate::OpenIntent& intent, uint64_t k
     }
 
     // 되살린 번호 위에서 이어 센다 — 같은 ORD-NNNNNN이 두 번 생기면 체결통보가 엉뚱한 주문에 붙는다.
-    uint64_t seen = sequence_.load(std::memory_order_relaxed);
-
-    while (seen < intent.order_id && !sequence_.compare_exchange_weak(seen, intent.order_id))
-    {
-    }
+    continue_order_numbers(intent.order_id);
 }
 
 ManagedOrder OrderRouter::make_restored_order(std::string order_id, std::string kis_order_no, OrderSignal signal,

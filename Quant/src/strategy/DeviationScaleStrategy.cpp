@@ -1424,21 +1424,13 @@ void DeviationScaleStrategy::place(std::vector<OrderSignal>& out, OrderSide side
 
     std::string order_id = next_order_id(side == OrderSide::BUY ? "B" : "S");
     const uint64_t order_number = next_client_order_number(); // 라우터가 취소 대상을 찾는 키. 문자열은 로그용
-    OrderSignal signal;
-    signal.ticker = parameters_.ticker;
-    signal.symbol_id = symbol_id_;
-    signal.side = side;
-    signal.type = OrderType::LIMIT;
-    signal.quantity = quantity;
+    OrderSignal signal = make_signal(parameters_.ticker, symbol_id_, side, OrderType::LIMIT, quantity);
     signal.price = price;
-    signal.strategy_id = id();
-    signal.market = Market::KR;
     signal.action = OrderAction::NEW;
     signal.client_order_id = order_id;
     signal.client_order_number = order_number;
     signal.account_id = parameters_.account;
     signal.reason = reason; // G4: 판단 근거를 신호에 실어 영속
-    signal.timestamp = std::chrono::system_clock::now();
     out.push_back(std::move(signal));
     live_.push_back({std::move(order_id), order_number, side, quantity});
 }
@@ -1486,38 +1478,22 @@ void DeviationScaleStrategy::push_cancel(std::vector<OrderSignal>& out, Live& li
         cancelled_sell_quantity_ += live_entry.quantity;
     }
 
-    OrderSignal signal;
-    signal.ticker = parameters_.ticker;
-    signal.symbol_id = symbol_id_;
-    signal.side = live_entry.side;
-    signal.type = OrderType::LIMIT;
-    signal.quantity = 0;
-    signal.strategy_id = id();
-    signal.market = Market::KR;
+    OrderSignal signal = make_signal(parameters_.ticker, symbol_id_, live_entry.side, OrderType::LIMIT, 0);
     signal.action = OrderAction::CANCEL;
     signal.original_client_order_id = std::move(live_entry.order_id);
     signal.original_client_order_number = live_entry.order_number;
     signal.account_id = parameters_.account;
-    signal.timestamp = std::chrono::system_clock::now();
     out.push_back(std::move(signal));
 }
 
 OrderSignal DeviationScaleStrategy::make_market_sell(int quantity, const std::string& reason)
 {
-    OrderSignal signal;
-    signal.ticker = parameters_.ticker;
-    signal.symbol_id = symbol_id_;
-    signal.side = OrderSide::SELL;
-    signal.type = OrderType::MARKET;
-    signal.quantity = quantity;
-    signal.strategy_id = id();
-    signal.market = Market::KR;
+    OrderSignal signal = make_signal(parameters_.ticker, symbol_id_, OrderSide::SELL, OrderType::MARKET, quantity);
     signal.action = OrderAction::NEW;
     signal.account_id = parameters_.account;
     signal.reason = reason; // G4: 청산 사유(존 이탈/장 마감 등)를 신호에 실어 영속
     signal.reference_price =
         liquidation_reference_price(); // 시장가는 price=0이라 이 값이 없으면 1주문 명목 상한이 비어 버린다
-    signal.timestamp = std::chrono::system_clock::now();
     return signal;
 }
 
