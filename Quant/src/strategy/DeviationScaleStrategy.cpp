@@ -1,5 +1,7 @@
 #include "strategy/DeviationScaleStrategy.h"
 #include <atomic>
+#include <condition_variable>
+#include <map>
 
 namespace
 {
@@ -8,6 +10,24 @@ constexpr int64_t kWarmLogIntervalMs = 60000;
 
 // 하루 분 수 — 날짜+시각을 분 일련번호 하나로 접을 때 쓴다.
 constexpr int kMinutesPerDay = 1440;
+
+// 기준자본(총평가금) 캐시 — 계좌마다 한 칸. 같은 계좌의 종목 전략들이 나눠 쓴다(fetch_equity 헤더 주석).
+struct EquityEntry
+{
+    std::string                           fetched_date;   // 값을 받은 날(YYYYMMDD)
+    double                                equity = 0.0;   // 원. 0=아직 없음
+    std::chrono::steady_clock::time_point retry_after{};  // 실패 쿨다운이 끝나는 시각
+    bool                                  fetching = false; // [inv] true인 동안 이 계좌를 조회하는 스레드는 하나뿐이다
+};
+
+struct EquityCache
+{
+    std::mutex                         mutex;
+    std::condition_variable            fetched; // 조회가 끝나면 기다리던 같은 계좌 스레드를 깨운다
+    std::map<std::string, EquityEntry> by_account;
+};
+
+EquityCache g_equity_cache;
 } // namespace
 
 DeviationScaleStrategy::DeviationScaleStrategy(Params parameters)
@@ -1310,23 +1330,32 @@ double DeviationScaleStrategy::fetch_equity()
 {
     constexpr std::chrono::seconds kRetryCooldown{60}; // 조회 실패 뒤 다시 부르지 않는 시간
 
-    static std::mutex s_mutex;
-    static std::string s_ymd;
-    static double static_equity = 0.0;
-    static std::chrono::steady_clock::time_point s_retry_after{}; // 실패 쿨다운이 끝나는 시각
-    std::lock_guard<std::mutex> lock(s_mutex);
     std::string today = kst_ymd();
 
-    if (s_ymd == today && static_equity > 0.0)
     {
-        return static_equity;
+        std::unique_lock<std::mutex> lock(g_equity_cache.mutex);
+        EquityEntry&                 entry = g_equity_cache.by_account[parameters_.account];
+
+        // 같은 계좌를 다른 스레드가 조회 중이면 끝나기를 기다린다. 기다리는 동안 락은 놓여 있다.
+        g_equity_cache.fetched.wait(lock, [&entry]
+        {
+            return !entry.fetching;
+        });
+
+        if (entry.fetched_date == today && entry.equity > 0.0)
+        {
+            return entry.equity;
+        }
+
+        if (std::chrono::steady_clock::now() < entry.retry_after)
+        {
+            return 0.0; // 직전 조회가 실패했다 — 쿨다운 안에는 서버를 다시 때리지 않는다
+        }
+
+        entry.fetching = true;
     }
 
-    if (std::chrono::steady_clock::now() < s_retry_after)
-    {
-        return 0.0; // 직전 조회가 실패했다 — 쿨다운 안에는 서버를 다시 때리지 않는다
-    }
-
+    // 잔고 조회(REST)는 락 밖에서 한다. 같은 계좌의 다른 스레드는 위 wait에서 기다리고, 다른 계좌는 막히지 않는다.
     double equity = 0.0;
     KisClient* kis_client = account_kis();
 
@@ -1343,19 +1372,32 @@ double DeviationScaleStrategy::fetch_equity()
         }
         catch (...)
         {
+            // 여기서 새면 fetching이 true로 남아 같은 계좌 스레드가 영영 기다린다. 실패는 아래 로그 한 줄로 남긴다.
         }
     }
 
-    if (equity > 0.0)
     {
-        s_ymd = std::move(today);
-        static_equity = equity;
+        std::lock_guard<std::mutex> lock(g_equity_cache.mutex);
+        EquityEntry&                entry = g_equity_cache.by_account[parameters_.account];
+        entry.fetching                    = false;
+
+        if (equity > 0.0)
+        {
+            entry.fetched_date = std::move(today);
+            entry.equity = equity;
+        }
+        else
+        {
+            entry.retry_after = std::chrono::steady_clock::now() + kRetryCooldown;
+        }
     }
-    else
+
+    g_equity_cache.fetched.notify_all();
+
+    if (equity <= 0.0)
     {
-        s_retry_after = std::chrono::steady_clock::now() + kRetryCooldown;
         LOG_WARN("[DEVSCALE] 기준자본(총평가금) 조회 실패 — " + std::to_string(kRetryCooldown.count()) +
-                 "초 쿨다운, 그 안에는 폴백 자본으로 간다");
+                 "초 쿨다운, 그 안에는 폴백 자본으로 간다 - account(" + parameters_.account + ")");
     }
 
     return equity;

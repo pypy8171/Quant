@@ -5,6 +5,7 @@
 #include "core/KstTime.h"
 #include "utils/AtomicFile.h"
 #include "utils/Logger.h"
+#include "utils/ThreadGuard.h"
 #include "utils/ThreadName.h"
 #include "utils/Utf8.h"
 
@@ -33,6 +34,8 @@ constexpr std::string_view kPollingEndpoint = "https://polling.finance.naver.com
 constexpr int              kListingPageSize = 100;
 constexpr int              kListingMaxPages = 60; // 코스피 25쪽·코스닥 19쪽(09-26). 응답이 어긋나도 끝없이 돌지 않게
 constexpr std::int64_t     kSecondsPerMinute = 60;
+// 루프가 예외로 끝났을 때 다시 돌기 전에 쉬는 시간. 같은 원인으로 곧바로 다시 던져 로그만 쌓이는 것을 막는다.
+constexpr std::chrono::milliseconds kRestartPause{1000};
 
 // 웹페이지가 보내는 것과 같은 헤더. 없으면 폴링 주소가 빈 본문으로 200을 준다.
 //  [wire] 2026-09-27 실측에서는 헤더 없이도 같은 본문(3종목 7,275바이트)이 왔다(2026-09-27 확인으로 고침 — 빈 본문은 재현되지 않음).
@@ -454,9 +457,20 @@ void MarketBoard::start(const Config& config)
 
     config_.period_sec = std::max(1, config_.period_sec);
     config_.rerank_sec = std::max(config_.period_sec, config_.rerank_sec);
+    // 수집 루프가 던지면 로그를 남기고 잠깐 쉰 뒤 다시 돈다. 시세판은 장 내내 갱신돼야 하고, 한 번 받기가 실패한
+    //  상태는 다음 주기 받기에 이어지지 않아 다시 도는 쪽이 낫다. 끝내면 시세판이 그 시각 값에 멈춘다.
     worker_            = std::thread([this]
     {
-        run();
+        thread_guard::run_restarting("MarketBoard",
+                                     [this]
+                                     {
+                                         return running_.load(std::memory_order_acquire);
+                                     },
+                                     kRestartPause,
+                                     [this]
+                                     {
+                                         run();
+                                     });
     });
     LOG_INFO("[MarketBoard] 시작 — 시세 " + std::to_string(config_.period_sec) + "초·재랭킹 " +
              std::to_string(config_.rerank_sec) + "초 주기, 시장별 시총 top" + std::to_string(config_.n_market_value) +

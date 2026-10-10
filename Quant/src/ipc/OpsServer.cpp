@@ -1,10 +1,12 @@
 // 운영단말 TCP 서버 구현. 스레드 소유권: 소켓 전부 srv_thread_. [why D-043]
 #include "ipc/OpsServer.h"
+#include "core/Types.h"
 #include "utils/Logger.h"
 #include "utils/ThreadName.h"
 
 #include <chrono>
 #include <cstring>
+#include <optional>
 #include <nlohmann/json.hpp>
 
 #ifdef _WIN32
@@ -37,6 +39,9 @@ using json = nlohmann::json;
 
 namespace
 {
+
+// select 실패나 한 바퀴 예외 뒤에 쉬는 시간 — 같은 실패가 곧바로 되풀이되며 로그를 채우지 않게 한다.
+constexpr std::chrono::milliseconds kLoopFailurePause{200};
 
 bool is_loopback(const std::string& address)
 {
@@ -180,16 +185,14 @@ void OpsServer::stop()
         srv_thread_.join();
     }
 
+    // 서버 스레드를 join한 뒤라 clients_를 만지는 쪽은 이 스레드 하나다.
+    for (const auto& entry : clients_)
     {
-        std::lock_guard<std::mutex> lock(clients_mutex_);
-
-        for (auto& entry : clients_)
-        {
-            ops_close(entry.first);
-        }
-
-        clients_.clear();
+        ops_close(entry.first);
     }
+
+    clients_.clear();
+    client_count_.store(0, std::memory_order_relaxed);
 
     if (listen_descriptor_ != OPS_INVALID)
     {
@@ -202,8 +205,7 @@ void OpsServer::stop()
 
 size_t OpsServer::client_count() const
 {
-    std::lock_guard<std::mutex> lock(clients_mutex_);
-    return clients_.size();
+    return client_count_.load(std::memory_order_relaxed);
 }
 
 void OpsServer::broadcast(ops::OpsMsg type, std::string body)
@@ -226,132 +228,143 @@ void OpsServer::thread_fn()
 
     while (running_.load())
     {
-        fd_set reader;
-        fd_set write_set;
-        FD_ZERO(&reader);
-        FD_ZERO(&write_set);
-        FD_SET(listen_descriptor_, &reader);
-        ops_socket_t maxfd = listen_descriptor_;
-
+        // 이 스레드 밖으로 예외가 새면 std::terminate로 주문 프로세스가 통째로 죽는다. 한 바퀴의 실패는 로그만
+        //  남기고 다음 바퀴로 간다(9.2). 프레임 처리 밖의 콜백(positions_ 등)이 던지는 경우가 여기로 온다.
+        //  TODO: 스레드 루프 공용 감싸개가 생기면 그쪽으로 옮긴다.
+        try
         {
-            std::lock_guard<std::mutex> lock(clients_mutex_);
+            run_once(last_position_push);
+        }
+        catch (const std::exception& exception)
+        {
+            LOG_ERROR(std::string("[Ops] 서버 스레드 한 바퀴에서 예외 - what(") + exception.what() + ")");
+            std::this_thread::sleep_for(kLoopFailurePause);
+        }
+        catch (...)
+        {
+            LOG_ERROR("[Ops] 서버 스레드 한 바퀴에서 알 수 없는 예외");
+            std::this_thread::sleep_for(kLoopFailurePause);
+        }
+    }
+}
 
-            for (auto& entry : clients_)
-            {
-                FD_SET(entry.first, &reader);
+void OpsServer::run_once(std::chrono::steady_clock::time_point& last_position_push)
+{
+    fd_set reader;
+    fd_set write_set;
+    FD_ZERO(&reader);
+    FD_ZERO(&write_set);
+    FD_SET(listen_descriptor_, &reader);
+    ops_socket_t maxfd = listen_descriptor_;
 
-                if (!entry.second.out.empty())
-                {
-                    FD_SET(entry.first, &write_set);
-                }
+    for (const auto& entry : clients_)
+    {
+        FD_SET(entry.first, &reader);
 
-#ifndef _WIN32
-                if (entry.first > maxfd)
-                {
-                    maxfd = entry.first;
-                }
-#endif
-            }
+        if (!entry.second.out.empty())
+        {
+            FD_SET(entry.first, &write_set);
         }
 
-        // 50ms — broadcast 큐는 이 주기로 비운다. 포지션은 아래에서 1초마다 보고 바뀌었을 때만 민다.
-        timeval time_value{};
-        time_value.tv_sec  = 0;
-        time_value.tv_usec = 50000;
-        const int count = ::select(static_cast<int>(maxfd) + 1, &reader, &write_set, nullptr, &time_value);
-
-        if (count < 0)
+#ifndef _WIN32
+        if (entry.first > maxfd)
         {
-            const int error = ops_errno();
-#ifdef _WIN32
-            if (error == WSAEINTR)
-#else
-            if (error == EINTR)
+            maxfd = entry.first;
+        }
 #endif
-            {
-                continue;
-            }
+    }
 
-            LOG_ERROR("[Ops] select 실패 err=" + std::to_string(error));
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    // 50ms — broadcast 큐는 이 주기로 비운다. 포지션은 아래에서 1초마다 보고 바뀌었을 때만 민다.
+    timeval time_value{};
+    time_value.tv_sec  = 0;
+    time_value.tv_usec = 50000;
+    const int count = ::select(static_cast<int>(maxfd) + 1, &reader, &write_set, nullptr, &time_value);
+
+    if (count < 0)
+    {
+        const int error = ops_errno();
+#ifdef _WIN32
+        if (error == WSAEINTR)
+#else
+        if (error == EINTR)
+#endif
+        {
+            return;
+        }
+
+        LOG_ERROR("[Ops] select 실패 err=" + std::to_string(error));
+        std::this_thread::sleep_for(kLoopFailurePause);
+        return;
+    }
+
+    if (FD_ISSET(listen_descriptor_, &reader))
+    {
+        accept_one();
+    }
+
+    std::vector<ops_socket_t> dead;
+
+    for (auto& entry : clients_)
+    {
+        Client& client = entry.second;
+
+        if (FD_ISSET(entry.first, &reader))
+        {
+            on_readable(client);
+        }
+
+        if (client.descriptor == OPS_INVALID)
+        {
+            dead.push_back(entry.first);
             continue;
         }
 
-        if (FD_ISSET(listen_descriptor_, &reader))
+        if (FD_ISSET(entry.first, &write_set) || !client.out.empty())
         {
-            accept_one();
+            flush(client);
         }
 
-        std::vector<ops_socket_t> dead;
-
+        if (client.descriptor == OPS_INVALID)
         {
-            std::lock_guard<std::mutex> lock(clients_mutex_);
+            dead.push_back(entry.first);
+        }
+    }
 
-            for (auto& entry : clients_)
+    for (const auto descriptor : dead)
+    {
+        close_client(descriptor);
+    }
+
+    // 다른 스레드가 쌓아둔 push
+    std::vector<std::pair<ops::OpsMsg, std::string>> pending;
+
+    {
+        std::lock_guard<std::mutex> lock(broadcast_mutex_);
+        pending.swap(broadcast_);
+    }
+
+    if (!pending.empty())
+    {
+        for (auto& entry : clients_)
+        {
+            if (!entry.second.authentication && token_.empty() == false)
             {
-                Client& client = entry.second;
+                continue; // 토큰 인증이 켜진 서버에서 미인증 연결에는 push하지 않는다
+            }
 
-                if (FD_ISSET(entry.first, &reader))
-                {
-                    on_readable(client);
-                }
-
-                if (client.descriptor == OPS_INVALID)
-                {
-                    dead.push_back(entry.first);
-                    continue;
-                }
-
-                if (FD_ISSET(entry.first, &write_set) || !client.out.empty())
-                {
-                    flush(client);
-                }
-
-                if (client.descriptor == OPS_INVALID)
-                {
-                    dead.push_back(entry.first);
-                }
+            for (const auto& pending_entry : pending)
+            {
+                send(entry.second, pending_entry.first, pending_entry.second);
             }
         }
+    }
 
-        for (auto descriptor : dead)
-        {
-            close_client(descriptor);
-        }
+    const auto now = std::chrono::steady_clock::now();
 
-        // 다른 스레드가 쌓아둔 push
-        std::vector<std::pair<ops::OpsMsg, std::string>> pending;
-
-        {
-            std::lock_guard<std::mutex> lock(broadcast_mutex_);
-            pending.swap(broadcast_);
-        }
-
-        if (!pending.empty())
-        {
-            std::lock_guard<std::mutex> lock(clients_mutex_);
-
-            for (auto& entry : clients_)
-            {
-                if (!entry.second.authentication && token_.empty() == false)
-                {
-                    continue; // 토큰 인증이 켜진 서버에서 미인증 연결에는 push하지 않는다
-                }
-
-                for (auto& pending_entry : pending)
-                {
-                    send(entry.second, pending_entry.first, pending_entry.second);
-                }
-            }
-        }
-
-        auto now = std::chrono::steady_clock::now();
-
-        if (now - last_position_push >= std::chrono::seconds(1))
-        {
-            last_position_push = now;
-            push_positions_if_changed();
-        }
+    if (now - last_position_push >= std::chrono::seconds(1))
+    {
+        last_position_push = now;
+        push_positions_if_changed();
     }
 }
 
@@ -380,20 +393,17 @@ void OpsServer::accept_one()
     client.descriptor   = descriptor;
     client.name = std::string(ip_text) + ":" + std::to_string(ntohs(peer.sin_port));
 
+    if (clients_.size() >= 8)
     {
-        std::lock_guard<std::mutex> lock(clients_mutex_);
-
-        if (clients_.size() >= 8)
-        {
-            // 운영단말이 8개를 넘을 일은 없다 — 넘으면 소켓 누수나 스캐너다.
-            LOG_WARN("[Ops] 연결 상한(8) — 거부 " + client.name);
-            ops_close(descriptor);
-            return;
-        }
-
-        LOG_INFO("[Ops] 연결 " + client.name);
-        clients_.emplace(descriptor, std::move(client));
+        // 운영단말이 8개를 넘을 일은 없다 — 넘으면 소켓 누수나 스캐너다.
+        LOG_WARN("[Ops] 연결 상한(8) — 거부 " + client.name);
+        ops_close(descriptor);
+        return;
     }
+
+    LOG_INFO("[Ops] 연결 " + client.name);
+    clients_.emplace(descriptor, std::move(client));
+    client_count_.store(clients_.size(), std::memory_order_relaxed);
 }
 
 void OpsServer::on_readable(Client& client)
@@ -560,9 +570,23 @@ bool OpsServer::on_frame(Client& client, const ops::Frame& frame)
 
             std::string why;
 
+            // side가 빠졌거나 BUY/SELL이 아니면 여기서 거부한다. 대소문자는 가리지 않고, 핸들러에 넘기기 전에
+            //  "BUY"/"SELL"로 고쳐 쓴다 — 뒤쪽은 대문자 그대로 비교한다.
+            const std::optional<OrderSide> side = OrderSide::parse(ops_order_request.side);
+
+            if (side)
+            {
+                ops_order_request.side = (*side == OrderSide::SELL) ? "SELL" : "BUY";
+            }
+
             if (!client.authentication)
             {
                 why = token_.empty() ? "서버 ops_token 미설정 — 주문 불가" : "미인증";
+            }
+            else if (!side)
+            {
+                why = "side는 BUY 또는 SELL";
+                LOG_WARN("[Ops] 수동주문 거부 - client_id(" + ops_order_request.client_id + ") side(" + ops_order_request.side + ")");
             }
             else if (!on_order_)
             {
@@ -585,15 +609,20 @@ bool OpsServer::on_frame(Client& client, const ops::Frame& frame)
                 return true;
             }
 
-            const bool        on   = body.value("on", false);
-            const std::string side = body.value("side", "BUY"); // 옛 단말은 side 없이 보낸다 — 진입 정지로 읽는다
-            LOG_WARN(std::string("[Ops] HALT_REQ 수신 ") + client.name + " side=" + side + " on=" + (on ? "1" : "0"));
+            const bool        on            = body.value("on", false);
+            const std::string received_side = body.value("side", "BUY"); // 옛 단말은 side 없이 보낸다 — 진입 정지로 읽는다
+            LOG_WARN(std::string("[Ops] HALT_REQ 수신 ") + client.name + " side=" + received_side + " on=" + (on ? "1" : "0"));
 
-            if (side != "BUY" && side != "SELL")
+            const std::optional<OrderSide> parsed_side = OrderSide::parse(received_side);
+
+            if (!parsed_side)
             {
                 send(client, OpsMsg::HALT_ACK, json{{"ok", false}, {"msg", "side는 BUY 또는 SELL"}}.dump());
                 return true;
             }
+
+            // 대소문자를 가리지 않고 받되, 정지 손잡이에는 대문자로 넘긴다.
+            const std::string side = (*parsed_side == OrderSide::SELL) ? "SELL" : "BUY";
 
             if (on_halt_)
             {
@@ -709,8 +738,8 @@ void OpsServer::flush(Client& client)
 
 void OpsServer::close_client(ops_socket_t descriptor)
 {
-    std::lock_guard<std::mutex> lock(clients_mutex_);
     clients_.erase(descriptor);
+    client_count_.store(clients_.size(), std::memory_order_relaxed);
 }
 
 void OpsServer::push_positions_if_changed()
@@ -728,7 +757,6 @@ void OpsServer::push_positions_if_changed()
     }
 
     last_positions_json_ = std::move(now);
-    std::lock_guard<std::mutex> lock(clients_mutex_);
 
     for (auto& entry : clients_)
     {

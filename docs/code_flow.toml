@@ -467,9 +467,9 @@ review = [
   what = "전략이 보는 보유·매도 가능 수량의 출처 — 주문 프로세스가 발행한 장부 스냅숏"
 
   [[stage.step]]
-  sym = "ipc::LedgerSnapshot::begin_optimistic_read"
-  file = "Quant/src/ipc/LedgerSnapshot.cpp"
-  what = "쓰는 쪽을 막지 않고 읽은 뒤 세대 번호로 그 사이에 바뀌었는지 확인한다(바뀌었으면 다시 읽음)"
+  sym = "ipc::LedgerSnapshot::read_stable"
+  file = "Quant/include/ipc/LedgerSnapshot.h"
+  what = "쓰는 쪽을 막지 않고 읽은 뒤 판 번호로 그 사이에 바뀌었는지 확인한다(바뀌었으면 다시 읽고, 쓰는 쪽이 멈춘 채면 기한 뒤 실패를 돌려준다)"
   test = "test_ledger_snapshot"
 
 # ───────────────────────────────────────────────────────────────────────────────

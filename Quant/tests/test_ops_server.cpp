@@ -1,10 +1,12 @@
 // 운영단말 서버(ipc/OpsServer) 소켓 왕복 테스트. 실제 TCP로 붙어 HELLO 순서·토큰·조회·주문 인테이크·
 // push·토큰 없는 서버의 읽기 전용, 루프백 밖 무토큰 bind 거부, 같은 포트 이중 bind 거부를 고정한다. KIS 없이 돈다. 관련 결정: D-043.
 #include "ipc/OpsServer.h"
+#include "core/Types.h"
 #include "utils/Logger.h"
 
 #include <cassert>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <mutex>
@@ -177,6 +179,24 @@ bool has(const std::string& text, const char* needle)
     return text.find(needle) != std::string::npos;
 }
 
+// assert는 Release(NDEBUG)에서 빠진다. 새 케이스는 빌드 형태와 무관하게 멈추도록 이것을 쓴다.
+void require(bool condition, const char* name)
+{
+    if (!condition)
+    {
+        std::cerr << "FAIL: " << name << "\n";
+        std::abort();
+    }
+}
+
+// side 해석은 컴파일 때도 맞아야 한다 — 빈 값·오타가 매수로 읽히던 from_string과 다른 점이다.
+static_assert(OrderSide::parse("BUY") == std::optional<OrderSide>(OrderSide::BUY));
+static_assert(OrderSide::parse("sell") == std::optional<OrderSide>(OrderSide::SELL));
+static_assert(OrderSide::parse("Sell") == std::optional<OrderSide>(OrderSide::SELL));
+static_assert(!OrderSide::parse(""));
+static_assert(!OrderSide::parse("HOLD"));
+static_assert(!OrderSide::parse("SELLX"));
+
 } // namespace
 
 // 첫 프레임이 HELLO가 아니면 ERROR 뒤 끊김
@@ -267,6 +287,52 @@ static void t_happy_path(OpsServer& ops_server, Fake& forward_key)
     {
         std::lock_guard<std::mutex> lock(forward_key.mutex);
         assert(forward_key.kills == 1);
+    }
+}
+
+// side가 빠졌거나 BUY/SELL이 아니면 핸들러를 부르지 않고 거부한다 — 예전에는 그대로 넘겨, 뒤쪽이 매수로 읽을 수 있었다.
+//  대소문자는 가리지 않고, 핸들러에는 대문자로 넘긴다. client_count()는 서버 스레드가 연결을 쥔 동안에도 바로 답한다.
+static void t_order_side(OpsServer& ops_server, Fake& forward_key)
+{
+    Client client;
+    require(client.open(), "연결");
+    client.send(OpsMsg::HELLO_REQ, "{\"token\":\"secret\",\"client\":\"t\"}");
+    Frame frame;
+    require(client.expect(OpsMsg::HELLO_ACK, frame), "HELLO_ACK");
+    require(ops_server.client_count() >= 1, "연결 수가 보인다");
+
+    size_t orders_before = 0;
+
+    {
+        std::lock_guard<std::mutex> lock(forward_key.mutex);
+        orders_before = forward_key.orders.size();
+    }
+
+    const char* const bad_orders[] = {
+        "{\"cid\":\"s1\",\"ticker\":\"005930\",\"qty\":1}",
+        "{\"cid\":\"s2\",\"ticker\":\"005930\",\"side\":\"HOLD\",\"qty\":1}",
+        "{\"cid\":\"s3\",\"ticker\":\"005930\",\"side\":\"\",\"qty\":1}",
+    };
+
+    for (const char* body : bad_orders)
+    {
+        client.send(OpsMsg::ORDER_REQ, body);
+        require(client.expect(OpsMsg::ORDER_ACK, frame), "ORDER_ACK(잘못된 side)");
+        require(has(frame.body, "\"accepted\":false") && has(frame.body, "side"), "잘못된 side는 거부");
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(forward_key.mutex);
+        require(forward_key.orders.size() == orders_before, "잘못된 side는 핸들러까지 안 간다");
+    }
+
+    client.send(OpsMsg::ORDER_REQ, "{\"cid\":\"s4\",\"ticker\":\"005930\",\"side\":\"sell\",\"qty\":1}");
+    require(client.expect(OpsMsg::ORDER_ACK, frame) && has(frame.body, "\"accepted\":true"), "소문자 sell은 받는다");
+
+    {
+        std::lock_guard<std::mutex> lock(forward_key.mutex);
+        require(forward_key.orders.size() == orders_before + 1, "소문자 sell은 핸들러로 간다");
+        require(forward_key.orders.back().side == "SELL", "핸들러에는 대문자 SELL로 넘긴다");
     }
 }
 
@@ -400,6 +466,7 @@ int main()
         t_bad_json(ops_server);
         t_malformed_body(ops_server);
         t_happy_path(ops_server, forward_key);
+        t_order_side(ops_server, forward_key);
         ops_server.stop();
         assert(!ops_server.running());
     }
@@ -408,6 +475,6 @@ int main()
     t_remote_bind_needs_token();
     t_second_bind_refused();
     Logger::instance().flush();
-    std::cout << "test_ops_server: 8/8 PASS\n";
+    std::cout << "test_ops_server: 9/9 PASS\n";
     return 0;
 }

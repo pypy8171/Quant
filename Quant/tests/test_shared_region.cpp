@@ -355,6 +355,46 @@ int main()
         }
     }
 
+    // 14. 같은 역할 자리를 다른 산 프로세스가 쥐고 있으면 붙지 않는다 — 예전에는 덮어써서 전략이 둘 붙었다.
+    //  같은 프로세스가 다시 붙는 것과 죽은 프로세스가 남긴 자리는 받아 준다.
+    {
+        const std::string name = unique_name("duplicate_role");
+        ipc::SharedRegion owner;
+        CHECK(owner.create(name, kRegionBytes, kLayoutVersion));
+
+        ipc::SharedRegion first;
+        CHECK(first.attach(name, kRegionBytes, kLayoutVersion, ipc::SharedAttachRole::kStrategy));
+
+        ipc::SharedRegion again; // 같은 프로세스의 재부착은 된다(재연결)
+        CHECK(again.attach(name, kRegionBytes, kLayoutVersion, ipc::SharedAttachRole::kStrategy));
+
+        // 자리를 늘 살아 있는 다른 프로세스(윈도우 System=4, 리눅스 init=1)가 쥔 것으로 꾸민다.
+        auto*              forged = const_cast<ipc::SharedRegionHeader*>(owner.header());
+        ipc::SharedParticipant& slot = forged->attached[static_cast<size_t>(ipc::SharedAttachRole::kStrategy)];
+#ifdef _WIN32
+        slot.process_id = 4;
+#else
+        slot.process_id = 1;
+#endif
+        slot.start_time = 0;
+
+        ipc::SharedRegion second;
+        CHECK(!second.attach(name, kRegionBytes, kLayoutVersion, ipc::SharedAttachRole::kStrategy));
+        CHECK(!second.is_open());
+        CHECK(second.last_error().find("strategy") != std::string::npos);
+
+        // 다른 역할 자리는 상관없다.
+        ipc::SharedRegion feed;
+        CHECK(feed.attach(name, kRegionBytes, kLayoutVersion, ipc::SharedAttachRole::kFeed));
+
+        // 자리 주인이 죽은 모양이면(없는 번호) 물려받는다.
+        slot.process_id = 0x7FFFFFF0U;
+        ipc::SharedRegion third;
+        CHECK(third.attach(name, kRegionBytes, kLayoutVersion, ipc::SharedAttachRole::kStrategy));
+        CHECK(owner.participant_identity(ipc::SharedAttachRole::kStrategy).process_id ==
+              ipc::current_process_identity().process_id);
+    }
+
     std::cout << "test_shared_region OK (" << g_checks << " checks)\n";
     return 0;
 }

@@ -67,6 +67,7 @@ void Engine::seed_watch_specifications(const std::vector<std::string>& tickers)
         watch_specifications_.push_back(std::move(specification));
     }
 
+    watch_specifications_generation_.fetch_add(1, std::memory_order_relaxed);
     LOG_INFO("[Engine] 설정에서 깐 WS 구독 종목: " + std::to_string(watch_specifications_.size()) + "개");
 }
 
@@ -113,6 +114,8 @@ void Engine::collect_watch_specifications()
         LOG_INFO("[Engine] WS 고정 종목: " + *pin);
     }
 
+    // 스레드가 뜨기 전이라 자물쇠는 없지만, 데이터 스레드 사본이 첫 바퀴에 이 목록을 뜨도록 판 번호는 올린다.
+    watch_specifications_generation_.fetch_add(1, std::memory_order_relaxed);
     LOG_INFO("[Engine] WS 구독 종목: " + std::to_string(watch_specifications_.size()) + "개");
 
     // 재스캔 중복 방지 시드 — 기동 유니버스에 이미 등록된 KR 종목 기록(스펙의 문자열 티커는 여기서 id가 된다).
@@ -146,6 +149,7 @@ bool Engine::add_watch_specification(const WatchSpec& specification)
     }
 
     watch_specifications_.push_back(specification);
+    watch_specifications_generation_.fetch_add(1, std::memory_order_relaxed); // 자물쇠 안 — 데이터 스레드 사본이 다음 바퀴에 다시 뜬다
     return true;
 }
 
@@ -190,6 +194,11 @@ void Engine::drain_pending_subscriptions()
                           {
                               return same_watch(watch, specification);
                           });
+        }
+
+        if (!unsubscriptions.empty())
+        {
+            watch_specifications_generation_.fetch_add(1, std::memory_order_relaxed);
         }
     }
 

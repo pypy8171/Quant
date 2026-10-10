@@ -23,9 +23,11 @@
 #include <cmath>
 #include <ctime>
 #include <iostream>
+#include <mutex>
 #include <optional>
 #include <stdexcept>
 #include <thread>
+#include <utility>
 #include <variant>
 #include <cstdlib>
 #include <fstream>
@@ -35,35 +37,88 @@
 #include <windows.h>
 #endif
 
+// ─── 잠금으로 지키는 시험 값 ─────────────────────────────────────────────────
+//  스텁의 문자열·목록은 시험 본문(메인 스레드)이 바꾸고 라우터 스레드(재확인·기동 취소·전송 풀)가 읽는다.
+//  대입·추가·비우기와 읽기(사본)를 같은 잠금 아래에서 한다. 시험 본문은 대입 문법을 그대로 쓴다.
+template <typename Value>
+class GuardedValue
+{
+public:
+    GuardedValue() = default;
+
+    // 중괄호 목록 대입(stub.open_orders = {first, second})이 여기로 온다.
+    GuardedValue& operator=(Value value)
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        value_ = std::move(value);
+        return *this;
+    }
+
+    // 문자열 상수 대입은 Value의 대입 연산자를 그대로 쓴다.
+    template <typename Source>
+    GuardedValue& operator=(const Source& source)
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        value_ = source;
+        return *this;
+    }
+
+    template <typename Item>
+    void push_back(Item&& item)
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        value_.push_back(std::forward<Item>(item));
+    }
+
+    void clear()
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        value_.clear();
+    }
+
+    [[nodiscard]] Value copy() const
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return value_;
+    }
+
+private:
+    mutable std::mutex mutex_;
+    Value              value_;
+};
+
 // ─── KIS 응답 시뮬레이션 Stub ─────────────────────────────────────────────────
+//  [inv] 라우터 스레드(재확인·기동 취소·전송 풀)도 이 스텁을 부른다. 수와 참거짓은 atomic, 문자열·목록은 GuardedValue로 둔다.
 struct StubOrderExecutor : IOrderExecutor
 {
-    bool        succeed;
-    std::string kis_order_no;
-    int         call_count = 0;
+    std::atomic<bool>         succeed;
+    GuardedValue<std::string> kis_order_no;
+    std::atomic<int>          call_count{0};
     // MM-1 확장 — 취소/정정 경로 추적
-    std::string orgno        = "ORG000001"; // submit_order_ack가 반환할 조직번호
-    bool        cancel_ok    = true;          // cancel_order 성공 여부
-    bool        revise_ok    = true;          // revise_order 성공 여부
-    std::atomic<int> cancel_calls{0}; // 재확인 스레드도 올린다
-    int         revise_calls = 0;
-    int         last_cancel_quantity = -1;         // 마지막 취소에 전달된 quantity(잔량 재계산 검증)
+    GuardedValue<std::string> orgno;                   // submit_order_ack가 반환할 조직번호(생성자에서 ORG000001)
+    std::atomic<bool>         cancel_ok{true};         // cancel_order 성공 여부
+    std::atomic<bool>         revise_ok{true};         // revise_order 성공 여부
+    std::atomic<int>          cancel_calls{0};         // 재확인 스레드도 올린다
+    std::atomic<int>          revise_calls{0};
+    std::atomic<int>          last_cancel_quantity{-1}; // 마지막 취소에 전달된 quantity(잔량 재계산 검증)
     // C-2 청산차단 경로 — 다음 fail_next건은 err_code로 실패, 그 뒤 성공
-    bool        paper     = false;
-    int         fail_next = 0;
-    std::string error_code;
+    std::atomic<bool>         paper{false};
+    std::atomic<int>          fail_next{0};
+    GuardedValue<std::string> error_code;
     // 재기동 대조 — get_open_orders가 돌려줄 KIS 미체결
-    std::vector<OpenOrder> open_orders;
-    std::atomic<int>       open_order_calls{0};      // 재확인 스레드도 올린다
-    std::atomic<bool>      open_orders_fail{false};  // 미체결 조회 실패(한 쪽이라도 못 받음)
+    GuardedValue<std::vector<OpenOrder>> open_orders;
+    std::atomic<int>                     open_order_calls{0};     // 재확인 스레드도 올린다
+    std::atomic<bool>                    open_orders_fail{false}; // 미체결 조회 실패(한 쪽이라도 못 받음)
     // 놓친 체결 되찾기 — get_daily_order_fills가 돌려줄 당일 체결 누적
-    std::vector<DailyOrderFill> daily_fills;
-    int                         daily_fill_calls = 0;
-    bool                        daily_fills_fail = false;
+    GuardedValue<std::vector<DailyOrderFill>> daily_fills;
+    std::atomic<int>                          daily_fill_calls{0};
+    std::atomic<bool>                         daily_fills_fail{false};
 
     explicit StubOrderExecutor(bool flag, std::string output = "0000000042")
-        : succeed(flag), kis_order_no(std::move(output))
+        : succeed(flag)
     {
+        kis_order_no = std::move(output);
+        orgno        = std::string("ORG000001");
     }
 
     bool is_paper() const noexcept override
@@ -80,7 +135,7 @@ struct StubOrderExecutor : IOrderExecutor
             return kis_fail("EGW00201", "초당 거래건수를 초과하였습니다");
         }
 
-        return open_orders;
+        return open_orders.copy();
     }
 
     KisResult<std::vector<DailyOrderFill>> get_daily_order_fills() override
@@ -92,20 +147,27 @@ struct StubOrderExecutor : IOrderExecutor
             return kis_fail("EGW00201", "초당 거래건수를 초과하였습니다");
         }
 
-        return daily_fills;
+        return daily_fills.copy();
     }
 
     OrderAck submit_order_acknowledgement(const OrderSignal&) override
     {
         ++call_count;
 
-        if (fail_next > 0)
+        // 남은 실패 수를 비교·교환 한 번으로 줄인다 — 두 스레드가 같이 줄여 음수가 되지 않게 한다.
+        int remaining_failures = fail_next.load();
+
+        while (remaining_failures > 0 && !fail_next.compare_exchange_weak(remaining_failures, remaining_failures - 1))
         {
-            --fail_next;
-            return OrderAck::fail(error_code.empty() ? std::string("E_TEST") : error_code);
         }
 
-        return succeed ? OrderAck{kis_order_no, orgno, std::string()} : OrderAck::fail("E_TEST");
+        if (remaining_failures > 0)
+        {
+            const std::string code = error_code.copy();
+            return OrderAck::fail(code.empty() ? std::string("E_TEST") : code);
+        }
+
+        return succeed ? OrderAck{kis_order_no.copy(), orgno.copy(), std::string()} : OrderAck::fail("E_TEST");
     }
 
     OrderAck cancel_order(const std::string&, const std::string&, const std::string&,
@@ -579,8 +641,8 @@ void test_cross_day_fill_not_deduped()
 //   이력만 보고 방금 잡은 선점을 풀었다. 스텁이 전송 도중에 정리를 불러 그 순간을 그대로 만든다.
 struct SweepDuringSendExecutor : StubOrderExecutor
 {
-    OrderRouter* router = nullptr;
-    int          released_during_send = -1;
+    OrderRouter*     router = nullptr;
+    std::atomic<int> released_during_send{-1}; // 전송 풀 스레드가 쓰고 메인 스레드가 읽는다
 
     SweepDuringSendExecutor() : StubOrderExecutor(true, "0000000222") {}
 
@@ -1531,6 +1593,140 @@ void test_recover_skips_restored_orders()
     PASS("recover_skips_restored_orders");
 }
 
+// ─── 이번 세션 주문을 닫는 취소가 저널에 실제 주문번호로 남는다 ─────────────────────
+//  close_session_order(청산차단 취소·기동 취소)는 CANCEL 저널의 주문번호를 digits_to_number("ORD-000001")로 적어
+//  늘 0이었다. 리플레이는 번호 0 레코드를 미결 대조에 쓰지 않아, 재기동 때 이미 취소한 주문이 미결로 되살아났다.
+void test_session_cancel_journals_order_number()
+{
+    const std::filesystem::path directory = std::filesystem::temp_directory_path() / "quant_router_test_session_cancel";
+    const std::string           date      = "20261010";
+    std::error_code             error_code;
+    std::filesystem::remove_all(directory, error_code);
+    std::filesystem::create_directories(directory, error_code);
+
+    {
+        OrderGate gate(relaxed_config());
+        assert(gate.ledger().set_journal(directory, date, false));
+        StubOrderExecutor stub(true, "0000000701");
+        OrderRouter       router(gate, stub);
+        stub.paper            = true;
+        stub.open_orders_fail = true; // 조회 실패 → 이력으로 물러난다(test_blocked_sell_releases_reservation과 같은 장면)
+
+        OrderSignal reserved      = make_signal("005930", OrderSide::SELL, 8);
+        reserved.type             = OrderType::LIMIT;
+        reserved.price            = 80000.0;
+        reserved.client_order_id  = "RESV:1";
+        assert(router.submit(reserved).status == OrderStatus::ACCEPTED);
+
+        stub.kis_order_no = "0000000702";
+        stub.fail_next    = 1;
+        stub.error_code   = "40240000";
+        OrderSignal liquidation     = make_signal("005930", OrderSide::SELL, 8);
+        liquidation.type            = OrderType::MARKET;
+        liquidation.price           = 0.0;
+        liquidation.reference_price = 75000.0;
+        assert(router.submit(liquidation).status == OrderStatus::ACCEPTED);
+        assert(stub.cancel_calls == 1);
+    }
+
+    // 재기동 — 취소된 예약매도(ODNO 701)는 미결로 남지 않고, 재매도(ODNO 702)만 남는다.
+    OrderGate restarted(relaxed_config());
+    assert(restarted.ledger().set_journal(directory, date, false));
+    const auto intents          = restarted.ledger().open_intents();
+    int        cancelled_left   = 0;
+    int        resell_remaining = 0;
+
+    for (const auto& intent : intents)
+    {
+        if (intent.kis_order_number == 701)
+        {
+            ++cancelled_left;
+        }
+
+        if (intent.kis_order_number == 702)
+        {
+            resell_remaining = intent.remaining;
+        }
+    }
+
+    assert(cancelled_left == 0);
+    assert(resell_remaining == 8);
+    std::filesystem::remove_all(directory, error_code);
+    PASS("session_cancel_journals_order_number");
+}
+
+// ─── 장부 기록을 history_mutex_ 밖으로 옮긴 뒤에도 선점이 맞는다 ─────────────────────
+//  체결·취소의 장부 기록(저널 디스크 쓰기)은 이력 락을 푼 뒤에 한다. 다른 스레드가 그 사이 이력 락을 잡는 조회와
+//  선점 정리를 쉬지 않고 불러도 (1) 멈추지 않고 (2) 살아 있는 주문의 선점을 풀지 않고 (3) 끝난 뒤 선점이 0이어야 한다.
+//  정리가 "이력은 닫혔고 장부 해제는 아직"인 틈을 보면 선점을 먼저 지운 뒤 늦은 해제가 다음 주문의 선점을 깎는다 —
+//  (2)·(3)의 단언이 그것을 잡는다.
+void test_ledger_calls_outside_history_lock()
+{
+    OrderGate::Config config      = relaxed_config();
+    config.max_orders_per_min     = 100000;
+    config.max_orders_per_sec     = 100000;
+    config.max_quantity_per_ticker = 100000;
+    OrderGate         gate(config);
+    StubOrderExecutor stub(true);
+    OrderRouter       router(gate, stub);
+
+    // 이력이 비면 정리가 아무 것도 안 하므로 다른 종목의 접수 한 건을 둔다.
+    stub.kis_order_no = "0000008000";
+    assert(router.submit(make_signal("000660", OrderSide::BUY, 5)).status == OrderStatus::ACCEPTED);
+
+    std::atomic<bool> stop{false};
+    std::atomic<int>  rounds{0};
+    std::thread       reader([&]
+    {
+        while (!stop.load())
+        {
+            (void)router.recent(5);                 // history_mutex_
+            (void)router.sweep_stale_reservations(); // in_flight_mutex_ → history_mutex_, 그다음 장부
+            (void)gate.ledger().reserved("005930"); // 장부 positions_mutex_
+            ++rounds;
+        }
+    });
+
+    constexpr int kCycles = 200;
+
+    for (int cycle = 1; cycle <= kCycles; ++cycle)
+    {
+        const std::string digits       = std::to_string(1000 + cycle);
+        const std::string kis_order_no = std::string(10 - digits.size(), '0') + digits; // 순환마다 다른 10자리 ODNO
+        stub.kis_order_no              = kis_order_no;
+
+        OrderSignal buy         = make_signal("005930", OrderSide::BUY, 10);
+        buy.client_order_id     = "LOCK:B:" + std::to_string(cycle);
+        buy.client_order_number = static_cast<uint64_t>(cycle);
+        assert(router.submit(buy).status == OrderStatus::ACCEPTED);
+
+        FillNotification fill_notification;
+        fill_notification.kis_order_no    = kis_order_no;
+        fill_notification.ticker          = "005930";
+        fill_notification.side            = OrderSide::BUY;
+        fill_notification.filled_quantity = 4;
+        fill_notification.filled_price    = 75000.0;
+        fill_notification.fill_time       = std::to_string(100000 + cycle);
+        router.on_fill(fill_notification);
+        assert(gate.ledger().reserved("005930") == 6); // 살아 있는 주문의 잔량 — 정리가 풀면 0이 된다
+
+        OrderSignal cancel                  = make_signal("005930", OrderSide::BUY, 0);
+        cancel.action                       = OrderAction::CANCEL;
+        cancel.original_client_order_id     = buy.client_order_id;
+        cancel.original_client_order_number = buy.client_order_number;
+        assert(router.submit(cancel).status == OrderStatus::CANCELLED);
+        assert(gate.ledger().reserved("005930") == 0);
+    }
+
+    stop = true;
+    reader.join();
+    assert(rounds.load() > 0);
+    assert(gate.ledger().position("005930") == 4 * kCycles);
+    assert(gate.ledger().reserved("005930") == 0);
+    assert(gate.ledger().reserved("000660") == 5); // 살아 있는 다른 종목 주문의 선점은 그대로
+    PASS("ledger_calls_outside_history_lock");
+}
+
 // 내부 주문번호 "ORD-000123"을 저널 정수로 — 통째로 읽으면 'O'에서 멈춰 늘 0이었다(09-28).
 void test_order_number_of_reads_digits_after_prefix()
 {
@@ -1678,6 +1874,8 @@ int main()
     test_recover_missed_fill_by_amount_difference();
     test_recover_credit_partial_and_after_query_time();
     test_recover_skips_restored_orders();
+    test_session_cancel_journals_order_number();
+    test_ledger_calls_outside_history_lock();
     std::cout << "=== All tests passed ===\n";
     return 0;
 }

@@ -792,11 +792,14 @@ bool OrderRouter::close_session_order(uint64_t kis_order_number, const char* rea
 {
     auto& ledger = gate_.ledger();
 
-    // 잠금 순서 history_mutex_ → 장부 positions_mutex_는 close_cancel과 같다.
-    //  closed는 락 안에서 뜬 사본 — 락 밖의 장부 기록에 쓰고, history_ 원소는 축출로 참조가 죽을 수 있다.
-    ManagedOrder closed;
-    bool         found   = false;
-    int          release = 0;
+    // 락 안에서는 이력만 닫고 값을 뜬다. 장부 기록(선점 해제·CANCEL 저널 디스크 쓰기)은 락을 푼 뒤에 한다(CODE_CONVENTIONS 4.5).
+    //  closed는 락 안에서 뜬 사본이다 — history_ 원소는 축출로 참조가 죽을 수 있다. 해제량은 락 안의 confirmed_quantity로
+    //  정했고, 장부의 선점 빼기는 0에서 멈추는 빼기라 그사이 같은 주문의 체결이 장부에 먼저 들어가도 결과가 같다.
+    //  handoff는 장부 기록이 끝날 때까지 선점 정리를 미룬다(LedgerHandoff 주석).
+    ManagedOrder                 closed;
+    bool                         found   = false;
+    int                          release = 0;
+    std::optional<LedgerHandoff> handoff;
     {
         std::lock_guard<std::mutex> lock(history_mutex_);
         ManagedOrder* managed_order = history_.find_by_order_number(kis_order_number);
@@ -809,18 +812,21 @@ bool OrderRouter::close_session_order(uint64_t kis_order_number, const char* rea
             managed_order->updated_at    = std::chrono::system_clock::now();
             closed                       = *managed_order;
             found                        = true;
-        }
-
-        if (release > 0)
-        {
-            ledger.on_cancel(closed.signal.account_id, closed.signal.ticker, closed.signal.side, release,
-                             OrderGate::OrderRef{digits_to_number(closed.order_id), kis_order_number, closed.signal.type});
+            handoff.emplace(*this);
         }
     }
 
     if (!found)
     {
         return false;
+    }
+
+    // 저널에는 내부 주문번호(정수)를 적는다. order_id는 "ORD-" 머리글이 붙어 digits_to_number로 읽으면 늘 0이 되고,
+    //  리플레이가 이 CANCEL을 INTENT와 짝짓지 못해 재기동 때 닫힌 주문이 미결로 되살아났다.
+    if (release > 0)
+    {
+        ledger.on_cancel(closed.signal.account_id, closed.signal.ticker, closed.signal.side, release,
+                         OrderGate::OrderRef{order_number_of(closed.order_id), kis_order_number, closed.signal.type});
     }
 
     // 선점(reserved_)만 풀면 잔고 시드값 sellable_(취소 전 스냅샷, 주문가능 0)이 그대로라 다음 매도도 0으로
@@ -936,25 +942,35 @@ bool OrderRouter::snapshot_live_original_locked(uint64_t client_order_number, Or
     return true;
 }
 
-void OrderRouter::close_live_original_locked(const OrderSignal& signal, const OriginalOrder& original, int release_if_gone)
+OrderRouter::OriginalRelease OrderRouter::close_live_original_locked(const OrderSignal& signal, int release_if_gone)
 {
-    ManagedOrder* live    = history_.find_live(signal.original_client_order_number);
-    int           release = release_if_gone;
+    ManagedOrder*   live = history_.find_live(signal.original_client_order_number);
+    OriginalRelease release;
+    release.quantity = release_if_gone;
 
     if (live)
     {
-        release          = outstanding_of(*live); // 접수된 시점 실제 미체결
-        live->status     = OrderStatus::CANCELLED;
-        live->updated_at = std::chrono::system_clock::now();
+        release.quantity     = outstanding_of(*live); // 접수된 시점 실제 미체결
+        release.order_number = order_number_of(live->order_id);
+        live->status         = OrderStatus::CANCELLED;
+        live->updated_at     = std::chrono::system_clock::now();
     }
 
-    // 장부 positions_mutex_는 history_mutex_와 별개다. 잠금 순서 history_mutex_ → positions_mutex_는 on_fill과 같다(데드락 없음).
-    if (release > 0)
+    return release;
+}
+
+// 장부 기록은 history_mutex_ 밖에서 한다 — on_cancel은 저널을 디스크에 쓴다(CODE_CONVENTIONS 4.5). 해제량은 락 안에서
+//  정했고, 장부의 선점 빼기는 0에서 멈추는 빼기라 그사이 같은 주문의 체결이 장부에 먼저 들어가도 결과가 같다.
+void OrderRouter::release_original(const OrderSignal& signal, const OriginalOrder& original, const OriginalRelease& release)
+{
+    if (release.quantity <= 0)
     {
-        gate_.ledger().on_cancel(original.account, original.ticker, original.side, release,
-                                 OrderGate::OrderRef{live ? order_number_of(live->order_id) : 0,
-                                                     digits_to_number(original.kis_order_no), signal.type});
+        return;
     }
+
+    gate_.ledger().on_cancel(original.account, original.ticker, original.side, release.quantity,
+                             OrderGate::OrderRef{release.order_number, digits_to_number(original.kis_order_no),
+                                                 signal.type});
 }
 
 // history_.find_live는 살아있는 주문만 보므로 원주문이 없다는 것은 세 경우를 뭉뚱그린다 —
@@ -1214,10 +1230,17 @@ void OrderRouter::close_cancel(ModifyRoute& route)
         return;
     }
 
-    // 성공 — reserved 해제(잔량 재계산) + 원주문 CANCELLED 표기 + 인덱스 정리
+    // 성공 — 원주문 CANCELLED 표기(락 안) + reserved 해제(잔량 재계산, 락 밖). handoff는 장부 기록까지 선점 정리를 미룬다.
     {
-        std::lock_guard<std::mutex> lock(history_mutex_);
-        close_live_original_locked(signal, original, 0);
+        std::optional<LedgerHandoff> handoff;
+        OriginalRelease              release;
+        {
+            std::lock_guard<std::mutex> lock(history_mutex_);
+            release = close_live_original_locked(signal, 0);
+            handoff.emplace(*this);
+        }
+
+        release_original(signal, original, release);
     }
 
     managed_order.status           = OrderStatus::CANCELLED; // 취소 요청 자체는 성공 접수
@@ -1264,12 +1287,21 @@ void OrderRouter::close_replace(ModifyRoute& route)
         return;
     }
 
-    // 성공 — 원 미체결 잔량 해제, 원주문 CANCELLED, 정정본 ACCEPTED 추적(선점은 INTENT에서 이미 잡혔다)
+    // 성공 — 원 미체결 잔량 해제, 원주문 CANCELLED, 정정본 ACCEPTED 추적(선점은 INTENT에서 이미 잡혔다).
+    //  이력은 락 안에서 닫고, 장부 기록(디스크 쓰기)은 락을 푼 뒤에 한다. handoff는 장부 기록까지 선점 정리를 미룬다.
     {
-        std::lock_guard<std::mutex> lock(history_mutex_);
-        close_live_original_locked(signal, original, original.outstanding);
+        std::optional<LedgerHandoff> handoff;
+        OriginalRelease              release;
+        {
+            std::lock_guard<std::mutex> lock(history_mutex_);
+            release = close_live_original_locked(signal, original.outstanding);
+            handoff.emplace(*this);
+        }
 
-        // 정정본 선점은 위 INTENT에서 이미 잡혔다 — 여기서는 새 주문번호로 ACCEPT만 적는다.
+        release_original(signal, original, release);
+
+        // 정정본 선점은 위 INTENT에서 이미 잡혔다 — 여기서는 새 주문번호로 ACCEPT만 적는다. 정정본은 아직 이력에 없고
+        //  open_modify가 건 종목 표시가 record() 뒤까지 살아 있어 정리가 그 선점을 풀지 않는다.
         ledger.on_accepted(original.account, original.ticker, original.side, new_quantity,
                            OrderGate::OrderRef{order_number_of(managed_order.order_id),
                                                digits_to_number(route.acknowledgement.kis_order_no), signal.type});

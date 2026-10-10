@@ -22,7 +22,8 @@ void MarketMakingStrategy::on_start()
 
 void MarketMakingStrategy::on_order_book_batch(const OrderBook& order_book, std::vector<OrderSignal>& out)
 {
-    if (!order_book.ticker.empty() && !same_symbol(symbol_id_, ticker_, order_book.symbol_id, order_book.ticker))
+    // ticker가 빈 호가도 id로 거른다. id·ticker가 둘 다 없으면 내 종목이라는 근거가 없으니 버린다.
+    if (!same_symbol(symbol_id_, ticker_, order_book.symbol_id, order_book.ticker))
     {
         return;
     }

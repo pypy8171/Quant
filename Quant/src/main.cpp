@@ -62,17 +62,18 @@ struct TimerResolution
 #endif
 
 // ─── 전역 종료 플래그 ─────────────────────────────────────────────────────
-static Engine* g_engine = nullptr;
+// 시그널 핸들러가 세우고 run_trade의 대기 루프가 읽는다. [inv] lock-free라 POSIX 시그널 핸들러에서 써도 된다.
+static std::atomic<bool> g_shutdown_signaled{false};
+static_assert(std::atomic<bool>::is_always_lock_free);
 
-// 시그널 스레드는 정지 요청만 한다. 예전엔 여기서 stop()(join 전부)을 돌렸는데, running_이 내려가자마자 main이
-//  루프를 빠져 Engine을 부수기 시작해 두 스레드가 같은 jthread를 join했다(09-11 15:32 `프로그램 종료` 0.03초 뒤
-//  std::terminate, 사유 없음). join은 main 스레드의 stop() 한 곳만.
+// 시그널 핸들러는 플래그 하나만 세운다(코드 규약 8.6). 로그·할당·락은 POSIX 시그널 핸들러 안에서 하면 안 되므로
+//  정지 요청(request_shutdown, 로그를 쓴다)은 main 스레드의 대기 루프가 플래그를 보고 한다. 예전엔 여기서 stop()
+//  (join 전부)을 돌렸는데, running_이 내려가자마자 main이 루프를 빠져 Engine을 부수기 시작해 두 스레드가 같은
+//  jthread를 join했다(09-11 15:32 `프로그램 종료` 0.03초 뒤 std::terminate, 사유 없음). join은 main 스레드의 stop() 한 곳만.
+//  [lock-order] relaxed로 충분하다 — 플래그 말고 넘기는 값이 없다.
 void signal_handler(int)
 {
-    if (g_engine)
-    {
-        g_engine->request_shutdown("시그널(Ctrl+C·콘솔 종료)");
-    }
+    g_shutdown_signaled.store(true, std::memory_order_relaxed);
 }
 
 // ─── 조용한 죽음 방지 ─────────────────────────────────────────────────────
@@ -261,7 +262,6 @@ static void log_exchange_choice(const KisConfig& kis_config)
 static int run_trade(const AppConfig& app, ProcessRole role)
 {
     Engine engine(app.kis, app.fetch_interval_sec);
-    g_engine = &engine;
 
     // 역할은 configure·전략 로딩보다 먼저 정한다 — start()가 자리표를 역할대로 깔고(주문 쪽은 공유 쪽지를
     //  만들고 전략·시세 쪽은 붙는다) 스레드도 역할대로 띄운다. [why D-114]
@@ -297,15 +297,23 @@ static int run_trade(const AppConfig& app, ProcessRole role)
         regime_feed_thread.start(*app.regime_feed);
     }
 
+    // 시그널 플래그를 보는 간격. Ctrl+C 뒤 정지 요청까지 이만큼 늦을 수 있다.
+    constexpr auto kSignalPollInterval = std::chrono::milliseconds(200);
+
     while (engine.is_running())
     {
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+        if (g_shutdown_signaled.exchange(false, std::memory_order_relaxed))
+        {
+            engine.request_shutdown("시그널(Ctrl+C·콘솔 종료)");
+            continue;
+        }
+
+        std::this_thread::sleep_for(kSignalPollInterval);
     }
 
-    // join 은 여기 한 곳 — 시그널·KILL 핸들러는 request_shutdown() 만 한다(위 signal_handler 주석).
+    // join 은 여기 한 곳 — 시그널 핸들러는 플래그만, KILL 핸들러는 request_shutdown() 만 한다(위 signal_handler 주석).
     regime_feed_thread.stop();
     engine.stop();
-    g_engine = nullptr;
     LOG_INFO("[Main] 프로그램 종료");
     return 0;
 }

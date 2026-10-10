@@ -41,6 +41,7 @@
 #include "ipc/OrderRouter.h"
 #include "ipc/OpsServer.h"
 #include "core/MpscQueue.h"
+#include "utils/GenerationCopy.h"
 #include <atomic>
 #include <chrono>
 #include <cstddef>
@@ -1169,6 +1170,10 @@ private:
     //  data_thread(재스캔 등록)가 쓰고 control_thread(WS 재연결)가 읽는다 — watch_specs_mtx_로 보호.
     std::vector<WatchSpec> watch_specifications_;
     mutable std::mutex     watch_specifications_mutex_;
+    // 목록 판 번호. watch_specifications_를 바꾸는 자리는 모두 자물쇠 안에서 하나 올린다. [inv] 쓰기는 자물쇠 안에서만
+    std::atomic<uint64_t>  watch_specifications_generation_{0};
+    // 데이터 스레드 몫의 사본. 판 번호가 바뀐 때만 다시 뜬다. [inv] 데이터 스레드만 만진다
+    GenerationCopy<std::vector<WatchSpec>> data_thread_watch_specifications_;
     std::mutex             slot_exempt_send_mutex_; // 슬롯 면제 표 한 판(여는 줄~닫는 줄)을 섞이지 않게 보낸다 [why D-157]
 
     // 아직 소켓에 걸지 않은 구독 스펙. 주문 스레드가 제어 요청에서 꺼내 여기 쌓고, 감시 스레드가

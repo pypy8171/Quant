@@ -154,6 +154,7 @@ void Engine::publish_watch_priorities()
                               {
                                   return same_watch(watch, specification);
                               });
+                watch_specifications_generation_.fetch_add(1, std::memory_order_relaxed); // 자물쇠 안 — 데이터 스레드 사본이 다음 바퀴에 다시 뜬다
             }
 
             send_watch_request(specification, ipc::ControlKind::kWatchUnsubscribe);

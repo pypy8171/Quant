@@ -9,6 +9,7 @@
 #include "ipc/OpsProtocol.h"
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <mutex>
@@ -144,6 +145,8 @@ private:
     };
 
     void thread_fn();
+    // thread_fn 한 바퀴. 예외는 thread_fn이 잡는다 — 이 함수 밖으로 새도 스레드는 죽지 않는다.
+    void run_once(std::chrono::steady_clock::time_point& last_position_push);
     void accept_one();
     void on_readable(Client& client);
     bool on_frame(Client& client, const ops::Frame& frame); // false면 끊는다
@@ -169,9 +172,14 @@ private:
     std::thread       srv_thread_;
     ops_socket_t      listen_descriptor_;
 
-    // descriptor→Client. 서버 스레드만 만지지만 client_count()가 다른 스레드에서 읽어 뮤텍스를 둔다.
-    mutable std::mutex                          clients_mutex_;
+    // descriptor→Client. [inv] 서버 스레드만 만진다(stop()은 그 스레드를 join한 뒤에 비운다). 그래서 잠금이 없다 —
+    //  예전에는 client_count() 때문에 뮤텍스를 두었는데, 서버 스레드가 그 잠금을 쥔 채 소켓을 읽고 콜백을 돌려
+    //  주문·체결 스레드가 client_count()에서 기다렸다.
     std::unordered_map<ops_socket_t, Client>    clients_;
+
+    // clients_.size()의 사본. 서버 스레드가 넣고 뺄 때마다 고친다.
+    //  [lock-order] relaxed — 다른 스레드는 "push할 상대가 있는가" 어림으로만 본다. 이 값으로 공개하는 데이터가 없다.
+    std::atomic<size_t>                         client_count_{0};
 
     // 다른 스레드가 넣고 서버 스레드가 빼는 push 큐
     std::mutex                                        broadcast_mutex_;

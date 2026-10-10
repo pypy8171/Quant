@@ -21,22 +21,20 @@
 //     manual_order Quant/config/config_live.json buy 201490 1 2610 limit --live  (실계좌 지정가 1주)
 
 #include "api/KisClient.h"
+#include "core/AppConfig.h"
 #include "core/Types.h"
 #include "risk/OrderGate.h"
 
 #include <chrono>
 #include <cstdlib>
-#include <fstream>
+#include <exception>
 #include <iostream>
-#include <nlohmann/json.hpp>
 #include <string>
 #include <thread>
 #include <vector>
 #ifdef _WIN32
 #include <windows.h>
 #endif
-
-using json = nlohmann::json;
 
 static std::string mask(const std::string& text)
 {
@@ -89,23 +87,22 @@ int main(int argc, char** argv)
     const std::string type_s = (arguments.size() > 6) ? arguments[6] : (price > 0 ? "limit" : "market");
 
     // ── config 로드 ──────────────────────────────────────────────────────────
-    std::ifstream file(config_path);
+    // 엔진과 같은 parse_config로 읽는다(규약 8.3). 이 도구만 json을 따로 읽으면 risk 칸이 빠졌을 때
+    //  엔진과 다른 기본값(예: 종목당 4,000주)으로 주문이 나간다.
+    AppConfig app;
 
-    if (!file)
+    try
     {
-        std::cerr << "[중단] config 못 엶: " << config_path << "\n";
+        app = parse_config(load_config_file(config_path));
+    }
+    catch (const std::exception& error)
+    {
+        std::cerr << "[중단] config 읽기 실패: " << config_path << "\n"
+                  << "       - error(" << error.what() << ")\n";
         return 1;
     }
 
-    json config = json::parse(file);
-
-    KisConfig kis_config;
-    kis_config.app_key      = config["kis"]["app_key"];
-    kis_config.app_secret   = config["kis"]["app_secret"];
-    kis_config.account_no   = config["kis"]["account_no"];
-    kis_config.account_type = config["kis"]["account_type"].get<std::string>();
-    kis_config.hts_id       = config["kis"].value("hts_id", "");
-    kis_config.is_paper     = config["kis"]["is_paper"].get<bool>();
+    const KisConfig& kis_config = app.kis;
 
     const OrderSide side = (side_s == "sell" || side_s == "SELL") ? OrderSide::SELL : OrderSide::BUY;
     const OrderType type = (type_s == "limit") ? OrderType::LIMIT : OrderType::MARKET;
@@ -181,21 +178,11 @@ int main(int argc, char** argv)
     std::cout << "[1] 인증 완료\n";
 
     // ── [2] 리스크 게이트 (FEP 경로) ─────────────────────────────────────────
-    // 게이트를 기본 생성만 하면 이 도구가 링크한 시점의 기본값을 그대로 쓴다. 그 값이
-    //  config와 어긋나면 정상 주문이 막힌다(09-09 15:07 강제청산에서 22주 매도가
-    //  "1주문 수량 한도 초과 (22 > 0)"으로 거부됐다). 운영자가 직접 내는 단발 주문이므로
-    //  주문 단위 한도만 config에서 실어 준다 — 보유·노출 한도는 엔진이 따로 본다.
+    // 한도는 엔진과 같은 값을 쓴다 — parse_config가 채운 app.risk 전체(주문 단위·종목 보유·일손실·
+    //  세션 창 포함)를 그대로 싣는다. 09-09 15:07 강제청산에서 기본 생성 게이트가 22주 매도를
+    //  "1주문 수량 한도 초과 (22 > 0)"으로 막은 일이 있어 기본 생성으로 두지 않는다.
     OrderGate gate;
-    {
-        const json risk_json = config.value("risk", json::object());
-        OrderGate::Config gate_config;
-        gate_config.max_quantity_per_order      = risk_json.value("max_qty_per_order", 10000);
-        gate_config.max_notional_per_order = risk_json.value("max_notional_per_order", 50000000.0);
-        gate_config.max_quantity_per_ticker     = risk_json.value("max_qty_per_ticker", 4000);
-        gate_config.max_orders_per_min     = risk_json.value("max_orders_per_min", 20);
-        gate_config.max_orders_per_sec     = risk_json.value("max_orders_per_sec", 5);
-        gate.set_config(gate_config);
-    }
+    gate.set_config(app.risk);
 
     std::string reason;
 

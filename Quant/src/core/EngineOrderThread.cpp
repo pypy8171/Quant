@@ -361,7 +361,7 @@ void Engine::order_thread_fn(std::stop_token stop_token)
         }
 
         // 단말이 없으면 JSON 직렬화를 건너뛴다 — 주문 스레드 hot path에서 받는 이 없는 문자열을 만들지 않는다.
-        //  client_count()는 뮤텍스 한 번이지만 직렬화보다 싸다. [why D-071]
+        //  client_count()는 원자 변수 한 번 읽기라 직렬화보다 싸다. [why D-071]
         if (ops_.server && ops_.server->client_count() > 0)
         {
             // 게이트·브로커를 지난 최종 결과. 단말은 cid로 자기 ORDER_ACK와 잇고, 전략 주문도

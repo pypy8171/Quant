@@ -27,7 +27,7 @@ void check(bool condition, const std::string& name)
 
     if (!condition)
     {
-        std::cout << "[FAIL] " << name << "\n";
+        std::cout << "[FAIL] " << name << std::endl; // 여기서 멈추므로 버퍼에 남겨 두지 않는다
         std::abort();
     }
 

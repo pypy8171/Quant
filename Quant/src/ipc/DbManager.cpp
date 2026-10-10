@@ -2,6 +2,7 @@
 #include "core/MpscQueue.h"
 #include "core/WakeGate.h"
 #include "utils/Logger.h"
+#include "utils/ThreadGuard.h"
 #include "utils/ThreadName.h"
 
 #ifdef _WIN32
@@ -710,13 +711,20 @@ DbManager::DbManager(DbConfig config) : state_(std::make_shared<State>())
     state.running.store(true, std::memory_order_release);
 
     // 스레드가 상태를 나눠 가진다 — stop()이 떼어 둔 스레드가 늦게 돌아와도 상태는 살아 있다.
+    //  적재 루프가 던지면 그 워커만 끝낸다(로그를 남기고). 다시 돌리지 않는 이유: 연결·묶음 문자열이 어떤 상태인지
+    //  모르고, DB 적재는 매매 경로가 아니라 멈춰도 주문에는 영향이 없다(큐가 차면 on_trade가 버리며 센다).
+    //  done은 예외가 나도 채운다 — 안 채우면 stop()이 종료 대기 한도까지 선다.
     for (unsigned index = 0; index < tick_count; ++index)
     {
         TickWorker& worker = *state.tick_workers[index];
         worker.thread = std::thread(
             [shared = state_, &worker, index]
             {
-                tick_loop(*shared, worker, index);
+                thread_guard::run_and_log("DbManager 체결 적재",
+                                          [&shared, &worker, index]
+                                          {
+                                              tick_loop(*shared, worker, index);
+                                          });
                 worker.done.set_value();
             });
     }
@@ -727,7 +735,11 @@ DbManager::DbManager(DbConfig config) : state_(std::make_shared<State>())
         worker.thread = std::thread(
             [shared = state_, &worker]
             {
-                event_loop(*shared, worker);
+                thread_guard::run_and_log("DbManager 신호·헬스 적재",
+                                          [&shared, &worker]
+                                          {
+                                              event_loop(*shared, worker);
+                                          });
                 worker.done.set_value();
             });
     }

@@ -10,6 +10,7 @@
 #include "utils/Logger.h"
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -179,9 +180,10 @@ std::string Engine::accept_manual_order(const OpsOrderReq& ops_order_request)
         return "ticker는 6자리 숫자";
     }
 
-    if (ops_order_request.side != "SELL" && ops_order_request.side != "BUY")
+    // 대소문자를 가리지 않고 BUY/SELL만 받는다. 빈 값·오타가 매수로 읽히지 않게 여기서 끊는다.
+    if (!OrderSide::parse(ops_order_request.side))
     {
-        return "side는 SELL|BUY";
+        return "side는 BUY 또는 SELL";
     }
 
     if (ops_order_request.quantity <= 0 || ops_order_request.quantity > kManualOrderMaxQuantity)
@@ -229,7 +231,14 @@ bool Engine::take_manual_order(OrderSignal& signal)
             reference = last_price(ops_order_request.ticker);
         }
 
-        if (ops_order_request.side == "SELL")
+        // accept_manual_order가 이미 걸렀지만 큐를 거친 값이라 한 번 더 읽는다 — 읽지 못하면 매수로 두지 않고 거부한다.
+        const std::optional<OrderSide> side = OrderSide::parse(ops_order_request.side);
+
+        if (!side)
+        {
+            reject = "side는 BUY 또는 SELL";
+        }
+        else if (*side == OrderSide::SELL)
         {
             // 보유 범위 안에서만 — 보유가 없거나 보유를 넘는 요청은 여기서 끊는다. 매도가능(보유−미체결매도)이 0인
             //  것은 거부하지 않고 라우터로 보낸다 — 라우터가 그 종목의 예약매도를 취소해 수량을 풀고 다시 낸다
@@ -288,7 +297,7 @@ bool Engine::take_manual_order(OrderSignal& signal)
         OrderSignal built;
         built.ticker      = ops_order_request.ticker;
         built.account_id  = ops_order_request.account;
-        built.side        = OrderSide::from_string(ops_order_request.side);
+        built.side        = *side;
         built.type        = ops_order_request.price > 0.0 ? OrderType::LIMIT : OrderType::MARKET;
         built.quantity    = ops_order_request.quantity;
         built.price       = ops_order_request.price;

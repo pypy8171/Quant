@@ -99,10 +99,19 @@ void OrderRouter::load_order_reasons_locked()
 
 
 // ─── 체결통보 처리 — ODNO 매핑 → 부분/전량 체결 처리 ─────────────────────
-//  단계: 재전송 거르기 → 이전 세션 주문 되살리기 → 연결된 주문 찾기 → 연결 체결 / 미연결 체결.
+//  단계: 이전 세션 주문 되살리기 → 재전송 거르기 → 연결된 주문 찾기 → 연결 체결 / 미연결 체결.
 void OrderRouter::on_fill(const FillNotification& fill_notification)
 {
-    // unique_lock: 장부 갱신까지만 잡고, 파일 쓰기·publish 전에 푼다(W-8).
+    const uint64_t order_number = digits_to_number(fill_notification.kis_order_no); // 전문 문자열이 정수가 되는 자리
+
+    // 되살리기는 장부 INTENT(디스크 쓰기)를 락 밖에서 하려고 history_mutex_를 잡기 전에 한다. 재전송 거르기보다 앞이지만
+    //  결과는 같다 — 재전송이라면 첫 통보 때 이미 되살려 이력에 있으므로 여기서 아무 일도 하지 않는다.
+    if (order_number != 0)
+    {
+        restore_from_order_reason(fill_notification, order_number);
+    }
+
+    // unique_lock: 이력 갱신까지만 잡고, 장부·파일 쓰기·publish 전에 푼다(W-8).
     std::unique_lock<std::mutex> lock(history_mutex_);
     // 중복 제거 — KIS 체결통보는 at-least-once(재전송/WS 재구독 시 중복 가능).
     // H0STCNI0 전문에 체결고유번호가 없어 kis_order_no+체결시각+수량+단가를 조합 키로 사용.
@@ -110,7 +119,6 @@ void OrderRouter::on_fill(const FillNotification& fill_notification)
     // prefix로 붙여, 서로 다른 날의 동일키 충돌로 실체결을 오인해 drop하는 일을 막는다 (V-4).
     // 근거: 체결고유번호가 없다는 것은 공식 샘플 ccnl_notice 26칸 대조(D-121). KIS가 재전송한다는 것과 ODNO가
     //  영업일마다 다시 쓰인다는 것은 샘플·실측 기록이 없는 대비용 가정이다(D-131).
-    const uint64_t order_number = digits_to_number(fill_notification.kis_order_no); // 전문 문자열이 정수가 되는 자리
     const FillKey  fill_key{trade_date_number(std::chrono::system_clock::to_time_t(fill_notification.timestamp)), order_number,
                            static_cast<uint32_t>(digits_to_number(fill_notification.fill_time)), fill_notification.filled_quantity,
                            static_cast<int64_t>(fill_notification.filled_price * kPriceCentsPerWon)};
@@ -132,16 +140,13 @@ void OrderRouter::on_fill(const FillNotification& fill_notification)
     route_fill(lock, fill_notification, fill_key, order_number);
 }
 
-// 재전송 거르기 뒤 — 이전 세션 주문 되살리기 → 연결된 주문 찾기 → 연결 체결 / 붙들기 / 미연결 체결.
+// 재전송 거르기 뒤 — 연결된 주문 찾기 → 연결 체결 / 붙들기 / 미연결 체결.
 //  붙들어 둔 체결을 다시 판정할 때도 여기로 온다. 목격 기록은 처음 한 번만 올려야 해서 재전송 거르기는 밖에 둔다.
+//  이전 세션 주문 되살리기는 on_fill이 락을 잡기 전에 끝낸다. 붙든 체결은 그 뒤에 붙들렸으므로 다시 판정할 때
+//  되살릴 것이 남아 있지 않다(사유 기록은 되살릴 때 지우고, 이번 세션 주문은 이력에 있다).
 void OrderRouter::route_fill(std::unique_lock<std::mutex>& lock, const FillNotification& fill_notification,
                              const FillKey& fill_key, uint64_t order_number)
 {
-    if (order_number != 0)
-    {
-        restore_from_order_reason_locked(fill_notification, order_number);
-    }
-
     ManagedOrder* matched = find_linked_order_locked(fill_notification, order_number);
 
     // 부분체결: ACCEPTED(최초) 또는 FILLED(분할 진행 중) 모두 허용. 그 밖의 상태(취소·거부)는 미매핑 경로로.
@@ -222,7 +227,44 @@ void OrderRouter::finish_sending_new()
 //  history_는 메모리라 재기동으로 비지만 기록 파일에는 ODNO·종목·수량·전략·사유가
 //  그대로 있다. 되살려 history_에 넣으면 연결 체결 경로가 잔량 클램프까지 평소대로
 //  처리하므로, 전략 귀속을 잃는 미매핑 경로로 빠지지 않는다.
-void OrderRouter::restore_from_order_reason_locked(const FillNotification& fill_notification, uint64_t order_number)
+void OrderRouter::restore_from_order_reason(const FillNotification& fill_notification, uint64_t order_number)
+{
+    std::optional<ManagedOrder> restored;
+    {
+        std::lock_guard<std::mutex> lock(history_mutex_);
+        restored = take_order_reason_locked(fill_notification, order_number);
+    }
+
+    if (!restored)
+    {
+        return;
+    }
+
+    // 선점(reserved_)은 이전 세션과 함께 사라졌다. 연결 체결 처리가
+    //  on_fill_confirmed로 선점을 깎으므로, 주문수량만큼 먼저 되살려 순변화를 맞춘다.
+    //  일부만 체결되고 나머지가 취소되면 그만큼 선점이 남는데, 주기 잔고 대조의
+    //  reset_reserved()가 실제 잔고로 되맞춘다.
+    //  INTENT는 저널을 디스크에 쓰므로 history_mutex_ 밖에서 적는다. 적고 나서 이력에 넣을 때까지 종목 표시를 걸어
+    //  선점 정리가 방금 잡은 선점을 풀지 못하게 한다(표시는 이력에 넣은 뒤 함수 끝에서 풀린다). [why D-113]
+    const ManagedOrder& record = *restored;
+    const InFlightMark  in_flight(*this, record.signal.symbol_id);
+    (void)gate_.ledger().on_intent(record.signal.account_id, record.signal.ticker, record.signal.side,
+                                   record.signal.quantity,
+                                   record.signal.price > 0.0 ? record.signal.price : record.signal.reference_price,
+                                   OrderGate::OrderRef{order_number_of(record.order_id), order_number, record.signal.type},
+                                   record.signal.strategy_index);
+    LOG_INFO("[OrderRouter] 재기동 복원 [" + record.order_id + "] ODNO=" + fill_notification.kis_order_no + " " +
+             record.signal.ticker +
+             (record.signal.side == OrderSide::BUY ? " BUY " : " SELL ") +
+             std::to_string(record.signal.quantity) + "주 전략=" + record.signal.strategy_id +
+             " (주문 사유 기록에서 복구)");
+
+    std::lock_guard<std::mutex> lock(history_mutex_);
+    history_.push(std::move(*restored));
+}
+
+std::optional<ManagedOrder> OrderRouter::take_order_reason_locked(const FillNotification& fill_notification,
+                                                                  uint64_t order_number)
 {
     if (!order_reasons_loaded_)
     {
@@ -237,7 +279,7 @@ void OrderRouter::restore_from_order_reason_locked(const FillNotification& fill_
 
     if (jitter == order_reasons_.end())
     {
-        return;
+        return std::nullopt;
     }
 
     OrderReason& order_reason = jitter->second; // 사유 기록은 아래에서 지우므로 옮겨 온다
@@ -252,22 +294,8 @@ void OrderRouter::restore_from_order_reason_locked(const FillNotification& fill_
     signal.reason          = std::move(order_reason.reason);
     ManagedOrder record    = make_restored_order(next_id(), fill_notification.kis_order_no, std::move(signal),
                                                  fill_notification.timestamp);
-    // 선점(reserved_)은 이전 세션과 함께 사라졌다. 연결 체결 처리가
-    //  on_fill_confirmed로 선점을 깎으므로, 주문수량만큼 먼저 되살려 순변화를 맞춘다.
-    //  일부만 체결되고 나머지가 취소되면 그만큼 선점이 남는데, 주기 잔고 대조의
-    //  reset_reserved()가 실제 잔고로 되맞춘다.
-    (void)gate_.ledger().on_intent(record.signal.account_id, record.signal.ticker, record.signal.side,
-                                   record.signal.quantity,
-                                   record.signal.price > 0.0 ? record.signal.price : record.signal.reference_price,
-                                   OrderGate::OrderRef{order_number_of(record.order_id), order_number, record.signal.type},
-                                   record.signal.strategy_index);
-    LOG_INFO("[OrderRouter] 재기동 복원 [" + record.order_id + "] ODNO=" + fill_notification.kis_order_no + " " +
-             record.signal.ticker +
-             (record.signal.side == OrderSide::BUY ? " BUY " : " SELL ") +
-             std::to_string(record.signal.quantity) + "주 전략=" + record.signal.strategy_id +
-             " (주문 사유 기록에서 복구)");
-    history_.push(std::move(record));
     order_reasons_.erase(jitter);   // 같은 ODNO를 두 번 되살리지 않는다
+    return record;
 }
 
 ManagedOrder* OrderRouter::find_linked_order_locked(const FillNotification& fill_notification, uint64_t order_number)
@@ -387,13 +415,19 @@ void OrderRouter::apply_unlinked_fill(std::unique_lock<std::mutex>& lock, const 
 
     const OrderGate::OrderRef unlinked_reference{order_number_of(unlinked_fill.order_id), order_number,
                                                  unlinked_fill.signal.type};
+
+    // 장부 기록(INTENT·FILL 저널 디스크 쓰기)은 락 밖에서 한다(CODE_CONVENTIONS 4.5). 위에서 쓴 값은 전부 지역 사본이다.
+    //  INTENT와 FILL 사이에 선점 정리가 돌면 INTENT의 선점을 지운 뒤 FILL이 같은 종목 다른 주문의 선점을 깎을 수 있어
+    //  handoff로 그 사이 정리를 미룬다.
+    const LedgerHandoff handoff(*this);
+    lock.unlock();
+
     (void)ledger.on_intent(unlinked_fill.signal.account_id, fill_notification.ticker, fill_notification.side,
                            unlinked_quantity, fill_notification.filled_price, unlinked_reference,
                            unlinked_fill.signal.strategy_index);
     const auto result = ledger.on_fill_confirmed(unlinked_fill.signal.account_id, fill_notification.ticker, fill_notification.side,
                                                  unlinked_quantity, fill_notification.filled_price,
                                                  unlinked_fill.signal.strategy_index, unlinked_reference);
-    lock.unlock(); // 장부 갱신 끝 — 파일 쓰기는 락 밖에서
 
     LOG_WARN(std::format("[OrderRouter] 미매핑 체결 장부 반영 [{}] ODNO={} {} {} {}주 @{} (주문수량 {}) — 이전 세션 주문으로 추정(재시작 전 접수분)",
                          unlinked_fill.order_id, fill_notification.kis_order_no, fill_notification.ticker, fill_notification.side == OrderSide::BUY ? "BUY" : "SELL",
@@ -426,21 +460,25 @@ void OrderRouter::apply_linked_fill(std::unique_lock<std::mutex>& lock, ManagedO
         managed_order.status = OrderStatus::FILLED;
     }
 
-    // 포지션 장부 갱신 (average_price 재계산 + 실현손익) — 원주문의 계좌로 파티션.
-    // 현재는 단일 CANO 전제라 ODNO가 유일 → managed_order.signal.account_id 매핑이 정확하다.
-    // TODO(다계좌): 진짜 다중 CANO 라우팅 시 ODNO가 계좌별로 재사용되므로 체결 매칭 키를
-    //   (kis_order_no + account) 또는 CANO별 H0STCNI 피드 분리로 확장해야 오적립을 막는다.
-    const uint64_t order_number = digits_to_number(fill_notification.kis_order_no);
-    auto result = ledger.on_fill_confirmed(managed_order.signal.account_id, fill_notification.ticker, fill_notification.side,
-                                          apply_quantity, fill_notification.filled_price, managed_order.signal.strategy_index,
-                                          OrderGate::OrderRef{order_number_of(managed_order.order_id), order_number,
-                                                              managed_order.signal.type});
-
     // 락 밖에서 쓰려고 복사한다 — managed_order는 history_ 원소라 record()의 축출로 참조가 죽을 수 있다.
     ManagedOrder   snapshot    = managed_order;
     std::string    open_orders = snapshot_open_orders_locked(); // 잔량이 줄었으니 부속 파일을 다시 쓴다
     const uint64_t sequence    = ++open_orders_sequence_;
+    // 장부 기록(FILL 저널 디스크 쓰기)은 락을 푼 뒤에 한다(CODE_CONVENTIONS 4.5). 체결 수량은 위에서 이력에 이미
+    //  반영해 잔량 상한이 맞다. 같은 주문의 취소가 그 사이 장부에 먼저 들어가도, 취소 해제량은 이력의 confirmed로
+    //  정했고 선점 빼기는 0에서 멈추는 빼기라 결과가 같다. handoff는 이 체결이 장부에 들어갈 때까지 선점 정리를 미룬다.
+    const LedgerHandoff handoff(*this);
     lock.unlock();
+
+    // 포지션 장부 갱신 (average_price 재계산 + 실현손익) — 원주문의 계좌로 파티션.
+    // 현재는 단일 CANO 전제라 ODNO가 유일 → snapshot.signal.account_id 매핑이 정확하다.
+    // TODO(다계좌): 진짜 다중 CANO 라우팅 시 ODNO가 계좌별로 재사용되므로 체결 매칭 키를
+    //   (kis_order_no + account) 또는 CANO별 H0STCNI 피드 분리로 확장해야 오적립을 막는다.
+    const uint64_t order_number = digits_to_number(fill_notification.kis_order_no);
+    auto result = ledger.on_fill_confirmed(snapshot.signal.account_id, fill_notification.ticker, fill_notification.side,
+                                          apply_quantity, fill_notification.filled_price, snapshot.signal.strategy_index,
+                                          OrderGate::OrderRef{order_number_of(snapshot.order_id), order_number,
+                                                              snapshot.signal.type});
 
     if (!note.empty())
     {

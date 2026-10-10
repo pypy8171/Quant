@@ -168,7 +168,9 @@ void LedgerReconciler::resync_holdings(const AccountBalance& balance, bool resyn
     //  fail 봉투로 걸러져 여기 오지 않지만, rt_cd="0"에 빈 output1로 오는 일시 오류가 없다고 장담할
     //  수 없어 가드는 남긴다. 빈 응답을 정본으로 믿고 지우면 장부가 통째로 날아가고 엔진은 미보유로
     //  읽어 같은 종목을 다시 산다(09-09 14:04, 재기동 직후 한도 폭주 중에 25종목 전부 정리됨).
-    //  진짜로 빈 계좌라면 걷어낼 것도 없으니 건너뛰어 잃는 것이 없다.
+    //  대가도 있다: 장부에 남은 마지막 종목의 매도 통보를 놓쳐 실제 계좌가 비면, 잔고는 늘 빈 응답이라 그 유령은
+    //  재기동까지 남는다(슬롯 한 칸을 물고, 엔진은 그 종목을 보유로 읽는다). 빈 응답이 몇 번 이어지면 정리할지는
+    //  아직 정하지 않았다.
     const auto gone = held.empty() ? std::vector<symbol::SymbolId>{} : position_ledger.prune_positions(held, ledger::kPrunePositionAgeSec);
 
     if (held.empty())

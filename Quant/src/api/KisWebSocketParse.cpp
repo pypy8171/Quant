@@ -375,9 +375,8 @@ void KisWebSocket::parse_kr_trade(kis_websocket::Fields fields)
     }
 }
 
-// fields[0]을 그대로 ticker로 쓴다(거래소 접두어를 떼는 변환은 없다). 공식 샘플 delayed_ccnl(실시간-007) 열 순서로는
-//  f[20]이 TAMT(거래대금)이고 방향 칸은 없다 — 디코더의 칸 번호가 샘플과 다르다(Quant/include/api/KisWsDecode.h 참고,
-//  2026-09-27 샘플 대조로 고침).
+// fields[0]을 그대로 ticker로 쓴다(거래소 접두어를 떼는 변환은 없다). 칸 번호는 공식 샘플 delayed_ccnl(실시간-007)
+//  열 순서를 따른다(Quant/include/api/KisWsDecode.h의 [wire] 주석, 2026-10-10 확인). 방향 칸은 없다.
 void KisWebSocket::parse_us_trade(kis_websocket::Fields fields)
 {
     static bool first_us_logged = false;

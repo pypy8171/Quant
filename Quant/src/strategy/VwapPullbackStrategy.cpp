@@ -20,12 +20,107 @@ constexpr int kSessionOpenHhmm  = 900;
 constexpr int kSessionCloseHhmm = 1530;
 constexpr int kMaxMinuteBars    = 400; // 09:00~15:30은 391분 — 하루치를 다 담는다
 
-// 그림자 파일은 슬리브의 종목 K개가 서로 다른 샤드 스레드에서 같이 쓴다. 행이 섞이지 않게 덧붙이기를 한 줄씩 묶는다.
-std::mutex g_shadow_file_mutex;
-
 const char* const kShadowHeader =
     "kst_time,ticker,event,bar_hhmm,reason,price,vwap,board_vwap,retrace,entry,stop,quantity,blocked,ws_ticks,rest_ticks,"
     "match\n";
+
+// 그림자 파일은 슬리브의 종목 K개가 서로 다른 샤드 스레드에서 같이 쓴다. 락 안에서는 행을 대기열에 넣기만 하고,
+//  파일 열기·쓰기는 락을 놓은 뒤 한 스레드만 한다 — 그동안 다른 스레드는 넣고 바로 돌아간다(코드 규약 4.5).
+//  쓰는 스레드는 대기열이 빌 때까지 이어서 쓰므로 행 순서는 넣은 순서 그대로다.
+struct PendingRow
+{
+    std::filesystem::path path;
+    std::string           line;
+    std::string           strategy_id; // 못 열었을 때 로그용
+};
+
+struct ShadowWriter
+{
+    std::mutex              mutex;
+    std::vector<PendingRow> pending;
+    bool                    writing = false; // [inv] true인 동안 파일에 쓰는 스레드는 그 하나뿐이다
+};
+
+ShadowWriter g_shadow_writer;
+
+// 락 밖에서 부른다. 같은 파일 행은 한 번 열어 이어 쓴다.
+void append_rows(const std::vector<PendingRow>& rows)
+{
+    size_t start = 0;
+
+    while (start < rows.size())
+    {
+        const std::filesystem::path& path = rows[start].path;
+        size_t                       end  = start;
+
+        while (end < rows.size() && rows[end].path == path)
+        {
+            ++end;
+        }
+
+        std::error_code error;
+        const bool      fresh = !std::filesystem::exists(path, error) || std::filesystem::file_size(path, error) == 0;
+        std::ofstream   file(path, std::ios::app | std::ios::binary);
+
+        if (!file)
+        {
+            for (size_t row_index = start; row_index < end; ++row_index)
+            {
+                LOG_WARN("[" + rows[row_index].strategy_id + "] 그림자 파일을 못 열었다 — 행을 버린다: " +
+                         rows[row_index].line);
+            }
+
+            start = end;
+            continue;
+        }
+
+        if (fresh)
+        {
+            file << kShadowHeader;
+        }
+
+        for (size_t row_index = start; row_index < end; ++row_index)
+        {
+            file << rows[row_index].line;
+        }
+
+        start = end;
+    }
+}
+
+void enqueue_shadow_row(PendingRow row)
+{
+    std::vector<PendingRow> batch;
+
+    {
+        std::lock_guard<std::mutex> lock(g_shadow_writer.mutex);
+        g_shadow_writer.pending.push_back(std::move(row));
+
+        if (g_shadow_writer.writing)
+        {
+            return; // 쓰는 스레드가 이 행까지 이어서 쓴다
+        }
+
+        g_shadow_writer.writing = true;
+        batch.swap(g_shadow_writer.pending);
+    }
+
+    while (true)
+    {
+        append_rows(batch);
+        batch.clear();
+
+        std::lock_guard<std::mutex> lock(g_shadow_writer.mutex);
+
+        if (g_shadow_writer.pending.empty())
+        {
+            g_shadow_writer.writing = false;
+            return;
+        }
+
+        batch.swap(g_shadow_writer.pending);
+    }
+}
 
 std::string format_number(double value, int digits)
 {
@@ -567,24 +662,7 @@ void VwapPullbackStrategy::write_row(const ShadowRow& row) const
          << format_number(row.stop, kPriceDigits) << ',' << row.quantity << ',' << row.blocked << ','
          << websocket_ticks_ << ',' << rest_ticks_ << ',' << row.match << '\n';
 
-    const std::filesystem::path path = shadow_path();
-    std::lock_guard<std::mutex> lock(g_shadow_file_mutex);
-    std::error_code             error;
-    const bool                  fresh = !std::filesystem::exists(path, error) || std::filesystem::file_size(path, error) == 0;
-    std::ofstream               file(path, std::ios::app | std::ios::binary);
-
-    if (!file)
-    {
-        LOG_WARN("[" + id_ + "] 그림자 파일을 못 열었다 — 행을 버린다: " + line.str());
-        return;
-    }
-
-    if (fresh)
-    {
-        file << kShadowHeader;
-    }
-
-    file << line.str();
+    enqueue_shadow_row(PendingRow{shadow_path(), line.str(), id_});
 }
 
 void VwapPullbackStrategy::restore_from_shadow_file()

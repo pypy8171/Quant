@@ -5,6 +5,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -73,14 +74,60 @@ public:
 
     // 체결·주문 로그의 "BUY"/"SELL" 문자열 → OrderSide. SELL이 아니면 BUY로 본다
     //  (기존 (s=="SELL")?SELL:BUY 관례 유지 — 오탈자·미지정도 BUY).
+    //  밖에서 들어오는 값(운영단말 주문 등)에는 쓰지 않는다 — 빈 값·오타가 매수가 된다. 그 자리는 parse()를 쓴다.
     static OrderSide from_string(const std::string& text)
     {
         return text == "SELL" ? OrderSide(SELL) : OrderSide(BUY);
     }
 
+    // "BUY"/"SELL"만 받는다(대소문자 무시). 그 밖의 값·빈 값은 nullopt — 호출부가 주문을 내지 않고 거부한다.
+    //  constexpr이라 헤더에 둔다 — 운영단말 서버 시험처럼 Types.cpp를 링크하지 않는 타깃도 쓴다.
+    [[nodiscard]] static constexpr std::optional<OrderSide> parse(std::string_view text) noexcept;
+
 private:
     Value value_ = NONE;
 };
+
+namespace order_side_detail
+{
+// 영문 소문자만 대문자로 접어 upper와 같은지 본다. upper는 대문자로 적은 상수다.
+constexpr bool equals_folded(std::string_view text, std::string_view upper) noexcept
+{
+    if (text.size() != upper.size())
+    {
+        return false;
+    }
+
+    for (size_t index = 0; index < text.size(); ++index)
+    {
+        const char character = text[index];
+        const char folded    = (character >= 'a' && character <= 'z') ? static_cast<char>(character - 'a' + 'A') : character;
+
+        if (folded != upper[index])
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+} // namespace order_side_detail
+
+constexpr std::optional<OrderSide> OrderSide::parse(std::string_view text) noexcept
+{
+    if (order_side_detail::equals_folded(text, "BUY"))
+    {
+        return OrderSide(BUY);
+    }
+
+    if (order_side_detail::equals_folded(text, "SELL"))
+    {
+        return OrderSide(SELL);
+    }
+
+    return std::nullopt;
+}
+
 enum class OrderType
 {
     MARKET,

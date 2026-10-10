@@ -196,6 +196,7 @@ set(HEADER_IMPL_SOURCES
   src/utils/JsonNode.cpp
   src/utils/AtomicFile.cpp
   src/utils/ThreadName.cpp
+  src/utils/ThreadGuard.cpp
   src/utils/Utf8.cpp
 )
 
@@ -1103,19 +1104,8 @@ foreach(_qt IN LISTS QUANT_ASSERT_TARGETS)
 endforeach()
 
 # ─── 도구: 수동 주문(모의계좌) — 접수→체결 실증 ───────────────────────────
-add_executable(manual_order
-    tools/manual_order.cpp
-    ${KIS_CLIENT_SOURCES}
-    src/risk/OrderGate.cpp
-    src/utils/Logger.cpp
-)
-target_include_directories(manual_order PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-if(UNIX)
-    target_link_libraries(manual_order PRIVATE
-        CURL::libcurl OpenSSL::Crypto nlohmann_json::nlohmann_json pthread stdc++fs)
-else()
-    target_link_libraries(manual_order PRIVATE nlohmann_json::nlohmann_json winhttp bcrypt)
-endif()
+add_executable(manual_order tools/manual_order.cpp)
+target_link_libraries(manual_order PRIVATE quant_engine) # 엔진과 같은 config 파서(parse_config)를 쓴다 — 리뷰 2026-10-10 #12
 
 # ─── 도구: 국면 판정 한 사이클 — 엔진 없이 regime.json 을 한 번 써 본다 (D-147) ──
 add_executable(regime_feed_once tools/regime_feed_once.cpp)

@@ -308,8 +308,11 @@ private:
         std::string      ticker;
         symbol::SymbolId symbol_id;
     };
-    // 재확인 스레드 본체 — 목록이 빌 때까지 조회하고, 조회가 실패하면 간격을 늘려 다시 조회한다.
+    // 재확인 스레드 본체. 예외는 여기서 잡아 로그로 남기고 reconcile_running_을 내린다.
     void reconcile_unknown_orders_loop(std::stop_token stop_token);
+    // 목록이 빌 때까지 조회하고, 조회가 실패하면 간격을 늘려 다시 조회한다. 끝날 때 reconcile_running_을 내린다.
+    //  예외를 밖으로 던질 수 있다.
+    void run_reconcile_rounds(std::stop_token stop_token);
     // 한 번의 미체결 조회 결과로 묶음의 장부 밖 주문을 취소하고, 끝낸 종목 번호를 돌려준다. 같은 종목 주문이
     //  전송 중이면 번호를 모르는 우리 주문일 수 있어 끝내지 않고 다음 조회로 미룬다.
     std::vector<symbol::SymbolId> cancel_unknown_open_orders(const std::vector<PendingReconcile>& batch,
@@ -331,10 +334,18 @@ private:
     };
     // 살아 있는 원주문을 찾아 값으로 뜬다. 없으면 거짓. [inv] history_mutex_를 쥐고 부른다.
     bool snapshot_live_original_locked(uint64_t client_order_number, OriginalOrder& original);
-    // 취소·정정이 접수된 뒤 원주문을 CANCELLED로 닫고 그 시점 잔량만큼 선점을 푼다. 잔량은 지금 confirmed_quantity로
-    //  다시 센다 — 전송 사이 체결 스레드가 올렸을 수 있어서다. 원주문이 이미 빠졌으면 release_if_gone만큼 푼다.
-    //  [inv] history_mutex_를 쥐고 부른다. [lock-order] history_mutex_ → 장부 positions_mutex_(on_fill과 같다).
-    void close_live_original_locked(const OrderSignal& signal, const OriginalOrder& original, int release_if_gone);
+    // close_live_original_locked가 정한 원주문 선점 해제분. 장부 기록은 락을 푼 뒤 release_original이 한다.
+    struct OriginalRelease
+    {
+        int      quantity     = 0; // 풀 선점 수량. 0이면 장부에 적지 않는다
+        uint64_t order_number = 0; // 원주문의 내부 주문번호(이력에서 빠졌으면 0)
+    };
+    // 취소·정정이 접수된 뒤 원주문을 CANCELLED로 닫고 그 시점 잔량을 돌려준다. 잔량은 지금 confirmed_quantity로
+    //  다시 센다 — 전송 사이 체결 스레드가 올렸을 수 있어서다. 원주문이 이미 빠졌으면 release_if_gone을 돌려준다.
+    //  [inv] history_mutex_를 쥐고 부른다. 장부는 부르지 않는다(락 안 디스크 쓰기 금지, CODE_CONVENTIONS 4.5).
+    [[nodiscard]] OriginalRelease close_live_original_locked(const OrderSignal& signal, int release_if_gone);
+    // 위에서 정한 해제분을 장부에 적는다(선점 해제 + CANCEL 저널). [inv] history_mutex_를 쥐지 않고 부른다.
+    void release_original(const OrderSignal& signal, const OriginalOrder& original, const OriginalRelease& release);
     // 취소·정정 한 건이 세 토막을 지나며 들고 다니는 상태.
     struct ModifyRoute
     {
@@ -381,12 +392,19 @@ private:
     static std::vector<CarryRow> read_open_orders_file(const std::filesystem::path& path);
     // 부속 파일이 모르는 브로커 미체결을 줄로 채운다(ODNO를 못 받은 주문). [why D-101]
     void add_broker_open_orders(std::vector<CarryRow>& rows);
-    // 기동 취소 스레드 본문 — 줄마다 취소하고, 끝난 줄은 부속 파일에서 뺀다.
+    // 기동 취소 스레드 본문 — 줄마다 취소하고, 끝난 줄은 부속 파일에서 뺀다. 예외는 여기서 잡아 로그로 남긴다.
     void cancel_stale_rows(std::stop_token stop_token, const std::vector<CarryRow>& rows);
+    // cancel_stale_rows의 실제 반복. 예외를 밖으로 던질 수 있다.
+    void run_stale_cancels(std::stop_token stop_token, const std::vector<CarryRow>& rows);
 
     // ── 체결통보 단계 (on_fill) ────────────────────────────────────────────
-    // 이전 세션 주문이면 주문 사유 기록에서 이력에 되살린다. [inv] history_mutex_를 쥐고 부른다.
-    void restore_from_order_reason_locked(const FillNotification& fill_notification, uint64_t order_number);
+    // 이전 세션 주문이면 주문 사유 기록에서 이력에 되살린다. 순서는 사유 기록에서 꺼내기(락 안) → 종목 표시를 걸고
+    //  장부 INTENT(락 밖) → 이력에 넣기(락 안). [inv] history_mutex_를 쥐지 않고 부른다.
+    void restore_from_order_reason(const FillNotification& fill_notification, uint64_t order_number);
+    // 이력에 없는 주문이 사유 기록에 있으면 되살릴 항목을 만들어 돌려주고 사유 기록에서 지운다. 장부·로그는 부르지 않는다.
+    //  [inv] history_mutex_를 쥐고 부른다.
+    [[nodiscard]] std::optional<ManagedOrder> take_order_reason_locked(const FillNotification& fill_notification,
+                                                                       uint64_t order_number);
     // ODNO 색인, 없으면 원주문번호로 연결된 주문을 찾는다. [inv] history_mutex_를 쥐고 부른다.
     ManagedOrder* find_linked_order_locked(const FillNotification& fill_notification, uint64_t order_number);
     // 재전송 거르기 뒤의 단계. 연결 주문이 없는데 접수 답을 기다리는 신규 주문이 있으면 early_fills_에 붙든다.
@@ -396,10 +414,12 @@ private:
     // close_new 끝 — 보내는 중 수를 하나 내리고 붙든 체결을 다시 판정한다. history_mutex_를 쥐지 않고 부른다.
     void finish_sending_new();
     // 이 프로세스가 낸 주문이 아닌 체결을 장부에 넣는다. [inv] lock은 history_mutex_를 쥔 채로 받고, 여기서 푼다.
+    //  장부 기록(INTENT·FILL)은 락을 푼 뒤에 한다.
     void apply_unlinked_fill(std::unique_lock<std::mutex>& lock, const FillNotification& fill_notification,
                              const fill_key::FillKey& fill_key, uint64_t order_number);
     // 연결된 주문에 체결 incoming_quantity주를 넣고 장부·장부 CSV·미결 파일·발행까지 한다. 잔량을 넘으면 잔량으로
     //  자른다. note가 비지 않으면 장부 CSV의 사유 칸에 적는다. [inv] lock은 history_mutex_를 쥔 채로 받고, 여기서 푼다.
+    //  이력은 락 안에서 바꾸고 장부 기록(FILL)은 락을 푼 뒤에 한다.
     void apply_linked_fill(std::unique_lock<std::mutex>& lock, ManagedOrder& managed_order,
                            const FillNotification& fill_notification, int incoming_quantity, std::string_view note);
     // 조회로 되찾은 몫에 드는 늦은 통보면 그 수량을 몫에서 깎고 돌려준다(장부에 다시 넣지 않을 수량).
@@ -457,6 +477,22 @@ private:
         symbol::SymbolId symbol_id_;
     };
 
+    // 이력은 이미 바꿨고 장부 기록(선점 해제·체결 반영)은 아직인 구간 표시. 장부 기록은 디스크를 쓰므로
+    //  history_mutex_를 푼 뒤에 하는데, 그 틈에 선점 정리가 돌면 "살아 있는 주문 없음"으로 보고 선점을 0으로 만든 뒤
+    //  늦게 온 해제가 그사이 다른 주문이 잡은 선점을 깎는다. 정리는 이 표시가 하나라도 있으면 그 회차를 건너뛴다.
+    //  [inv] history_mutex_를 쥔 채 만든다(정리가 같은 락 아래에서 수를 읽어 이력과 함께 본다). 소멸은 락 밖이어도 된다.
+    class LedgerHandoff
+    {
+    public:
+        explicit LedgerHandoff(OrderRouter& router);
+        ~LedgerHandoff();
+        LedgerHandoff(const LedgerHandoff&)            = delete;
+        LedgerHandoff& operator=(const LedgerHandoff&) = delete;
+
+    private:
+        OrderRouter& router_;
+    };
+
 public:
     // open_new가 연 신규 주문 하나 — 전송 스레드로 옮겨 다닌다. 종목 표시(in_flight)는 close_new가 이력에 적은
     //  뒤에 풀린다. [inv] 이 값이 살아 있는 동안 라우터도 살아 있어야 한다(표시가 라우터를 가리킨다).
@@ -480,6 +516,8 @@ private:
     std::vector<symbol::SymbolId> in_flight_symbols_; // 같은 종목이 두 번 들 수 있다(신규 안의 청산 재매도)
 
     mutable std::mutex history_mutex_;
+    // 살아 있는 LedgerHandoff 수. 늘리는 쪽은 history_mutex_를 쥐고, 정리는 그 락 아래에서 읽는다.
+    std::atomic<int>   ledger_handoffs_{0};
     // 이번 세션 주문 이력과 ODNO·주문 번호 색인. [inv] history_mutex_를 쥐고만 만진다(OrderHistory에 자체 락 없음).
     //  반환 포인터는 그 락을 쥔 동안만 유효하다. [why D-112]
     OrderHistory       history_;

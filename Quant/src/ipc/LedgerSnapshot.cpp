@@ -1,36 +1,56 @@
 #include "ipc/LedgerSnapshot.h"
 
-// TSAN 빌드에서만 주석을 부른다. gcc 는 __SANITIZE_THREAD__, clang 은 __has_feature 로 알린다.
-#if defined(__has_feature)
-#if __has_feature(thread_sanitizer)
-#define QUANT_TSAN_ANNOTATE 1
-#endif
-#endif
-#if defined(__SANITIZE_THREAD__) && !defined(QUANT_TSAN_ANNOTATE)
-#define QUANT_TSAN_ANNOTATE 1
-#endif
-#ifdef QUANT_TSAN_ANNOTATE
-// libtsan 이 내보내는 이름인데 sanitizer/tsan_interface.h 에는 선언이 없어 직접 적는다(gcc 13 확인).
-extern "C" void AnnotateIgnoreReadsBegin(const char* file, int line);
-extern "C" void AnnotateIgnoreReadsEnd(const char* file, int line);
-#endif
+#include <cstring>
 
 namespace ipc
 {
 
-void LedgerSnapshot::begin_optimistic_read() const noexcept
+namespace
 {
-#ifdef QUANT_TSAN_ANNOTATE
-    AnnotateIgnoreReadsBegin(__FILE__, __LINE__);
-#endif
+
+// 구조체 하나를 단어 배열로 옮겨 원자 칸에 relaxed로 싣는다. 순서는 판 번호 쪽 울타리가 맞춘다.
+template <typename Value, size_t kWords>
+void store_words(std::atomic<uint64_t> (&cells)[kWords], const Value& value) noexcept
+{
+    static_assert(sizeof(Value) == kWords * sizeof(uint64_t), "단어 수가 구조체 크기와 맞아야 한다");
+    uint64_t words[kWords];
+    std::memcpy(words, &value, sizeof(Value));
+
+    for (size_t cell_index = 0; cell_index < kWords; ++cell_index)
+    {
+        cells[cell_index].store(words[cell_index], std::memory_order_relaxed);
+    }
 }
 
-void LedgerSnapshot::end_optimistic_read() const noexcept
+// store_words의 반대 — 원자 칸을 relaxed로 읽어 구조체로 옮긴다.
+template <typename Value, size_t kWords>
+Value load_words(const std::atomic<uint64_t> (&cells)[kWords]) noexcept
 {
-#ifdef QUANT_TSAN_ANNOTATE
-    AnnotateIgnoreReadsEnd(__FILE__, __LINE__);
-#endif
+    static_assert(sizeof(Value) == kWords * sizeof(uint64_t), "단어 수가 구조체 크기와 맞아야 한다");
+    uint64_t words[kWords];
+
+    for (size_t cell_index = 0; cell_index < kWords; ++cell_index)
+    {
+        words[cell_index] = cells[cell_index].load(std::memory_order_relaxed);
+    }
+
+    Value value;
+    std::memcpy(&value, words, sizeof(Value));
+    return value;
 }
+
+// 판이 안정되지 않았을 때 돌려주는 전역값 — 새 진입도 전략 매도도 막고 자리도 없다고 본다.
+//  틀린 판으로 주문을 내는 것보다 한 바퀴 쉬는 쪽이 낫다는 판단이다.
+LedgerGlobals halted_globals() noexcept
+{
+    LedgerGlobals globals;
+    globals.entry_halted       = 1;
+    globals.manual_sell_halted = 1;
+    globals.capacity_full      = 1;
+    return globals;
+}
+
+} // namespace
 
 void LedgerSnapshot::begin_publish() noexcept
 {
@@ -47,6 +67,18 @@ void LedgerSnapshot::begin_publish() noexcept
 
 void LedgerSnapshot::end_publish() noexcept
 {
+    // 쓰는 쪽 칸에 채운 값을 판 번호가 아직 홀수인 동안 공개 칸으로 옮긴다. 이번 판에 손댄 줄만 옮긴다 —
+    //  안 옮긴 줄은 지난 판의 stamp를 달고 있어 읽는 쪽이 빈 줄로 본다.
+    store_words(published_globals_, staging_globals_);
+
+    const uint32_t written = written_count_.load(std::memory_order_relaxed);
+
+    for (uint32_t slot = 0; slot < written && slot < kMaxSymbols; ++slot)
+    {
+        const symbol::SymbolId id = written_ids_[slot].load(std::memory_order_relaxed);
+        store_words(published_rows_[id], staging_rows_[id]);
+    }
+
     // 값 쓰기가 전부 끝난 뒤에 판 번호가 짝수로 보여야 한다 — 여기는 "앞에 있던 쓰기"를 묶는
     //  것이 맞으므로 release 연산 하나로 족하다.
     version_.fetch_add(1, std::memory_order_release);
@@ -59,7 +91,7 @@ LedgerRow& LedgerSnapshot::row_for_write(symbol::SymbolId id) noexcept
         return discard_;
     }
 
-    LedgerRow&     row = rows_[id];
+    LedgerRow&     row = staging_rows_[id];
     const uint64_t now = generation_.load(std::memory_order_relaxed);
 
     if (row.stamp != now)
@@ -72,12 +104,17 @@ LedgerRow& LedgerSnapshot::row_for_write(symbol::SymbolId id) noexcept
 
         if (written < kMaxSymbols)
         {
-            written_ids_[written] = id;
+            written_ids_[written].store(id, std::memory_order_relaxed);
             written_count_.store(written + 1, std::memory_order_relaxed);
         }
     }
 
     return row;
+}
+
+LedgerRow LedgerSnapshot::load_published_row(size_t index) const noexcept
+{
+    return load_words<LedgerRow>(published_rows_[index]);
 }
 
 LedgerRow LedgerSnapshot::row(symbol::SymbolId id) const noexcept
@@ -87,34 +124,44 @@ LedgerRow LedgerSnapshot::row(symbol::SymbolId id) const noexcept
         return LedgerRow{};
     }
 
-    return read_stable([this, id]
+    const std::optional<LedgerRow> stable = read_stable([this, id]
     {
-        const LedgerRow& row = rows_[id];
+        const LedgerRow row = load_published_row(id);
 
         // 이번 판에 안 채워진 줄은 값이 없는 것이다 — 지난 판 값을 돌려주면 그게 곧 낡은 사본이다.
         return row.stamp == generation_.load(std::memory_order_relaxed) ? row : LedgerRow{};
     });
+
+    // 판을 못 읽었으면 빈 줄을 돌려준다 — 보유 0으로 보여 이 종목의 매도 판단을 한 바퀴 쉬게 된다.
+    return stable.value_or(LedgerRow{});
 }
 
 LedgerGlobals LedgerSnapshot::globals() const noexcept
 {
-    return read_stable([this]
+    const std::optional<LedgerGlobals> stable = read_stable([this]
     {
-        return globals_;
+        return load_words<LedgerGlobals>(published_globals_);
     });
+
+    if (!stable)
+    {
+        return halted_globals();
+    }
+
+    return *stable;
 }
 
 EntryView LedgerSnapshot::entry(symbol::SymbolId id) const noexcept
 {
     // 보유·선점·여력을 한 판에서 함께 읽는다. 따로 읽으면 그 사이에 판이 바뀌어 낡은 조합을 본다. [why D-086]
-    return read_stable([this, id]
+    const std::optional<EntryView> stable = read_stable([this, id]
     {
         EntryView view;
-        view.capacity_full = globals_.capacity_full != 0;
+        view.capacity_full = load_words<LedgerGlobals>(published_globals_).capacity_full != 0;
 
         if (id != symbol::kNone && static_cast<size_t>(id) < kMaxSymbols)
         {
-            const LedgerRow& row = rows_[id];
+            const LedgerRow row = load_published_row(id);
 
             if (row.stamp == generation_.load(std::memory_order_relaxed))
             {
@@ -125,13 +172,23 @@ EntryView LedgerSnapshot::entry(symbol::SymbolId id) const noexcept
 
         return view;
     });
+
+    if (!stable)
+    {
+        // 판을 못 읽었으면 자리가 없다고 본다 — 새 진입을 한 바퀴 미룬다.
+        EntryView view;
+        view.capacity_full = true;
+        return view;
+    }
+
+    return *stable;
 }
 
 size_t LedgerSnapshot::collect_rows(symbol::SymbolId* out_ids, LedgerRow* out_rows, size_t capacity) const noexcept
 {
     // 목록 전체를 한 판 안에서 읽는다 — 줄마다 따로 읽으면 앞줄과 뒷줄이 다른 판의 것이 되어,
     //  "이미 판 종목이 아직 보유로 잡히는" 조합을 본다.
-    return read_stable([this, out_ids, out_rows, capacity]() -> size_t
+    const std::optional<size_t> stable = read_stable([this, out_ids, out_rows, capacity]() -> size_t
     {
         const uint64_t now     = generation_.load(std::memory_order_relaxed);
         const uint32_t written = written_count_.load(std::memory_order_relaxed);
@@ -139,9 +196,16 @@ size_t LedgerSnapshot::collect_rows(symbol::SymbolId* out_ids, LedgerRow* out_ro
 
         for (uint32_t slot = 0; slot < written && slot < kMaxSymbols; ++slot)
         {
-            const symbol::SymbolId id = written_ids_[slot];
+            const symbol::SymbolId id = written_ids_[slot].load(std::memory_order_relaxed);
 
-            if (id == symbol::kNone || static_cast<size_t>(id) >= kMaxSymbols || rows_[id].stamp != now)
+            if (id == symbol::kNone || static_cast<size_t>(id) >= kMaxSymbols)
+            {
+                continue;
+            }
+
+            const LedgerRow row = load_published_row(id);
+
+            if (row.stamp != now)
             {
                 continue;
             }
@@ -149,7 +213,7 @@ size_t LedgerSnapshot::collect_rows(symbol::SymbolId* out_ids, LedgerRow* out_ro
             if (taken < capacity)
             {
                 out_ids[taken]  = id;
-                out_rows[taken] = rows_[id];
+                out_rows[taken] = row;
             }
 
             ++taken;
@@ -157,6 +221,9 @@ size_t LedgerSnapshot::collect_rows(symbol::SymbolId* out_ids, LedgerRow* out_ro
 
         return taken;
     });
+
+    // 판을 못 읽었으면 0줄 — 보유 전체를 훑는 정리 주문이 이번 바퀴를 건너뛴다.
+    return stable.value_or(0);
 }
 
 uint64_t LedgerSnapshot::generation() const noexcept

@@ -26,13 +26,13 @@ graph LR
   core -->|10| risk
   core -->|4| strategy
   core -->|2| universe
-  core -->|42| utils
+  core -->|48| utils
   exchange -->|7| core
   exchange -->|3| utils
   ipc -->|3| api
-  ipc -->|25| core
+  ipc -->|26| core
   ipc --> risk
-  ipc -->|13| utils
+  ipc -->|15| utils
   main -->|4| core
   main --> strategy
   main -->|2| utils
@@ -41,7 +41,7 @@ graph LR
   regime -->|3| utils
   risk -->|12| core
   risk -->|2| ipc
-  risk -->|4| utils
+  risk -->|5| utils
   strategy -->|6| api
   strategy -->|28| core
   strategy --> risk
@@ -49,7 +49,7 @@ graph LR
   strategy -->|15| utils
   universe -->|2| api
   universe -->|16| core
-  universe -->|24| utils
+  universe -->|26| utils
   utils --> core
 ```
 
@@ -60,8 +60,8 @@ graph LR
 
 | 헤더 | 유입 수 |
 |---|---|
-| `utils/Logger.h` | 62 |
-| `core/Types.h` | 51 |
+| `utils/Logger.h` | 64 |
+| `core/Types.h` | 52 |
 | `core/KstTime.h` | 35 |
 | `utils/ThreadName.h` | 30 |
 | `core/SymbolTable.h` | 23 |
@@ -299,6 +299,7 @@ graph LR
     n_utils_EtfFilter_cpp["utils/EtfFilter.cpp"]
     n_utils_JsonNode_cpp["utils/JsonNode.cpp"]
     n_utils_Logger_cpp["utils/Logger.cpp"]
+    n_utils_ThreadGuard_cpp["utils/ThreadGuard.cpp"]
     n_utils_ThreadName_cpp["utils/ThreadName.cpp"]
     n_utils_Utf8_cpp["utils/Utf8.cpp"]
   end
@@ -426,6 +427,7 @@ graph LR
   n_core_Engine_h --> n_risk_OrderGate_h
   n_core_Engine_h --> n_risk_ProtectiveOrders_h
   n_core_Engine_h --> n_strategy_StrategyBase_h
+  n_core_Engine_h --> n_utils_GenerationCopy_h
   n_core_EngineConfigure_cpp --> n_core_AppConfig_h
   n_core_EngineConfigure_cpp --> n_core_Engine_h
   n_core_EngineConfigure_cpp --> n_utils_Logger_h
@@ -483,6 +485,7 @@ graph LR
   n_core_EngineUniverse_cpp --> n_universe_MarketBoard_h
   n_core_EngineUniverse_cpp --> n_utils_Logger_h
   n_core_FeedMux_cpp --> n_core_FeedMux_h
+  n_core_FeedMux_cpp --> n_utils_ThreadGuard_h
   n_core_FeedMux_cpp --> n_utils_ThreadName_h
   n_core_FeedMux_h --> n_core_IFeedSource_h
   n_core_FeedMux_h --> n_core_RingBuffer_h
@@ -492,6 +495,7 @@ graph LR
   n_core_HttpQuoteFeed_cpp --> n_api_HttpGet_h
   n_core_HttpQuoteFeed_cpp --> n_core_HttpQuoteFeed_h
   n_core_HttpQuoteFeed_cpp --> n_utils_Logger_h
+  n_core_HttpQuoteFeed_cpp --> n_utils_ThreadGuard_h
   n_core_HttpQuoteFeed_cpp --> n_utils_ThreadName_h
   n_core_HttpQuoteFeed_h --> n_core_Types_h
   n_core_IFeedSource_cpp --> n_core_IFeedSource_h
@@ -522,14 +526,16 @@ graph LR
   n_core_PaperExecutor_h --> n_core_SymbolTable_h
   n_core_PaperExecutor_h --> n_core_Types_h
   n_core_PrefetchPool_cpp --> n_core_PrefetchPool_h
+  n_core_PrefetchPool_cpp --> n_utils_ThreadGuard_h
+  n_core_PrefetchPool_cpp --> n_utils_ThreadName_h
   n_core_PrefetchPool_h --> n_core_WakeGate_h
-  n_core_PrefetchPool_h --> n_utils_ThreadName_h
   n_core_ReconcilePlan_cpp --> n_core_ReconcilePlan_h
   n_core_ReconcilePlan_h --> n_core_SymbolTable_h
   n_core_RegimeFileJudge_cpp --> n_core_RegimeFileJudge_h
   n_core_RegimeFileJudge_h --> n_core_KstTime_h
   n_core_RegimeFileJudge_h --> n_core_Types_h
   n_core_ReplaySource_cpp --> n_core_ReplaySource_h
+  n_core_ReplaySource_cpp --> n_utils_ThreadGuard_h
   n_core_ReplaySource_cpp --> n_utils_ThreadName_h
   n_core_ReplaySource_h --> n_core_IFeedSource_h
   n_core_ReplaySource_h --> n_core_TickCapture_h
@@ -565,6 +571,7 @@ graph LR
   n_core_TickSize_h --> n_core_Types_h
   n_core_TransportPool_h --> n_core_MpscQueue_h
   n_core_TransportPool_h --> n_core_WakeGate_h
+  n_core_TransportPool_h --> n_utils_ThreadGuard_h
   n_core_TransportPool_h --> n_utils_ThreadName_h
   n_core_Types_cpp --> n_core_Types_h
   n_core_Types_h --> n_core_StrategyTable_h
@@ -596,6 +603,7 @@ graph LR
   n_ipc_DbManager_cpp --> n_core_WakeGate_h
   n_ipc_DbManager_cpp --> n_ipc_DbManager_h
   n_ipc_DbManager_cpp --> n_utils_Logger_h
+  n_ipc_DbManager_cpp --> n_utils_ThreadGuard_h
   n_ipc_DbManager_cpp --> n_utils_ThreadName_h
   n_ipc_DbManager_h --> n_core_HealthSnapshot_h
   n_ipc_DbManager_h --> n_core_SymbolTable_h
@@ -611,6 +619,7 @@ graph LR
   n_ipc_MarketFeedChannel_h --> n_core_Types_h
   n_ipc_MarketFeedChannel_h --> n_ipc_SharedSpscRing_h
   n_ipc_OpsProtocol_cpp --> n_ipc_OpsProtocol_h
+  n_ipc_OpsServer_cpp --> n_core_Types_h
   n_ipc_OpsServer_cpp --> n_ipc_OpsServer_h
   n_ipc_OpsServer_cpp --> n_utils_Logger_h
   n_ipc_OpsServer_cpp --> n_utils_ThreadName_h
@@ -673,6 +682,7 @@ graph LR
   n_ipc_ZmqBridge_cpp --> n_core_RegimeFileJudge_h
   n_ipc_ZmqBridge_cpp --> n_ipc_ZmqBridge_h
   n_ipc_ZmqBridge_cpp --> n_utils_Logger_h
+  n_ipc_ZmqBridge_cpp --> n_utils_ThreadGuard_h
   n_ipc_ZmqBridge_cpp --> n_utils_ThreadName_h
   n_ipc_ZmqBridge_h --> n_core_HealthSnapshot_h
   n_ipc_ZmqBridge_h --> n_core_MpscQueue_h
@@ -699,6 +709,7 @@ graph LR
   n_risk_EntryPriority_h --> n_core_SymbolTable_h
   n_risk_GateReasons_cpp --> n_risk_GateReasons_h
   n_risk_LedgerJournal_cpp --> n_risk_LedgerJournal_h
+  n_risk_LedgerJournal_cpp --> n_utils_Logger_h
   n_risk_LedgerKeys_cpp --> n_risk_LedgerKeys_h
   n_risk_LedgerKeys_h --> n_core_SymbolTable_h
   n_risk_LedgerKeys_h --> n_core_Types_h
@@ -834,6 +845,7 @@ graph LR
   n_universe_MarketBoard_cpp --> n_universe_MarketBoard_h
   n_universe_MarketBoard_cpp --> n_utils_AtomicFile_h
   n_universe_MarketBoard_cpp --> n_utils_Logger_h
+  n_universe_MarketBoard_cpp --> n_utils_ThreadGuard_h
   n_universe_MarketBoard_cpp --> n_utils_ThreadName_h
   n_universe_MarketBoard_cpp --> n_utils_Utf8_h
   n_universe_ScoreWeight_cpp --> n_universe_ScoreWeight_h
@@ -852,6 +864,7 @@ graph LR
   n_universe_UniverseFeatures_cpp --> n_utils_EtfFilter_h
   n_universe_UniverseFeatures_cpp --> n_utils_JsonNode_h
   n_universe_UniverseFeatures_cpp --> n_utils_Logger_h
+  n_universe_UniverseFeatures_cpp --> n_utils_ThreadGuard_h
   n_universe_UniverseFeatures_cpp --> n_utils_ThreadName_h
   n_universe_UniverseItb_cpp --> n_core_KstTime_h
   n_universe_UniverseItb_cpp --> n_core_Types_h
@@ -892,6 +905,8 @@ graph LR
   n_utils_Logger_cpp --> n_core_MpscQueue_h
   n_utils_Logger_cpp --> n_utils_Logger_h
   n_utils_Logger_cpp --> n_utils_ThreadName_h
+  n_utils_ThreadGuard_cpp --> n_utils_Logger_h
+  n_utils_ThreadGuard_cpp --> n_utils_ThreadGuard_h
   n_utils_ThreadName_cpp --> n_utils_ThreadName_h
   n_utils_Utf8_cpp --> n_utils_Utf8_h
 ```
@@ -915,6 +930,7 @@ graph LR
   p_PYQuant_kis["PYQuant/kis"]
   p_PYQuant_live["PYQuant/live"]
   p_PYQuant_naver["PYQuant/naver"]
+  p_PYQuant_redact_publish["PYQuant/redact_publish"]
   p_PYQuant_report["PYQuant/report"]
   p_PYQuant_strategy["PYQuant/strategy"]
   p_PYQuant_tests["PYQuant/tests"]
@@ -935,6 +951,7 @@ graph LR
   p_PYQuant_backtest --> p_PYQuant_strategy
   p_PYQuant_dashboard --> p_PYQuant__logdir
   p_PYQuant_dashboard --> p_PYQuant_backtest
+  p_PYQuant_dashboard --> p_PYQuant_redact_publish
   p_PYQuant_data -->|4| p_PYQuant_kis
   p_PYQuant_db --> p_PYQuant_core
   p_PYQuant_features --> p_PYQuant_data
@@ -979,6 +996,7 @@ graph LR
 | `PYQuant/core/proc_watch.py` | `core.logger` |
 | `PYQuant/dashboard/backfill_live.py` | `_logdir` |
 | `PYQuant/dashboard/backfill_series_a.py` | `backtest.report` |
+| `PYQuant/dashboard/build_dashboard.py` | `redact_publish` |
 | `PYQuant/data/datagokr_source.py` | `kis.client` |
 | `PYQuant/data/index_source.py` | `kis.client` |
 | `PYQuant/data/krx_source.py` | `kis.client` |
@@ -1029,8 +1047,9 @@ graph LR
 | `PYQuant/tools/walkforward.py` | `backtest.engine`, `main` |
 | `scripts/backfill_fills_db.py` | `_logdir`, `db.client` |
 | `scripts/backfill_studies.py` | `backtest.report` |
-| `scripts/build_plain_dashboard.py` | `_logdir` |
+| `scripts/build_plain_dashboard.py` | `_logdir`, `redact_publish` |
 | `scripts/build_review_entry.py` | `market_close_collect` |
+| `scripts/build_study_site.py` | `redact_publish` |
 | `scripts/check_market_open.py` | `kis.client` |
 | `scripts/check_runtime_health.py` | `_logdir`, `capture_stats`, `log_patterns` |
 | `scripts/daily_trade_report.py` | `check_runtime_health` |

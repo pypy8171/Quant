@@ -4,6 +4,7 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <mutex>
 #include <nlohmann/json.hpp>
 #include <string>
@@ -16,8 +17,10 @@
 //  로그 폴더 seed_peaks.json에 {날짜, 종목→고점}을 두고 부착 시 읽어 peak_ 초기값으로 쓴다.
 //  날짜가 다르면 무시한다 — 어제 고점으로 오늘 개장 틱에 투매하지 않기 위해서다. [why D-052]
 //
-//  호출자는 ITB를 도는 샤드 스레드들이다(여럿일 수 있어 mutex로 감싼다). 파일은 프로세스 밖에서도
-//  읽히므로 임시파일+rename으로 쓴다.
+//  호출자는 ITB를 도는 샤드 스레드들이다(여럿일 수 있다). 표는 메모리에 두고 락 안에서는 표만 고친다.
+//  파일은 첫 호출에서 한 번 읽고, 쓰기는 락을 놓은 뒤 한 스레드만 한다 — 그동안 다른 스레드의
+//  load·save는 표만 보고 바로 돌아간다(코드 규약 4.5). 쓰는 사이에 바뀐 것은 그 스레드가 이어서 다시 쓴다.
+//  파일은 프로세스 밖에서도 읽히므로 임시파일+rename으로 쓴다.
 // ─────────────────────────────────────────────────────────────────────────────
 class SeedPeakStore
 {
@@ -35,15 +38,20 @@ public:
 
     static void erase(const std::string& ticker);
 
-private:
-    static std::mutex& mutex();
+    // 시험 전용. 파일을 쓰기 직전(락 밖)에 부른다 — 쓰는 동안 다른 스레드가 막히지 않는지 보는 데 쓴다. 빈 함수면 끈다.
+    static void set_before_write_for_test(std::function<void()> hook);
 
+    // 시험 전용. 메모리 표를 비워 다음 호출이 파일을 다시 읽게 한다.
+    static void reset_for_test();
+
+private:
     static std::filesystem::path file_path()
     {
         return Logger::instance().base_directory() / "seed_peaks.json";
     }
 
-    static nlohmann::json read_locked();
+    static void ensure_loaded();
 
-    static void write_locked(const nlohmann::json& document);
+    // 쓰는 스레드가 없으면 이 스레드가 맡아 최신 표가 파일에 닿을 때까지 쓴다. 락을 쥐지 않고 부른다.
+    static void flush_if_idle();
 };

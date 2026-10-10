@@ -1,8 +1,19 @@
 #include "core/FeedMux.h"
+#include "utils/ThreadGuard.h"
 #include "utils/ThreadName.h"
+
+#include <chrono>
 
 namespace feed
 {
+namespace
+{
+
+// 다중화 루프가 예외로 끝났을 때 다시 돌기 전에 쉬는 시간. 짧게 둔다 — 쉬는 동안 시세가 링에 쌓인다.
+constexpr std::chrono::milliseconds kRestartPause{10};
+
+} // namespace
+
 FeedMux::FeedMux(std::vector<std::unique_ptr<IFeedSource>> sources, size_t ring_capacity) : sources_(std::move(sources))
 {
     lanes_.reserve(sources_.size());
@@ -54,9 +65,20 @@ void FeedMux::set_callbacks(OrderBookCb on_order_book, TradeCb on_trade)
 
     if (!multiplexer_thread_.joinable())
     {
+        // 이벤트 하나를 처리하다 던지면 로그를 남기고 루프를 다시 돈다. 던진 이벤트는 이미 링에서 꺼냈으므로 같은
+        //  이벤트로 헛돌지 않는다. 끝내면 전략으로 가는 시세가 전부 멈춘다. 감싸기는 루프 바깥이라 이벤트마다 드는 비용은 없다.
         multiplexer_thread_ = std::jthread([this](std::stop_token stop_token)
         {
-            multiplexer_loop(stop_token);
+            thread_guard::run_restarting("FeedMux",
+                                         [&stop_token]
+                                         {
+                                             return !stop_token.stop_requested();
+                                         },
+                                         kRestartPause,
+                                         [this, &stop_token]
+                                         {
+                                             multiplexer_loop(stop_token);
+                                         });
         });
     }
 }

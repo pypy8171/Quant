@@ -5,8 +5,10 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <cstring>
 #include <new>
+#include <thread>
 
 #ifdef _WIN32
 #define NOMINMAX
@@ -69,6 +71,10 @@ bool header_matches(const SharedRegionHeader& header, size_t bytes, uint32_t lay
            header.bytes == bytes;
 }
 
+// attach가 자리를 잡는 동안 번호 칸에 두는 표식. 실제 프로세스 번호로 쓰이지 않는 값이라 살아 있는지 물으면
+//  거짓이 나온다(윈도우는 OpenProcess 실패, 리눅스는 /proc에 없음).
+constexpr uint32_t kClaimingProcessId = UINT32_MAX;
+
 // 역할 값이 머리의 배열 밖을 짚지 않게 본다 — 이 값은 우리 프로세스 안에서 오지만, 첨자로 쓰는 자리라
 //  한 곳에서 막고 지나간다.
 bool role_in_range(SharedAttachRole role) noexcept
@@ -79,6 +85,11 @@ bool role_in_range(SharedAttachRole role) noexcept
 #ifndef _WIN32
 // 구역 파일 권한 — 만든 사용자만 읽고 쓴다. 주문·전략·시세 프로세스는 같은 계정으로 돈다(감시견이 띄운다).
 constexpr int kRegionPermissions = 0600;
+
+// 리눅스에서 남은 구역의 머리를 못 읽었을 때 다시 읽어 보는 횟수와 간격. 만든 쪽이 막 shm_open 한 뒤 아직
+//  ftruncate·머리 쓰기를 안 끝낸 순간이면 잠시 뒤 읽힌다.
+constexpr int                       kHeaderReadRetries = 20;
+constexpr std::chrono::milliseconds kHeaderReadRetryPause{5};
 
 // 남아 있는 구역의 머리만 떠 온다. 성한 머리를 못 읽으면 거짓이고, out은 건드리지 않는다.
 bool read_posix_header(const std::string& posix_name, SharedRegionHeader& out)
@@ -262,9 +273,26 @@ bool SharedRegion::create(std::string_view name, size_t bytes, uint32_t layout_v
     if (descriptor_ < 0 && errno == EEXIST)
     {
         SharedRegionHeader existing{};
-        const bool         readable = read_posix_header(posix_name, existing);
+        bool               readable = read_posix_header(posix_name, existing);
 
-        if (readable && process_is_alive(creator_of(existing)))
+        // 머리를 못 읽은 것이 "죽은 판"이라는 뜻은 아니다 — 다른 쪽이 막 만들어 머리를 쓰는 중일 수 있다.
+        //  예전에는 곧바로 이름을 지우고 새로 만들어, 산 주인의 구역을 빼앗을 수 있었다. 잠깐씩 다시 읽어 본다.
+        for (int retry = 0; !readable && retry < kHeaderReadRetries; ++retry)
+        {
+            std::this_thread::sleep_for(kHeaderReadRetryPause);
+            readable = read_posix_header(posix_name, existing);
+        }
+
+        if (!readable)
+        {
+            last_error_ = "같은 이름의 공유 구역이 남아 있는데 머리를 읽지 못했다 — 쥔 프로세스가 없으면 /dev/shm" +
+                          posix_name + " 을 지운 뒤 다시 띄운다";
+            owner_      = false; // 내가 만든 판이 아니다 — 닫으면서 남의 이름을 지우면 안 된다
+            close();
+            return false;
+        }
+
+        if (process_is_alive(creator_of(existing)))
         {
             last_error_ = "같은 이름의 공유 구역을 이미 누가 쥐고 있다 — 엔진이 둘 떠 있는지 본다";
             owner_      = false; // 내가 만든 판이 아니다 — 닫으면서 남의 이름을 지우면 안 된다
@@ -275,7 +303,7 @@ bool SharedRegion::create(std::string_view name, size_t bytes, uint32_t layout_v
         // 윈도우 갈래와 같다 — 짝이 살아 있으면 이름을 치우지 않는다. 치우면 짝은 버려진 매핑을 계속 본다.
         SharedAttachRole live_role = SharedAttachRole::kStrategy;
 
-        if (readable && live_participant_of(existing, live_role))
+        if (live_participant_of(existing, live_role))
         {
             last_error_ = "짝이 아직 떠 있다 — role=" + std::string(role_name(live_role)) + ", 짝을 내린 뒤 다시 띄운다";
             owner_      = false;
@@ -283,11 +311,8 @@ bool SharedRegion::create(std::string_view name, size_t bytes, uint32_t layout_v
             return false;
         }
 
-        if (readable)
-        {
-            previous_generation = existing.boot_generation;
-            took_over_stale_    = existing.shutdown_reason == 0;
-        }
+        previous_generation = existing.boot_generation;
+        took_over_stale_    = existing.shutdown_reason == 0;
 
         shm_unlink(posix_name.c_str());
         descriptor_ = shm_open(posix_name.c_str(), O_CREAT | O_EXCL | O_RDWR, kRegionPermissions);
@@ -423,16 +448,56 @@ bool SharedRegion::attach(std::string_view name, size_t bytes, uint32_t layout_v
         return false;
     }
 
-    // 제 자리에 번호와 기동 시각을 적는다. 사유 칸은 0으로 되돌린다 — 앞선 기동이 곱게 내려가며 적어 둔 값이
-    //  남아 있으면, 이번에 죽어도 남은 쪽이 "곱게 내려갔다"로 읽는다.
+    // 같은 역할 자리를 다른 산 프로세스가 쥐고 있으면 붙지 않는다. 예전에는 덮어써서, 전략이 둘 뜨면 둘 다
+    //  붙고 주인은 나중 것만 알았다(먼저 뜬 쪽의 종료 사유·생존 판정이 사라진다). 같은 프로세스가 다시 붙는
+    //  것(재연결)과 죽은 프로세스가 남긴 자리는 받아 준다.
     const ProcessIdentity identity = current_process_identity();
     SharedParticipant&    slot     = mutable_header()->attached[static_cast<size_t>(role)];
-    slot.start_time                = identity.start_time;
+    std::atomic_ref<uint32_t> slot_process_id(slot.process_id);
+    std::atomic_ref<uint64_t> slot_start_time(slot.start_time);
+
+    uint32_t holder_process_id = slot_process_id.load(std::memory_order_acquire);
+
+    if (holder_process_id == kClaimingProcessId)
+    {
+        last_error_ = "같은 역할로 동시에 붙는 쪽이 있다 — role=" + std::string(role_name(role));
+        close();
+        return false;
+    }
+
+    if (holder_process_id != 0)
+    {
+        ProcessIdentity holder;
+        holder.process_id = holder_process_id;
+        holder.start_time = slot_start_time.load(std::memory_order_relaxed);
+
+        if (!holder.same_as(identity) && process_is_alive(holder))
+        {
+            last_error_ = "같은 역할 자리를 다른 프로세스가 쥐고 있다 — role=" + std::string(role_name(role)) +
+                          " process_id=" + std::to_string(holder_process_id) + ", 그 프로세스를 내린 뒤 다시 붙는다";
+            close();
+            return false;
+        }
+    }
+
+    // 본 값 그대로일 때만 자리를 잡는다 — 둘이 같은 죽은 자리를 동시에 보고 둘 다 들어오는 것을 막는다.
+    //  잡는 동안은 표식 번호를 두고, 기동 시각·사유를 적은 뒤 제 번호로 바꾼다.
+    if (!slot_process_id.compare_exchange_strong(holder_process_id, kClaimingProcessId, std::memory_order_acq_rel,
+                                                 std::memory_order_acquire))
+    {
+        last_error_ = "같은 역할로 동시에 붙는 쪽이 있다 — role=" + std::string(role_name(role));
+        close();
+        return false;
+    }
+
+    // 사유 칸은 0으로 되돌린다 — 앞선 기동이 곱게 내려가며 적어 둔 값이 남아 있으면, 이번에 죽어도 남은 쪽이
+    //  "곱게 내려갔다"로 읽는다.
+    slot_start_time.store(identity.start_time, std::memory_order_relaxed);
     std::atomic_ref<uint32_t>(slot.shutdown_reason)
         .store(static_cast<uint32_t>(SharedShutdownReason::kNone), std::memory_order_relaxed);
 
     // 번호를 마지막에 적는다(release) — 보는 쪽은 번호가 0이 아닌 것을 보고 나머지 칸을 읽는다.
-    std::atomic_ref<uint32_t>(slot.process_id).store(identity.process_id, std::memory_order_release);
+    slot_process_id.store(identity.process_id, std::memory_order_release);
     return true;
 }
 

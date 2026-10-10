@@ -11,6 +11,7 @@
 #include "core/Types.h"
 #include "utils/EtfFilter.h"
 #include "utils/Logger.h"
+#include "utils/ThreadGuard.h"
 #include <algorithm>
 #include <atomic>
 #include <functional>
@@ -306,9 +307,15 @@ public:
             return;
         }
 
+        // 장 전 한 번 도는 데우기라 던지면 로그를 남기고 끝낸다. 다시 돌리면 이미 받은 종목을 처음부터 또 조회해
+        //  키 한도를 다시 쓴다. 못 받은 종목은 장중 조회가 채운다.
         worker_ = std::thread([this, kis_config, config]
         {
-            run(kis_config, config);
+            thread_guard::run_and_log("DailyWarm",
+                                      [this, &kis_config, &config]
+                                      {
+                                          run(kis_config, config);
+                                      });
         });
     }
 

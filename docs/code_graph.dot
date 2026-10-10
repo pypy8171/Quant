@@ -18,13 +18,13 @@ digraph code_graph {
   "core" -> "risk" [label="10"];
   "core" -> "strategy" [label="4"];
   "core" -> "universe" [label="2"];
-  "core" -> "utils" [label="42"];
+  "core" -> "utils" [label="48"];
   "exchange" -> "core" [label="7"];
   "exchange" -> "utils" [label="3"];
   "ipc" -> "api" [label="3"];
-  "ipc" -> "core" [label="25"];
+  "ipc" -> "core" [label="26"];
   "ipc" -> "risk" [label="1"];
-  "ipc" -> "utils" [label="13"];
+  "ipc" -> "utils" [label="15"];
   "main" -> "core" [label="4"];
   "main" -> "strategy" [label="1"];
   "main" -> "utils" [label="2"];
@@ -33,7 +33,7 @@ digraph code_graph {
   "regime" -> "utils" [label="3"];
   "risk" -> "core" [label="12"];
   "risk" -> "ipc" [label="2"];
-  "risk" -> "utils" [label="4"];
+  "risk" -> "utils" [label="5"];
   "strategy" -> "api" [label="6"];
   "strategy" -> "core" [label="28"];
   "strategy" -> "risk" [label="1"];
@@ -41,6 +41,6 @@ digraph code_graph {
   "strategy" -> "utils" [label="15"];
   "universe" -> "api" [label="2"];
   "universe" -> "core" [label="16"];
-  "universe" -> "utils" [label="24"];
+  "universe" -> "utils" [label="26"];
   "utils" -> "core" [label="1"];
 }

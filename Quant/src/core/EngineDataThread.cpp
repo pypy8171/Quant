@@ -314,8 +314,11 @@ void Engine::data_thread_fn(std::stop_token stop_token)
                     {
                         // 우리 유니버스(watch) 티커 집합 — 교집합만 강조 로깅.
                         std::vector<bool> ours(symbols_.table.capacity(), false);
+                        // 원본은 제어·전략 스레드가 자물쇠를 잡고 바꾼다 — 목록이 바뀐 때만 떠 둔 이 스레드 몫의 사본을 돈다.
+                        const std::vector<WatchSpec>& watch_specifications = data_thread_watch_specifications_.refresh(
+                            watch_specifications_, watch_specifications_mutex_, watch_specifications_generation_);
 
-                        for (const auto& watch_specification : watch_specifications_)
+                        for (const auto& watch_specification : watch_specifications)
                         {
                             if (watch_specification.market == Market::KR)
                             {
@@ -570,7 +573,11 @@ void Engine::data_thread_fn(std::stop_token stop_token)
                 //  500으로 떨어뜨린다. 전략 집합은 국면 전환으로 바뀌므로 매 사이클 다시 확인한다.
                 if (quote_client && daily_bars_needed())
                 {
-                    for (const auto& specification : watch_specifications_)
+                    // 원본은 제어·전략 스레드가 자물쇠를 잡고 바꾼다 — 목록이 바뀐 때만 떠 둔 이 스레드 몫의 사본을 돈다.
+                    const std::vector<WatchSpec>& watch_specifications = data_thread_watch_specifications_.refresh(
+                        watch_specifications_, watch_specifications_mutex_, watch_specifications_generation_);
+
+                    for (const auto& specification : watch_specifications)
                     {
                         std::vector<MarketData> bars;
 

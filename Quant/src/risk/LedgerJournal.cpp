@@ -1,9 +1,58 @@
 #include "risk/LedgerJournal.h"
 
+#include "utils/Logger.h"
+
+#include <format>
+
 namespace ledger_journal
 {
 // 묶음 쓰기 목록의 처음 용량. 잠금 한 번 사이에 쌓이는 레코드는 보통 몇 건이라 넉넉하다(W-2).
 constexpr size_t kBatchReserve = 256;
+
+namespace
+{
+// 레코드 묶음을 쓰고 fflush, 켜져 있으면 fsync까지 한다. 셋 중 하나라도 실패하면 거짓이다 — fsync가 실패한 묶음도
+//  디스크에 남았다고 볼 수 없어 쓰기 실패와 같이 다룬다.
+bool write_records(std::FILE* file, const std::vector<Record>& records, bool fsync)
+{
+    if (std::fwrite(records.data(), sizeof(Record), records.size(), file) != records.size())
+    {
+        return false;
+    }
+
+    if (std::fflush(file) != 0)
+    {
+        return false;
+    }
+
+    if (!fsync)
+    {
+        return true;
+    }
+
+#ifdef _WIN32
+    return _commit(_fileno(file)) == 0;
+#else
+    return ::fsync(fileno(file)) == 0;
+#endif
+}
+
+// 파일에 온전히 남아 있어야 하는 길이 — 헤더 + 열 때 있던 레코드 + 이번 실행에서 쓰기를 마친 레코드.
+//  [inv] 실패한 묶음은 그 자리에서 잘라 내므로 파일은 늘 이 길이다. 이번 실행의 순번은 열 때 마지막 순번 다음부터
+//  빈틈없이 이어지고, 실패 구간(failed_ranges)을 빼면 쓰기를 마친 수가 된다.
+uint64_t committed_bytes(const ReplayResult& opened, uint64_t flushed_through,
+                         const std::vector<std::pair<uint64_t, uint64_t>>& failed_ranges)
+{
+    uint64_t session_records = flushed_through > opened.last_sequence ? flushed_through - opened.last_sequence : 0;
+
+    for (const auto& [first, last] : failed_ranges)
+    {
+        session_records -= last - first + 1;
+    }
+
+    return sizeof(FileHeader) + (opened.applied + session_records) * sizeof(Record);
+}
+} // namespace
 
 void put_string(char* destination, size_t capacity, std::string_view text) noexcept
 {
@@ -82,15 +131,31 @@ LedgerJournal::LedgerJournal(const std::filesystem::path& directory, std::string
     else if (existing.truncated_tail)
     {
         // 꼬리의 깨진 레코드는 리플레이가 무시했다. 그 뒤에 이어 쓰면 판독기도 같은 자리에서 멈추므로 잘라 낸다.
+        //  못 자르면 열지 않는다 — 깨진 꼬리 뒤에 쓴 레코드는 다음 리플레이가 읽지 못한다(ok()가 거짓이라 기동 거부).
         close();
         std::filesystem::resize_file(path_, sizeof(FileHeader) + existing.applied * sizeof(Record), error_code);
+
+        if (error_code)
+        {
+            LOG_ERROR(std::format("[LedgerJournal] 깨진 꼬리를 잘라 내지 못해 저널을 열지 않는다 - file({}) error({})",
+                                  path_.filename().string(), error_code.value()));
+            return;
+        }
+
         file_ = open_journal_file(path_, "ab");
     }
 }
 
 LedgerJournal::~LedgerJournal()
 {
-    (void)flush();
+    const FlushResult result = flush();
+
+    if (result.failed > 0)
+    {
+        LOG_ERROR(std::format("[LedgerJournal] 닫기 전 마지막 기록 실패 - records({}) first_kind({})", result.failed,
+                              result.first_failed_kind));
+    }
+
     close();
 }
 
@@ -114,41 +179,68 @@ uint64_t LedgerJournal::stage(Record& record)
 LedgerJournal::FlushResult LedgerJournal::flush()
 {
     FlushResult result;
-    std::lock_guard<std::mutex> write_lock(write_mutex_);
-
+    // 자물쇠 밖에서 남길 로그 재료 — 잘라 낸 길이, 다시 열었는지.
+    bool     rolled_back     = false;
+    bool     reopened        = false;
+    uint64_t committed_size  = 0;
     {
-        std::lock_guard<std::mutex> stage_lock(stage_mutex_);
-        writing_.swap(pending_);
+        std::lock_guard<std::mutex> write_lock(write_mutex_);
+
+        {
+            std::lock_guard<std::mutex> stage_lock(stage_mutex_);
+            writing_.swap(pending_);
+        }
+
+        if (writing_.empty())
+        {
+            return result;
+        }
+
+        // 레코드는 seq 순으로 붙어 있어 한 번의 fwrite로 나간다. 도중에 실패하면 이 묶음 전체를 못 쓴 것으로 센다.
+        const bool wrote = file_ != nullptr && write_records(file_, writing_, fsync_);
+
+        if (!wrote)
+        {
+            if (file_ != nullptr)
+            {
+                // 일부만 쓰인 바이트를 남긴 채 이어 쓰면, 다음 리플레이가 그 자리에서 멈추고 다음 기동이 꼬리를 자르며
+                //  그 뒤의 정상 레코드까지 버린다. 이 묶음 앞 길이로 되돌리고 다시 연다. 못 열면 닫힌 채 두어
+                //  stage()가 0을 돌려주고, 주문은 written() 거짓으로 거부된다.
+                committed_size = committed_bytes(opened_, flushed_through_, failed_ranges_);
+                close();
+                std::error_code error_code;
+                std::filesystem::resize_file(path_, committed_size, error_code);
+
+                if (!error_code)
+                {
+                    file_ = open_journal_file(path_, "ab");
+                }
+
+                rolled_back = true;
+                reopened    = file_ != nullptr;
+            }
+
+            result.failed            = writing_.size();
+            result.first_failed_kind = writing_.front().kind;
+            failed_ranges_.emplace_back(writing_.front().sequence, writing_.back().sequence);
+        }
+
+        flushed_through_ = writing_.back().sequence;
+        writing_.clear();
     }
 
-    if (writing_.empty())
+    if (rolled_back && reopened)
     {
-        return result;
+        LOG_ERROR(std::format("[LedgerJournal] 쓰기 실패 묶음을 파일에서 잘라 냈다 - records({}) size({})", result.failed,
+                              committed_size));
+    }
+    else if (rolled_back)
+    {
+        LOG_ERROR(std::format("[LedgerJournal] 쓰기 실패 뒤 저널을 다시 열지 못해 닫았다, 이후 주문은 거부된다 - "
+                              "records({}) file({})",
+                              result.failed, path_.filename().string()));
     }
 
-    // 레코드는 seq 순으로 붙어 있어 한 번의 fwrite로 나간다. 도중에 실패하면 이 묶음 전체를 못 쓴 것으로 센다.
-    const bool wrote = file_ != nullptr &&
-                       std::fwrite(writing_.data(), sizeof(Record), writing_.size(), file_) == writing_.size() &&
-                       std::fflush(file_) == 0;
-
-    if (wrote && fsync_)
-    {
-#ifdef _WIN32
-        _commit(_fileno(file_));
-#else
-        ::fsync(fileno(file_));
-#endif
-    }
-
-    if (!wrote)
-    {
-        result.failed            = writing_.size();
-        result.first_failed_kind = writing_.front().kind;
-        failed_ranges_.emplace_back(writing_.front().sequence, writing_.back().sequence);
-    }
-
-    flushed_through_ = writing_.back().sequence;
-    writing_.clear();
     return result;
 }
 

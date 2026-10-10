@@ -171,17 +171,29 @@ Decode decode_us_trade(Fields fields, TradeData& trade)
         return Decode::kShort;
     }
 
-    trade.ticker = fields[0];
-    trade.hhmmss = krx::parse_hhmmss(fields[1]);
-    trade.market = Market::US;
-    trade.timestamp = std::chrono::system_clock::now();
-    bool ok = detail::to_double(fields[2], trade.price);
-    ok &= detail::to_i64(fields[8], trade.quantity);
-    trade.direction = 0;
+    // [wire] 칸 위치는 공식 샘플 delayed_ccnl(실시간-007) 열 순서, 2026-10-10 MCP 확인(헤더 decode_us_trade 주석).
+    constexpr size_t kKoreaTimeField         = 6;  // KHMS 한국시각
+    constexpr size_t kLastPriceField         = 10; // LAST 현재가
+    constexpr size_t kTradeVolumeField       = 18; // EVOL 체결량
+    constexpr size_t kAccumulatedVolumeField = 19; // TVOL 거래량
+    constexpr size_t kStrengthField          = 23; // STRN 체결강도
 
-    if (fields.size() > 20)
+    trade.ticker    = fields[0];
+    trade.hhmmss    = krx::parse_hhmmss(fields[kKoreaTimeField]);
+    trade.market    = Market::US;
+    trade.timestamp = std::chrono::system_clock::now();
+    trade.direction = 0; // 전문에 방향 칸이 없다
+    bool ok         = detail::to_double(fields[kLastPriceField], trade.price);
+    ok &= detail::to_i64(fields[kTradeVolumeField], trade.quantity);
+
+    if (fields.size() <= kAccumulatedVolumeField || !detail::to_i64(fields[kAccumulatedVolumeField], trade.accumulated_volume))
     {
-        ok &= detail::to_int(fields[20], trade.direction);
+        trade.accumulated_volume = 0;
+    }
+
+    if (fields.size() <= kStrengthField || !detail::to_double(fields[kStrengthField], trade.strength))
+    {
+        trade.strength = 0.0;
     }
 
     return ok ? Decode::kOk : Decode::kBadNumber;

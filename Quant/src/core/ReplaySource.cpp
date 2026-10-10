@@ -1,4 +1,5 @@
 #include "core/ReplaySource.h"
+#include "utils/ThreadGuard.h"
 #include "utils/ThreadName.h"
 
 namespace feed
@@ -30,9 +31,20 @@ bool ReplaySource::connect(const std::vector<WatchSpec>& specifications)
 
     finished_.store(false, std::memory_order_relaxed);
     connected_.store(true, std::memory_order_release);
+    // 재생이 던지면 로그를 남기고 끝낸다. 파일 중간에서 다시 시작하면 시각 순서가 흐트러져 재생 결과를 믿을 수 없다.
+    //  끝난 것을 알리려고 connected_를 내린다. finished_는 끝까지 읽은 때만 올리므로 그대로 둔다.
     thread_ = std::jthread([this, reader = std::move(reader)](std::stop_token stop_token) mutable
                            {
-                               run(stop_token, *reader);
+                               const bool completed = thread_guard::run_and_log("Replay",
+                                                                                [this, &stop_token, &reader]
+                                                                                {
+                                                                                    run(stop_token, *reader);
+                                                                                });
+
+                               if (!completed)
+                               {
+                                   connected_.store(false, std::memory_order_release);
+                               }
                            });
     return true;
 }

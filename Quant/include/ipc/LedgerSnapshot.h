@@ -20,8 +20,12 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
+#include <thread>
+#include <type_traits>
 #include <vector>
 
 #include "core/SymbolTable.h"
@@ -62,6 +66,7 @@ struct LedgerGlobals
     //  계좌를 적으려면 이것이 있어야 한다 — 없으면 주문 쪽 계좌 표를 다시 들여다보게 된다.
     //  [inv] 채우는 쪽이 끝에 0을 넣어 끊는다. 32칸이면 계좌번호 문자열의 세 배다.
     char    account[32]              = {};
+    uint8_t padding_[4]              = {};  // 72바이트(8의 배수)로 맞춘다 — 공개 칸을 8바이트 단어로 옮기기 때문이다
 };
 
 // 진입 판단에 필요한 셋을 한 판에서 함께 본 것. OrderGate::EntrySnapshot과 같은 뜻이고,
@@ -73,6 +78,15 @@ struct EntryView
     bool    capacity_full = false;
 };
 
+// 공개 칸은 8바이트 단어 배열이다. 쓰는 쪽과 읽는 쪽이 같은 칸을 겹쳐 만지므로 단어마다 원자 연산으로 옮긴다 —
+//  보통 메모리로 두면 판 번호로 버리더라도 C++ 규칙상 경합이고, 컴파일러가 읽기를 합치거나 쪼갤 수 있다.
+static_assert(sizeof(LedgerRow) % sizeof(uint64_t) == 0, "LedgerRow는 8바이트 단어로 나뉘어야 한다");
+static_assert(sizeof(LedgerGlobals) % sizeof(uint64_t) == 0, "LedgerGlobals는 8바이트 단어로 나뉘어야 한다");
+static_assert(std::is_trivially_copyable_v<LedgerRow>, "LedgerRow는 memcpy로 옮긴다");
+static_assert(std::is_trivially_copyable_v<LedgerGlobals>, "LedgerGlobals는 memcpy로 옮긴다");
+static_assert(std::atomic<uint64_t>::is_always_lock_free, "공유메모리 단어는 잠금 없는 원자여야 한다");
+static_assert(std::atomic<uint32_t>::is_always_lock_free, "공유메모리 단어는 잠금 없는 원자여야 한다");
+
 class LedgerSnapshot
 {
 public:
@@ -80,8 +94,18 @@ public:
     //  기동 전에 정해져 있어야 해서다 — vector는 힙 주소를 들고 있어 건너가지 못한다. [why D-114]
     static constexpr size_t kMaxSymbols = 8192;
 
+    static constexpr size_t kRowWords     = sizeof(LedgerRow) / sizeof(uint64_t);
+    static constexpr size_t kGlobalsWords = sizeof(LedgerGlobals) / sizeof(uint64_t);
+
+    // 판이 안정되기를 기다리는 한도. 쓰는 쪽이 판을 연 채 멈추면(예외·정지) 읽는 쪽이 끝없이 돌던 것을 막는다.
+    //  처음 kStableReadSpinAttempts번은 바로 다시 읽고, 그 뒤로는 양보하며 kStableReadDeadline까지 기다린다.
+    //  한 판을 쓰는 데 걸리는 시간은 수십 줄 기준 수 마이크로초라 50ms는 정상 판에서는 닿지 않는 값이다.
+    static constexpr int                       kStableReadSpinAttempts = 256;
+    static constexpr std::chrono::milliseconds kStableReadDeadline{50};
+
     // ── 주문 쪽(쓰기) ────────────────────────────────────────────────────────
     // 한 바퀴 끝에 이 순서로 부른다: begin_publish → 값 채우기 → end_publish.
+    //  값은 쓰는 쪽 전용 칸(staging)에 채우고, end_publish가 판 번호가 홀수인 동안 공개 칸으로 옮긴다.
     // [lock-order] 잠금이 없다. 판 번호만 홀짝으로 뒤집는다.
     void begin_publish() noexcept;
 
@@ -89,15 +113,18 @@ public:
 
     // 쓰는 쪽 전용 참조. 이번 판에 처음 손대는 줄이면 0으로 되돌려 놓고 준다.
     //  id가 상한을 넘으면 버리는 칸을 준다 — 호출부가 매번 범위를 확인하지 않게.
+    //  [inv] 돌려준 참조는 end_publish 전까지만 쓴다 — 그 뒤에 쓴 값은 다음 판에야 실린다.
     [[nodiscard]] LedgerRow& row_for_write(symbol::SymbolId id) noexcept;
 
     [[nodiscard]] LedgerGlobals& globals_for_write() noexcept
     {
-        return globals_;
+        return staging_globals_;
     }
 
     // ── 전략 쪽(읽기) ────────────────────────────────────────────────────────
     // 셋 다 판이 바뀌면 스스로 다시 읽는다. 돌려주는 값은 한 판에서 본 것이라 서로 맞는다.
+    //  판이 kStableReadDeadline 안에 안정되지 않으면 보수적인 값을 돌려주고 stale_read_count()를 올린다:
+    //  row는 빈 줄, entry는 capacity_full=true, globals는 진입·매도 정지와 capacity_full을 켠 값, collect_rows는 0.
     [[nodiscard]] LedgerRow row(symbol::SymbolId id) const noexcept;
 
     [[nodiscard]] LedgerGlobals globals() const noexcept;
@@ -112,56 +139,87 @@ public:
     // 지금까지 몇 판 나왔는가. 사본이 한 바퀴 안에 안 바뀌는 것을 밖에서 잡는다.
     [[nodiscard]] uint64_t generation() const noexcept;
 
-private:
-    // ThreadSanitizer 는 seqlock 을 이해하지 못한다 — 값 칸(rows_·written_ids_)이 보통 메모리라, 반쪽을
-    //  읽고 판 번호로 버리는 정당한 설계인데도 경합으로 찍는다(2026-09-23 회차에서 3건). 그래서 낙관적
-    //  읽기 구간의 **읽기만** 세지 않게 한다. 순서 간선(__tsan_acquire/__tsan_release)으로는 못 덮는다 —
-    //  간선은 읽는 쪽이 쓰는 쪽보다 나중일 때만 생기는데, 이 경합은 정확히 겹쳐 읽을 때 나온다.
-    //  [inv] 이 둘 사이에서는 사본 값만 읽는다. 밖으로 내보내는 쓰기(out 버퍼)는 그대로 검사받는다.
-    //  TSAN 빌드가 아니면 둘 다 빈 함수다. [why D-114]
-    void begin_optimistic_read() const noexcept;
-    void end_optimistic_read() const noexcept;
+    // 판이 안정되지 않아 보수값을 돌려준 횟수(기동 후 누적). 0이 아니면 쓰는 쪽이 판을 연 채 멈춘 적이 있다.
+    [[nodiscard]] uint64_t stale_read_count() const noexcept
+    {
+        return stale_read_count_.load(std::memory_order_relaxed);
+    }
 
+private:
     // 판이 안정될 때까지 다시 읽는다. 쓰는 쪽이 한 바퀴에 한 번만 판을 뒤집으므로 되읽기는 드물다.
+    //  kStableReadDeadline이 지나도 안정되지 않으면 nullopt — 호출부가 보수값으로 바꾼다.
     //  [inv] reader는 이 사본만 읽고 부수효과가 없어야 한다 — 버려지는 판을 읽을 수 있다.
     template <typename Reader>
-    auto read_stable(Reader&& reader) const noexcept -> decltype(reader())
+    auto read_stable(Reader&& reader) const noexcept -> std::optional<decltype(reader())>
     {
+        // 시계는 첫 몇 번이 실패한 뒤에야 본다 — 정상 판에서는 한 번에 끝나므로 시계 값을 읽지 않는다.
+        std::chrono::steady_clock::time_point deadline{};
+        int                                   attempts = 0;
+
         while (true)
         {
             const uint64_t before = version_.load(std::memory_order_acquire);
 
-            if ((before & 1U) != 0U)
+            if ((before & 1U) == 0U)
             {
-                continue; // 쓰는 중이다
+                auto value = reader();
+
+                // 값을 다 읽은 뒤에 판 번호를 다시 본다. acquire 로드는 "뒤에 오는 읽기"만 묶으므로
+                //  이 울타리가 없으면 위의 값 읽기가 아래로 내려가 다시 본 판 번호보다 늦게 일어날 수 있다.
+                //  울타리 없이 2,000줄 판을 돌렸을 때 읽기 12,800번당 반쪽 판이 4~6번 나왔다.
+                std::atomic_thread_fence(std::memory_order_acquire);
+
+                if (version_.load(std::memory_order_relaxed) == before)
+                {
+                    return value;
+                }
             }
 
-            begin_optimistic_read();
-            auto value = reader();
-            end_optimistic_read();
+            ++attempts;
 
-            // 값을 다 읽은 뒤에 판 번호를 다시 본다. acquire 로드는 "뒤에 오는 읽기"만 묶으므로
-            //  이 울타리가 없으면 위의 값 읽기가 아래로 내려가 다시 본 판 번호보다 늦게 일어날 수 있다.
-            //  울타리 없이 2,000줄 판을 돌렸을 때 읽기 12,800번당 반쪽 판이 4~6번 나왔다.
-            std::atomic_thread_fence(std::memory_order_acquire);
-
-            if (version_.load(std::memory_order_relaxed) == before)
+            if (attempts < kStableReadSpinAttempts)
             {
-                return value;
+                continue;
             }
+
+            const auto now = std::chrono::steady_clock::now();
+
+            if (attempts == kStableReadSpinAttempts)
+            {
+                deadline = now + kStableReadDeadline;
+            }
+            else if (now >= deadline)
+            {
+                stale_read_count_.fetch_add(1, std::memory_order_relaxed);
+                return std::nullopt;
+            }
+
+            std::this_thread::yield();
         }
     }
 
+    // 공개 칸 한 줄을 단어 단위로 읽어 구조체로 옮긴다. read_stable의 reader 안에서만 부른다.
+    [[nodiscard]] LedgerRow load_published_row(size_t index) const noexcept;
+
     std::atomic<uint64_t> version_{0};    // 짝수면 읽어도 되는 판, 홀수면 쓰는 중
     std::atomic<uint64_t> generation_{0}; // 몇 번째 판인가. 줄의 stamp와 맞춰 본다
-    LedgerGlobals         globals_{};
-    LedgerRow             rows_[kMaxSymbols]{};
+
+    // 공개 칸 — 읽는 쪽이 보는 것은 이것뿐이다. end_publish만 쓴다.
+    std::atomic<uint64_t> published_globals_[kGlobalsWords]{};
+    std::atomic<uint64_t> published_rows_[kMaxSymbols][kRowWords]{};
+
+    // 쓰는 쪽 전용 칸 — 읽는 쪽은 만지지 않는다. 판 사이에 값이 남는다(globals는 다음 판도 그대로 쓴다).
+    LedgerGlobals         staging_globals_{};
+    LedgerRow             staging_rows_[kMaxSymbols]{};
     LedgerRow             discard_{}; // 상한을 넘은 id가 쓰고 버리는 칸
 
     // 이번 판에 값을 실은 종목 번호만 모아 둔 촘촘한 목록. 전체를 훑을 때 8,192줄을 다 뒤지지 않으려고 둔다.
-    //  쓰는 쪽만 채우고, 읽는 쪽은 판 번호 안에서 written_count_까지만 본다.
-    symbol::SymbolId      written_ids_[kMaxSymbols]{};
-    std::atomic<uint32_t> written_count_{0};
+    //  쓰는 쪽은 판 번호가 홀수인 동안만 채우고, 읽는 쪽은 판 번호 안에서 written_count_까지만 본다.
+    std::atomic<symbol::SymbolId> written_ids_[kMaxSymbols]{};
+    std::atomic<uint32_t>         written_count_{0};
+
+    // 판이 안정되지 않아 보수값을 돌려준 횟수. 읽는 쪽 여럿이 올리므로 원자다.
+    mutable std::atomic<uint64_t> stale_read_count_{0};
 };
 
 // ── 읽는 쪽 편의 ────────────────────────────────────────────────────────────

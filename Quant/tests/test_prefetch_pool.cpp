@@ -1,11 +1,14 @@
-// prefetch::Pool 단위 테스트 — 스레드 수 고정(작업 수와 무관), 주기 실행, 해제 뒤 미호출, 해제 중 실행 대기, 정지.
+// prefetch::Pool 단위 테스트 — 스레드 수 고정(작업 수와 무관), 주기 실행, 해제 뒤 미호출, 해제 중 실행 대기, 정지,
+//  던지는 작업이 스레드를 끝내지 않는지, 스레드 예외 감싸개(utils/ThreadGuard.h)의 두 함수.
 // 빌드: cmake --build <directory> --target test_prefetch_pool
 #include "core/PrefetchPool.h"
+#include "utils/ThreadGuard.h"
 
 #include <atomic>
 #include <chrono>
 #include <iostream>
 #include <mutex>
+#include <stdexcept>
 #include <thread>
 #include <vector>
 
@@ -164,6 +167,93 @@ int test_stop()
     return 0;
 }
 
+// 작업 하나가 던져도 그 스레드는 살아 있고, 같은 스레드에 붙은 다른 작업도 계속 불린다(CODE_CONVENTIONS 9.2).
+//  예전에는 예외가 스레드 밖으로 새어 std::terminate로 프로세스가 내려갔다.
+int test_throwing_work_keeps_thread()
+{
+    prefetch::Pool pool(1, std::chrono::milliseconds(10));
+    std::atomic<int> thrown{0};
+    std::atomic<int> calls{0};
+    pool.add([&thrown]
+    {
+        thrown.fetch_add(1, std::memory_order_relaxed);
+        throw std::runtime_error("시험용 예외");
+    });
+    pool.add([&calls]
+    {
+        calls.fetch_add(1, std::memory_order_relaxed);
+    });
+
+    CHECK(wait_until([&thrown, &calls]
+    {
+        return thrown.load(std::memory_order_relaxed) >= 3 && calls.load(std::memory_order_relaxed) >= 3;
+    }, std::chrono::seconds(5)));
+    CHECK(pool.thread_count() == 1);
+    pool.stop();
+    return 0;
+}
+
+// run_and_log는 던지면 거짓, 정상이면 참을 돌려주고 예외를 밖으로 내보내지 않는다.
+int test_run_and_log()
+{
+    const bool normal = thread_guard::run_and_log("시험", []
+    {
+    });
+    CHECK(normal);
+
+    const bool standard = thread_guard::run_and_log("시험", []
+    {
+        throw std::runtime_error("시험용 예외");
+    });
+    CHECK(!standard);
+
+    const bool other = thread_guard::run_and_log("시험", []
+    {
+        throw 7;
+    });
+    CHECK(!other);
+    return 0;
+}
+
+// run_restarting은 던질 때마다 다시 돌고, 정상으로 돌아오면 끝난다. keep_running이 거짓이면 다시 돌지 않는다.
+int test_run_restarting()
+{
+    int attempts = 0;
+    thread_guard::run_restarting("시험",
+                                 []
+                                 {
+                                     return true;
+                                 },
+                                 std::chrono::milliseconds(1),
+                                 [&attempts]
+                                 {
+                                     ++attempts;
+
+                                     if (attempts < 3)
+                                     {
+                                         throw std::runtime_error("시험용 예외");
+                                     }
+                                 });
+    CHECK(attempts == 3);
+
+    int stopped_attempts = 0;
+    bool keep_running     = true;
+    thread_guard::run_restarting("시험",
+                                 [&keep_running]
+                                 {
+                                     return keep_running;
+                                 },
+                                 std::chrono::milliseconds(1),
+                                 [&stopped_attempts, &keep_running]
+                                 {
+                                     ++stopped_attempts;
+                                     keep_running = false;
+                                     throw std::runtime_error("시험용 예외");
+                                 });
+    CHECK(stopped_attempts == 1);
+    return 0;
+}
+
 } // namespace
 
 // start()는 작업이 하나도 없어도 스레드를 미리 띄운다 — 장중 전략 등록이 스레드를 만들지 않게. [why D-115]
@@ -246,6 +336,9 @@ int main()
         {"stop", test_stop},
         {"start_precreates_threads", test_start_precreates_threads},
         {"period_excludes_work_time", test_period_excludes_work_time},
+        {"throwing_work_keeps_thread", test_throwing_work_keeps_thread},
+        {"run_and_log", test_run_and_log},
+        {"run_restarting", test_run_restarting},
     };
 
     for (const auto& one : cases)

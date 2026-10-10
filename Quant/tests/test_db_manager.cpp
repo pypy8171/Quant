@@ -1,5 +1,6 @@
 // DbManager 단위 테스트 — COPY 글자(이스케이프·시각·한 줄), 비밀번호 없으면 꺼짐, DB가 없을 때 큐 넘침 계수와
-// 종료 시간 한도. TSDB_PASSWORD가 있으면 ticks 표에 넣고 되읽은 뒤 지우고, 표가 잠긴 동안의 종료를 본다. [why D-148]
+// 종료 시간 한도. TSDB_PASSWORD와 시험 전용 DB 이름 TSDB_TEST_DB가 둘 다 있을 때만 그 DB의 ticks 표에 넣고
+// 되읽은 뒤 지우고, 표가 잠긴 동안의 종료를 본다. 운영 DB(DbConfig 기본 이름)에는 붙지 않는다. [why D-148]
 // 신호·헬스(signals·health) 줄 모양, 계좌 없으면 안 넣음, DB 없을 때 계수, 있으면 되읽기도 본다. [why D-154]
 // 빌드: cmake --build <directory> --target test_db_manager
 #include "ipc/DbManager.h"
@@ -49,6 +50,28 @@ std::string environment(const char* name)
 {
     const char* value = std::getenv(name);
     return value != nullptr ? std::string(value) : std::string();
+}
+
+// 실제 DB에 붙는 시험이 쓸 DB 이름. TSDB_TEST_DB로 받은 시험 전용 DB만 쓴다 — 운영 DB에서 돌면 ticks 표를
+//  잠가 돌고 있는 적재기를 붙잡고, 시험 행이 운영 표에 섞인다. 비었거나 운영 이름이면 빈 문자열을 돌려주고
+//  건너뛴다고 적는다. 시험 DB에는 ticks·signals·health 표가 운영과 같은 모양으로 있어야 한다.
+std::string test_database_name(const char* case_name)
+{
+    const std::string name = environment("TSDB_TEST_DB");
+
+    if (name.empty())
+    {
+        std::cout << "  (TSDB_TEST_DB 없음 — " << case_name << " 건너뜀)\n";
+        return std::string();
+    }
+
+    if (name == db::DbConfig{}.dbname)
+    {
+        std::cout << "  (TSDB_TEST_DB가 운영 DB 이름 '" << name << "' — " << case_name << " 건너뜀)\n";
+        return std::string();
+    }
+
+    return name;
 }
 
 TradeData make_trade(const char* ticker, int index)
@@ -305,8 +328,16 @@ int test_round_trip_with_database()
         return 0;
     }
 
+    const std::string database_name = test_database_name("DB 되읽기");
+
+    if (database_name.empty())
+    {
+        return 0;
+    }
+
     const std::string ticker = "ZZDBW" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count() % 100000000);
     db::DbConfig config;
+    config.dbname = database_name;
     config.tick_workers = 2;
     config.batch_rows = 300;
     {
@@ -352,7 +383,8 @@ int test_round_trip_with_database()
 }
 
 // DB가 COPY 도중 멈춘 경우 — 다른 연결이 ticks 표를 잠가 COPY를 붙잡아 둔다. 수신 쪽은 막히지 않고,
-//  stop()은 stop_grace_ms 뒤 연결을 끊어 돌아온다. 잠금은 2초 안쪽이라 돌고 있는 적재기가 있어도 잠깐 기다릴 뿐이다.
+//  stop()은 stop_grace_ms 뒤 연결을 끊어 돌아온다. 잠그는 표는 시험 전용 DB(TSDB_TEST_DB)의 ticks라 운영 적재기와
+//  겹치지 않는다.
 int test_stop_while_database_hangs()
 {
     const std::string password = environment("TSDB_PASSWORD");
@@ -363,7 +395,15 @@ int test_stop_while_database_hangs()
         return 0;
     }
 
+    const std::string database_name = test_database_name("DB 멈춤 시험");
+
+    if (database_name.empty())
+    {
+        return 0;
+    }
+
     db::DbConfig config;
+    config.dbname = database_name;
     config.tick_workers = 1;
     config.stop_grace_ms = 300;
     const std::string host = db::resolve_host(config.host);
@@ -430,8 +470,16 @@ int test_events_round_trip_with_database()
         return 0;
     }
 
+    const std::string database_name = test_database_name("신호·헬스 되읽기");
+
+    if (database_name.empty())
+    {
+        return 0;
+    }
+
     const std::string account = "ZZDBE" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count() % 100000000);
     db::DbConfig config;
+    config.dbname = database_name;
     config.tick_workers = 0;
     config.account      = account;
     config.role         = "strategy";

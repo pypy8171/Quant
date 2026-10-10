@@ -55,6 +55,20 @@ OrderRouter::InFlightMark::~InFlightMark()
     }
 }
 
+// [inv] 부르는 쪽이 history_mutex_를 쥐고 있다. 정리(sweep_stale_reservations)가 같은 락 아래에서 acquire로 읽으므로
+//  여기는 relaxed로 충분하다 — 락이 순서를 맞춘다.
+OrderRouter::LedgerHandoff::LedgerHandoff(OrderRouter& router)
+    : router_(router)
+{
+    router_.ledger_handoffs_.fetch_add(1, std::memory_order_relaxed);
+}
+
+// 장부 기록을 마친 뒤 내린다. release는 정리가 이 값을 0으로 읽을 때 장부 기록이 먼저 보이게 한다.
+OrderRouter::LedgerHandoff::~LedgerHandoff()
+{
+    router_.ledger_handoffs_.fetch_sub(1, std::memory_order_release);
+}
+
 // ─── 미체결 주문 부속 파일 ─────────────────────────────────────────────────
 //  형식: odno|orgno|ticker|side|remaining  (한 줄 한 주문, 헤더 없음)
 //  history_는 프로세스 메모리라 재기동으로 사라진다. 그래서 살아있는 주문을 파일에

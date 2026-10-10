@@ -1,6 +1,7 @@
 #pragma once
 #include "core/MpscQueue.h"
 #include "core/WakeGate.h"
+#include "utils/ThreadGuard.h"
 #include "utils/ThreadName.h"
 
 #include <condition_variable>
@@ -144,7 +145,14 @@ private:
                 jobs_.pop_front();
             }
 
-            send_(job);
+            // 보내기가 던져도 job은 완료 큐로 돌려보낸다 — 돌려보내지 않으면 주문 스레드가 그 주문을 닫지 못하고
+            //  in_flight가 줄지 않아 full()이 풀리지 않는다. job은 send_가 채운 데까지만 채워진 채 간다.
+            //  지금 유일한 send_(OrderRouter::send_new·send_modify)는 noexcept라 여기까지 오는 예외는 없다.
+            thread_guard::run_and_log("OrderSend 전송",
+                                      [this, &job]
+                                      {
+                                          send_(job);
+                                      });
 
             // 완료 큐는 보내는 중인 수(스레드 수 이하)의 두 배 칸이라 차지 않는다. 그래도 차면 비울 때까지 양보한다 —
             //  답을 버리면 주문 스레드가 그 주문을 영영 닫지 못한다.

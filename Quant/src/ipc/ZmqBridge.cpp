@@ -2,6 +2,7 @@
 #include "ipc/ZmqBridge.h"
 #include "core/RegimeFileJudge.h"
 #include "utils/Logger.h"
+#include "utils/ThreadGuard.h"
 #include "utils/ThreadName.h"
 
 #include <charconv>
@@ -43,6 +44,8 @@ constexpr size_t kTradeBatchMax    = 500;
 // 체결 한 건이 JSON 글자로 약 110 B라 넉넉하게 잡은 값이다. 묶음 버퍼를 기동 때 한 번만 늘리는 데 쓴다.
 constexpr size_t kTradeJsonBytesEach = 128;
 constexpr auto   kReplyPollTimeout = 10ms;   // REP 명령 수신 폴링 1회 대기 시간
+// 루프가 예외로 끝났을 때 다시 돌기 전에 쉬는 시간. 같은 원인으로 곧바로 다시 던져 로그만 쌓이는 것을 막는다.
+constexpr std::chrono::milliseconds kRestartPause{1000};
 
 // 정수·실수를 JSON 숫자 표기로 붙인다. 실수는 nlohmann과 같은 최단 왕복 표기 + 정수처럼 보이면 ".0"을 붙여
 //  구독자(PYQuant/ipc/subscriber.py)가 받는 문자열이 예전 dump()와 글자 단위로 같다.
@@ -86,7 +89,22 @@ bool ZmqBridge::start()
     }
 
     running_.store(true);
-    zmq_thread_ = std::thread(&ZmqBridge::thread_fn, this);
+    // 송수신 루프가 던지면 로그를 남기고 쉰 뒤 다시 돈다. 소켓은 thread_fn 안의 지역 객체라 빠져나올 때 닫히고, 다시
+    //  돌 때 새로 bind한다. bind가 실패하면 thread_fn이 running_을 내리고 정상으로 돌아오므로 거기서 끝난다.
+    //  끝내면 체결·신호 발행과 운영 명령 채널이 같이 멈춘다.
+    zmq_thread_ = std::thread([this]
+    {
+        thread_guard::run_restarting("ZmqBridge",
+                                     [this]
+                                     {
+                                         return running_.load();
+                                     },
+                                     kRestartPause,
+                                     [this]
+                                     {
+                                         thread_fn();
+                                     });
+    });
     LOG_INFO("[ZMQ] 브리지 시작 — PUB:" + std::to_string(pub_port_) +
              (rep_port_ > 0 ? " REP:" + std::to_string(rep_port_) : std::string(" REP:없음(발행 전용)")));
     return true;

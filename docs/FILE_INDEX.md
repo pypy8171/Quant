@@ -361,8 +361,10 @@
 
 - [AtomicFile.h](../Quant/include/utils/AtomicFile.h) — 파일 통째로 바꿔 쓰기(임시 파일 → 이름 바꾸기) — 시세판·국면 판정 피드가 같이 쓴다
 - [EtfFilter.h](../Quant/include/utils/EtfFilter.h) — ETF·ETN 종목명 판별 필터
+- [GenerationCopy.h](../Quant/include/utils/GenerationCopy.h) — 판 번호가 바뀔 때만 자물쇠를 잡고 사본을 뜨는 템플릿 — 데이터 스레드가 구독 스펙 목록을 자물쇠 없이 돈다
 - [JsonNode.h](../Quant/include/utils/JsonNode.h) — json 하위 노드를 복사 없이 참조로 집어 오는 헬퍼(jsonx::array_or_empty·object_or_empty)
 - [Logger.h](../Quant/include/utils/Logger.h) — 비동기 로거 — MPSC 큐+writer 스레드(D-045)
+- [ThreadGuard.h](../Quant/include/utils/ThreadGuard.h) — 스레드 본문의 예외를 잡아 로그로 남기고(run_and_log) 쉬었다 다시 도는(run_restarting) 헬퍼(규약 9.2)
 - [ThreadName.h](../Quant/include/utils/ThreadName.h) — 현재 스레드에 이름을 붙인다(리눅스 pthread_setname_np·Windows SetThreadDescription) — procwatch 스레드별 CPU 표에 그 이름이 실린다
 - [Utf8.h](../Quant/include/utils/Utf8.h) — UTF-8 터미널 표시폭 계산·패딩 유틸
 
@@ -533,6 +535,7 @@
 - [EtfFilter.cpp](../Quant/src/utils/EtfFilter.cpp) — EtfFilter.h 구현 — ETF·ETN 종목명 판별 필터
 - [JsonNode.cpp](../Quant/src/utils/JsonNode.cpp) — JsonNode.h 구현 — json 하위 노드를 복사 없이 참조로 집어 오는 헬퍼(jsonx::array_or_empty·object_or_empty)
 - [Logger.cpp](../Quant/src/utils/Logger.cpp) — Logger.h 구현 — 비동기 로거의 큐·writer 스레드(D-045)
+- [ThreadGuard.cpp](../Quant/src/utils/ThreadGuard.cpp) — ThreadGuard.h 구현 — 예외 로그 한 줄 형식과 다시 돌기 루프
 - [ThreadName.cpp](../Quant/src/utils/ThreadName.cpp) — ThreadName.h 구현 — 현재 스레드에 이름을 붙인다(리눅스 pthread_setname_np·Windows SetThreadDescription) — procwatch 스레드별 CPU 표에 그 이름이 실린다
 - [Timer.cpp](../Quant/src/utils/Timer.cpp) — 빈 placeholder 파일
 - [Utf8.cpp](../Quant/src/utils/Utf8.cpp) — Utf8.h 구현 — UTF-8 터미널 표시폭 계산·패딩 유틸

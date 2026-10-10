@@ -3,6 +3,7 @@
 
 #include "api/HttpGet.h"
 #include "utils/Logger.h"
+#include "utils/ThreadGuard.h"
 #include "utils/ThreadName.h"
 
 #include <algorithm>
@@ -17,6 +18,9 @@ namespace
 // 받는 곳 — 네이버 금융의 시세 폴링 주소. 바꿀 자리를 한군데로 모으려고 여기 상수 하나로
 //  둔다. 다른 곳으로 옮길 때 고칠 자리는 이 줄·아래 헤더 두 줄·아래 파싱 키다.
 constexpr std::string_view kEndpoint = "https://polling.finance.naver.com/api/realtime/domestic/stock/";
+
+// 루프가 예외로 끝났을 때 다시 돌기 전에 쉬는 시간. 같은 원인으로 곧바로 다시 던져 로그만 쌓이는 것을 막는다.
+constexpr std::chrono::milliseconds kRestartPause{1000};
 
 // 응답 한 종목이 시작하는 표지. 이 뒤로 다음 표지 전까지가 한 종목의 구간이다.
 // [wire] 근거: 2026-09-27 실측 응답(polling.finance.naver.com, 공식 문서 없음) — {"datas":[{"itemCode":"005930",
@@ -158,9 +162,20 @@ void HttpQuoteFeed::start()
 
     for (size_t lane = 0; lane < config_.lane_count; ++lane)
     {
+        // 수신 루프가 던지면 로그를 남기고 쉰 뒤 다시 돈다. 다시 돌면 종목별 직전 값을 처음부터 잡으므로 쉬는 동안의
+        //  변화를 한꺼번에 몰아 보내지 않는다. 끝내면 그 줄이 맡은 종목의 시세가 멈춘다.
         lanes_.emplace_back([this, lane]
         {
-            run_lane(lane);
+            thread_guard::run_restarting("HttpQuoteFeed",
+                                         [this]
+                                         {
+                                             return running_.load();
+                                         },
+                                         kRestartPause,
+                                         [this, lane]
+                                         {
+                                             run_lane(lane);
+                                         });
         });
     }
 

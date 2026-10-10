@@ -9,6 +9,7 @@
 //   ⑥ 보유 전체를 한 판에서 훑는다(강제청산·한도정리가 쓰던 자리)
 //   ⑦ 쓰는 중에 읽어도 반쪽 판이 안 나온다 — 쓰는 스레드와 읽는 스레드를 같이 돌려 약속을 검사한다
 //   ⑧ 판 번호가 판마다 하나씩 오른다
+//   ⑩ 쓰는 쪽이 판을 연 채 멈춰도 읽는 쪽이 끝없이 돌지 않는다 — 기한 뒤 보수값을 돌려주고 횟수를 센다
 //
 //   사용법: test_ledger_snapshot
 
@@ -16,6 +17,7 @@
 
 #include <atomic>
 #include <cassert>
+#include <chrono>
 #include <memory>
 #include <iostream>
 #include <string>
@@ -289,6 +291,40 @@ int main()
         publish_one(snapshot, 7, 5, 0, 5, 1000.0);
         ipc::collect_all_rows(snapshot, ids, rows);
         check(ids.size() == 1 && ids[0] == 7 && rows[0].position == 5, "다음 판은 그 판의 줄만 담는다");
+    }
+
+    // ── ⑩ 판을 연 채 멈춘 쓰는 쪽 ───────────────────────────────────────
+    {
+        // 예전에는 판 번호가 홀수로 남으면 읽는 쪽이 끝없이 돌았다. 지금은 kStableReadDeadline 뒤에
+        //  보수값(보유 없음·자리 없음·정지)을 돌려주고 stale_read_count를 올린다.
+        auto                 snapshot_holder = std::make_unique<ipc::LedgerSnapshot>();
+        ipc::LedgerSnapshot& snapshot        = *snapshot_holder;
+        publish_one(snapshot, 3, 10, 0, 10, 5000.0);
+        check(snapshot.stale_read_count() == 0, "정상 판에서는 보수값을 안 돌려준다");
+
+        snapshot.begin_publish(); // end_publish 없이 둔다 — 쓰는 쪽이 멈춘 상황
+        const auto started = std::chrono::steady_clock::now();
+
+        const ipc::LedgerRow     row     = snapshot.row(3);
+        const ipc::EntryView     view    = snapshot.entry(3);
+        const ipc::LedgerGlobals globals = snapshot.globals();
+        symbol::SymbolId         ids[4]{};
+        ipc::LedgerRow           rows[4]{};
+        const size_t             taken   = snapshot.collect_rows(ids, rows, 4);
+
+        const auto elapsed = std::chrono::steady_clock::now() - started;
+        check(elapsed < std::chrono::seconds(5), "판이 안 닫혀도 읽기가 돌아온다");
+        check(row.position == 0 && row.stamp == 0, "row는 빈 줄");
+        check(view.capacity_full && view.position == 0, "entry는 자리 없음");
+        check(globals.entry_halted == 1 && globals.manual_sell_halted == 1 && globals.capacity_full == 1,
+              "globals는 진입·매도 정지와 자리 없음");
+        check(taken == 0, "collect_rows는 0줄");
+        check(snapshot.stale_read_count() == 4, "보수값을 돌려준 횟수를 센다(" + std::to_string(snapshot.stale_read_count()) + ")");
+
+        snapshot.row_for_write(3).position = 12;
+        snapshot.end_publish();
+        check(snapshot.row(3).position == 12, "판을 닫으면 다시 제 값을 읽는다");
+        check(!snapshot.entry(3).capacity_full, "판을 닫으면 자리 판정도 제 값");
     }
 
     std::cout << "test_ledger_snapshot: " << g_checks << " checks passed\n";

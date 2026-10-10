@@ -50,7 +50,7 @@
     {
       "from": "core",
       "to": "utils",
-      "weight": 42
+      "weight": 48
     },
     {
       "from": "exchange",
@@ -70,7 +70,7 @@
     {
       "from": "ipc",
       "to": "core",
-      "weight": 25
+      "weight": 26
     },
     {
       "from": "ipc",
@@ -80,7 +80,7 @@
     {
       "from": "ipc",
       "to": "utils",
-      "weight": 13
+      "weight": 15
     },
     {
       "from": "main",
@@ -125,7 +125,7 @@
     {
       "from": "risk",
       "to": "utils",
-      "weight": 4
+      "weight": 5
     },
     {
       "from": "strategy",
@@ -165,7 +165,7 @@
     {
       "from": "universe",
       "to": "utils",
-      "weight": 24
+      "weight": 26
     },
     {
       "from": "utils",
@@ -283,8 +283,10 @@
     "universe/UniverseScanner.h": "universe",
     "utils/AtomicFile.h": "utils",
     "utils/EtfFilter.h": "utils",
+    "utils/GenerationCopy.h": "utils",
     "utils/JsonNode.h": "utils",
     "utils/Logger.h": "utils",
+    "utils/ThreadGuard.h": "utils",
     "utils/ThreadName.h": "utils",
     "utils/Utf8.h": "utils",
     "main.cpp": "main",
@@ -422,6 +424,7 @@
     "utils/EtfFilter.cpp": "utils",
     "utils/JsonNode.cpp": "utils",
     "utils/Logger.cpp": "utils",
+    "utils/ThreadGuard.cpp": "utils",
     "utils/ThreadName.cpp": "utils",
     "utils/Timer.cpp": "utils",
     "utils/Utf8.cpp": "utils"
@@ -611,7 +614,8 @@
       "ipc/ZmqBridge.h",
       "risk/OrderGate.h",
       "risk/ProtectiveOrders.h",
-      "strategy/StrategyBase.h"
+      "strategy/StrategyBase.h",
+      "utils/GenerationCopy.h"
     ],
     "core/EngineConfigure.cpp": [
       "core/AppConfig.h",
@@ -699,6 +703,7 @@
     ],
     "core/FeedMux.cpp": [
       "core/FeedMux.h",
+      "utils/ThreadGuard.h",
       "utils/ThreadName.h"
     ],
     "core/FeedMux.h": [
@@ -714,6 +719,7 @@
       "api/HttpGet.h",
       "core/HttpQuoteFeed.h",
       "utils/Logger.h",
+      "utils/ThreadGuard.h",
       "utils/ThreadName.h"
     ],
     "core/HttpQuoteFeed.h": [
@@ -771,11 +777,12 @@
       "core/Types.h"
     ],
     "core/PrefetchPool.cpp": [
-      "core/PrefetchPool.h"
+      "core/PrefetchPool.h",
+      "utils/ThreadGuard.h",
+      "utils/ThreadName.h"
     ],
     "core/PrefetchPool.h": [
-      "core/WakeGate.h",
-      "utils/ThreadName.h"
+      "core/WakeGate.h"
     ],
     "core/ReconcilePlan.cpp": [
       "core/ReconcilePlan.h"
@@ -792,6 +799,7 @@
     ],
     "core/ReplaySource.cpp": [
       "core/ReplaySource.h",
+      "utils/ThreadGuard.h",
       "utils/ThreadName.h"
     ],
     "core/ReplaySource.h": [
@@ -861,6 +869,7 @@
     "core/TransportPool.h": [
       "core/MpscQueue.h",
       "core/WakeGate.h",
+      "utils/ThreadGuard.h",
       "utils/ThreadName.h"
     ],
     "core/Types.cpp": [
@@ -924,6 +933,7 @@
       "core/WakeGate.h",
       "ipc/DbManager.h",
       "utils/Logger.h",
+      "utils/ThreadGuard.h",
       "utils/ThreadName.h"
     ],
     "ipc/DbManager.h": [
@@ -961,6 +971,7 @@
       "ipc/OpsProtocol.h"
     ],
     "ipc/OpsServer.cpp": [
+      "core/Types.h",
       "ipc/OpsServer.h",
       "utils/Logger.h",
       "utils/ThreadName.h"
@@ -1069,6 +1080,7 @@
       "core/RegimeFileJudge.h",
       "ipc/ZmqBridge.h",
       "utils/Logger.h",
+      "utils/ThreadGuard.h",
       "utils/ThreadName.h"
     ],
     "ipc/ZmqBridge.h": [
@@ -1112,7 +1124,8 @@
       "risk/GateReasons.h"
     ],
     "risk/LedgerJournal.cpp": [
-      "risk/LedgerJournal.h"
+      "risk/LedgerJournal.h",
+      "utils/Logger.h"
     ],
     "risk/LedgerKeys.cpp": [
       "risk/LedgerKeys.h"
@@ -1338,6 +1351,7 @@
       "universe/MarketBoard.h",
       "utils/AtomicFile.h",
       "utils/Logger.h",
+      "utils/ThreadGuard.h",
       "utils/ThreadName.h",
       "utils/Utf8.h"
     ],
@@ -1364,6 +1378,7 @@
       "utils/EtfFilter.h",
       "utils/JsonNode.h",
       "utils/Logger.h",
+      "utils/ThreadGuard.h",
       "utils/ThreadName.h"
     ],
     "universe/UniverseItb.cpp": [
@@ -1426,6 +1441,10 @@
       "core/MpscQueue.h",
       "utils/Logger.h",
       "utils/ThreadName.h"
+    ],
+    "utils/ThreadGuard.cpp": [
+      "utils/Logger.h",
+      "utils/ThreadGuard.h"
     ],
     "utils/ThreadName.cpp": [
       "utils/ThreadName.h"
@@ -1787,6 +1806,7 @@
       "ipc/DbManager.h",
       "ipc/FillChannel.h",
       "ipc/MarketFeedChannel.h",
+      "ipc/OpsServer.cpp",
       "ipc/OrderChannel.h",
       "ipc/OrderHistory.h",
       "ipc/OrderJournal.h",
@@ -2126,6 +2146,9 @@
       "universe/UniverseScoring.cpp",
       "utils/EtfFilter.cpp"
     ],
+    "utils/GenerationCopy.h": [
+      "core/Engine.h"
+    ],
     "utils/JsonNode.h": [
       "api/KisOrder.cpp",
       "core/AppConfig.cpp",
@@ -2178,6 +2201,7 @@
       "main.cpp",
       "regime/RegimeFeed.cpp",
       "risk/DisplacementDesk.cpp",
+      "risk/LedgerJournal.cpp",
       "risk/OrderGate.cpp",
       "risk/PositionLedger.cpp",
       "risk/ProtectiveOrders.h",
@@ -2200,7 +2224,20 @@
       "universe/UniverseRiskGate.cpp",
       "universe/UniverseScanner.cpp",
       "universe/UniverseScoring.cpp",
-      "utils/Logger.cpp"
+      "utils/Logger.cpp",
+      "utils/ThreadGuard.cpp"
+    ],
+    "utils/ThreadGuard.h": [
+      "core/FeedMux.cpp",
+      "core/HttpQuoteFeed.cpp",
+      "core/PrefetchPool.cpp",
+      "core/ReplaySource.cpp",
+      "core/TransportPool.h",
+      "ipc/DbManager.cpp",
+      "ipc/ZmqBridge.cpp",
+      "universe/MarketBoard.cpp",
+      "universe/UniverseFeatures.cpp",
+      "utils/ThreadGuard.cpp"
     ],
     "utils/ThreadName.h": [
       "api/WebSocketClient.cpp",
@@ -2216,7 +2253,7 @@
       "core/FeedMux.cpp",
       "core/HttpQuoteFeed.cpp",
       "core/LedgerReconciler.cpp",
-      "core/PrefetchPool.h",
+      "core/PrefetchPool.cpp",
       "core/ReplaySource.cpp",
       "core/TickCapture.cpp",
       "core/TransportPool.h",
@@ -2247,11 +2284,11 @@
   "hubs": [
     {
       "header": "utils/Logger.h",
-      "in_degree": 62
+      "in_degree": 64
     },
     {
       "header": "core/Types.h",
-      "in_degree": 51
+      "in_degree": 52
     },
     {
       "header": "core/KstTime.h",
@@ -2294,6 +2331,10 @@
       "in_degree": 10
     },
     {
+      "header": "utils/ThreadGuard.h",
+      "in_degree": 10
+    },
+    {
       "header": "risk/OrderGate.h",
       "in_degree": 9
     },
@@ -2320,10 +2361,6 @@
     {
       "header": "utils/Utf8.h",
       "in_degree": 7
-    },
-    {
-      "header": "core/StrategyTable.h",
-      "in_degree": 6
     }
   ],
   "python": {
@@ -2448,6 +2485,7 @@
       "scripts/notify_trades.py",
       "scripts/parse_quant_log.py",
       "scripts/premarket_routine.py",
+      "scripts/redact_publish.py",
       "scripts/refresh_dashboard.py",
       "scripts/restart_verify.py",
       "scripts/seed_open_orders.py",
@@ -2488,6 +2526,9 @@
       ],
       "PYQuant/dashboard/backfill_series_a.py": [
         "backtest.report"
+      ],
+      "PYQuant/dashboard/build_dashboard.py": [
+        "redact_publish"
       ],
       "PYQuant/data/datagokr_source.py": [
         "kis.client"
@@ -2689,10 +2730,14 @@
         "backtest.report"
       ],
       "scripts/build_plain_dashboard.py": [
-        "_logdir"
+        "_logdir",
+        "redact_publish"
       ],
       "scripts/build_review_entry.py": [
         "market_close_collect"
+      ],
+      "scripts/build_study_site.py": [
+        "redact_publish"
       ],
       "scripts/check_market_open.py": [
         "kis.client"
@@ -2959,6 +3004,11 @@
       "notify_trades": [
         "scripts/deploy_trader.py"
       ],
+      "redact_publish": [
+        "PYQuant/dashboard/build_dashboard.py",
+        "scripts/build_plain_dashboard.py",
+        "scripts/build_study_site.py"
+      ],
       "report.account": [
         "PYQuant/main.py"
       ],
@@ -3077,6 +3127,11 @@
       {
         "from": "PYQuant/dashboard",
         "to": "PYQuant/backtest",
+        "weight": 1
+      },
+      {
+        "from": "PYQuant/dashboard",
+        "to": "PYQuant/redact_publish",
         "weight": 1
       },
       {

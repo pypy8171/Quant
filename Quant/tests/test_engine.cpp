@@ -7,6 +7,7 @@
 // 케이스 하나 더 — 주문 쪽 스위치 다섯(D-114 단계 4): 전략 역할이면 제어 요청을 거쳐 주문 스레드가 고친다.
 // 케이스 하나 더 — 역할대로 제 스레드만 띄우는지(D-114 단계 4): 전략 역할은 주문 스레드가 없고, 주문 역할은 전략을 올리지 않는다.
 // 케이스 셋 더 — 유니버스 점수 쪽 순수 함수: 비중 배수의 spread 상한, 동점 순서, 시세 표를 다시 채울 때 옛 값 비우기.
+// 케이스 하나 더 — 자물쇠를 잡고 바뀌는 목록을 한 스레드가 사본으로 순회하는지(GenerationCopy, 데이터 스레드 감시 목록).
 // 빌드: cmake --build <directory> --target test_engine
 #include "core/Engine.h"
 #include "core/IFeedSource.h"
@@ -17,6 +18,7 @@
 #include "universe/MarketBoard.h"
 #include "universe/ScoreWeight.h"
 #include "universe/UniverseScanner.h"
+#include "utils/GenerationCopy.h"
 #include "utils/Logger.h"
 
 #include <algorithm>
@@ -1166,6 +1168,86 @@ int run_quote_table_reload_case()
     return 0;
 }
 
+// 여러 스레드가 자물쇠를 잡고 목록을 바꾸는 동안, 한 스레드가 GenerationCopy 사본을 자물쇠 없이 순회한다
+//  (CONSOLIDATED 2절 #1 — 데이터 스레드가 watch_specifications_를 자물쇠 없이 돌던 경쟁). 순회 중 원본이 바뀌어도
+//  사본은 그대로라 끊기지 않고, 쓰기가 끝난 뒤 한 번 더 refresh하면 원본과 같아야 한다.
+//  판 번호가 그대로면 다시 복사하지 않는지도 본다(같은 주소·같은 내용).
+int run_generation_copy_case()
+{
+    std::vector<int>         source;
+    std::mutex               source_mutex;
+    std::atomic<uint64_t>    source_generation{0};
+    GenerationCopy<std::vector<int>> data_thread_copy;
+    std::atomic<int>         writers_finished{0};
+    constexpr int            kWriterCount   = 2;
+    constexpr int            kWritesPerWriter = 2000;
+
+    std::vector<std::thread> writers;
+
+    for (int writer_index = 0; writer_index < kWriterCount; ++writer_index)
+    {
+        writers.emplace_back([&, writer_index]
+        {
+            for (int write_index = 0; write_index < kWritesPerWriter; ++write_index)
+            {
+                std::lock_guard<std::mutex> lock(source_mutex);
+                source.push_back(writer_index * kWritesPerWriter + write_index);
+
+                if (write_index % 3 == 0)
+                {
+                    std::erase_if(source, [](int value)
+                    {
+                        return value % 5 == 0;
+                    });
+                }
+
+                source_generation.fetch_add(1, std::memory_order_relaxed);
+            }
+
+            writers_finished.fetch_add(1, std::memory_order_release);
+        });
+    }
+
+    // 읽는 쪽 — 쓰는 스레드가 모두 끝날 때까지 사본을 다시 뜨고 끝까지 순회한다.
+    int64_t refreshes       = 0;
+    int64_t negative_values = 0;
+
+    while (writers_finished.load(std::memory_order_acquire) < kWriterCount)
+    {
+        const std::vector<int>& copy = data_thread_copy.refresh(source, source_mutex, source_generation);
+        int64_t                 negative = 0;
+
+        for (const int value : copy)
+        {
+            negative += value < 0 ? 1 : 0;
+        }
+
+        negative_values += negative;
+        ++refreshes;
+    }
+
+    for (std::thread& writer : writers)
+    {
+        writer.join();
+    }
+
+    // 순회 도중에 CHECK로 빠져나가면 아직 도는 스레드를 부숴 std::terminate가 나므로 확인은 합류 뒤에 한다.
+    CHECK(refreshes > 0);
+    CHECK(negative_values == 0);
+
+    const std::vector<int>& final_copy = data_thread_copy.refresh(source, source_mutex, source_generation);
+    CHECK(final_copy == source);
+
+    // 판 번호가 그대로면 다시 복사하지 않는다 — 판 번호를 올리지 않고 원본만 바꾸면 사본은 옛 내용 그대로다.
+    const std::vector<int> before_change = final_copy;
+    source.push_back(-1);
+    CHECK(data_thread_copy.refresh(source, source_mutex, source_generation) == before_change);
+
+    source_generation.fetch_add(1, std::memory_order_relaxed);
+    CHECK(data_thread_copy.refresh(source, source_mutex, source_generation) == source);
+    return 0;
+}
+
 } // namespace
 
 int main()
@@ -1235,6 +1317,11 @@ int main()
     }
 
     if (const int result_code = run_quote_table_reload_case(); result_code != 0)
+    {
+        return result_code;
+    }
+
+    if (const int result_code = run_generation_copy_case(); result_code != 0)
     {
         return result_code;
     }

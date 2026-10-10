@@ -143,29 +143,44 @@ static void test_kr_trade()
 
 static void test_us_trade()
 {
+    // 칸 위치는 공식 샘플 delayed_ccnl(실시간-007): [6]KHMS [8]HIGH [10]LAST [18]EVOL [19]TVOL [20]TAMT [23]STRN.
     auto fields_f = blank(kis_websocket::kMinFieldsUsTrade);
-    fields_f[0] = "AAPL";
-    fields_f[2] = "189.25";
-    fields_f[8] = "120";
+    fields_f[0]  = "AAPL";
+    fields_f[6]  = "223015";
+    fields_f[8]  = "190.10"; // 고가 — 체결량으로 읽으면 안 된다
+    fields_f[10] = "189.25";
+    fields_f[18] = "120";
     TradeData trade;
     assert(kis_websocket::decode_us_trade(FieldList(fields_f), trade) == Decode::kOk);
     assert(trade.market == Market::US && trade.price == 189.25 && trade.quantity == 120);
-    assert(trade.direction == 0); // 20필드 이하면 방향 없음
+    assert(trade.hhmmss == 223015);
+    assert(trade.direction == 0);          // 전문에 방향 칸이 없다
+    assert(trade.accumulated_volume == 0); // 19칸이면 TVOL이 없다
 
-    auto fields_g = blank(21);
-    fields_g[2] = "1";
-    fields_g[8] = "2";
-    fields_g[20] = "1";
+    auto fields_g = blank(25);
+    fields_g[10] = "1";
+    fields_g[18] = "2";
+    fields_g[19] = "5000";
+    fields_g[20] = "123456.7"; // TAMT 거래대금 — 방향으로 읽지 않는다
+    fields_g[23] = "105.5";
     TradeData trade_two;
     assert(kis_websocket::decode_us_trade(FieldList(fields_g), trade_two) == Decode::kOk);
-    assert(trade_two.direction == 1);
+    assert(trade_two.price == 1.0 && trade_two.quantity == 2 && trade_two.direction == 0);
+    assert(trade_two.accumulated_volume == 5000 && trade_two.strength == 105.5);
 
-    fields_g[20] = "x";
+    // 보조 칸(TVOL·STRN)은 숫자가 아니어도 실패로 치지 않는다
+    fields_g[19] = "x";
+    fields_g[23] = "x";
+    TradeData trade_aux;
+    assert(kis_websocket::decode_us_trade(FieldList(fields_g), trade_aux) == Decode::kOk);
+    assert(trade_aux.accumulated_volume == 0 && trade_aux.strength == 0.0);
+
+    fields_g[18] = "x";
     TradeData trade_three;
     assert(kis_websocket::decode_us_trade(FieldList(fields_g), trade_three) == Decode::kBadNumber);
-    assert(trade_three.price == 1.0 && trade_three.quantity == 2 && trade_three.direction == 0);
+    assert(trade_three.price == 1.0 && trade_three.direction == 0);
 
-    fields_g.resize(8);
+    fields_g.resize(18);
     assert(kis_websocket::decode_us_trade(FieldList(fields_g), trade_two) == Decode::kShort);
 }
 

@@ -2,22 +2,30 @@
 //  등록하지 않는지, 그림자 모드가 주문을 하나도 내지 않는지, 다른 슬리브 보유·청산 관리 종목에서는 신호를 막힘으로
 //  적는지, 재기동 재인수가 Full만 표시하고 Partial은 청산 관리에 넘기는지, 15:10 매도 수량이 자기 몫까지인지를 고정한다.
 //  시계·분봉 조회·소유 판정은 주입으로 바꾸고, 그림자 행은 임시 폴더의 csv에서 읽는다.
+//  같은 묶음으로 락 밖 파일 쓰기 두 곳(그림자 csv 동시 쓰기, 시드 고점 파일 쓰기 중 조회)과 마켓메이킹의
+//  빈 ticker 호가 거르기도 본다(규약 4.5).
 //  관련 결정: D-109(슬리브 소유권).
 // 빌드: cmake --build <directory> --target test_vwap_pullback_strategy
 #include "strategy/StrategyLoadPass.h"
 
 #include "core/Engine.h"
+#include "strategy/MarketMakingStrategy.h"
+#include "strategy/SeedPeakStore.h"
 #include "strategy/StrategyFactory.h"
 #include "strategy/VwapPullbackStrategy.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <iostream>
 #include <memory>
 #include <sstream>
 #include <string>
+#include <string_view>
+#include <thread>
 #include <vector>
 
 using json = nlohmann::json;
@@ -390,6 +398,165 @@ int restart_keeps_one_signal_per_day()
     CHECK(rows_with(first.path, "SIGNAL").size() == 1);
     return 0;
 }
+
+// 여러 전략이 같은 그림자 파일에 동시에 써도 행이 빠지거나 섞이지 않고 머리줄은 한 번만 들어간다. 파일 쓰기는
+//  락 밖의 한 스레드가 모아서 한다(규약 4.5).
+int shadow_rows_survive_concurrent_writers()
+{
+    constexpr int                       kWriters = 8;
+    std::vector<std::unique_ptr<Harness>> harnesses;
+
+    for (int index = 0; index < kWriters; ++index)
+    {
+        harnesses.push_back(std::make_unique<Harness>("concurrent"));
+    }
+
+    for (const auto& harness : harnesses)
+    {
+        harness->strategy->on_start();
+    }
+
+    std::vector<std::thread> threads;
+
+    for (const auto& harness : harnesses)
+    {
+        Harness* const target = harness.get();
+        threads.emplace_back([target]
+        {
+            target->step();
+        });
+    }
+
+    for (std::thread& thread : threads)
+    {
+        thread.join();
+    }
+
+    const std::filesystem::path& path = harnesses.front()->path;
+    CHECK(rows_with(path, "SIGNAL").size() == static_cast<size_t>(kWriters));
+    CHECK(rows_with(path, "ARM").size() == static_cast<size_t>(kWriters));
+
+    std::ifstream file(path, std::ios::binary);
+    std::string   line;
+    int           header_count = 0;
+
+    while (std::getline(file, line))
+    {
+        if (line.rfind("kst_time,", 0) == 0)
+        {
+            ++header_count;
+        }
+    }
+
+    CHECK(header_count == 1);
+    return 0;
+}
+
+// 호가 ticker가 비어 있어도 id로 거른다. id·ticker가 둘 다 없으면 내 종목이라는 근거가 없어 견적을 내지 않는다.
+OrderBook market_making_book(symbol::SymbolId symbol_id, std::string_view ticker)
+{
+    OrderBook order_book;
+    order_book.symbol_id      = symbol_id;
+    order_book.ticker         = symbol::Ticker(ticker);
+    order_book.bids[0].price  = 10000.0;
+    order_book.asks[0].price  = 10050.0;
+    return order_book;
+}
+
+int market_making_drops_book_without_ticker()
+{
+    constexpr int kQuantity         = 1;
+    constexpr int kHalfSpreadTicks  = 1;
+    constexpr int kRequoteMoveTicks = 1;
+    constexpr int kMinRequoteMs     = 0;
+
+    // 종목 id를 모르는 전략: 빈 ticker 호가는 버리고, ticker가 같은 호가에는 양방향 견적을 낸다.
+    {
+        MarketMakingStrategy strategy(kTicker, kQuantity, kHalfSpreadTicks, kRequoteMoveTicks, kMinRequoteMs);
+        strategy.on_start();
+        std::vector<OrderSignal> out;
+        strategy.on_order_book_batch(market_making_book(symbol::kNone, ""), out);
+        CHECK(out.empty());
+        strategy.on_order_book_batch(market_making_book(symbol::kNone, kTicker), out);
+        CHECK(out.size() == 2);
+    }
+
+    // 종목 id를 아는 전략: ticker가 비어도 id가 같으면 견적을 내고, id가 다르면 버린다.
+    {
+        MarketMakingStrategy strategy(kTicker, kQuantity, kHalfSpreadTicks, kRequoteMoveTicks, kMinRequoteMs);
+        strategy.set_symbol_resolver([](std::string_view)
+        {
+            return kSymbol;
+        });
+        strategy.on_start();
+        std::vector<OrderSignal> out;
+        strategy.on_order_book_batch(market_making_book(static_cast<symbol::SymbolId>(kSymbol + 1), ""), out);
+        CHECK(out.empty());
+        strategy.on_order_book_batch(market_making_book(kSymbol, ""), out);
+        CHECK(out.size() == 2);
+    }
+
+    return 0;
+}
+
+// 시드 고점 파일을 쓰는 동안(락 밖) 다른 스레드의 조회·저장이 막히지 않고, 쓰는 중에 들어온 값도 파일에 닿는다.
+int seed_peak_write_does_not_block_readers()
+{
+    const std::string first_ticker  = "ZZPEAK1";
+    const std::string second_ticker = "ZZPEAK2";
+    SeedPeakStore::reset_for_test();
+    SeedPeakStore::erase(first_ticker);
+    SeedPeakStore::erase(second_ticker);
+
+    std::promise<void>       entered;
+    std::atomic<bool>        entered_once{false};
+    std::promise<void>       release;
+    std::shared_future<void> released = release.get_future().share();
+    SeedPeakStore::set_before_write_for_test([&entered, &entered_once, released]
+    {
+        if (!entered_once.exchange(true))
+        {
+            entered.set_value();
+        }
+
+        released.wait();
+    });
+
+    std::future<void> writer = std::async(std::launch::async, [&first_ticker]
+    {
+        SeedPeakStore::save(first_ticker, 100.0);
+    });
+    const bool writer_entered = entered.get_future().wait_for(std::chrono::seconds(5)) == std::future_status::ready;
+
+    std::future<double> other = std::async(std::launch::async, [&first_ticker, &second_ticker]
+    {
+        SeedPeakStore::save(second_ticker, 200.0);
+        return SeedPeakStore::load(first_ticker);
+    });
+    const bool other_returned = other.wait_for(std::chrono::seconds(2)) == std::future_status::ready;
+
+    // 실패해도 매달리지 않도록 확인보다 먼저 풀어 준다.
+    release.set_value();
+    writer.wait();
+    const double seen_while_writing = other.get();
+    SeedPeakStore::set_before_write_for_test({});
+
+    CHECK(writer_entered);
+    CHECK(other_returned);
+    CHECK(seen_while_writing == 100.0);
+
+    // 메모리 표를 비우고 파일에서 다시 읽어도 두 값이 다 있다.
+    SeedPeakStore::reset_for_test();
+    CHECK(SeedPeakStore::load(first_ticker) == 100.0);
+    CHECK(SeedPeakStore::load(second_ticker) == 200.0);
+
+    SeedPeakStore::erase(first_ticker);
+    SeedPeakStore::erase(second_ticker);
+    SeedPeakStore::reset_for_test();
+    CHECK(SeedPeakStore::load(first_ticker) == 0.0);
+    CHECK(SeedPeakStore::load(second_ticker) == 0.0);
+    return 0;
+}
 } // namespace
 
 int main()
@@ -404,6 +571,9 @@ int main()
     failed |= exit_sells_only_own_quantity();
     failed |= exit_after_restart_past_1510();
     failed |= restart_keeps_one_signal_per_day();
+    failed |= shadow_rows_survive_concurrent_writers();
+    failed |= market_making_drops_book_without_ticker();
+    failed |= seed_peak_write_does_not_block_readers();
 
     if (failed != 0)
     {

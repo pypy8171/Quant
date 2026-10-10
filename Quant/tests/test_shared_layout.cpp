@@ -27,7 +27,7 @@ void check(bool condition, const std::string& name)
 
     if (!condition)
     {
-        std::cout << "[FAIL] " << name << "\n";
+        std::cout << "[FAIL] " << name << std::endl; // 여기서 멈추므로 버퍼에 남겨 두지 않는다
         std::abort();
     }
 
@@ -495,7 +495,7 @@ void test_head_guards()
     ipc::SharedLayoutHead* head = reinterpret_cast<ipc::SharedLayoutHead*>(g_storage);
     check(head->magic == ipc::kSharedLayoutMagic, "놓는 쪽이 표식을 적는다");
     check(head->layout_version == ipc::kSharedLayoutVersion, "놓는 쪽이 판 번호를 적는다");
-    check(ipc::kSharedLayoutVersion == 9, "이 단계의 판 번호는 9다 — 올릴 때 이 줄도 같이 본다");
+    check(ipc::kSharedLayoutVersion == 10, "이 단계의 판 번호는 10이다 — 올릴 때 이 줄도 같이 본다");
     check(head->symbol_capacity == config.symbol_capacity, "놓는 쪽이 종목 수를 적는다");
     check(head->feed_control_capacity == config.feed_control_capacity, "놓는 쪽이 구독 칸 수를 적는다");
     check(head->fill_capacity == config.fill_capacity, "놓는 쪽이 체결통보 칸 수를 적는다");

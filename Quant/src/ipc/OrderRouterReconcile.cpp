@@ -242,6 +242,13 @@ int OrderRouter::sweep_stale_reservations()
             return 0;
         }
 
+        // [inv] 이력은 바꿨는데 장부 기록이 아직인 주문이 있으면 이번 회차는 건너뛴다(LedgerHandoff 주석). 이 락 아래에서
+        //  읽어야 이력과 맞는 값이다 — 표시는 이력을 바꾸는 같은 락 구간에서 생긴다.
+        if (ledger_handoffs_.load(std::memory_order_acquire) > 0)
+        {
+            return 0;
+        }
+
         for (const auto& managed_order : history_)
         {
             if (is_live(managed_order) && managed_order.signal.symbol_id < live.size())
@@ -311,10 +318,40 @@ void OrderRouter::reconcile_unknown_order_async(std::string ticker)
     });
 }
 
+// 스레드 밖으로 예외가 새면 std::terminate로 트레이더가 내려간다(CODE_CONVENTIONS 9.2). 예외로 끝나면 reconcile_running_만
+//  내린다 — 남은 목록은 다음 타임아웃이 새 스레드를 띄울 때 함께 확인한다. 정상 종료는 run_reconcile_rounds가 이미
+//  내렸으므로 여기서 다시 쓰지 않는다(그사이 새로 뜬 스레드의 표시를 덮는다).
+//  TODO: 공용 감싸개 Quant/include/utils/ThreadGuard.h(run_and_log)로 바꾼다.
 void OrderRouter::reconcile_unknown_orders_loop(std::stop_token stop_token)
 {
     thread_name::set_current("Reconcile");
+    bool thrown = false;
 
+    try
+    {
+        run_reconcile_rounds(stop_token);
+    }
+    catch (const std::exception& exception)
+    {
+        thrown = true;
+        LOG_ERROR("[OrderRouter] 전송 타임아웃 재확인 스레드 예외 — 다음 타임아웃 때 다시 확인한다: " +
+                  std::string(exception.what()));
+    }
+    catch (...)
+    {
+        thrown = true;
+        LOG_ERROR("[OrderRouter] 전송 타임아웃 재확인 스레드 예외(std::exception 아님) — 다음 타임아웃 때 다시 확인한다");
+    }
+
+    if (thrown)
+    {
+        std::lock_guard<std::mutex> lock(reconcile_mutex_);
+        reconcile_running_ = false;
+    }
+}
+
+void OrderRouter::run_reconcile_rounds(std::stop_token stop_token)
+{
     // 멈춤 요청이 오면 곧바로 깬다 — 소멸자가 이 스레드를 기다린다. 멈추지 않았으면 참.
     const auto wait = [this, &stop_token](std::chrono::milliseconds duration)
     {
@@ -630,13 +667,32 @@ void OrderRouter::add_broker_open_orders(std::vector<CarryRow>& rows)
     }
 }
 
+// 스레드 밖으로 예외가 새면 std::terminate로 트레이더가 내려간다(CODE_CONVENTIONS 9.2). 남은 줄은 부속 파일에 그대로
+//  있어 다음 기동이 다시 취소한다. TODO: 공용 감싸개 Quant/include/utils/ThreadGuard.h(run_and_log)로 바꾼다.
 void OrderRouter::cancel_stale_rows(std::stop_token stop_token, const std::vector<CarryRow>& rows)
+{
+    thread_name::set_current("StaleCancel");
+
+    try
+    {
+        run_stale_cancels(stop_token, rows);
+    }
+    catch (const std::exception& exception)
+    {
+        LOG_ERROR("[OrderRouter] 이전 세션 미체결 정리 스레드 예외 — 남은 줄은 부속 파일에 남긴다: " +
+                  std::string(exception.what()));
+    }
+    catch (...)
+    {
+        LOG_ERROR("[OrderRouter] 이전 세션 미체결 정리 스레드 예외(std::exception 아님) — 남은 줄은 부속 파일에 남긴다");
+    }
+}
+
+void OrderRouter::run_stale_cancels(std::stop_token stop_token, const std::vector<CarryRow>& rows)
 {
     // 한도 거부·전송 실패 때 같은 취소를 다시 보내기까지 쉬는 시간과 최대 시도 수. 한도는 1초 창이다.
     constexpr int  kCancelAttempts   = 3;
     constexpr auto kRateLimitBackoff = std::chrono::milliseconds(1200);
-
-    thread_name::set_current("StaleCancel");
 
     int cancelled = 0;
 
