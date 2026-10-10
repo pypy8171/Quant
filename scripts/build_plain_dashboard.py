@@ -35,6 +35,7 @@ output_path = repo / "_private" / "dashboard_plain.html"
 
 sys.path.insert(0, str(repo / "scripts"))
 from _logdir import is_live_row  # noqa: E402
+from redact_publish import scrub  # noqa: E402
 
 REASON_PLAIN = [
     ("매도가능수량 0", "팔 수 있는 수량이 없어 내지 않음"),
@@ -182,7 +183,8 @@ def main():
     as_of = max(day["date"] for day in summary["days"])
     payload = json.dumps(summary, ensure_ascii=False).replace("</", "<\\/")
     template = read_text(plain_directory / "plain_template.html")
-    out = template.replace("/*JOURNAL_DATA*/", payload).replace("/*ASOF*/", as_of)
+    # 일지 원문에 계좌번호·비공개 경로가 적혀 있어 발행 전에 가린다
+    out = scrub(template.replace("/*JOURNAL_DATA*/", payload).replace("/*ASOF*/", as_of))
     output_path.write_bytes(out.encode("utf-8"))
     print(f"[build_plain_dashboard] {output_path.relative_to(repo).as_posix()} 기준 {as_of} · 일지 {len(summary['days'])}편"
           f" · 기본 요약 {len(added)}편 {added} · {len(out.encode('utf-8')) // 1024}KB")

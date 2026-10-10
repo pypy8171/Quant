@@ -18,6 +18,9 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BASE = os.path.join(REPO, "_private", "주식_study")
 DEFAULT_OUT = os.path.join(BASE, "_site", "study_site.html")
 
+sys.path.insert(0, os.path.join(REPO, "scripts"))
+from redact_publish import scrub  # noqa: E402
+
 DATE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})$")
 FIN_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})_재무$")
 CODE_RE = re.compile(r"^\d{6}")
@@ -468,7 +471,8 @@ def main():
     if not days:
         raise SystemExit("스터디 폴더를 찾지 못했습니다: " + BASE)
     payload = json.dumps({"days": days}, ensure_ascii=False).replace("<", "\\u003c")
-    html = HTML.replace("__PAYLOAD__", payload)
+    # 저널 본문에 비공개 폴더 경로가 적혀 있어 발행 전에 가린다
+    html = scrub(HTML.replace("__PAYLOAD__", payload))
     os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(out, "w", encoding="utf-8") as f:
         f.write(html)

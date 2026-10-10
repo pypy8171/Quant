@@ -13,7 +13,7 @@
 - [docs](#docs) — 148개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 428개
-- [scripts](#scripts) — 53개
+- [scripts](#scripts) — 54개
 - [strategies](#strategies) — 41개
 - [tools](#tools) — 3개
 
@@ -1478,6 +1478,7 @@
 - [parse_quant_log.py](../scripts/parse_quant_log.py) — 매매 로그 파서 스크립트
 - [premarket_routine.py](../scripts/premarket_routine.py) — 루틴 프롬프트 본문 출력(--render)·올린 해시 기록(--mark)·정본과 비교(--check, check_docs 가 부른다)
 - [quant_procs.ps1](../scripts/quant_procs.ps1) — 실행 프로세스 점검·정리 스크립트
+- [redact_publish.py](../scripts/redact_publish.py) — 발행물 가림 규칙 정본(scrub: 계좌번호·비공개 경로 가림, find_leaks: 발행 직전 훅이 쓰는 개인정보·타 프로젝트 낱말 검사)
 - [refresh_dashboard.py](../scripts/refresh_dashboard.py) — 대시보드·리뷰 재생성 스크립트
 - [restart_verify.py](../scripts/restart_verify.py) — 재기동 기동 판정: 직전 로그 끝 위치 뒤에 기동 표지(FEP 초기화 → 모든 스레드 시작 → 20초 생존)가 찍혔는지 보고 성공·실패·판정불가를 `_private/state/restart_verify.jsonl`에 남긴다
 - [run_claude_task.ps1](../scripts/run_claude_task.ps1) — 예약작업이 헤드리스 클로드를 부르는 래퍼(cmd 리다이렉션으로 stderr 경고를 rc=1로 만들지 않고 UTF-8 로그에 붙인다)

@@ -50,6 +50,8 @@ for _s in (sys.stdout, sys.stderr):
 
 _HERE = Path(__file__).resolve()
 _REPO = _HERE.parents[2]                          # .../Quant
+sys.path.insert(0, str(_REPO / "scripts"))
+from redact_publish import scrub as _scrub_published  # noqa: E402  계좌번호·비공개 경로 가림 정본
 STUDIES = _REPO / "research" / "studies"
 OUT_DIR = _REPO / "research" / "dashboard"
 LIVE_JSON = OUT_DIR / "live.json"
@@ -1891,7 +1893,7 @@ def main():
     if not rows:
         print("! metrics.json을 찾지 못했습니다.", file=sys.stderr)
     for variant, variant_specification in VARIANTS.items():
-        page = render(rows, live, reviews, premarket, rounds, study_index, variant)
+        page = _scrub_published(render(rows, live, reviews, premarket, rounds, study_index, variant))
         if variant == "public":
             hits = [pattern.pattern for pattern in _PUBLIC_FORBIDDEN if pattern.search(page)]
             hits += ["(비공개 낱말)" for pattern in _PRIVATE_PATTERNS if pattern.search(page)][:1]
