@@ -182,6 +182,8 @@ set(HEADER_IMPL_SOURCES
   src/risk/ProtectiveOrders.cpp
   src/risk/ProtectiveRule.cpp
   src/strategy/DevScaleRules.cpp
+  src/strategy/VwapPullbackRules.cpp
+  src/strategy/VwapPullbackStrategy.cpp
   src/strategy/DeviationScaleStrategy.cpp
   src/strategy/FixedIntervalStrategy.cpp
   src/strategy/IntradayBreakoutStrategy.cpp
@@ -210,6 +212,7 @@ set(ENGINE_SOURCES
   src/universe/UniverseScoring.cpp
   src/strategy/StrategyFactory.cpp
   src/strategy/DevScaleLoader.cpp
+  src/strategy/VwapPullbackLoader.cpp
   src/core/AppConfig.cpp
   src/core/CommandLine.cpp
   src/core/Engine.cpp
@@ -525,6 +528,15 @@ target_include_directories(test_kis_rate_bucket PRIVATE ${CMAKE_CURRENT_SOURCE_D
 # 매크로 국면 파일 전달(core/RegimeFileJudge.h) — 헤더 전용, 파일·로그 없음 (D-060)
 add_executable(test_devscale_rules tests/test_devscale_rules.cpp)
 target_include_directories(test_devscale_rules PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+# 강한 종목 첫 VWAP 눌림 순수 판정(strategy/VwapPullbackRules) — 선정·상태 기계·재인수, 파일·로그 없음 (D-109)
+add_executable(test_vwap_pullback_rules tests/test_vwap_pullback_rules.cpp src/strategy/VwapPullbackRules.cpp)
+target_include_directories(test_vwap_pullback_rules PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+# VWAP 눌림 전략 본체·로더 — 엔진을 링크해 꺼짐 무등록·그림자 무주문·소유 표시를 본다 (D-109)
+add_executable(test_vwap_pullback_strategy tests/test_vwap_pullback_strategy.cpp)
+target_include_directories(test_vwap_pullback_strategy PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(test_vwap_pullback_strategy PRIVATE quant_engine)
 
 add_executable(test_regime_file_judge tests/test_regime_file_judge.cpp)
 target_include_directories(test_regime_file_judge PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -999,6 +1011,8 @@ set(QUANT_ASSERT_TARGETS
     test_ops_server
     test_regime_file_judge
     test_devscale_rules
+    test_vwap_pullback_rules
+    test_vwap_pullback_strategy
     test_target_basket_plan
     test_target_basket_strategy
     test_surge_hold

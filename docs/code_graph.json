@@ -130,12 +130,12 @@
     {
       "from": "strategy",
       "to": "api",
-      "weight": 4
+      "weight": 6
     },
     {
       "from": "strategy",
       "to": "core",
-      "weight": 22
+      "weight": 28
     },
     {
       "from": "strategy",
@@ -145,12 +145,12 @@
     {
       "from": "strategy",
       "to": "universe",
-      "weight": 5
+      "weight": 7
     },
     {
       "from": "strategy",
       "to": "utils",
-      "weight": 10
+      "weight": 15
     },
     {
       "from": "universe",
@@ -275,6 +275,8 @@
     "strategy/TargetBasketPlan.h": "strategy",
     "strategy/TargetBasketStrategy.h": "strategy",
     "strategy/ValueContraryStrategy.h": "strategy",
+    "strategy/VwapPullbackRules.h": "strategy",
+    "strategy/VwapPullbackStrategy.h": "strategy",
     "universe/MaAlign.h": "universe",
     "universe/MarketBoard.h": "universe",
     "universe/ScoreWeight.h": "universe",
@@ -402,6 +404,9 @@
     "strategy/TargetBasketPlan.cpp": "strategy",
     "strategy/TargetBasketStrategy.cpp": "strategy",
     "strategy/ValueContraryStrategy.cpp": "strategy",
+    "strategy/VwapPullbackLoader.cpp": "strategy",
+    "strategy/VwapPullbackRules.cpp": "strategy",
+    "strategy/VwapPullbackStrategy.cpp": "strategy",
     "universe/MaAlign.cpp": "universe",
     "universe/MarketBoard.cpp": "universe",
     "universe/ScoreWeight.cpp": "universe",
@@ -1294,6 +1299,36 @@
       "strategy/StrategyBase.h",
       "utils/Logger.h"
     ],
+    "strategy/VwapPullbackLoader.cpp": [
+      "api/KisClient.h",
+      "core/Engine.h",
+      "core/KstTime.h",
+      "strategy/DevScaleRules.h",
+      "strategy/VwapPullbackRules.h",
+      "strategy/VwapPullbackStrategy.h",
+      "universe/MarketBoard.h",
+      "utils/EtfFilter.h",
+      "utils/Logger.h",
+      "utils/Utf8.h"
+    ],
+    "strategy/VwapPullbackRules.cpp": [
+      "core/TickSize.h",
+      "strategy/VwapPullbackRules.h"
+    ],
+    "strategy/VwapPullbackStrategy.cpp": [
+      "api/KisClient.h",
+      "core/KstTime.h",
+      "core/PrefetchPool.h",
+      "strategy/VwapPullbackStrategy.h",
+      "universe/MarketBoard.h",
+      "utils/Logger.h",
+      "utils/Utf8.h"
+    ],
+    "strategy/VwapPullbackStrategy.h": [
+      "core/BarAggregator.h",
+      "strategy/StrategyBase.h",
+      "strategy/VwapPullbackRules.h"
+    ],
     "universe/MaAlign.cpp": [
       "universe/MaAlign.h"
     ],
@@ -1425,6 +1460,8 @@
       "strategy/DeviationScaleStrategy.h",
       "strategy/StrategyFactory.h",
       "strategy/ValueContraryStrategy.h",
+      "strategy/VwapPullbackLoader.cpp",
+      "strategy/VwapPullbackStrategy.cpp",
       "universe/UniverseScanner.h"
     ],
     "api/KisEndpoints.h": [
@@ -1478,7 +1515,8 @@
     ],
     "core/BarAggregator.h": [
       "core/BarAggregator.cpp",
-      "strategy/DeviationScaleStrategy.h"
+      "strategy/DeviationScaleStrategy.h",
+      "strategy/VwapPullbackStrategy.h"
     ],
     "core/CommandLine.h": [
       "core/CommandLine.cpp",
@@ -1512,7 +1550,8 @@
       "core/EngineUniverse.cpp",
       "main.cpp",
       "strategy/DevScaleLoader.cpp",
-      "strategy/StrategyFactory.cpp"
+      "strategy/StrategyFactory.cpp",
+      "strategy/VwapPullbackLoader.cpp"
     ],
     "core/FeedMux.h": [
       "core/Engine.h",
@@ -1564,6 +1603,8 @@
       "strategy/SeedPeakStore.h",
       "strategy/SurgeHoldStrategy.cpp",
       "strategy/TargetBasketStrategy.cpp",
+      "strategy/VwapPullbackLoader.cpp",
+      "strategy/VwapPullbackStrategy.cpp",
       "universe/MarketBoard.cpp",
       "universe/UniverseCandidates.cpp",
       "universe/UniverseFeatures.cpp",
@@ -1620,7 +1661,8 @@
     "core/PrefetchPool.h": [
       "core/Engine.h",
       "core/PrefetchPool.cpp",
-      "strategy/DeviationScaleStrategy.h"
+      "strategy/DeviationScaleStrategy.h",
+      "strategy/VwapPullbackStrategy.cpp"
     ],
     "core/ReconcilePlan.h": [
       "core/Engine.cpp",
@@ -1710,7 +1752,8 @@
       "core/TickSize.cpp",
       "exchange/MatchingEngine.cpp",
       "strategy/DeviationScaleStrategy.h",
-      "strategy/MarketMakingStrategy.h"
+      "strategy/MarketMakingStrategy.h",
+      "strategy/VwapPullbackRules.cpp"
     ],
     "core/TransportPool.h": [
       "core/EngineOrderThread.cpp"
@@ -1956,7 +1999,8 @@
     "strategy/DevScaleRules.h": [
       "strategy/DevScaleLoader.cpp",
       "strategy/DevScaleRules.cpp",
-      "strategy/DeviationScaleStrategy.h"
+      "strategy/DeviationScaleStrategy.h",
+      "strategy/VwapPullbackLoader.cpp"
     ],
     "strategy/DeviationScaleStrategy.h": [
       "strategy/DevScaleLoader.cpp",
@@ -1996,7 +2040,8 @@
       "strategy/StrategyLoadPass.h",
       "strategy/SurgeHoldStrategy.h",
       "strategy/TargetBasketStrategy.h",
-      "strategy/ValueContraryStrategy.h"
+      "strategy/ValueContraryStrategy.h",
+      "strategy/VwapPullbackStrategy.h"
     ],
     "strategy/StrategyFactory.h": [
       "main.cpp",
@@ -2023,6 +2068,15 @@
       "strategy/StrategyFactory.cpp",
       "strategy/ValueContraryStrategy.cpp"
     ],
+    "strategy/VwapPullbackRules.h": [
+      "strategy/VwapPullbackLoader.cpp",
+      "strategy/VwapPullbackRules.cpp",
+      "strategy/VwapPullbackStrategy.h"
+    ],
+    "strategy/VwapPullbackStrategy.h": [
+      "strategy/VwapPullbackLoader.cpp",
+      "strategy/VwapPullbackStrategy.cpp"
+    ],
     "universe/MaAlign.h": [
       "strategy/DeviationScaleStrategy.h",
       "universe/MaAlign.cpp",
@@ -2037,6 +2091,8 @@
       "core/EngineDataThread.cpp",
       "core/EngineUniverse.cpp",
       "strategy/DevScaleLoader.cpp",
+      "strategy/VwapPullbackLoader.cpp",
+      "strategy/VwapPullbackStrategy.cpp",
       "universe/MarketBoard.cpp",
       "universe/UniverseCandidates.cpp",
       "universe/UniverseFeatures.cpp",
@@ -2061,6 +2117,7 @@
     ],
     "utils/EtfFilter.h": [
       "api/KisClientInternal.h",
+      "strategy/VwapPullbackLoader.cpp",
       "universe/UniverseCandidates.cpp",
       "universe/UniverseFeatures.cpp",
       "universe/UniverseItb.cpp",
@@ -2133,6 +2190,8 @@
       "strategy/SurgeHoldStrategy.cpp",
       "strategy/TargetBasketStrategy.cpp",
       "strategy/ValueContraryStrategy.h",
+      "strategy/VwapPullbackLoader.cpp",
+      "strategy/VwapPullbackStrategy.cpp",
       "universe/MarketBoard.cpp",
       "universe/UniverseCandidates.cpp",
       "universe/UniverseFeatures.cpp",
@@ -2179,6 +2238,8 @@
       "core/Engine.cpp",
       "core/EngineFeed.cpp",
       "exchange/ZmqOrderFeed.cpp",
+      "strategy/VwapPullbackLoader.cpp",
+      "strategy/VwapPullbackStrategy.cpp",
       "universe/MarketBoard.cpp",
       "utils/Utf8.cpp"
     ]
@@ -2186,7 +2247,7 @@
   "hubs": [
     {
       "header": "utils/Logger.h",
-      "in_degree": 60
+      "in_degree": 62
     },
     {
       "header": "core/Types.h",
@@ -2194,7 +2255,7 @@
     },
     {
       "header": "core/KstTime.h",
-      "in_degree": 33
+      "in_degree": 35
     },
     {
       "header": "utils/ThreadName.h",
@@ -2206,22 +2267,26 @@
     },
     {
       "header": "core/Engine.h",
-      "in_degree": 18
+      "in_degree": 19
+    },
+    {
+      "header": "strategy/StrategyBase.h",
+      "in_degree": 15
     },
     {
       "header": "core/WakeGate.h",
       "in_degree": 14
     },
     {
-      "header": "strategy/StrategyBase.h",
-      "in_degree": 14
+      "header": "api/KisClient.h",
+      "in_degree": 12
     },
     {
       "header": "core/LatencyTrace.h",
       "in_degree": 12
     },
     {
-      "header": "api/KisClient.h",
+      "header": "universe/MarketBoard.h",
       "in_degree": 10
     },
     {
@@ -2233,19 +2298,15 @@
       "in_degree": 9
     },
     {
+      "header": "utils/EtfFilter.h",
+      "in_degree": 9
+    },
+    {
       "header": "core/MpscQueue.h",
       "in_degree": 8
     },
     {
       "header": "universe/MaAlign.h",
-      "in_degree": 8
-    },
-    {
-      "header": "universe/MarketBoard.h",
-      "in_degree": 8
-    },
-    {
-      "header": "utils/EtfFilter.h",
       "in_degree": 8
     },
     {
@@ -2257,11 +2318,11 @@
       "in_degree": 7
     },
     {
-      "header": "core/StrategyTable.h",
-      "in_degree": 6
+      "header": "utils/Utf8.h",
+      "in_degree": 7
     },
     {
-      "header": "ipc/SharedSpscRing.h",
+      "header": "core/StrategyTable.h",
       "in_degree": 6
     }
   ],
@@ -3217,6 +3278,7 @@
         "PYQuant/tests/test_stats.py",
         "Quant/src/ipc/OrderJournal.cpp",
         "Quant/src/strategy/DevScaleLoader.cpp",
+        "Quant/src/strategy/VwapPullbackLoader.cpp",
         "scripts/backfill_fills_db.py",
         "scripts/check_runtime_health.py",
         "scripts/daily_trade_report.py",
@@ -3230,6 +3292,7 @@
         "PYQuant/tests/test_stats.py",
         "Quant/src/ipc/OrderJournal.cpp",
         "Quant/src/strategy/DevScaleLoader.cpp",
+        "Quant/src/strategy/VwapPullbackLoader.cpp",
         "scripts/_logdir.py",
         "scripts/backfill_fills_db.py",
         "scripts/check_runtime_health.py",

@@ -42,11 +42,11 @@ graph LR
   risk -->|12| core
   risk -->|2| ipc
   risk -->|4| utils
-  strategy -->|4| api
-  strategy -->|22| core
+  strategy -->|6| api
+  strategy -->|28| core
   strategy --> risk
-  strategy -->|5| universe
-  strategy -->|10| utils
+  strategy -->|7| universe
+  strategy -->|15| utils
   universe -->|2| api
   universe -->|16| core
   universe -->|24| utils
@@ -60,14 +60,14 @@ graph LR
 
 | 헤더 | 유입 수 |
 |---|---|
-| `utils/Logger.h` | 60 |
+| `utils/Logger.h` | 62 |
 | `core/Types.h` | 51 |
-| `core/KstTime.h` | 33 |
+| `core/KstTime.h` | 35 |
 | `utils/ThreadName.h` | 30 |
 | `core/SymbolTable.h` | 23 |
-| `core/Engine.h` | 18 |
+| `core/Engine.h` | 19 |
+| `strategy/StrategyBase.h` | 15 |
 | `core/WakeGate.h` | 14 |
-| `strategy/StrategyBase.h` | 14 |
 
 ## 파일 단위 상세
 
@@ -274,6 +274,10 @@ graph LR
     n_strategy_TargetBasketStrategy_h["strategy/TargetBasketStrategy.h"]
     n_strategy_ValueContraryStrategy_cpp["strategy/ValueContraryStrategy.cpp"]
     n_strategy_ValueContraryStrategy_h["strategy/ValueContraryStrategy.h"]
+    n_strategy_VwapPullbackLoader_cpp["strategy/VwapPullbackLoader.cpp"]
+    n_strategy_VwapPullbackRules_cpp["strategy/VwapPullbackRules.cpp"]
+    n_strategy_VwapPullbackStrategy_cpp["strategy/VwapPullbackStrategy.cpp"]
+    n_strategy_VwapPullbackStrategy_h["strategy/VwapPullbackStrategy.h"]
   end
   subgraph universe
     n_universe_MaAlign_cpp["universe/MaAlign.cpp"]
@@ -802,6 +806,28 @@ graph LR
   n_strategy_ValueContraryStrategy_h --> n_core_MarketSession_h
   n_strategy_ValueContraryStrategy_h --> n_strategy_StrategyBase_h
   n_strategy_ValueContraryStrategy_h --> n_utils_Logger_h
+  n_strategy_VwapPullbackLoader_cpp --> n_api_KisClient_h
+  n_strategy_VwapPullbackLoader_cpp --> n_core_Engine_h
+  n_strategy_VwapPullbackLoader_cpp --> n_core_KstTime_h
+  n_strategy_VwapPullbackLoader_cpp --> n_strategy_DevScaleRules_h
+  n_strategy_VwapPullbackLoader_cpp --> n_strategy_VwapPullbackRules_h
+  n_strategy_VwapPullbackLoader_cpp --> n_strategy_VwapPullbackStrategy_h
+  n_strategy_VwapPullbackLoader_cpp --> n_universe_MarketBoard_h
+  n_strategy_VwapPullbackLoader_cpp --> n_utils_EtfFilter_h
+  n_strategy_VwapPullbackLoader_cpp --> n_utils_Logger_h
+  n_strategy_VwapPullbackLoader_cpp --> n_utils_Utf8_h
+  n_strategy_VwapPullbackRules_cpp --> n_core_TickSize_h
+  n_strategy_VwapPullbackRules_cpp --> n_strategy_VwapPullbackRules_h
+  n_strategy_VwapPullbackStrategy_cpp --> n_api_KisClient_h
+  n_strategy_VwapPullbackStrategy_cpp --> n_core_KstTime_h
+  n_strategy_VwapPullbackStrategy_cpp --> n_core_PrefetchPool_h
+  n_strategy_VwapPullbackStrategy_cpp --> n_strategy_VwapPullbackStrategy_h
+  n_strategy_VwapPullbackStrategy_cpp --> n_universe_MarketBoard_h
+  n_strategy_VwapPullbackStrategy_cpp --> n_utils_Logger_h
+  n_strategy_VwapPullbackStrategy_cpp --> n_utils_Utf8_h
+  n_strategy_VwapPullbackStrategy_h --> n_core_BarAggregator_h
+  n_strategy_VwapPullbackStrategy_h --> n_strategy_StrategyBase_h
+  n_strategy_VwapPullbackStrategy_h --> n_strategy_VwapPullbackRules_h
   n_universe_MaAlign_cpp --> n_universe_MaAlign_h
   n_universe_MarketBoard_cpp --> n_api_HttpGet_h
   n_universe_MarketBoard_cpp --> n_core_KstTime_h
@@ -1029,7 +1055,7 @@ C++ 엔진·Python 보조 프로세스·스크립트가 파일로 주고받는 �
 | 파일 | 쓰는 쪽 | 읽는 쪽 | 언급만 |
 |---|---|---|---|
 | `regime.json` | `Quant/src/core/EngineRegime.cpp` | `Quant/src/core/AppConfig.cpp`, `Quant/src/core/EngineDataThread.cpp`, `Quant/src/core/EngineRegime.cpp`, `Quant/src/core/RegimeFileJudge.cpp`, `scripts/dashboard_server.py`, `scripts/notify_trades.py` | `Quant/include/core/AppConfig.h`, `Quant/include/core/Engine.h`, `Quant/include/core/RegimeFileJudge.h`, `Quant/include/ipc/DbManager.h`, `Quant/src/core/EngineConfigure.cpp`, `Quant/src/ipc/ZmqBridge.cpp`, `Quant/src/strategy/StrategyFactory.cpp` |
-| `trades_*.csv` | `Quant/src/ipc/OrderJournal.cpp`, `scripts/backfill_fills_db.py`, `scripts/check_runtime_health.py`, `scripts/daily_trade_report.py`, `scripts/exit_ev_dashboard.py` | `PYQuant/dashboard/backfill_live.py`, `PYQuant/tests/test_stats.py`, `Quant/src/ipc/OrderJournal.cpp`, `Quant/src/strategy/DevScaleLoader.cpp`, `scripts/backfill_fills_db.py`, `scripts/check_runtime_health.py`, `scripts/daily_trade_report.py`, `scripts/exit_ev.py`, `scripts/exit_ev_dashboard.py`, `scripts/parse_quant_log.py`, `scripts/trade_costs.py` | `scripts/_logdir.py`, `scripts/notify_trades.py` |
+| `trades_*.csv` | `Quant/src/ipc/OrderJournal.cpp`, `scripts/backfill_fills_db.py`, `scripts/check_runtime_health.py`, `scripts/daily_trade_report.py`, `scripts/exit_ev_dashboard.py` | `PYQuant/dashboard/backfill_live.py`, `PYQuant/tests/test_stats.py`, `Quant/src/ipc/OrderJournal.cpp`, `Quant/src/strategy/DevScaleLoader.cpp`, `Quant/src/strategy/VwapPullbackLoader.cpp`, `scripts/backfill_fills_db.py`, `scripts/check_runtime_health.py`, `scripts/daily_trade_report.py`, `scripts/exit_ev.py`, `scripts/exit_ev_dashboard.py`, `scripts/parse_quant_log.py`, `scripts/trade_costs.py` | `scripts/_logdir.py`, `scripts/notify_trades.py` |
 | `universe*.json` | `PYQuant/tools/load_injector.py`, `Quant/src/universe/MarketBoard.cpp`, `scripts/make_load_test_config.py` | `PYQuant/main.py`, `PYQuant/tools/full_universe_dump.py`, `PYQuant/tools/load_injector.py`, `PYQuant/tools/universe_feed.py`, `Quant/src/strategy/DevScaleLoader.cpp`, `Quant/src/universe/UniverseCandidates.cpp`, `scripts/exit_ev_dashboard.py`, `scripts/make_load_test_config.py`, `scripts/market_close_minute_backfill.py`, `scripts/notify_trades.py` | `Quant/include/universe/MarketBoard.h`, `Quant/include/universe/UniverseScanner.h`, `Quant/src/api/KisUniverse.cpp`, `scripts/dashboard_server.py` |
 | `open_orders.txt` | `Quant/src/ipc/OrderJournal.cpp`, `scripts/seed_open_orders.py` | `Quant/src/ipc/OrderJournal.cpp`, `Quant/src/ipc/OrderRouterReconcile.cpp`, `scripts/seed_open_orders.py` |  |
 | `quant_trader.log` | `PYQuant/tools/log_report.py`, `scripts/build_review_entry.py`, `scripts/dashboard_server.py`, `scripts/summarize_trading_day.py` | `PYQuant/tools/compare_ws_bars.py`, `scripts/check_runtime_health.py`, `scripts/dashboard_server.py`, `scripts/extract_swap_what_if.py`, `scripts/notify_trades.py`, `scripts/parse_quant_log.py`, `scripts/seed_open_orders.py`, `scripts/startup_to_order_timeline.py`, `scripts/summarize_trading_day.py` | `Quant/src/core/CommandLine.cpp`, `scripts/_logdir.py`, `scripts/exit_ev_dashboard.py` |

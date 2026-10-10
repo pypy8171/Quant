@@ -9,11 +9,11 @@
 - [(루트)](#루트) — 11개
 - [.vscode](#vscode) — 4개
 - [PYQuant](#pyquant) — 105개
-- [Quant](#quant) — 358개
+- [Quant](#quant) — 367개
 - [docs](#docs) — 148개
 - [linux_practice](#linux_practice) — 2개
 - [research](#research) — 428개
-- [scripts](#scripts) — 51개
+- [scripts](#scripts) — 53개
 - [strategies](#strategies) — 41개
 - [tools](#tools) — 3개
 
@@ -347,6 +347,8 @@
 - [TargetBasketPlan.h](../Quant/include/strategy/TargetBasketPlan.h) — 목표 비중표 파일 계약(schema·슬리브·행)과 "목표 − 보유 = 주문" 계획 구조체 (D-109)
 - [TargetBasketStrategy.h](../Quant/include/strategy/TargetBasketStrategy.h) — 바스켓 슬리브 전략 — 집행 창·두 레그·상태 파일·소유 종목 sink 선언 (D-109)
 - [ValueContraryStrategy.h](../Quant/include/strategy/ValueContraryStrategy.h) — 저PBR 3일 연속 하락 반전 매수 전략
+- [VwapPullbackRules.h](../Quant/include/strategy/VwapPullbackRules.h) — 강한 종목 첫 VWAP 눌림 규칙 — 선정 필터·눌림 판정·손절가와 1분봉 상태 기계(무장→신호/해제) 선언
+- [VwapPullbackStrategy.h](../Quant/include/strategy/VwapPullbackStrategy.h) — 강한 종목 첫 VWAP 눌림 한 종목 전략 — 그림자 모드(주문 없음)·REST 시드·15:10 재계산 선언
 
 ### Quant/include/universe/
 
@@ -504,6 +506,9 @@
 - [TargetBasketPlan.cpp](../Quant/src/strategy/TargetBasketPlan.cpp) — 목표 비중표 파싱·검증과 밴드·DROP·liquidate_all 규칙으로 매도/매수 계획을 만든다
 - [TargetBasketStrategy.cpp](../Quant/src/strategy/TargetBasketStrategy.cpp) — 파일 재읽기, 14:40~15:00 매도→매수 레그, 종목:방향 하루 한 번(상태 파일 먼저 쓰기), 남의 틱을 심장박동으로
 - [ValueContraryStrategy.cpp](../Quant/src/strategy/ValueContraryStrategy.cpp) — ValueContraryStrategy.h 구현 — 저PBR 3일 연속 하락 반전 매수 전략
+- [VwapPullbackLoader.cpp](../Quant/src/strategy/VwapPullbackLoader.cpp) — VWAP_PULLBACK 로더 — 09:30 시세판 선정·선정 파일·재기동 재인수(Full만)·재스캔 등록
+- [VwapPullbackRules.cpp](../Quant/src/strategy/VwapPullbackRules.cpp) — VwapPullbackRules.h 구현 — 선정·눌림·손절 판정과 상태 기계
+- [VwapPullbackStrategy.cpp](../Quant/src/strategy/VwapPullbackStrategy.cpp) — VwapPullbackStrategy.h 구현 — 봉 집계·그림자 csv 행(ARM·SIGNAL·EXIT·SUMMARY·RECHECK)·재기동 복원
 
 ### Quant/src/universe/
 
@@ -612,6 +617,8 @@
 - [test_ticker.cpp](../Quant/tests/test_ticker.cpp) — 티커 조회 방식 7가지(std::map·unordered_map·SymbolTable::intern·정수 id 배열·숫자 파싱 희소 배열·틱당 소비자 4곳 모델)를 2,700종목·1천만 회로 재는 벤치(체크섬 출력으로 데드코드 제거를 막는다)
 - [test_universe_rescan.cpp](../Quant/tests/test_universe_rescan.cpp) — 유니버스 재스캔 장부 단위 테스트: 신규 등록·주기 대기·상한 교체·빈 스캔 무시·차단→해제·복귀 확인(D-077·D-087)
 - [test_universe_scoring.cpp](../Quant/tests/test_universe_scoring.cpp) — 유니버스 횡단면 점수 단위 테스트: z-score·±2 절단·눌림 부호 반전·거래대금 결측 중앙값·가중합(D-018)
+- [test_vwap_pullback_rules.cpp](../Quant/tests/test_vwap_pullback_rules.cpp) — VWAP 눌림 규칙 단위 테스트: 선정 필터·되밀림·VWAP 띠·손절 폭·VI 근사·무장/해제/신호 상태 기계
+- [test_vwap_pullback_strategy.cpp](../Quant/tests/test_vwap_pullback_strategy.cpp) — VWAP 눌림 전략·로더 테스트: 꺼짐이면 등록 0·그림자 주문 0·보유/청산 관리 막힘·재인수 Full/Partial·15:10 자기 몫 청산·재기동 하루 한 번
 - [test_wake_gate.cpp](../Quant/tests/test_wake_gate.cpp) — WakeGate 소비자 깨우기 단위 테스트
 - [test_websocket_slot_plan.cpp](../Quant/tests/test_websocket_slot_plan.cpp) — 구독 칸 배정 단위 테스트 — 우선순위·빈 칸·보유 보호·유지 시간·순위 차·교체 상한(D-132)
 - [test_ws_decode.cpp](../Quant/tests/test_ws_decode.cpp) — KIS 실시간 채널 디코더 단위 테스트(D-037)

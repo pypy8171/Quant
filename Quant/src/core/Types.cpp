@@ -63,6 +63,7 @@ StrategyType StrategyType::from_string(std::string_view text)
         {"DEVIATION_SCALE", DEVIATION_SCALE},
         {"TARGET_BASKET", TARGET_BASKET},
         {"SURGE_HOLD", SURGE_HOLD},
+        {"VWAP_PULLBACK", VWAP_PULLBACK},
     };
 
     for (const auto& [name, value] : kNames)

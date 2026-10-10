@@ -594,6 +594,7 @@ void load_strategies(StrategyLoadCtx& context, const json& strategies)
         {StrategyType::DEVIATION_SCALE, load_deviation_scale},
         {StrategyType::TARGET_BASKET, load_target_basket},
         {StrategyType::SURGE_HOLD, load_surge_hold},
+        {StrategyType::VWAP_PULLBACK, load_vwap_pullback},
     };
 
     LoadPass pass(context);
@@ -601,11 +602,22 @@ void load_strategies(StrategyLoadCtx& context, const json& strategies)
 
     // 바스켓 슬리브를 먼저 — 그 소유 종목을 DEVSCALE 유니버스·청산 관리 부착에서 빼야 하므로 config 순서와 무관하게 앞에 둔다 [why D-109].
     //  SURGE_HOLD는 그다음 — 바스켓 종목을 매수 후보에서 빼고, 자기 종목을 DEVSCALE 유니버스에서 뺀다 [why D-157].
+    //  VWAPPB는 두 번 돈다: 재인수 예약은 맨 앞(바스켓과 같은 이유), 재스캔 등록은 맨 뒤(DEVSCALE이 종목을 먼저 가져간다).
     std::vector<const json*> ordered;
+    std::vector<const json*> ordered_last;
     const auto               type_of = [](const json& strategy)
     {
         return StrategyType::from_string(strategy.value("type", std::string()));
     };
+
+    for (const auto& strategy : strategies)
+    {
+        if (type_of(strategy) == StrategyType::VWAP_PULLBACK)
+        {
+            reserve_vwap_pullback_holdings(pass, strategy);
+            ordered_last.push_back(&strategy);
+        }
+    }
 
     for (const StrategyType::Value first : {StrategyType::TARGET_BASKET, StrategyType::SURGE_HOLD})
     {
@@ -620,11 +632,16 @@ void load_strategies(StrategyLoadCtx& context, const json& strategies)
 
     for (const auto& strategy : strategies)
     {
-        if (type_of(strategy) != StrategyType::TARGET_BASKET && type_of(strategy) != StrategyType::SURGE_HOLD)
+        const StrategyType strategy_type = type_of(strategy);
+
+        if (strategy_type != StrategyType::TARGET_BASKET && strategy_type != StrategyType::SURGE_HOLD &&
+            strategy_type != StrategyType::VWAP_PULLBACK)
         {
             ordered.push_back(&strategy);
         }
     }
+
+    ordered.insert(ordered.end(), ordered_last.begin(), ordered_last.end());
 
     for (const json* strategy_node : ordered)
     {

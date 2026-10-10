@@ -3219,6 +3219,146 @@ def devscale_judging_row(date: str) -> tuple:
     return (name, True, "WARN", detail)
 
 
+VWAPPB_PREEMPTED_WARN = 0.30    # 선정 종목 중 다른 슬리브가 먼저 잡은 비율
+VWAPPB_MATCH_WARN = 0.90        # 실시간 신호와 15:10 REST 재계산이 같은 비율
+VWAPPB_WS_COVERAGE_WARN = 0.80  # 체결 중 WS 틱 비율(나머지는 REST 대체 틱)
+VWAPPB_VWAP_DRIFT_WARN = 0.002  # 1분봉 누적 VWAP 대 시세판 VWAP 차이 중앙값
+
+
+def vwappb_enabled() -> bool:
+    """설정 하나라도 VWAP_PULLBACK을 enabled=true로 켰는지 — 꺼져 있으면 VWAPPB 판정은 전부 건너뛴다."""
+    for config_path in sorted((REPO / "Quant" / "config").glob("config*.json")):
+        try:
+            document = json.loads(config_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+
+        for node in document.get("strategies") or []:
+            if isinstance(node, dict) and node.get("type") == "VWAP_PULLBACK" and node.get("enabled") is True:
+                return True
+
+    return False
+
+
+def vwappb_file(file_name: str) -> Path | None:
+    """로그 폴더 후보에서 VWAPPB 산출 파일(선정 json·그림자 csv)을 찾는다."""
+    for folder in _logdir.candidate_dirs():
+        path = folder / file_name
+
+        if path.exists():
+            return path
+
+    return None
+
+
+def vwappb_shadow_records(date: str) -> list | None:
+    """그림자 csv(vwappb_shadow_YYYYMMDD.csv)의 행 목록. 파일이 없으면 None."""
+    path = vwappb_file(f"vwappb_shadow_{dt.date.fromisoformat(date):%Y%m%d}.csv")
+
+    if path is None:
+        return None
+
+    with path.open(encoding="utf-8", newline="") as handle:
+        return list(csv.DictReader(handle))
+
+
+def vwappb_rows(date: str) -> list:
+    """강한 종목 첫 VWAP 눌림(그림자 모드) 판정 다섯 줄. VWAPPB가 꺼져 있으면 빈 목록.
+
+    - 선정 파일: 09:35까지 vwappb_selection_YYYYMMDD.json이 없으면 FAIL(09:30 선정이 안 돌았다).
+    - 선점 비율: 선정 종목 중 다른 슬리브가 먼저 잡아 붙지 못한 비율이 30% 넘으면 WARN.
+    - 재계산 일치: RECHECK 행(15:10 뒤 REST 1분봉으로 다시 돌린 결과)의 match 비율이 90% 미만이면 WARN.
+    - WS 칸: SUMMARY 행의 ws/(ws+rest)가 80% 미만이면 WARN — WS 칸을 못 받아 REST 대체로 돈 종목이 많다.
+    - VWAP 차이: 신호·무장 행의 |vwap/board_vwap−1| 중앙값이 0.2% 넘으면 WARN — 봉 집계가 시세판과 어긋난다.
+    """
+    if not vwappb_enabled():
+        return []
+
+    day = dt.date.fromisoformat(date)
+
+    if day.weekday() >= 5:
+        return [("VWAPPB 선정 파일", True, "WARN", f"{date} 장 없는 날 — 판정 안 함")]
+
+    rows = []
+    selection_path = vwappb_file(f"vwappb_selection_{day:%Y%m%d}.json")
+    now = dt.datetime.now()
+    before_deadline = day == now.date() and (now.hour, now.minute) < (9, 35)
+
+    if selection_path is None:
+        if before_deadline:
+            rows.append(("VWAPPB 선정 파일", True, "WARN", "09:35 전 — 판정 안 함"))
+        else:
+            rows.append(("VWAPPB 선정 파일", False, "FAIL", f"vwappb_selection_{day:%Y%m%d}.json 없음 — 09:30 선정이 돌지 않았다"))
+    else:
+        try:
+            selection = json.loads(selection_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            selection = None
+            rows.append(("VWAPPB 선정 파일", False, "FAIL", f"읽기 실패({error})"))
+
+        if selection is not None:
+            selected = selection.get("selected") or []
+            rows.append(("VWAPPB 선정 파일", True, "FAIL",
+                         f"{selection.get('selected_at', '?')} · {selection.get('source', '?')} · {len(selected)}종목"))
+
+            if selected:
+                preempted = sum(1 for entry in selected if entry.get("preempted"))
+                ratio = preempted / len(selected)
+                rows.append(("VWAPPB 선점 비율", ratio <= VWAPPB_PREEMPTED_WARN, "WARN",
+                             f"{preempted}/{len(selected)} ({ratio:.0%}) — 다른 슬리브가 먼저 잡은 종목, 경고선 {VWAPPB_PREEMPTED_WARN:.0%}"))
+
+    records = vwappb_shadow_records(date)
+
+    if records is None:
+        return rows
+
+    rechecks = [record for record in records if record.get("event") == "RECHECK"]
+
+    if rechecks:
+        matched = sum(1 for record in rechecks if record.get("match") == "1")
+        ratio = matched / len(rechecks)
+        rows.append(("VWAPPB 재계산 일치", ratio >= VWAPPB_MATCH_WARN, "WARN",
+                     f"{matched}/{len(rechecks)} ({ratio:.0%}) — 실시간 신호와 15:10 REST 재계산이 같은 종목, 경고선 {VWAPPB_MATCH_WARN:.0%}"))
+
+    websocket_ticks = 0
+    rest_ticks = 0
+
+    for record in records:
+        if record.get("event") != "SUMMARY":
+            continue
+
+        try:
+            websocket_ticks += int(record.get("ws_ticks") or 0)
+            rest_ticks += int(record.get("rest_ticks") or 0)
+        except ValueError:
+            continue
+
+    if websocket_ticks + rest_ticks > 0:
+        coverage = websocket_ticks / (websocket_ticks + rest_ticks)
+        rows.append(("VWAPPB WS 칸", coverage >= VWAPPB_WS_COVERAGE_WARN, "WARN",
+                     f"WS {websocket_ticks:,} · REST 대체 {rest_ticks:,} ({coverage:.0%}), 경고선 {VWAPPB_WS_COVERAGE_WARN:.0%}"))
+
+    drifts = []
+
+    for record in records:
+        try:
+            vwap = float(record.get("vwap") or 0)
+            board_vwap = float(record.get("board_vwap") or 0)
+        except ValueError:
+            continue
+
+        if vwap > 0 and board_vwap > 0:
+            drifts.append(abs(vwap / board_vwap - 1.0))
+
+    if drifts:
+        drifts.sort()
+        median = drifts[len(drifts) // 2]
+        rows.append(("VWAPPB VWAP 차이", median <= VWAPPB_VWAP_DRIFT_WARN, "WARN",
+                     f"중앙값 {median:.3%} ({len(drifts)}행) — 1분봉 누적 VWAP 대 시세판, 경고선 {VWAPPB_VWAP_DRIFT_WARN:.1%}"))
+
+    return rows
+
+
 def global_rows(date: str) -> list:
     """계좌와 무관한 판정 — 하루에 한 번만 낸다.
 
@@ -3260,6 +3400,7 @@ def global_rows(date: str) -> list:
         board_minute_row(date),
         scan_registration_row(date),
         rescan_duration_row(date),
+        *vwappb_rows(date),
         thread_label_row(date),
         job_attach_row(date),
         gross_exposure_config_row(),

@@ -363,7 +363,8 @@ public:
         MARKET_MAKING,
         DEVIATION_SCALE,
         TARGET_BASKET, // 목표 비중표(파일)를 장부와 맞추는 바스켓 슬리브 [why D-109]
-        SURGE_HOLD     // 급등 뒤 되돌림 종목 계획(파일)을 동시호가로 사고 손절·익절·만기로 파는 슬리브 [why D-157]
+        SURGE_HOLD,    // 급등 뒤 되돌림 종목 계획(파일)을 동시호가로 사고 손절·익절·만기로 파는 슬리브 [why D-157]
+        VWAP_PULLBACK  // 강한 종목 첫 VWAP 눌림(그림자 모드) [why D-109]
     };
 
     StrategyType() = default;

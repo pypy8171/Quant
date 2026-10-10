@@ -22,6 +22,20 @@
       "pbr_max":        1.0,
       "quantity":       1,
       "market_close_exit_hhmm":  1520
+    },
+    {
+      "type":             "VWAP_PULLBACK",
+      "enabled":          false,
+      "shadow":           true,
+      "account":          "",
+      "select_hhmm":      930,
+      "change_min_pct":   6.0,
+      "change_max_pct":   20.0,
+      "turnover_top_n":   10,
+      "min_turnover_krw": 3000000000,
+      "no_new_entry_hhmm": 1315,
+      "exit_hhmm":        1510,
+      "rescan_interval_sec": 20
     }
   ]
 }

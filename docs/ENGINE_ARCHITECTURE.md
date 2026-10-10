@@ -228,7 +228,7 @@ flowchart LR
 
 ### 핵심 타입 (`Quant/include/core/Types.h`)
 
-<!-- sync: Quant/include/core/Types.h@6846989 -->
+<!-- sync: Quant/include/core/Types.h@ae1a2d2 -->
 `MarketData`(OHLCV + bar_index), `OrderSignal`(side/type/quantity/price/**reference_price** + strategy_id, 종목 id `symbol_id`는 전략 스레드가 큐에 넣기 전에 찍고, 전략 번호 `strategy_index`·주문 번호 `client_order_number`는 정수라 게이트·라우터가 문자열 없이 찾는다, D-112. `exempt_from_age_limit`가 켜진 신규 매수는 주문 큐 나이 제한(1초·10초)에서 빠진다 — 바스켓 매수만 켠다, D-155. `opening_auction`이 켜진 신규 매수는 게이트 세션 창 시작 10분 전(08:50)부터 통과한다 — SURGE 장 시작 동시호가 매수만 켠다, D-157), `OrderBook`(5단계 호가, 채널 `H0STASP0`), `TradeData`(실시간 체결, 채널 `H0STCNT0`; 호가·체결 모두 종목 id `symbol_id`와 정수 시각 `hhmmss`를 들고, 봉·호가·체결의 `ticker`는 `symbol::Ticker` 15자 고정 배열이라 세 구조체는 trivially copyable이다 — 문자열은 `.str()`, D-071), `WatchSpec`(WebSocket 구독 스펙 — 엔진이 전략에서 모아 WS에 넘긴다. `trade_only`면 체결만 구독), `Regime`(enum: BULL/NEUTRAL/BEAR/UNKNOWN), `OrderStageTiming`(주문 한 건이 라우터 안에서 구간마다 쓴 시간 — 리스크 점검·이력 잠금과 중복 가드·장부 일지 선기록·초당 한도 대기·증권사 왕복·전송 뒤 마무리 여섯. 그중 둘은 다시 갈라 싣는다: 이력 잠금은 기다린 몫, 전송 뒤 마무리는 접수 확정·발행·이력 저장 셋(이력 저장 안의 미결주문 파일 다시쓰기 몫은 따로 한 칸 더) — 더할 때 두 번 넣지 않는다, D-126. 관측 전용이라 매매 판단에는 안 쓴다, D-117), `FillNotification`(체결통보 한 건 — 주문번호·원주문번호·종목·방향·체결수량·체결단가·체결시각에 주문수량 `order_quantity`와 주문거래소 `exchange`가 붙는다. 뒤쪽 두 칸은 전문이 짧으면 안 오므로 0·빈 값이 모른다는 뜻이다, D-121. 실어 온 실시간 세션 번호 `session_generation`도 붙어, 재연결 뒤 다시 온 같은 체결을 라우터가 가른다, D-131. 종류 `kind`가 `SessionResumed`인 것은 체결이 아니라 체결통보 구독이 붙었다는 표시로, 라우터가 끊긴 사이 체결을 당일 체결 조회로 되찾게 한다, D-149).
 
 > `OrderSignal.reference_price`는 시장가(price=0) 주문의 명목 한도 평가 기준가다. 지정가는 `price`로 명목을 재지만 시장가는 `price`가 0이라 이 값이 없으면 명목 백스톱이 우회된다(특히 급락장 강제청산의 시장가 전량매도). 발주 측이 직전 현재가/평단을 stamp한다.

@@ -4,6 +4,7 @@
 #pragma once
 
 #include <functional>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -43,6 +44,9 @@ struct LoadPass : StrategyLoadCtx
     //  바스켓 로더가 먼저 돌아 채운다 [why D-109].
     std::vector<bool> basket_owned;
 
+    // VWAPPB가 재기동 때 다시 맡은 종목 → 장부 순수량(VWAPPB_ 매수 − 매도). 예약 단계가 채우고 등록 단계가 읽는다.
+    std::map<std::string, long long> vwap_pullback_owned;
+
     // 전 슬리브의 진입 우선순위 점수표. 재스캔 람다(데이터 스레드)가 들고 가 로드가 끝난 뒤에도 쓴다.
     std::shared_ptr<EntryPriorityMerger> priority_merger;
 };
@@ -68,6 +72,19 @@ std::shared_ptr<EntryPriorityMerger> make_entry_priority_merger();
 
 // DEVIATION_SCALE 항목 하나를 읽어 등록한다(DevScaleLoader.cpp).
 void load_deviation_scale(LoadPass& context, const nlohmann::json& node);
+
+// VWAP_PULLBACK 예약 단계(VwapPullbackLoader.cpp) — 다른 로더보다 먼저 돈다. 오늘 장부의 VWAPPB_ 순수량이 있을 때만
+//  잔고를 조회해 재인수할 종목을 basket_owned·scan_covered에 올린다(DEVSCALE 유니버스·청산 관리 부착에서 빠진다).
+void reserve_vwap_pullback_holdings(LoadPass& context, const nlohmann::json& node);
+
+// 재인수 판정만 — 장부 순수량과 잔고 수량으로 Full이면 표시하고 vwap_pullback_owned에 적는다. Partial은 표시하지 않아
+//  청산 관리(ITB)가 맡는다. 잔고 조회 없이 시험하려고 뗐다.
+void apply_vwap_pullback_holdings(LoadPass& context, const std::map<std::string, long long>& net_quantity,
+                                  const std::map<std::string, int>& held_quantity);
+
+// VWAP_PULLBACK 등록 단계 — 다른 로더 뒤에 돈다. 재스캔 작업 순서상 DEVSCALE이 먼저 종목을 가져가고, VWAPPB는 남은
+//  종목에만 붙는다(그림자 모드가 운영 슬리브의 자리를 뺏지 않는다).
+void load_vwap_pullback(LoadPass& context, const nlohmann::json& node);
 
 // 키가 있으면 field에 읽고, 없으면 field의 현재 값(구조체 멤버 기본값)을 그대로 둔다.
 //  기본값을 로더와 구조체 두 곳에 적지 않으려고 쓴다.
