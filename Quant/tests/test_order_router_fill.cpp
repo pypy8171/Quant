@@ -2,6 +2,9 @@
 //  공용 준비는 test_order_router_support.h, 실행 순서는 test_order_router.cpp의 main.
 #include "test_order_router_support.h"
 
+#include <chrono>
+#include <ctime>
+
 // ─── 테스트 7: 과체결 방어는 주문잔량 상한이 담당 ────────────────────────
 //   (kis_order_no,체결시각,수량,단가)는 유일하지 않다 — 같은 초에 같은 수량·단가로 나뉘어
 //   체결되면 서로 다른 실체결이 같은 키를 갖는다. 그래서 같은 키의 통보도 각각 반영하고,
@@ -135,16 +138,17 @@ void test_unmapped_fill_duplicate_ignored()
     router.on_fill(fill_notification);
     assert(gate.ledger().position("047050") == 100);
 
-    // 평단 미상 미연결 SELL — 실현이익을 만들지 않는다(C-1)
+    // 평단 미상 미연결 SELL — 실현이익을 만들지 않는다
     FillNotification unlinked_sell_fill;
     unlinked_sell_fill.kis_order_no = "0000009002"; unlinked_sell_fill.ticker = "316140"; unlinked_sell_fill.side = OrderSide::SELL;
     unlinked_sell_fill.filled_quantity = 75; unlinked_sell_fill.filled_price = 34050.0; unlinked_sell_fill.fill_time = "093000";
     router.on_fill(unlinked_sell_fill);
 
     // 위 BUY 100주(91+9, 평단 54700)의 매수 수수료가 발생 즉시 차감돼 있다.
-    //  SELL(316140)은 평단 미상이라 0을 더할 뿐 — 실현이익은 안 생긴다(C-1).
-    const double buy_commission = 100 * 54700.0 * 0.00015;
-    assert(std::abs(gate.ledger().daily_pnl() - (-buy_commission)) < 0.01); // 분할 누적 부동소수 오차 허용
+    //  SELL(316140)은 평단 미상이라 0을 더할 뿐 — 실현이익은 안 생긴다.
+    //  수수료는 체결 한 건마다 원 단위로 반올림한다 — 91주 746.655 → 747원, 9주 73.845 → 74원, 합 821원(옛 double 셈 820.5원).
+    const money::Won buy_commission = money::apply_rate(91 * 54700, 15, 100000) + money::apply_rate(9 * 54700, 15, 100000);
+    assert(gate.ledger().daily_pnl() == -buy_commission);
     PASS("unmapped_fill_duplicate_ignored");
 }
 

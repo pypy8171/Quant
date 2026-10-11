@@ -1,7 +1,13 @@
 #include "strategy/DevScaleRules.h"
 
 #include <charconv>
+#include <cmath>
+#include <cstdlib>
+#include <map>
+#include <string>
+#include <string_view>
 #include <system_error>
+#include <vector>
 
 namespace devscale_rules
 {

@@ -15,6 +15,8 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
 #include <cstdlib>
 #include <iostream>
 #include <limits>
@@ -317,16 +319,16 @@ void test_two_threads()
     check(prefilled, "큐를 칸 수만큼 채운다");
     check(!sender.push_trade(0, trade_of(7, kTradeCapacity + 1)), "꽉 찬 큐는 더 받지 않는다(그 건은 버려진다)");
 
-    std::atomic<int64_t> dropped{0};
+    std::atomic<int64_t> retries{0};
 
-    std::thread producer([&sender, &dropped] {
+    std::thread producer([&sender, &retries] {
         // 미리 채운 칸 뒤부터 — 버려진 건은 큐에 안 들어갔으니 순번은 이어진다.
         for (int64_t quantity = static_cast<int64_t>(kTradeCapacity) + 1; quantity <= kTotal; ++quantity)
         {
             // 큐가 차면 버리는 것이 이 통로의 규칙이지만, 건수를 맞춰 보려고 여기서는 빌 때까지 다시 낸다.
             while (!sender.push_trade(0, trade_of(7, quantity)))
             {
-                dropped.fetch_add(1, std::memory_order_relaxed);
+                retries.fetch_add(1, std::memory_order_relaxed);
                 std::this_thread::yield();
             }
         }
@@ -367,7 +369,7 @@ void test_two_threads()
 
     // 가득 찬 큐를 지나왔다는 것은 위에서 손으로 확인했다. 여기서는 그 뒤 얼마나 더 막혔는지만 남긴다 —
     //  수 자체는 기계 사정에 따라 0일 수 있어 판정에 쓰지 않는다.
-    std::cout << "[INFO] 보내는 쪽이 큐가 차서 다시 낸 횟수: " << dropped.load() << "\n";
+    std::cout << "[INFO] 보내는 쪽이 큐가 차서 다시 낸 횟수: " << retries.load() << "\n";
 }
 
 } // namespace

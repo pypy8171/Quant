@@ -13,6 +13,8 @@ namespace
 // 장 시간 필터를 끄는 창 — 시드·닫기 판정은 하루 전체를 본다.
 constexpr int kWholeDayOpenHhmm  = 0;
 constexpr int kWholeDayCloseHhmm = 2359;
+constexpr int kSecondsPerHour    = 3600;
+constexpr int kSecondsPerMinute  = 60;
 
 int64_t day_key(const struct tm& time_parts)
 {
@@ -55,8 +57,8 @@ BarSlot slot_of(int32_t hhmmss, std::time_t recv_utc, int interval_min, int open
 std::chrono::system_clock::time_point slot_start(const BarSlot& slot, std::time_t recv_utc, int interval_min)
 {
     const struct tm   local_time          = kst::to_tm(recv_utc);
-    const std::time_t day_start  = recv_utc - (local_time.tm_hour * 3600 + local_time.tm_min * 60 + local_time.tm_sec);
-    const std::time_t bar_start  = day_start + static_cast<std::time_t>(slot.bucket) * interval_min * 60;
+    const std::time_t day_start  = recv_utc - (local_time.tm_hour * kSecondsPerHour + local_time.tm_min * kSecondsPerMinute + local_time.tm_sec);
+    const std::time_t bar_start  = day_start + static_cast<std::time_t>(slot.bucket) * interval_min * kSecondsPerMinute;
     return std::chrono::system_clock::from_time_t(bar_start);
 }
 

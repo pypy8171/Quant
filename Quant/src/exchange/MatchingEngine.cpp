@@ -5,7 +5,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
+#include <memory>
+#include <vector>
 
 namespace exchange
 {
@@ -293,7 +296,7 @@ PriceKrw SymbolBook::find_auction_price() const
     return best_price;
 }
 
-int64_t SymbolBook::run_auction(const std::function<void(const Execution&)>& on_execution)
+int64_t SymbolBook::run_auction(ExecutionSink on_execution)
 {
     const PriceKrw auction_price = find_auction_price();
 
@@ -472,7 +475,7 @@ void SymbolBook::recount_resting()
 
 int64_t SymbolBook::take_from_level(PriceLevel& level, int32_t wanted_quantity, uint64_t counterparty_order_id,
                                     OrderSide resting_side, PriceKrw execution_price,
-                                    const std::function<void(const Execution&)>& on_execution)
+                                    ExecutionSink on_execution)
 {
     int64_t taken = 0;
 
@@ -515,7 +518,7 @@ int64_t SymbolBook::take_from_level(PriceLevel& level, int32_t wanted_quantity, 
     return taken;
 }
 
-int64_t SymbolBook::match(const IncomingOrder& order, const std::function<void(const Execution&)>& on_execution)
+int64_t SymbolBook::match(const IncomingOrder& order, ExecutionSink on_execution)
 {
     if (!ready() || order.quantity <= 0)
     {
@@ -723,6 +726,11 @@ bool MatchingEngine::accumulate(const IncomingOrder& order)
 
 int64_t MatchingEngine::run_auction(symbol::SymbolId symbol_id)
 {
+    return on_execution_ ? run_auction(symbol_id, on_execution_) : run_auction(symbol_id, nullptr);
+}
+
+int64_t MatchingEngine::run_auction(symbol::SymbolId symbol_id, ExecutionSink on_execution)
+{
     SymbolBook* book = book_of(symbol_id);
 
     if (book == nullptr)
@@ -735,14 +743,14 @@ int64_t MatchingEngine::run_auction(symbol::SymbolId symbol_id)
     {
         ++execution_count_;
 
-        if (!on_execution_)
+        if (!on_execution)
         {
             return;
         }
 
         Execution stamped = execution;
         stamped.symbol_id = symbol_id;
-        on_execution_(stamped);
+        on_execution(stamped);
     };
 
     const int64_t matched = book->run_auction(stamp_symbol);
@@ -755,7 +763,7 @@ int64_t MatchingEngine::run_auction_all()
 {
     int64_t total = 0;
 
-    for (symbol::SymbolId symbol_id = 1; symbol_id < books_.size(); ++symbol_id)
+    for (symbol::SymbolId symbol_id = symbol::kNone + 1; symbol_id < books_.size(); ++symbol_id) // 0은 미배정 id
     {
         if (books_[symbol_id].ready())
         {
@@ -767,6 +775,11 @@ int64_t MatchingEngine::run_auction_all()
 }
 
 int64_t MatchingEngine::match(const IncomingOrder& order)
+{
+    return on_execution_ ? match(order, on_execution_) : match(order, nullptr);
+}
+
+int64_t MatchingEngine::match(const IncomingOrder& order, ExecutionSink on_execution)
 {
     SymbolBook* book = book_of(order.symbol_id);
 
@@ -781,14 +794,14 @@ int64_t MatchingEngine::match(const IncomingOrder& order)
     {
         ++execution_count_;
 
-        if (!on_execution_)
+        if (!on_execution)
         {
             return;
         }
 
         Execution stamped = execution;
         stamped.symbol_id = order.symbol_id;
-        on_execution_(stamped);
+        on_execution(stamped);
     };
 
     const int64_t matched = book->match(order, stamp_symbol);

@@ -5,6 +5,10 @@
 #include "utils/Logger.h"
 #include <algorithm>
 #include <format>
+#include <optional>
+#include <string>
+#include <utility>
+#include <vector>
 
 std::optional<bool> SurgeHoldStrategy::regime_allows_buy() const
 {
@@ -17,16 +21,16 @@ std::optional<bool> SurgeHoldStrategy::regime_allows_buy() const
     return is_active();
 }
 
-bool SurgeHoldStrategy::bought_same_signal(const std::string& ticker, const std::string& d0) const
+bool SurgeHoldStrategy::bought_same_signal(const std::string& ticker, const std::string& surge_date) const
 {
-    if (d0.empty())
+    if (surge_date.empty())
     {
         return false;
     }
 
     for (const auto& position : positions_)
     {
-        if (position.ticker == ticker && position.d0 == d0)
+        if (position.ticker == ticker && position.surge_date == surge_date)
         {
             return true;
         }
@@ -35,10 +39,10 @@ bool SurgeHoldStrategy::bought_same_signal(const std::string& ticker, const std:
     for (const auto& record : closed_)
     {
         const auto record_ticker = record.find("ticker");
-        const auto record_d0     = record.find("d0");
+        const auto record_surge_date     = record.find("d0");
 
-        if (record_ticker != record.end() && record_d0 != record.end() && record_ticker->is_string() && record_d0->is_string() &&
-            record_ticker->get_ref<const std::string&>() == ticker && record_d0->get_ref<const std::string&>() == d0)
+        if (record_ticker != record.end() && record_surge_date != record.end() && record_ticker->is_string() && record_surge_date->is_string() &&
+            record_ticker->get_ref<const std::string&>() == ticker && record_surge_date->get_ref<const std::string&>() == surge_date)
         {
             return true;
         }
@@ -176,7 +180,7 @@ bool SurgeHoldStrategy::buy_row(const surge::PlanRow& row, bool allowed, std::ve
     check.entry_halted     = entry_halted();
     check.excluded         = std::find(parameters_.excluded_tickers.begin(), parameters_.excluded_tickers.end(), row.ticker) !=
                              parameters_.excluded_tickers.end();
-    check.same_signal      = bought_same_signal(row.ticker, row.d0);
+    check.same_signal      = bought_same_signal(row.ticker, row.surge_date);
     check.account_position = confirmed_position(parameters_.account, row.ticker);
     check.account_reserved = ledger ? ledger->reserved : 0;
     check.open_positions   = open_positions;
@@ -190,7 +194,7 @@ bool SurgeHoldStrategy::buy_row(const surge::PlanRow& row, bool allowed, std::ve
     if (skip != surge::Skip::None)
     {
         LOG_INFO(std::format("[{}] 매수 건너뜀 {} — {} (신호일 {} 급등일 {})", id_, row.ticker, surge::skip_text(skip), row.signal_date,
-                             row.d0));
+                             row.surge_date));
         return true;
     }
 
@@ -211,7 +215,7 @@ bool SurgeHoldStrategy::buy_row(const surge::PlanRow& row, bool allowed, std::ve
     // 상태 파일에 먼저 적고 낸다 — 내고 죽으면 재기동이 같은 매수를 다시 내지 않는다.
     Position position;
     position.ticker         = row.ticker;
-    position.d0             = row.d0;
+    position.surge_date             = row.surge_date;
     position.entry_date     = day_;
     position.ordered        = check.quantity;
     position.stop_basis_low = row.stop_basis_low;

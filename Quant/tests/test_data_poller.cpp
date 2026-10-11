@@ -10,11 +10,15 @@
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
+#include <ctime>
 #include <functional>
 #include <iostream>
 #include <map>
 #include <mutex>
+#include <optional>
+#include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace
@@ -33,7 +37,7 @@ int g_checks = 0;
     } while (0)
 
 // 2027-01-15 08:00:00 UTC = KST 17:00:00.
-constexpr std::time_t kT0 = 1800000000;
+constexpr std::time_t kStartTime = 1800000000;
 
 WatchSpec specification(const char* ticker, Market market = Market::KR)
 {
@@ -45,10 +49,10 @@ WatchSpec specification(const char* ticker, Market market = Market::KR)
 
 int test_kst()
 {
-    CHECK(kst::date_yyyymmdd(kT0) == "20270115");
-    CHECK(kst::hhmmss(kT0) == "170000");
-    CHECK(kst::hhmmss(kT0 + 7 * 3600 + 61) == "000101"); // UTC 15:01:01 = KST 다음날 00:01:01
-    CHECK(kst::date_yyyymmdd(kT0 + 7 * 3600 + 61) == "20270116");
+    CHECK(kst::date_yyyymmdd(kStartTime) == "20270115");
+    CHECK(kst::hhmmss(kStartTime) == "170000");
+    CHECK(kst::hhmmss(kStartTime + 7 * 3600 + 61) == "000101"); // UTC 15:01:01 = KST 다음날 00:01:01
+    CHECK(kst::date_yyyymmdd(kStartTime + 7 * 3600 + 61) == "20270116");
     return 0;
 }
 
@@ -103,7 +107,7 @@ int test_universe()
     data_poller.set_universe_call_interval(std::chrono::milliseconds(0));
 
     // US spec은 건너뛰고, 현재가 0은 틱을 안 흘린다. 시각은 KST HHMMSS.
-    const int count = data_poller.poll_universe({specification("A"), specification("US1", Market::US), specification("B"), specification("C")}, kT0);
+    const int count = data_poller.poll_universe({specification("A"), specification("US1", Market::US), specification("B"), specification("C")}, kStartTime);
     CHECK(count == 2 && asked.size() == 3 && out.size() == 2);
     CHECK(out[0].ticker == "A" && out[0].price == 100.0 && out[0].hhmmss == 170000);
     CHECK(out[1].ticker == "C" && out[1].price == 300.0);
@@ -115,7 +119,7 @@ int test_universe()
     {
         return false;
     });
-    CHECK(data_poller.poll_universe({specification("A")}, kT0) == 0 && asked.empty());
+    CHECK(data_poller.poll_universe({specification("A")}, kStartTime) == 0 && asked.empty());
     return 0;
 }
 
@@ -145,14 +149,14 @@ int test_overflow()
     CHECK(data_poller.overflow_count() == 1 && data_poller.add_overflow(specification("A")));
 
     // WS에서 온 넘침도 합친다(중복은 무시). 재구독 전부 실패 → KR 현물만 REST, B는 0이라 틱 없음.
-    int resub_calls = 0;
+    int resubscribe_calls = 0;
     const auto never = [&](const WatchSpec&)
     {
-        ++resub_calls;
+        ++resubscribe_calls;
         return false;
     };
-    int count = data_poller.poll_overflow({specification("A"), specification("B")}, never, kT0); // A·C는 100, B는 0
-    CHECK(data_poller.overflow_count() == 3 && resub_calls == 3);
+    int count = data_poller.poll_overflow({specification("A"), specification("B")}, never, kStartTime); // A·C는 100, B는 0
+    CHECK(data_poller.overflow_count() == 3 && resubscribe_calls == 3);
     CHECK(count == 2 && out.size() == 2 && out[0].ticker == "C" && out[0].hhmmss == 170000 && out[1].ticker == "A");
     CHECK(asked.size() == 3); // C·A·B
 
@@ -163,7 +167,7 @@ int test_overflow()
     count = data_poller.poll_overflow({}, [](const WatchSpec& specification)
     {
         return specification.ticker == "A";
-    }, kT0);
+    }, kStartTime);
     CHECK(data_poller.overflow_count() == 2 && count == 2);
     CHECK(out.size() == 2 && out[0].ticker == "C" && out[0].price == 100.0 && out[1].ticker == "B" &&
           out[1].price == 50.0);
@@ -174,7 +178,7 @@ int test_overflow()
     {
         return 1.0;
     }, [](const TradeData&) {});
-    CHECK(empty.poll_overflow({}, never, kT0) == 0);
+    CHECK(empty.poll_overflow({}, never, kStartTime) == 0);
     return 0;
 }
 
@@ -225,7 +229,7 @@ int test_batch()
     }
 
     universe.insert(universe.begin() + 5, specification("US1", Market::US));
-    int count = data_poller.poll_universe(universe, kT0);
+    int count = data_poller.poll_universe(universe, kStartTime);
     CHECK(batches.size() == 3 && batches[0].size() == 30 && batches[1].size() == 30 && batches[2].size() == 5);
     CHECK(batches[0].front() == "T0" && batches[1].front() == "T30" && batches[2].back() == "T64" && single.empty());
     CHECK(count == 64 && out.size() == 64); // T10은 0이라 틱 없음
@@ -236,7 +240,7 @@ int test_batch()
     batches.clear();
     out.clear();
     fail_second = true;
-    count = data_poller.poll_universe(universe, kT0);
+    count = data_poller.poll_universe(universe, kStartTime);
     CHECK(batches.size() == 3 && single.size() == 30 && single.front() == "T30" && single.back() == "T59");
     CHECK(count == 64 && out.size() == 64 && out[29].ticker == "T30" && out[29].price == 7.0);
     CHECK(out[28].ticker == "T29" && out[28].price == 129.0 && out[59].ticker == "T60" && out[59].price == 160.0);
@@ -251,7 +255,7 @@ int test_batch()
     count = data_poller.poll_overflow({}, [](const WatchSpec& specification)
     {
         return specification.ticker == "T2";
-    }, kT0);
+    }, kStartTime);
     CHECK(batches.size() == 1 && batches[0].size() == 2 && batches[0][0] == "T1" && batches[0][1] == "T10");
     CHECK(count == 1 && out.size() == 1 && out[0].ticker == "T1" && data_poller.overflow_count() == 2 && single.empty());
 
@@ -261,7 +265,7 @@ int test_batch()
     {
         return false;
     });
-    CHECK(data_poller.poll_universe(universe, kT0) == 0 && batches.empty());
+    CHECK(data_poller.poll_universe(universe, kStartTime) == 0 && batches.empty());
     return 0;
 }
 

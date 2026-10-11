@@ -1,5 +1,12 @@
 #include "strategy/MarketMakingStrategy.h"
 
+#include <chrono>
+#include <cmath>
+#include <cstdint>
+#include <string>
+#include <utility>
+#include <vector>
+
 std::string MarketMakingStrategy::describe() const
 {
     return "MarketMaking | " + ticker_ + " | qty=" + std::to_string(quantity_) +

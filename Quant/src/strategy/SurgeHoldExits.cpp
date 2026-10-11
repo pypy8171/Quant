@@ -4,7 +4,11 @@
 #include "core/KstTime.h"
 #include "utils/Logger.h"
 #include <algorithm>
+#include <ctime>
 #include <format>
+#include <string>
+#include <utility>
+#include <vector>
 
 // 매도를 낸다. 저장은 on_clock이 한다(체결 틱 경로에서 파일을 쓰지 않는다). 팔 수량이 없으면 false.
 bool SurgeHoldStrategy::emit_sell(Position& position, const std::string& reason, std::vector<OrderSignal>& out)
@@ -161,20 +165,26 @@ void SurgeHoldStrategy::on_trade_batch(const TradeData& trade, std::vector<Order
         return;
     }
 
+    // 창 밖이고 이미 다음 창으로 넘긴 판정이면 사유를 만들지 않고 돌아간다. 장 마감 뒤 NXT 체결과 장 전 체결이
+    //  올 때마다 문자열을 만들었다가 버리던 자리다.
+    const bool window_open = in_exit_window();
+
+    if (!window_open && !position.exit_due.empty())
+    {
+        return;
+    }
+
     std::string reason = exit == surge::Exit::Stop ? std::format("손절 체결가 {:.0f} ≤ {:.0f}", trade.price, position.stop)
                                                    : std::format("익절 체결가 {:.0f} ≥ {:.0f}", trade.price, position.take);
 
-    if (in_exit_window())
+    if (window_open)
     {
         emit_sell(position, reason, out);
         return;
     }
 
-    // 장 마감 뒤 NXT 체결이나 장 시작 전 — 주문은 내지 않고 다음 창으로 넘긴다.
-    if (position.exit_due.empty())
-    {
-        LOG_INFO(std::format("[{}] {} {} — 매도 창 밖이라 다음 창에서 판다", id_, position.ticker, reason));
-        position.exit_due = std::move(reason);
-        dirty_            = true;
-    }
+    // 장 마감 뒤 NXT 체결이나 장 시작 전 — 주문은 내지 않고 다음 창으로 넘긴다(exit_due가 비어 있을 때만 여기 온다).
+    LOG_INFO(std::format("[{}] {} {} — 매도 창 밖이라 다음 창에서 판다", id_, position.ticker, reason));
+    position.exit_due = std::move(reason);
+    dirty_            = true;
 }

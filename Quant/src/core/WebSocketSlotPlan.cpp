@@ -2,7 +2,6 @@
 #include "core/WebSocketSlotPlan.h"
 
 #include <algorithm>
-#include <numeric>
 
 namespace websocket_slot
 {

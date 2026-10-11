@@ -2,6 +2,8 @@
 //  공용 준비는 test_order_gate_support.h, 실행 순서는 test_order_gate.cpp의 main.
 #include "test_order_gate_support.h"
 
+#include <string>
+
 // ─── 교체 진입 ───────────────────────────────────────────────────────────
 //  슬롯이 꽉 찬 뒤에도 더 높은 점수가 오면 최약체를 비운다. 비우지 못하는 조건들(격차 부족,
 //  최소 보유 미달, 점수 미상)이 실제로 막는지도 같이 본다.

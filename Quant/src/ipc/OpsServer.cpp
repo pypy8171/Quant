@@ -5,7 +5,6 @@
 #include "utils/ThreadName.h"
 
 #include <chrono>
-#include <cstring>
 #include <optional>
 #include <nlohmann/json.hpp>
 
@@ -42,6 +41,9 @@ namespace
 
 // select 실패나 한 바퀴 예외 뒤에 쉬는 시간 — 같은 실패가 곧바로 되풀이되며 로그를 채우지 않게 한다.
 constexpr std::chrono::milliseconds kLoopFailurePause{200};
+
+// TCP 포트의 최댓값.
+constexpr int kPortMax = 65535;
 
 bool is_loopback(const std::string& address)
 {
@@ -98,7 +100,7 @@ void OpsServer::set_bind(const std::string& address, int port)
         bind_address_ = address;
     }
 
-    if (port > 0 && port < 65536)
+    if (port > 0 && port <= kPortMax)
     {
         port_ = port;
     }

@@ -12,6 +12,8 @@
 // 케이스 본문은 주제별 test_engine_<주제>.cpp, 공용 피드·전략·CHECK는 test_engine_support.h/.cpp에 있다.
 #include "test_engine_support.h"
 
+#include <iostream>
+
 using namespace engine_test;
 
 int main()

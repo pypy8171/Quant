@@ -1,5 +1,5 @@
 // 주문 쪽 — 주문 실행 스레드, 보호 주문 표 한 주기, 전략 생존 추적.
-//  Engine.cpp 가 3,200줄을 넘겨 열기 어려워 이 갈래만 따로 낸 것이다
+//  Engine.cpp 가 길어 열기 어려워 이 갈래만 따로 낸 것이다
 //  같은 Engine 의 멤버 함수 본체다. 스레드 한 바퀴는 단계 함수로 나눴고, 그 선언은 Engine.h 의 private 절에 있다.
 //
 //  ── 부르는 자리 ──────────────────────────────────────────────────────────
@@ -20,6 +20,7 @@
 #include <deque>
 #include <exception>
 #include <optional>
+#include <string_view>
 #include <thread>
 #include <variant>
 #include <nlohmann/json.hpp>

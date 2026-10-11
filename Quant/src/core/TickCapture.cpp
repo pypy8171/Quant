@@ -1,6 +1,10 @@
 #include "core/TickCapture.h"
 #include "utils/ThreadName.h"
 
+#include <array>
+#include <cstring>
+#include <string_view>
+
 namespace feed
 {
 std::FILE* open_capture_file(const std::filesystem::path& file, const char* mode)

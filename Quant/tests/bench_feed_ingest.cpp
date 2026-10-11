@@ -32,16 +32,23 @@
 
 #include "bench_feed_ingest_support.h"
 
+#include <atomic>
+#include <cstdint>
+#include <cstdio>
+#include <string>
+#include <thread>
+#include <vector>
+
 static void print_banner(const char* mode, const std::vector<std::string>& tickers,
-                         const std::string& uni_path, double order_book_ratio, double zipf_s)
+                         const std::string& universe_path, double order_book_ratio, double zipf_skew)
 {
     std::printf("=== Feed Ingest Bench (TCP loopback) — mode=%s ===\n", mode);
     std::printf("build           : %s\n", build_type());
-    std::printf("wire frame       : %zu bytes/msg\n", kRec);
+    std::printf("wire frame       : %zu bytes/msg\n", kRecordBytes);
     std::printf("tickers         : %zu  (source: %s)\n", tickers.size(),
-                uni_path.empty() ? "synthetic" : uni_path.c_str());
+                universe_path.empty() ? "synthetic" : universe_path.c_str());
     std::printf("ob:td ratio     : %.2f : %.2f\n", order_book_ratio, 1.0 - order_book_ratio);
-    std::printf("zipf s          : %.2f  (0=uniform, 1=대형주 편중)\n", zipf_s);
+    std::printf("zipf s          : %.2f  (0=uniform, 1=대형주 편중)\n", zipf_skew);
     std::printf("transport       : TCP loopback, TCP_NODELAY on (Nagle off)\n");
     std::printf("NOTE: 커널 TCP 스택(send→recv)·직렬화·프레이밍은 실제 통과. 물리 회선 지연은\n");
     std::printf("      이 머신에 없음(loopback). 실 코스콤 데이터는 KIS WS 소량 병행 실증(별도).\n\n");
@@ -84,19 +91,19 @@ int main(int argc, char** argv)
     socket_startup();
 
     std::string mode = (argc > 1) ? argv[1] : "self";
-    const std::string uni_path = argument_string(argc, argv, "--universe", "");
-    const int fallback_n = static_cast<int>(argument_int64(argc, argv, "--tickers", 2600));
-    const double zipf_s = argument_double(argc, argv, "--zipf", 1.0);
+    const std::string universe_path = argument_string(argc, argv, "--universe", "");
+    const int fallback_count = static_cast<int>(argument_int64(argc, argv, "--tickers", 2600));
+    const double zipf_skew = argument_double(argc, argv, "--zipf", 1.0);
     const double order_book_ratio = argument_double(argc, argv, "--ob-ratio", 0.7);
     const uint16_t port = static_cast<uint16_t>(argument_int64(argc, argv, "--port", 47001));
 
-    std::vector<std::string> tickers = load_universe(uni_path, fallback_n);
-    ZipfPicker zipf(tickers.size(), zipf_s);
+    std::vector<std::string> tickers = load_universe(universe_path, fallback_count);
+    ZipfPicker zipf(tickers.size(), zipf_skew);
 
-    const size_t OB_CAP = 1u << 16;
-    const size_t TD_CAP = 1u << 16;
-    const size_t ORDER_CAP = 1u << 12;
-    const size_t LAT_CAP = 1u << 23;
+    constexpr size_t kOrderBookCapacity = 1u << 16;
+    constexpr size_t kTradeCapacity = 1u << 16;
+    constexpr size_t kOrderCapacity = 1u << 12;
+    constexpr size_t kLatencyCapacity = 1u << 23;
 
     int result_code = 0;
 
@@ -104,12 +111,12 @@ int main(int argc, char** argv)
     {
         const int64_t rate = argument_int64(argc, argv, "--rate", 200000);
         const int duration = static_cast<int>(argument_int64(argc, argv, "--duration", 20));
-        print_banner("self", tickers, uni_path, order_book_ratio, zipf_s);
+        print_banner("self", tickers, universe_path, order_book_ratio, zipf_skew);
         std::printf("offered rate     : %lld msg/sec\n", static_cast<long long>(rate));
         std::printf("duration         : %d sec\n", duration);
         std::printf("port             : %u\n\n", port);
         RunResult result = run_self(tickers, zipf, port, rate, order_book_ratio, duration,
-                               OB_CAP, TD_CAP, ORDER_CAP, LAT_CAP);
+                               kOrderBookCapacity, kTradeCapacity, kOrderCapacity, kLatencyCapacity);
         print_run(result, rate);
         result_code = result.lossless ? 0 : 1;
     }
@@ -117,20 +124,20 @@ int main(int argc, char** argv)
     {
         const int64_t start = argument_int64(argc, argv, "--start", 100000);
         const int64_t step = argument_int64(argc, argv, "--step", 200000);
-        const int64_t max_records = argument_int64(argc, argv, "--max", 3'000'000);
+        const int64_t max_rate_per_sec = argument_int64(argc, argv, "--max", 3'000'000);
         const int dwell = static_cast<int>(argument_int64(argc, argv, "--dwell", 3));
-        print_banner("sweep", tickers, uni_path, order_book_ratio, zipf_s);
+        print_banner("sweep", tickers, universe_path, order_book_ratio, zipf_skew);
         std::printf("sweep: offered %lld → %lld step %lld, dwell %ds/step (port %u)\n\n",
-                    static_cast<long long>(start), static_cast<long long>(max_records), static_cast<long long>(step), dwell, port);
+                    static_cast<long long>(start), static_cast<long long>(max_rate_per_sec), static_cast<long long>(step), dwell, port);
         std::printf("%-12s %-11s %-10s %-10s %-10s %-8s %-9s\n",
                     "offered/s", "achieved/s", "e2e_p50", "e2e_p99", "e2e_p999", "drops", "lossless");
         std::printf("%s\n", std::string(76, '-').c_str());
         int64_t ceiling = 0;
 
-        for (int64_t rate = start; rate <= max_records; rate += step)
+        for (int64_t rate = start; rate <= max_rate_per_sec; rate += step)
         {
             RunResult result = run_self(tickers, zipf, port, rate, order_book_ratio, dwell,
-                                   OB_CAP, TD_CAP, ORDER_CAP, LAT_CAP);
+                                   kOrderBookCapacity, kTradeCapacity, kOrderCapacity, kLatencyCapacity);
             std::printf("%-12lld %-11.0f %-10s %-10s %-10s %-8llu %-9s\n",
                         static_cast<long long>(rate), result.recv_rate, format_ns(result.e2e.p50).c_str(),
                         format_ns(result.e2e.p99).c_str(), format_ns(result.e2e.p999).c_str(),
@@ -155,7 +162,7 @@ int main(int argc, char** argv)
     else if (mode == "serve")
     {
         // 수신 서버만: 다른 콘솔의 send를 기다렸다가 연결 종료 시 통계 출력.
-        print_banner("serve", tickers, uni_path, order_book_ratio, zipf_s);
+        print_banner("serve", tickers, universe_path, order_book_ratio, zipf_skew);
         socket_t listen_socket = make_listener(port);
 
         if (listen_socket == kBadSock)
@@ -178,15 +185,15 @@ int main(int argc, char** argv)
 
         std::printf("[serve] 연결 수립. 수신·처리 시작.\n\n");
 
-        Stats stop_token;
+        Stats statistics;
         std::atomic<bool> stop{false};
         std::atomic<bool> measuring{true};
-        RingBuffer<MockOrderBook>   order_book_queue(OB_CAP);
-        RingBuffer<MockTradeData>   trade_queue(TD_CAP);
-        RingBuffer<MockOrderSignal> order_queue(ORDER_CAP);
+        RingBuffer<MockOrderBook>   order_book_queue(kOrderBookCapacity);
+        RingBuffer<MockTradeData>   trade_queue(kTradeCapacity);
+        RingBuffer<MockOrderSignal> order_queue(kOrderCapacity);
         std::thread receive_thread, strategy_thread, order_thread;
         const int64_t start_time = now_ns();
-        run_receiver_pipeline(connection, stop_token, stop, measuring, LAT_CAP, OB_CAP, TD_CAP, ORDER_CAP,
+        run_receiver_pipeline(connection, statistics, stop, measuring, kLatencyCapacity, kOrderBookCapacity, kTradeCapacity, kOrderCapacity,
                               receive_thread, strategy_thread, order_thread, order_book_queue, trade_queue, order_queue);
 
         if (receive_thread.joinable())
@@ -212,18 +219,18 @@ int main(int argc, char** argv)
 
         RunResult result;
         result.elapsed_sec = (now_ns() - start_time) / 1e9;
-        result.net = percentiles(stop_token.net_ns);
-        result.proc = percentiles(stop_token.proc_ns);
-        result.e2e = percentiles(stop_token.e2e_ns);
-        result.wire_recv = stop_token.wire_recv.load();
-        result.bytes_recv = stop_token.bytes_recv.load();
-        result.signals = stop_token.signals.load();
-        result.orders = stop_token.orders.load();
-        result.drops = stop_token.order_book_drops.load() + stop_token.trade_drops.load() + stop_token.order_drops.load();
-        result.bad_magic = stop_token.bad_magic.load();
-        result.order_book_high_water_mark = stop_token.order_book_high_water_mark.load();
-        result.trade_high_water_mark = stop_token.trade_high_water_mark.load();
-        result.order_high_water_mark = stop_token.order_high_water_mark.load();
+        result.net = percentiles(statistics.net_ns);
+        result.proc = percentiles(statistics.proc_ns);
+        result.e2e = percentiles(statistics.e2e_ns);
+        result.wire_recv = statistics.wire_recv.load();
+        result.bytes_recv = statistics.bytes_recv.load();
+        result.signals = statistics.signals.load();
+        result.orders = statistics.orders.load();
+        result.drops = statistics.order_book_drops.load() + statistics.trade_drops.load() + statistics.order_drops.load();
+        result.bad_magic = statistics.bad_magic.load();
+        result.order_book_high_water_mark = statistics.order_book_high_water_mark.load();
+        result.trade_high_water_mark = statistics.trade_high_water_mark.load();
+        result.order_high_water_mark = statistics.order_high_water_mark.load();
         result.recv_rate = result.wire_recv / (result.elapsed_sec > 0 ? result.elapsed_sec : 1);
         result.lossless = (result.drops == 0) && (result.bad_magic == 0) && (result.signals == result.orders);
         print_run(result, 0);
@@ -234,7 +241,7 @@ int main(int argc, char** argv)
         const std::string host = argument_string(argc, argv, "--host", "127.0.0.1");
         const int64_t rate = argument_int64(argc, argv, "--rate", 200000);
         const int duration = static_cast<int>(argument_int64(argc, argv, "--duration", 20));
-        print_banner("send", tickers, uni_path, order_book_ratio, zipf_s);
+        print_banner("send", tickers, universe_path, order_book_ratio, zipf_skew);
         std::printf("[send] %s:%u 로 연결 시도...\n", host.c_str(), port);
         socket_t socket_handle = connect_to(host, port);
 
@@ -247,11 +254,11 @@ int main(int argc, char** argv)
 
         set_nodelay(socket_handle);
         std::printf("[send] 연결됨. %lld msg/s, %ds 방출.\n", static_cast<long long>(rate), duration);
-        Stats stop_token;
+        Stats statistics;
         std::atomic<bool> stop{false};
-        koscom_send_fn(socket_handle, tickers, zipf, stop_token, stop, rate, order_book_ratio,
+        koscom_send_fn(socket_handle, tickers, zipf, statistics, stop, rate, order_book_ratio,
                        static_cast<int64_t>(duration) * 1'000'000'000LL);
-        std::printf("[send] 방출 완료: %llu msg.\n", static_cast<unsigned long long>(stop_token.wire_sent.load()));
+        std::printf("[send] 방출 완료: %llu msg.\n", static_cast<unsigned long long>(statistics.wire_sent.load()));
         socket_close(socket_handle);
     }
     else

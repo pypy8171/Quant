@@ -20,7 +20,6 @@
 
 #include <chrono>
 #include <cstdlib>
-#include <cstring>
 #include <iostream>
 #include <nlohmann/json.hpp>
 #include <string>

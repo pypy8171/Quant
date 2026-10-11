@@ -6,12 +6,14 @@
 //  전략은 기저를 1분으로 두고 resample()로 3분·5분을 만든다 — 틱을 바로 N분에 넣지 않는다. [why D-072]
 #include "core/Types.h"
 
+#include <chrono>
 #include <cstdint>
 #include <ctime>
 #include <deque>
 #include <functional>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace bars

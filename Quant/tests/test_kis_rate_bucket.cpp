@@ -4,7 +4,6 @@
 // 빌드: cmake --build <directory> --target test_kis_rate_bucket
 #include "api/KisRateBucket.h"
 
-#include <cstdlib>
 #include <iostream>
 
 namespace

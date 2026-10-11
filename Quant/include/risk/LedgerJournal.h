@@ -53,7 +53,7 @@ constexpr size_t kReasonMax   = 48;
 enum class Kind : uint16_t
 {
     SEED           = 1, // 기동 시 KIS 잔고 한 종목(quantity·price=평단·sellable)
-    INTENT         = 2, // KIS 전송 직전 — 선점(reserved_)이 여기서 잡힌다
+    INTENT         = 2, // KIS 전송 직전 — 선점(PositionRow::reserved)이 여기서 잡힌다
     ACCEPT         = 3, // KIS 접수(주문번호 확보). 상태 변화 없음, INTENT를 확정
     REJECT         = 4, // KIS 거부·전송 예외 — 선점 해제
     FILL           = 5, // 체결통보 — 보유·평단·매도가능·손익 갱신, 선점 해제

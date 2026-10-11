@@ -2,7 +2,14 @@
 #include "risk/PositionLedger.h"
 #include "utils/Logger.h"
 #include <algorithm>
+#include <cstdint>
+#include <filesystem>
 #include <format>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <string_view>
+#include <vector>
 
 // ─── 저널 ────────────────────────────────────────────────────────────────────
 bool PositionLedger::set_journal(const std::filesystem::path& directory, std::string_view date_yyyymmdd, bool fsync)
@@ -90,15 +97,12 @@ void PositionLedger::journal_adjust(const PosKey& key, std::string_view reason)
 {
     ledger_journal::Record record;
     record.kind = static_cast<uint16_t>(ledger_journal::Kind::ADJUST);
-    const auto position_iterator = positions_.find(key);
-    const auto average_iterator  = average_prices_.find(key);
-    const auto sellable_iterator = sellable_.find(key);
-    const auto reserved_iterator = reserved_.find(key);
-    record.quantity          = position_iterator != positions_.end() ? position_iterator->second : 0;
-    record.price             = average_iterator != average_prices_.end() ? average_iterator->second : 0.0;
-    record.sellable          = sellable_iterator != sellable_.end() ? sellable_iterator->second : -1;
-    record.reserved_quantity = reserved_iterator != reserved_.end() ? reserved_iterator->second.net() : 0;
-    record.reserved_sell     = reserved_iterator != reserved_.end() ? static_cast<uint32_t>(reserved_iterator->second.sell) : 0;
+    const PositionRow& row   = row_locked(key);
+    record.quantity          = row.position;
+    record.price             = static_cast<double>(row.average_price);
+    record.sellable          = row.sellable;
+    record.reserved_quantity = row.reserved.net();
+    record.reserved_sell     = static_cast<uint32_t>(row.reserved.sell);
     ledger_journal::put_string(record.reason, sizeof(record.reason), reason);
     journal_append(record, keys_.account_of(key), keys_.ticker_of(key).view());
 }
@@ -193,7 +197,7 @@ void PositionLedger::apply_record(const ledger_journal::Record& record)
     case Kind::INTENT:
     {
         std::lock_guard<std::mutex> lock(positions_mutex_);
-        apply_reservation_delta(account, ticker, side, record.quantity, record.price);
+        apply_reservation_delta(keys_.make(account, ticker), side, record.quantity, money::round_won(record.price));
         break;
     }
 
@@ -225,8 +229,8 @@ void PositionLedger::apply_record(const ledger_journal::Record& record)
         break;
 
     case Kind::CASH:
-        available_cash_.store(record.cash, std::memory_order_relaxed);
-        equity_.store(record.equity, std::memory_order_relaxed);
+        available_cash_.store(money::round_won(record.cash), std::memory_order_relaxed);
+        equity_.store(money::round_won(record.equity), std::memory_order_relaxed);
         break;
 
     case Kind::DAILY_PNL:
@@ -241,44 +245,39 @@ void PositionLedger::apply_record(const ledger_journal::Record& record)
 
 void PositionLedger::apply_adjust_locked(const PosKey& key, const ledger_journal::Record& record)
 {
+    PositionRow& row = rows_[key];
+
     if (record.quantity > 0)
     {
-        positions_[key]      = record.quantity;
-        average_prices_[key] = record.price;
-        sellable_[key]       = (record.sellable >= 0 && record.sellable < record.quantity) ? record.sellable : record.quantity;
+        row.position      = record.quantity;
+        row.average_price = money::round_won(record.price);
+        row.sellable      = (record.sellable >= 0 && record.sellable < record.quantity) ? record.sellable : record.quantity;
 
-        if (!opened_at_.count(key))
+        if (!row.opened_at)
         {
-            opened_at_[key] = Clock::now() - std::chrono::hours(24);
+            row.opened_at = Clock::now() - PositionLedger::kSeededOpenAge;
         }
     }
     else
     {
-        positions_.erase(key);
-        average_prices_.erase(key);
-        sellable_.erase(key);
-        opened_at_.erase(key);
+        row.position      = 0;
+        row.average_price = 0;
+        row.sellable      = PositionRow::kUnknown;
+        row.opened_at.reset();
     }
 
     // 매도 칸이 0이면(칸이 생기기 전 파일 포함) 순값의 음수를 매도로 읽는다 — 옛 파일은 둘이 같이 걸린 경우를 모른다.
     Reservation reservation;
     reservation.sell = record.reserved_sell > 0 ? static_cast<int>(record.reserved_sell) : std::max(0, -record.reserved_quantity);
     reservation.buy  = std::max(0, record.reserved_quantity + reservation.sell);
-
-    if (!reservation.empty())
-    {
-        reserved_[key] = reservation;
-    }
-    else
-    {
-        reserved_.erase(key);
-    }
+    row.reserved     = reservation;
 
     if (reservation.buy == 0)
     {
-        reserved_price_.erase(key);
+        row.reserved_price = 0;
     }
 
-    missed_sell_seen_.erase(key);
-    missed_buy_seen_.erase(key);
+    row.missed_sell_seen = PositionRow::kUnknown;
+    row.missed_buy_seen  = PositionRow::kUnknown;
+    erase_if_empty_locked(key);
 }

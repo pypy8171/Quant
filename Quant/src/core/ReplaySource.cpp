@@ -2,6 +2,8 @@
 #include "utils/ThreadGuard.h"
 #include "utils/ThreadName.h"
 
+#include <memory>
+
 namespace feed
 {
 ReplaySource::~ReplaySource()

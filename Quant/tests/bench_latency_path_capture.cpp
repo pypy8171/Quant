@@ -2,6 +2,17 @@
 //  공용 준비는 bench_latency_path_support.h, 실행 순서는 bench_latency_path.cpp의 main.
 #include "bench_latency_path_support.h"
 
+#include <atomic>
+#include <cstdint>
+#include <cstdio>
+#include <filesystem>
+#include <memory>
+#include <string>
+#include <system_error>
+#include <thread>
+#include <utility>
+#include <vector>
+
 namespace latency_path_bench
 {
 

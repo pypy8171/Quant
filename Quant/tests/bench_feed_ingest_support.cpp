@@ -1,6 +1,11 @@
 // bench_feed_ingest 공용 준비의 몸통 — 종목 코드 읽기.
 #include "bench_feed_ingest_support.h"
 
+#include <cstdio>
+#include <fstream>
+#include <string>
+#include <vector>
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 티커 로드 (universe_full.json 코드배열 → 없으면 합성 6자리) — firehose와 동일 규약
 // ─────────────────────────────────────────────────────────────────────────────

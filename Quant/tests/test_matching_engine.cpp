@@ -3,6 +3,7 @@
 // 빌드: cmake --build <directory> --target test_matching_engine
 #include "exchange/MatchingEngine.h"
 
+#include <cstdint>
 #include <iostream>
 #include <vector>
 
@@ -256,6 +257,79 @@ int main()
         CHECK(engine.execution_count() == 2);
         CHECK(executions.size() == 1);
         CHECK(executions[0].symbol_id == kTestSymbol);
+    }
+
+    // ── 콜백을 std::function 멤버로 끼우는 길과 호출 동안만 빌려주는 길(ExecutionSink)이 같은 체결을 낸다 ────
+    //  부하시험 수신 쪽(ZmqOrderFeed)이 주문마다 콜백을 끼웠다 빼던 것을 빌려주는 길로 바꿨다. 같은 주문을 두 엔진에 넣어 대조한다.
+    {
+        const auto feed_orders = [](exchange::MatchingEngine& engine, auto&& run_auction, auto&& match)
+        {
+            engine.reserve(1);
+            engine.configure_symbol(kTestSymbol, kReferencePrice);
+            engine.accumulate(make_order(1, 10100, 100, OrderSide::BUY));
+            engine.accumulate(make_order(2, 9900, 60, OrderSide::SELL));
+            engine.accumulate(make_order(3, 9900, 40, OrderSide::SELL));
+            int64_t matched = run_auction(engine);
+            matched += match(engine, make_order(4, 10050, 30, OrderSide::SELL));
+            matched += match(engine, make_order(5, exchange::kMarketOrderPrice, 20, OrderSide::BUY));
+            return matched;
+        };
+
+        std::vector<exchange::Execution> by_member;
+        exchange::MatchingEngine         member_engine;
+        member_engine.set_execution_callback([&](const exchange::Execution& execution)
+                                             {
+                                                 by_member.push_back(execution);
+                                             });
+        const int64_t member_matched = feed_orders(
+            member_engine,
+            [](exchange::MatchingEngine& engine)
+            {
+                return engine.run_auction(kTestSymbol);
+            },
+            [](exchange::MatchingEngine& engine, const exchange::IncomingOrder& order)
+            {
+                return engine.match(order);
+            });
+
+        std::vector<exchange::Execution> by_sink;
+        exchange::MatchingEngine         sink_engine;
+        const auto                       collect = [&](const exchange::Execution& execution)
+        {
+            by_sink.push_back(execution);
+        };
+        const int64_t sink_matched = feed_orders(
+            sink_engine,
+            [&](exchange::MatchingEngine& engine)
+            {
+                return engine.run_auction(kTestSymbol, collect);
+            },
+            [&](exchange::MatchingEngine& engine, const exchange::IncomingOrder& order)
+            {
+                return engine.match(order, collect);
+            });
+
+        CHECK(member_matched == sink_matched);
+        CHECK(member_matched == 120);
+        CHECK(by_member.size() == by_sink.size());
+        CHECK(member_engine.execution_count() == sink_engine.execution_count());
+
+        for (size_t index = 0; index < by_member.size(); ++index)
+        {
+            CHECK(by_member[index].buy_order_id == by_sink[index].buy_order_id);
+            CHECK(by_member[index].sell_order_id == by_sink[index].sell_order_id);
+            CHECK(by_member[index].symbol_id == kTestSymbol && by_sink[index].symbol_id == kTestSymbol);
+            CHECK(by_member[index].price_krw == by_sink[index].price_krw);
+            CHECK(by_member[index].quantity == by_sink[index].quantity);
+        }
+
+        // 빈 참조(nullptr)를 넘기면 체결은 일어나되 콜백은 부르지 않는다.
+        exchange::MatchingEngine quiet_engine;
+        quiet_engine.reserve(1);
+        quiet_engine.configure_symbol(kTestSymbol, kReferencePrice);
+        CHECK(quiet_engine.match(make_order(6, 10050, 10, OrderSide::SELL), nullptr) == 0);
+        CHECK(quiet_engine.match(make_order(7, 10050, 10, OrderSide::BUY), nullptr) == 10);
+        CHECK(quiet_engine.execution_count() == 1);
     }
 
     std::cout << "OK test_matching_engine  checks=" << g_checks << "\n";

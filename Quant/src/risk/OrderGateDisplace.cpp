@@ -1,7 +1,13 @@
 // 주문 게이트 — 교체 진입(자리·여력 판정, 최약체 고르기)과 진입 우선순위 표 조회. [why D-112]
 #include "risk/OrderGate.h"
 
+#include <algorithm>
+#include <chrono>
 #include <format>
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
 
 // ─── 교체 진입 ──────────────────────────────────────────────────────────────
 //  슬롯이 꽉 찼을 때 "먼저 온 순서"가 하루 종일 자리를 지키는 것을 막는다.
@@ -28,14 +34,14 @@ bool OrderGate::capacity_full() const
         return true;
     }
 
-    const double equity = ledger_.equity();
+    const money::Won equity = ledger_.equity();
 
-    if (config_.max_gross_exposure_percent <= 0.0 || equity <= 0.0)
+    if (config_.max_gross_exposure_percent <= 0.0 || equity <= 0)
     {
         return false;
     }
 
-    double gross = 0.0;
+    money::Won gross = 0;
     {
         const PositionLedger::Reader ledger = ledger_.read();
         gross = gross_exposure(ledger); // check() §3d와 같은 셈 — 한 곳이라도 원가로 재면 판단이 갈린다
@@ -43,7 +49,9 @@ bool OrderGate::capacity_full() const
 
     // 상한의 95%를 넘으면 여력 없음으로 본다. 정확히 상한에 닿기를 기다리면 한 종목분
     //  명목이 애매하게 남아 교체도 매수도 안 되는 구간이 생긴다.
-    return gross >= config_.max_gross_exposure_percent * equity * 0.95;
+    //  정수 금액과 실수 기준을 비교하므로 기준을 올려 정수로 만든다(Money.h ceil_won) — 판정은 실수 비교와 같다.
+    return gross >= money::ceil_won(config_.max_gross_exposure_percent * static_cast<double>(equity) *
+                                    PositionLedger::kBudgetFullRatio);
 }
 
 OrderGate::DisplacePlan OrderGate::plan_displacement(const std::string& account, symbol::SymbolId new_symbol) const
@@ -68,11 +76,11 @@ OrderGate::DisplacePlan OrderGate::plan_displacement(const std::string& account,
     //  이월분이 z=-2.5로 밀려 나갔는데 105560·067290은 끝내 못 들어옴). 보유가 한도 밑으로 내려갈 때까지 교체는 쉰다.
     {
         const auto open = ledger_.open_slot_count();
-        const auto capture  = static_cast<size_t>(config_.max_concurrent_positions);
+        const auto limit = static_cast<size_t>(config_.max_concurrent_positions);
 
-        if (open > capture)
+        if (open > limit)
         {
-            return decline(std::format("보유 {} > 한도 {} — 하나 비워도 자리가 안 나 교체 보류", open, capture));
+            return decline(std::format("보유 {} > 한도 {} — 하나 비워도 자리가 안 나 교체 보류", open, limit));
         }
     }
 
@@ -144,23 +152,21 @@ OrderGate::WeakestHolding OrderGate::find_weakest_holding(const PositionLedger::
 {
     WeakestHolding weakest;
 
-    for (const auto& entry : ledger.positions())
+    for (const auto& [key, row] : ledger.rows())
     {
-        if (entry.second <= 0)
+        if (row.position <= 0)
         {
             continue;
         }
-
-        const PosKey& key = entry.first;
 
         if (key.symbol == new_symbol || ledger.slot_exempt().contains(key.symbol)) // 바스켓 소유 종목은 교체 후보가 아니다 [why D-109]
         {
             continue;
         }
 
-        double cand_z = 0.0;
+        double candidate_z = 0.0;
 
-        if (EntryPriority::z_of(table, key.symbol, cand_z))
+        if (EntryPriority::z_of(table, key.symbol, candidate_z))
         {
             // 점수를 안다
         }
@@ -169,7 +175,7 @@ OrderGate::WeakestHolding OrderGate::find_weakest_holding(const PositionLedger::
             // 오늘 어느 슬리브의 스캔에도 안 잡힌 보유분. 점수가 없는 게 아니라 오늘 필터를
             //  통과하지 못한 것이라, 통과한 종목들 아래로 내려 교체 후보에 넣는다.
             //  이 경로가 없으면 전일 이월분이 슬롯을 영구히 점유한다.
-            cand_z = config_.displace_unscored_z;
+            candidate_z = config_.displace_unscored_z;
         }
         else
         {
@@ -177,45 +183,36 @@ OrderGate::WeakestHolding OrderGate::find_weakest_holding(const PositionLedger::
         }
 
         // 미체결 매도가 이미 걸린 종목은 건드리지 않는다(중복 매도).
-        auto reserved_found = ledger.reserved().find(key);
-        const int sell_pending = (reserved_found != ledger.reserved().end()) ? reserved_found->second.sell : 0;
+        const int sell_pending = row.reserved.sell;
 
-        if (sell_pending >= entry.second)
+        if (sell_pending >= row.position)
         {
             continue;
         }
 
-        // 이전 세션이 낸 미체결 매도는 reserved_에 없다 — 프로세스 메모리라 재기동으로
-        //  사라졌다. 그 수량은 잔고 시드(ord_psbl_qty)를 거쳐 sellable_에만 남으므로
+        // 이전 세션이 낸 미체결 매도는 장부 선점(PositionRow::reserved)에 없다 — 프로세스 메모리라 재기동으로
+        //  사라졌다. 그 수량은 잔고 시드(ord_psbl_qty)를 거쳐 매도가능 칸에만 남으므로
         //  여기서도 같이 본다. 안 보면 팔 수 없는 종목을 매번 최약체로 골라 교체가 헛돈다
         //  (09-09: 000215 4회, 001120 1회. 그동안 진짜 팔 수 있는 하위 종목은 그대로 있었다).
         //  상한 계산은 clamp_buy_quantity의 SELL 분기와 같은 규칙을 쓴다.
-        int cand_cap = entry.second;
-        auto sellable_iterator = ledger.sellable().find(key);
+        const int candidate_cap = std::min(row.position, row.sellable_or(row.position));
 
-        if (sellable_iterator != ledger.sellable().end() && sellable_iterator->second < cand_cap)
-        {
-            cand_cap = sellable_iterator->second;
-        }
-
-        if (cand_cap - sell_pending <= 0)
+        if (candidate_cap - sell_pending <= 0)
         {
             continue;
         }
 
         // 방금 산 종목은 빼지 않는다. 사자마자 파는 왕복은 비용만 남는다.
-        auto opened_iterator = ledger.opened_at().find(key);
-
-        if (opened_iterator != ledger.opened_at().end() && config_.displace_min_hold_sec > 0 &&
-            now - opened_iterator->second < std::chrono::seconds(config_.displace_min_hold_sec))
+        if (row.opened_at && config_.displace_min_hold_sec > 0 &&
+            now - *row.opened_at < std::chrono::seconds(config_.displace_min_hold_sec))
         {
             continue;
         }
 
-        if (weakest.key.symbol == symbol::kNone || cand_z < weakest.z_score)
+        if (weakest.key.symbol == symbol::kNone || candidate_z < weakest.z_score)
         {
             weakest.key = key;
-            weakest.z_score   = cand_z;
+            weakest.z_score   = candidate_z;
         }
     }
 
@@ -231,20 +228,10 @@ void OrderGate::fill_victim(const PosKey& victim, DisplacePlan& plan) const
     plan.account = ledger.keys().account_of(victim);
     plan.ticker  = ledger.keys().ticker_of(victim).string();
     plan.symbol  = victim.symbol;
-    auto position_iterator = ledger.positions().find(victim);
-    auto reserved_found  = ledger.reserved().find(victim);
-    const int sell_pending = (reserved_found != ledger.reserved().end()) ? reserved_found->second.sell : 0;
-    int capture = (position_iterator != ledger.positions().end() ? position_iterator->second : 0);
-    auto sellable_iterator = ledger.sellable().find(victim);
-
-    if (sellable_iterator != ledger.sellable().end() && sellable_iterator->second < capture)
-    {
-        capture = sellable_iterator->second;
-    }
-
-    plan.quantity = capture - sell_pending;
-    auto average_price_iterator = ledger.average_prices().find(victim);
-    plan.average_price = (average_price_iterator != ledger.average_prices().end()) ? average_price_iterator->second : 0.0;
+    const PositionRow& row = ledger.row(victim);
+    const int sellable_quantity = std::min(row.position, row.sellable_or(row.position));
+    plan.quantity          = sellable_quantity - row.reserved.sell;
+    plan.average_price     = static_cast<double>(row.average_price);
 }
 
 void OrderGate::note_displacement(const DisplacePlan& plan, symbol::SymbolId beneficiary)
@@ -269,12 +256,10 @@ OrderGate::EntrySnapshot OrderGate::entry_snapshot(const std::string& account, c
     EntrySnapshot snapshot;
     const PositionLedger::Reader ledger = ledger_.read();
 
-    const auto key = ledger.keys().lookup(account, ticker);
-    auto position_iterator = ledger.positions().find(key);
-    snapshot.position = (position_iterator != ledger.positions().end()) ? position_iterator->second : 0;
-
-    auto reserved_it = ledger.reserved().find(key);
-    snapshot.reserved = (reserved_it != ledger.reserved().end()) ? reserved_it->second.net() : 0;
+    const PosKey       key = ledger.keys().lookup(account, ticker);
+    const PositionRow& row = ledger.row(key);
+    snapshot.position      = row.position;
+    snapshot.reserved      = row.reserved.net();
 
     if (config_.max_concurrent_positions > 0)
     {
@@ -282,29 +267,7 @@ OrderGate::EntrySnapshot OrderGate::entry_snapshot(const std::string& account, c
         //  여기만 빼먹고 세던 때는, 교체를 켠 날 바스켓을 든 계좌에서 "자리 꽉 참"이 잘못 나고
         //  plan_displacement가 자리 남음을 따로 안 보기 때문에 멀쩡한 최약체를 팔아 이미 있던 자리를 만들었다.
         //  [why D-109]
-        size_t open = 0;
-
-        for (const auto& entry : ledger.positions())
-        {
-            if (entry.second > 0 && !ledger.slot_exempt().contains(entry.first.symbol))
-            {
-                ++open;
-            }
-        }
-
-        for (const auto& entry : ledger.reserved())
-        {
-            if (entry.second.buy > 0 && !ledger.slot_exempt().contains(entry.first.symbol))
-            {
-                auto iterator = ledger.positions().find(entry.first);
-
-                if (iterator == ledger.positions().end() || iterator->second <= 0)
-                {
-                    ++open;
-                }
-            }
-        }
-
+        const size_t open   = count_open_slots(key, ledger, nullptr, 0).open;
         snapshot.slots_full = open >= static_cast<size_t>(config_.max_concurrent_positions);
     }
 

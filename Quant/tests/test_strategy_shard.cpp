@@ -13,9 +13,11 @@
 #include <cstdint>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace
@@ -158,6 +160,101 @@ TradeData make_trade(symbol::SymbolId id, const std::string& ticker, uint32_t se
     trade.received_ns     = received_ns;
     return trade;
 }
+
+// 보호 멤버를 시험에서 부르려고 연다.
+class OpenedStrategy final : public StrategyBase
+{
+public:
+    explicit OpenedStrategy(std::string id) : id_(std::move(id))
+    {
+    }
+
+    const std::string& id() const override
+    {
+        return id_;
+    }
+
+    std::string describe() const override
+    {
+        return id_;
+    }
+
+    std::optional<OrderSignal> on_data(const MarketData&) override
+    {
+        return std::nullopt;
+    }
+
+    using StrategyBase::make_order_id;
+
+private:
+    std::string id_;
+};
+
+// 6. 주문 이름과 장부 조회의 표현을 바꾼 곳의 전후 대조. make_order_id는 예전 식(id + ":" + tag + ":" + to_string)과
+//  같은 문자열을 내야 하고, 정수 id로 묻는 매도가능 조회는 문자열로 묻는 조회와 같은 값을 내야 한다.
+//  id가 kNone이거나 id 제공자가 없으면 문자열 조회로 돌아간다.
+int check_order_id_and_sellable_by_id()
+{
+    OpenedStrategy strategy("DEVSCALE_005930");
+
+    for (const uint64_t sequence : {uint64_t{0}, uint64_t{1}, uint64_t{42}, uint64_t{1234567890}, UINT64_MAX})
+    {
+        for (const char* tag : {"B", "S", "A"})
+        {
+            const std::string before = strategy.id() + ":" + tag + ":" + std::to_string(sequence);
+            CHECK(strategy.make_order_id(tag, sequence) == before);
+        }
+    }
+
+    symbol::SymbolTable    table;
+    const symbol::SymbolId held  = table.intern("005930");
+    const symbol::SymbolId other = table.intern("000660");
+
+    // 같은 장부를 두 길로 읽는다 — 문자열 길은 표에서 번호를 찾아 같은 행을 본다.
+    const auto row_of = [&](symbol::SymbolId symbol)
+    {
+        StrategyBase::SellableInfo info;
+        info.sellable      = symbol == held ? 7 : 0;
+        info.average_price = symbol == held ? 70100.0 : 0.0;
+        info.reserved      = symbol == held ? 2 : 0;
+        return info;
+    };
+    int string_calls = 0;
+    int id_calls     = 0;
+    strategy.set_sellable_provider([&](const std::string&, const std::string& ticker)
+    {
+        ++string_calls;
+        return row_of(table.lookup(ticker));
+    });
+
+    // id 제공자가 없으면 id를 넘겨도 문자열 길로 간다.
+    const auto fallback = strategy.ledger_sellable("A1", held, "005930");
+    CHECK(fallback && fallback->sellable == 7 && string_calls == 1);
+
+    strategy.set_sellable_provider_by_id([&](const std::string&, symbol::SymbolId symbol)
+    {
+        ++id_calls;
+        return row_of(symbol);
+    });
+
+    const std::pair<symbol::SymbolId, std::string> cases[] = {{held, "005930"}, {other, "000660"}};
+
+    for (const auto& [symbol, ticker] : cases)
+    {
+        const auto by_string = strategy.ledger_sellable("A1", ticker);
+        const auto by_id     = strategy.ledger_sellable("A1", symbol, ticker);
+        CHECK(by_string && by_id);
+        CHECK(by_string->sellable == by_id->sellable && by_string->average_price == by_id->average_price &&
+              by_string->reserved == by_id->reserved);
+    }
+
+    CHECK(id_calls == 2 && string_calls == 3);
+
+    // kNone(배선 전)이면 문자열 길.
+    const auto unwired = strategy.ledger_sellable("A1", symbol::kNone, "005930");
+    CHECK(unwired && unwired->sellable == 7 && string_calls == 4 && id_calls == 2);
+    return 0;
+}
 } // namespace
 
 int main()
@@ -198,11 +295,11 @@ int main()
         CHECK(shard_a.router().all_count() == 1 && shard_b.router().all_count() == 1);
 
         // 종목 12개 × 3건. 생산자는 push로 종목 해시 열에 넣는다.
-        for (uint32_t innermost_index = 0; innermost_index < 3; ++innermost_index)
+        for (uint32_t repeat_index = 0; repeat_index < 3; ++repeat_index)
         {
             for (size_t ids_index = 0; ids_index < ids.size(); ++ids_index)
             {
-                CHECK(trade.push(0, ids[ids_index], make_trade(ids[ids_index], names[ids_index], innermost_index, 100.0 + static_cast<double>(ids_index), 1000 + innermost_index)));
+                CHECK(trade.push(0, ids[ids_index], make_trade(ids[ids_index], names[ids_index], repeat_index, 100.0 + static_cast<double>(ids_index), 1000 + repeat_index)));
             }
         }
 
@@ -212,14 +309,14 @@ int main()
         const auto                 run = [&](strategy::Shard& shard, Sink& sink, std::vector<symbol::SymbolId>& priced)
         {
             while (shard.step(
-                [&](StrategyBase* stop_token, const OrderSignal& signal, int64_t tick_ns)
+                [&](StrategyBase* source_strategy, const OrderSignal& signal, int64_t tick_ns)
                 {
                     strategy::Emitted emitted;
                     emitted.signal           = signal;
                     emitted.signal.tick_at_ns = tick_ns;
-                    emitted.signal.strategy_index = stop_token->strategy_index();
-                    emitted.active                = stop_token->is_active();
-                    emitted.exit_manager          = stop_token->is_exit_manager();
+                    emitted.signal.strategy_index = source_strategy->strategy_index();
+                    emitted.active                = source_strategy->is_active();
+                    emitted.exit_manager          = source_strategy->is_exit_manager();
                     sink.out.push_back(std::move(emitted));
                     sink.last_tick_ns = tick_ns;
                 },
@@ -381,13 +478,13 @@ int main()
                 threads.emplace_back([&, row]
                 {
                     auto& shard  = *shards[row];
-                    auto& stop_token = *strategies[row];
+                    auto& shard_strategy = *strategies[row];
 
                     while (!go.load(std::memory_order_acquire))
                     {
                     }
 
-                    while (static_cast<uint64_t>(stop_token.trades) < expected[row])
+                    while (static_cast<uint64_t>(shard_strategy.trades) < expected[row])
                     {
                         if (!shard.step([](StrategyBase*, const OrderSignal&, int64_t) {}, [](symbol::SymbolId, double) {},
                                     symbol_id_of))
@@ -546,6 +643,11 @@ int main()
         keep_going.store(false, std::memory_order_release);
         reader.join();
         CHECK(mixed.load() == 0);
+    }
+
+    if (check_order_id_and_sellable_by_id() != 0)
+    {
+        return 1;
     }
 
     std::cout << "test_strategy_shard: " << g_checks << " checks passed\n";

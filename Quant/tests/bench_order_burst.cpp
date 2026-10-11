@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <fstream>
 #include <iostream>
@@ -27,6 +28,7 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace
@@ -254,13 +256,13 @@ int main(int argc, char** argv)
     OrderGate::Config risk;
     risk.max_quantity_per_ticker  = 1'000'000'000;
     risk.max_quantity_per_order   = 1'000'000;
-    risk.max_notional_per_order   = 1e15;
-    risk.max_notional_per_ticker  = 0.0;
+    risk.max_notional_per_order   = 1'000'000'000'000'000;
+    risk.max_notional_per_ticker  = 0;
     risk.max_concurrent_positions = 0;
     risk.max_orders_per_sec       = 1'000'000;
     risk.max_orders_per_min       = 60'000'000;
     risk.deduplicate_window_sec   = 0.0;
-    risk.daily_loss_limit         = -1e15;
+    risk.daily_loss_limit         = -1'000'000'000'000'000;
     engine.set_risk_config(risk);
     engine.set_order_interval(interval_ms, 0);
     engine.set_order_transport_threads(threads);

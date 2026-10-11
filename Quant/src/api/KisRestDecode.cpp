@@ -1,6 +1,10 @@
 #include "api/KisRestDecode.h"
 
+#include <algorithm>
+#include <charconv>
+#include <chrono>
 #include <cmath>
+#include <cstdlib>
 
 namespace kis_rest
 {

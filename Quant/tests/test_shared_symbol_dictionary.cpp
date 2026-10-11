@@ -16,8 +16,9 @@
 #include "ipc/SharedSymbolDictionary.h"
 
 #include <atomic>
+#include <cstddef>
+#include <cstdint>
 #include <cstdlib>
-#include <cstring>
 #include <iostream>
 #include <string>
 #include <thread>

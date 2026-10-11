@@ -10,22 +10,16 @@
 #include "utils/EtfFilter.h"
 #include "utils/Logger.h"
 #include <algorithm>
-#include <functional>
-#include <chrono>
 #include <cmath>
-#include <ctime>
-#include <filesystem>
-#include <fstream>
-#include <mutex>
+#include <cstddef>
 #include <nlohmann/json.hpp>
+#include <ranges>
 #include <string>
-#include <string_view>
-#include <thread>
 #include <vector>
 
 namespace universe::detail
 {
-void score_cross_section(const DevScanCfg& config, std::vector<Features>& passed)
+void score_cross_section(const DeviationScaleScanConfig& config, std::vector<Features>& passed)
 {
     auto zscore = [&](double Features::*field, bool invert, std::vector<double>& values)
     {
@@ -49,15 +43,18 @@ void score_cross_section(const DevScanCfg& config, std::vector<Features>& passed
 
         for (const auto& passed_entry : passed)
         {
-            const double d0 = passed_entry.*field - mean;
-            variance += d0 * d0;
+            const double deviation = passed_entry.*field - mean;
+            variance += deviation * deviation;
         }
 
         variance /= static_cast<double>(count);
         const double standard_deviation = std::sqrt(variance);
 
         // 분산이 사실상 0이면(전 종목 동일) 정규화가 무의미하다. 전부 0으로 두어 균등 폴백.
-        if (!(standard_deviation > 1e-12))
+        constexpr double kVarianceEpsilon = 1e-12; // 이보다 작은 표준편차는 0으로 본다
+        constexpr double kZClip           = 2.0;   // z-score를 ±2σ에서 자른다
+
+        if (!(standard_deviation > kVarianceEpsilon))
         {
             return;
         }
@@ -66,14 +63,14 @@ void score_cross_section(const DevScanCfg& config, std::vector<Features>& passed
         {
             double value = (passed[index].*field - mean) / standard_deviation;
 
-            if (value > 2.0)
+            if (value > kZClip)
             {
-                value = 2.0;
+                value = kZClip;
             }
 
-            if (value < -2.0)
+            if (value < -kZClip)
             {
-                value = -2.0;
+                value = -kZClip;
             }
 
             values[index] = invert ? -value : value;
@@ -81,7 +78,7 @@ void score_cross_section(const DevScanCfg& config, std::vector<Features>& passed
     };
     std::vector<double> z_trend, z_pull, z_atr_percent, z_liquidity;
     zscore(&Features::trend, false, z_trend);
-    zscore(&Features::pull,  true,  z_pull);   // 눌림은 음수(SMA20 아래)일수록 좋아 부호를 뒤집는다.
+    zscore(&Features::pullback, true, z_pull);   // 눌림은 음수(SMA20 아래)일수록 좋아 부호를 뒤집는다.
     zscore(&Features::atr_percent, false, z_atr_percent);
 
     if (config.score_weight_liquidity != 0.0)
@@ -127,7 +124,7 @@ void score_cross_section(const DevScanCfg& config, std::vector<Features>& passed
     }
 }
 
-ScanResult rank_and_truncate(const DevScanCfg& config, std::vector<Features>& passed, const CandidateSet& candidates,
+ScanResult rank_and_truncate(const DeviationScaleScanConfig& config, std::vector<Features>& passed, const CandidateSet& candidates,
                              const symbol::SymbolTable& symbols)
 {
     std::ranges::sort(passed,
@@ -175,7 +172,7 @@ ScanResult rank_and_truncate(const DevScanCfg& config, std::vector<Features>& pa
     return out;
 }
 
-ScanResult take_first_n(const DevScanCfg& config, const CandidateSet& candidates, const MarketGate& gate)
+ScanResult take_first_n(const DeviationScaleScanConfig& config, const CandidateSet& candidates, const MarketGate& gate)
 {
     ScanResult out;
 

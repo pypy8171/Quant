@@ -14,20 +14,29 @@
 //   9. 재기동 — 상태 파일로 보유·오늘 판정 복원, 같은 매수를 다시 내지 않음
 //  10. 만기(EXIT_CLOSE) — 15:20 종가 동시호가 매도. 계획이 없으면 평일 130일 백스톱
 //  11. dry_run — 신호 0, 상태 파일 보유 0, 슬롯 면제 없음
-//  12. 같은 계획 다음 날 — 다시 사지 않음(C-1), 같은 급등 신호 재매수 막음
-//  13. 매도 창 밖 손절 — 다음 날 09:00 뒤 매도, 어제 다 못 판 매도 재개(C-2), 시가 갭 하락 즉시 매도(W-1)
+//  12. 같은 계획 다음 날 — 다시 사지 않음, 같은 급등 신호 재매수 막음
+//  13. 매도 창 밖 손절 — 다음 날 09:00 뒤 매도, 어제 다 못 판 매도 재개, 시가 갭 하락 즉시 매도
 //  14. 09:30 미체결 — 취소 주문, 선점이 0이 될 때까지 PENDING 유지(W-5)
 //  15. 상태 파일 깨짐 — 매수 없음, 파일 그대로(W-4). 슬롯 면제 전송 실패 — 다음 판에 다시 보냄(W-6)
 #include "strategy/SurgeHoldStrategy.h"
 #include "core/KstTime.h"
 #include "utils/Logger.h"
 
+#include <cmath>
+#include <cstdint>
 #include <cstdlib>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <map>
+#include <memory>
+#include <optional>
 #include <sstream>
+#include <string>
+#include <string_view>
+#include <vector>
 
 namespace
 {

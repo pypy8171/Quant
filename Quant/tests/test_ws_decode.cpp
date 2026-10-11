@@ -1,5 +1,5 @@
 // KIS 실시간 채널 디코더(api/KisWsDecode.h) 단위 테스트. 채널마다 필드 위치·최소 길이·숫자 실패 처리를
-// 고정한다. 헤더 전용이라 소켓·암호 링크 없이 돈다. 관련 결정: D-037.
+// 고정한다. 소켓·암호 링크 없이 돈다. 관련 결정: D-037.
 #include "api/KisWsDecode.h"
 #include <cassert>
 #include <iostream>

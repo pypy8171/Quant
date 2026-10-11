@@ -2,6 +2,15 @@
 //  공용 준비는 bench_feed_ingest_support.h, 모드별 실행은 bench_feed_ingest.cpp의 main.
 #include "bench_feed_ingest_support.h"
 
+#include <atomic>
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
+#include <random>
+#include <string>
+#include <thread>
+#include <vector>
+
 // 전량 송신(부분 송신 루프). 실패 시 false.
 static bool send_all(socket_t socket_handle, const char* cursor, size_t count)
 {
@@ -30,7 +39,7 @@ static bool send_all(socket_t socket_handle, const char* cursor, size_t count)
 void koscom_send_fn(socket_t socket_handle,
                     const std::vector<std::string>& tickers,
                     const ZipfPicker& zipf,
-                    Stats& stop_token,
+                    Stats& statistics,
                     std::atomic<bool>& stop,
                     int64_t total_rate,
                     double order_book_ratio,
@@ -85,12 +94,12 @@ void koscom_send_fn(socket_t socket_handle,
 
         wire_message.send_ts_ns = now_ns(); // 소켓 진입 직전 stamp
 
-        if (!send_all(socket_handle, reinterpret_cast<const char*>(&wire_message), kRec))
+        if (!send_all(socket_handle, reinterpret_cast<const char*>(&wire_message), kRecordBytes))
         {
             break; // 상대 종료
         }
 
-        stop_token.wire_sent.fetch_add(1, std::memory_order_relaxed);
+        statistics.wire_sent.fetch_add(1, std::memory_order_relaxed);
     }
 }
 
@@ -101,14 +110,14 @@ void koscom_send_fn(socket_t socket_handle,
 static void recv_fn(socket_t socket_handle,
                     RingBuffer<MockOrderBook>& order_book_queue,
                     RingBuffer<MockTradeData>& trade_queue,
-                    Stats& stop_token,
+                    Stats& statistics,
                     std::atomic<bool>& stop,
                     std::atomic<bool>& measuring,
                     size_t latency_cap)
 {
-    stop_token.net_ns.reserve(latency_cap);
-    const size_t CHUNK = kRec * 512;
-    std::vector<char> buffer(CHUNK);
+    statistics.net_ns.reserve(latency_cap);
+    const size_t kChunkBytes = kRecordBytes * 512;
+    std::vector<char> buffer(kChunkBytes);
     size_t received_count = 0;
 
     while (!stop.load(std::memory_order_relaxed))
@@ -121,28 +130,28 @@ static void recv_fn(socket_t socket_handle,
         }
 
         received_count += static_cast<size_t>(result);
-        stop_token.bytes_recv.fetch_add(static_cast<uint64_t>(result), std::memory_order_relaxed);
+        statistics.bytes_recv.fetch_add(static_cast<uint64_t>(result), std::memory_order_relaxed);
 
         size_t offset = 0;
 
-        while (received_count - offset >= kRec)
+        while (received_count - offset >= kRecordBytes)
         {
             WireMsg wire_message;
-            std::memcpy(&wire_message, buffer.data() + offset, kRec);
-            offset += kRec;
+            std::memcpy(&wire_message, buffer.data() + offset, kRecordBytes);
+            offset += kRecordBytes;
             const int64_t run_start_ns = now_ns();
 
             if (wire_message.magic != kMagic)
             {
-                stop_token.bad_magic.fetch_add(1, std::memory_order_relaxed);
+                statistics.bad_magic.fetch_add(1, std::memory_order_relaxed);
                 continue;
             }
 
-            stop_token.wire_recv.fetch_add(1, std::memory_order_relaxed);
+            statistics.wire_recv.fetch_add(1, std::memory_order_relaxed);
 
-            if (measuring.load(std::memory_order_relaxed) && stop_token.net_ns.size() < latency_cap)
+            if (measuring.load(std::memory_order_relaxed) && statistics.net_ns.size() < latency_cap)
             {
-                stop_token.net_ns.push_back(run_start_ns - wire_message.send_ts_ns);
+                statistics.net_ns.push_back(run_start_ns - wire_message.send_ts_ns);
             }
 
             if (wire_message.type == 0)
@@ -163,11 +172,11 @@ static void recv_fn(socket_t socket_handle,
 
                 if (order_book_queue.push(order_book))
                 {
-                    bump_high_water_mark(stop_token.order_book_high_water_mark, order_book_queue.size());
+                    bump_high_water_mark(statistics.order_book_high_water_mark, order_book_queue.size());
                 }
                 else
                 {
-                    stop_token.order_book_drops.fetch_add(1, std::memory_order_relaxed);
+                    statistics.order_book_drops.fetch_add(1, std::memory_order_relaxed);
                 }
             }
             else
@@ -182,11 +191,11 @@ static void recv_fn(socket_t socket_handle,
 
                 if (trade_queue.push(trade))
                 {
-                    bump_high_water_mark(stop_token.trade_high_water_mark, trade_queue.size());
+                    bump_high_water_mark(statistics.trade_high_water_mark, trade_queue.size());
                 }
                 else
                 {
-                    stop_token.trade_drops.fetch_add(1, std::memory_order_relaxed);
+                    statistics.trade_drops.fetch_add(1, std::memory_order_relaxed);
                 }
             }
         }
@@ -206,7 +215,7 @@ static void recv_fn(socket_t socket_handle,
 static void strategy_fn(RingBuffer<MockOrderBook>& order_book_queue,
                         RingBuffer<MockTradeData>& trade_queue,
                         RingBuffer<MockOrderSignal>& order_queue,
-                        Stats& stop_token,
+                        Stats& statistics,
                         std::atomic<bool>& stop)
 {
     uint64_t order_book_count = 0, trade_count = 0;
@@ -215,7 +224,7 @@ static void strategy_fn(RingBuffer<MockOrderBook>& order_book_queue,
     {
         while (auto option = order_book_queue.pop())
         {
-            stop_token.order_book_consumed.fetch_add(1, std::memory_order_relaxed);
+            statistics.order_book_consumed.fetch_add(1, std::memory_order_relaxed);
             volatile double sink = 0.0;
 
             for (int index = 0; index < 5; ++index)
@@ -238,19 +247,19 @@ static void strategy_fn(RingBuffer<MockOrderBook>& order_book_queue,
 
                 if (order_queue.push(signal))
                 {
-                    stop_token.signals.fetch_add(1, std::memory_order_relaxed);
-                    bump_high_water_mark(stop_token.order_high_water_mark, order_queue.size());
+                    statistics.signals.fetch_add(1, std::memory_order_relaxed);
+                    bump_high_water_mark(statistics.order_high_water_mark, order_queue.size());
                 }
                 else
                 {
-                    stop_token.order_drops.fetch_add(1, std::memory_order_relaxed);
+                    statistics.order_drops.fetch_add(1, std::memory_order_relaxed);
                 }
             }
         }
 
         while (auto option = trade_queue.pop())
         {
-            stop_token.trade_consumed.fetch_add(1, std::memory_order_relaxed);
+            statistics.trade_consumed.fetch_add(1, std::memory_order_relaxed);
             volatile double sink = option->price * option->quantity;
             (void)sink;
 
@@ -267,12 +276,12 @@ static void strategy_fn(RingBuffer<MockOrderBook>& order_book_queue,
 
                 if (order_queue.push(signal))
                 {
-                    stop_token.signals.fetch_add(1, std::memory_order_relaxed);
-                    bump_high_water_mark(stop_token.order_high_water_mark, order_queue.size());
+                    statistics.signals.fetch_add(1, std::memory_order_relaxed);
+                    bump_high_water_mark(statistics.order_high_water_mark, order_queue.size());
                 }
                 else
                 {
-                    stop_token.order_drops.fetch_add(1, std::memory_order_relaxed);
+                    statistics.order_drops.fetch_add(1, std::memory_order_relaxed);
                 }
             }
         }
@@ -283,13 +292,13 @@ static void strategy_fn(RingBuffer<MockOrderBook>& order_book_queue,
 // Order 스레드 — proc(recv→order)·e2e(send→order) 수집(단독 스레드).
 // ─────────────────────────────────────────────────────────────────────────────
 static void order_fn(RingBuffer<MockOrderSignal>& order_queue,
-                     Stats& stop_token,
+                     Stats& statistics,
                      std::atomic<bool>& stop,
                      std::atomic<bool>& measuring,
                      size_t latency_cap)
 {
-    stop_token.proc_ns.reserve(latency_cap);
-    stop_token.e2e_ns.reserve(latency_cap);
+    statistics.proc_ns.reserve(latency_cap);
+    statistics.e2e_ns.reserve(latency_cap);
 
     while (!stop.load(std::memory_order_relaxed) || !order_queue.empty())
     {
@@ -304,18 +313,18 @@ static void order_fn(RingBuffer<MockOrderSignal>& order_queue,
 
         if (measuring.load(std::memory_order_relaxed))
         {
-            if (stop_token.proc_ns.size() < latency_cap)
+            if (statistics.proc_ns.size() < latency_cap)
             {
-                stop_token.proc_ns.push_back(time_value - option->recv_ts_ns);
+                statistics.proc_ns.push_back(time_value - option->recv_ts_ns);
             }
 
-            if (stop_token.e2e_ns.size() < latency_cap)
+            if (statistics.e2e_ns.size() < latency_cap)
             {
-                stop_token.e2e_ns.push_back(time_value - option->send_ts_ns);
+                statistics.e2e_ns.push_back(time_value - option->send_ts_ns);
             }
         }
 
-        stop_token.orders.fetch_add(1, std::memory_order_relaxed);
+        statistics.orders.fetch_add(1, std::memory_order_relaxed);
     }
 }
 
@@ -323,7 +332,7 @@ static void order_fn(RingBuffer<MockOrderSignal>& order_queue,
 // 수신측 파이프라인 구동(연결된 소켓 하나에 대해) — recv→strategy→order.
 //   측정창(measuring) 종료 후 소비분은 드레인이라 percentile에서 제외.
 // ─────────────────────────────────────────────────────────────────────────────
-void run_receiver_pipeline(socket_t connection, Stats& stop_token, std::atomic<bool>& stop,
+void run_receiver_pipeline(socket_t connection, Stats& statistics, std::atomic<bool>& stop,
                            std::atomic<bool>& measuring, size_t latency_cap,
                            size_t order_book_capacity, size_t trade_capacity, size_t order_capacity,
                            std::thread& receive_thread, std::thread& strategy_thread, std::thread& order_thread,
@@ -333,11 +342,11 @@ void run_receiver_pipeline(socket_t connection, Stats& stop_token, std::atomic<b
 {
     (void)order_book_capacity; (void)trade_capacity; (void)order_capacity;
     set_nodelay(connection);
-    order_thread = std::thread(order_fn, std::ref(order_queue), std::ref(stop_token), std::ref(stop),
+    order_thread = std::thread(order_fn, std::ref(order_queue), std::ref(statistics), std::ref(stop),
                         std::ref(measuring), latency_cap);
     strategy_thread = std::thread(strategy_fn, std::ref(order_book_queue), std::ref(trade_queue), std::ref(order_queue),
-                        std::ref(stop_token), std::ref(stop));
-    receive_thread = std::thread(recv_fn, connection, std::ref(order_book_queue), std::ref(trade_queue), std::ref(stop_token),
+                        std::ref(statistics), std::ref(stop));
+    receive_thread = std::thread(recv_fn, connection, std::ref(order_book_queue), std::ref(trade_queue), std::ref(statistics),
                          std::ref(stop), std::ref(measuring), latency_cap);
 }
 
@@ -355,7 +364,7 @@ RunResult run_self(const std::vector<std::string>& tickers, const ZipfPicker& zi
         return run_result;
     }
 
-    Stats stop_token;
+    Stats statistics;
     std::atomic<bool> stop{false};
     std::atomic<bool> measuring{true};
     RingBuffer<MockOrderBook>   order_book_queue(order_book_capacity);
@@ -396,9 +405,9 @@ RunResult run_self(const std::vector<std::string>& tickers, const ZipfPicker& zi
     set_nodelay(client);
 
     const int64_t start_time = now_ns();
-    run_receiver_pipeline(connection, stop_token, stop, measuring, latency_cap, order_book_capacity, trade_capacity, order_capacity,
+    run_receiver_pipeline(connection, statistics, stop, measuring, latency_cap, order_book_capacity, trade_capacity, order_capacity,
                           receive_thread, strategy_thread, order_thread, order_book_queue, trade_queue, order_queue);
-    std::thread send_thread(koscom_send_fn, client, std::cref(tickers), std::cref(zipf), std::ref(stop_token),
+    std::thread send_thread(koscom_send_fn, client, std::cref(tickers), std::cref(zipf), std::ref(statistics),
                        std::ref(stop), rate, order_book_ratio, static_cast<int64_t>(duration_sec) * 1'000'000'000LL);
 
     send_thread.join();                                     // 방출 종료
@@ -427,19 +436,19 @@ RunResult run_self(const std::vector<std::string>& tickers, const ZipfPicker& zi
     socket_close(listen_socket);
 
     run_result.elapsed_sec = (now_ns() - start_time) / 1e9;
-    run_result.net = percentiles(stop_token.net_ns);
-    run_result.proc = percentiles(stop_token.proc_ns);
-    run_result.e2e = percentiles(stop_token.e2e_ns);
-    run_result.wire_sent = stop_token.wire_sent.load();
-    run_result.wire_recv = stop_token.wire_recv.load();
-    run_result.bytes_recv = stop_token.bytes_recv.load();
-    run_result.signals = stop_token.signals.load();
-    run_result.orders = stop_token.orders.load();
-    run_result.drops = stop_token.order_book_drops.load() + stop_token.trade_drops.load() + stop_token.order_drops.load();
-    run_result.bad_magic = stop_token.bad_magic.load();
-    run_result.order_book_high_water_mark = stop_token.order_book_high_water_mark.load();
-    run_result.trade_high_water_mark = stop_token.trade_high_water_mark.load();
-    run_result.order_high_water_mark = stop_token.order_high_water_mark.load();
+    run_result.net = percentiles(statistics.net_ns);
+    run_result.proc = percentiles(statistics.proc_ns);
+    run_result.e2e = percentiles(statistics.e2e_ns);
+    run_result.wire_sent = statistics.wire_sent.load();
+    run_result.wire_recv = statistics.wire_recv.load();
+    run_result.bytes_recv = statistics.bytes_recv.load();
+    run_result.signals = statistics.signals.load();
+    run_result.orders = statistics.orders.load();
+    run_result.drops = statistics.order_book_drops.load() + statistics.trade_drops.load() + statistics.order_drops.load();
+    run_result.bad_magic = statistics.bad_magic.load();
+    run_result.order_book_high_water_mark = statistics.order_book_high_water_mark.load();
+    run_result.trade_high_water_mark = statistics.trade_high_water_mark.load();
+    run_result.order_high_water_mark = statistics.order_high_water_mark.load();
     run_result.recv_rate = run_result.wire_recv / (run_result.elapsed_sec > 0 ? run_result.elapsed_sec : 1);
     run_result.lossless = (run_result.drops == 0) && (run_result.bad_magic == 0) && (run_result.signals == run_result.orders);
     return run_result;

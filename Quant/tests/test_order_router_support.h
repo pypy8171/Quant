@@ -9,6 +9,7 @@
 #include "risk/OrderGate.h"
 #include "utils/Logger.h"
 #include <atomic>
+#include <cstdint>
 #include <filesystem>
 #include <cassert>
 #include <chrono>
@@ -86,7 +87,7 @@ struct StubOrderExecutor : IOrderExecutor
     std::atomic<bool>         succeed;
     GuardedValue<std::string> kis_order_no;
     std::atomic<int>          call_count{0};
-    // MM-1 확장 — 취소/정정 경로 추적
+    // 취소/정정 경로 추적
     GuardedValue<std::string> orgno;                   // submit_order_ack가 반환할 조직번호(생성자에서 ORG000001)
     std::atomic<bool>         cancel_ok{true};         // cancel_order 성공 여부
     std::atomic<bool>         revise_ok{true};         // revise_order 성공 여부

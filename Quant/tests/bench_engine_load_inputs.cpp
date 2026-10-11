@@ -2,6 +2,15 @@
 //  공용 준비는 bench_engine_load_support.h, 구성 순회는 bench_engine_load.cpp의 main.
 #include "bench_engine_load_support.h"
 
+#include <cmath>
+#include <cstdint>
+#include <exception>
+#include <fstream>
+#include <random>
+#include <sstream>
+#include <string>
+#include <vector>
+
 namespace engine_load_bench
 {
 

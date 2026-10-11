@@ -14,19 +14,23 @@
 #include "utils/ThreadGuard.h"
 #include <algorithm>
 #include <atomic>
-#include <functional>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <ctime>
+#include <exception>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <mutex>
 #include <nlohmann/json.hpp>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace universe::detail
@@ -52,7 +56,9 @@ void DailyLookupCache::load_today(const std::string& date_yyyymmdd, symbol::Symb
         return;
     }
 
-    int count = 0;
+    // 파일 읽기·json 파싱·intern은 락 밖에서 하고, 표에 넣을 때만 락을 잡는다(스캔 스레드의 get·put이 그동안 막히지 않게).
+    std::vector<std::pair<symbol::SymbolId, DailyLookup>> parsed;
+    bool                                                  failed = false;
 
     try
     {
@@ -64,8 +70,7 @@ void DailyLookupCache::load_today(const std::string& date_yyyymmdd, symbol::Symb
             return;
         }
 
-        std::lock_guard<std::mutex> lock(mutex_);
-        reserve_locked(symbols.capacity());
+        parsed.reserve(document.size());
 
         for (auto iterator = document.begin(); iterator != document.end(); ++iterator)
         {
@@ -91,33 +96,45 @@ void DailyLookupCache::load_today(const std::string& date_yyyymmdd, symbol::Symb
             daily_lookup.average_10     = value[2].get<double>();
             daily_lookup.average_20     = value[3].get<double>();
             daily_lookup.close   = value[4].get<double>();
-            daily_lookup.r5      = value[5].get<double>();
-            daily_lookup.r10     = value[6].get<double>();
-            daily_lookup.r20     = value[7].get<double>();
+            daily_lookup.roll_5      = value[5].get<double>();
+            daily_lookup.roll_10     = value[6].get<double>();
+            daily_lookup.roll_20     = value[7].get<double>();
             daily_lookup.atr_percent = value[8].get<double>();
             daily_lookup.volume  = value[9].get<double>();
 
-            by_symbol_[symbol] = std::move(daily_lookup);
-            ++count;
+            parsed.emplace_back(symbol, std::move(daily_lookup));
         }
     }
     catch (const std::exception& exception)
     {
+        // 실패 앞까지 읽은 종목은 그대로 캐시에 넣는다(락 안에서 하나씩 넣던 때와 같은 결과).
         LOG_WARN(std::string("[Main] 일봉 캐시 파일 읽기 실패: ") + exception.what());
-        return;
+        failed = true;
     }
 
-    if (count > 0)
+    if (!parsed.empty())
     {
-        LOG_INFO("[Main] 일봉 캐시 " + std::to_string(count) + "종목을 파일에서 복원했다(" + date_yyyymmdd + ")");
+        std::lock_guard<std::mutex> lock(mutex_);
+        reserve_locked(symbols.capacity());
+
+        for (auto& [symbol, daily_lookup] : parsed)
+        {
+            by_symbol_[symbol] = std::move(daily_lookup);
+        }
+    }
+
+    if (!failed && !parsed.empty())
+    {
+        LOG_INFO("[Main] 일봉 캐시 " + std::to_string(parsed.size()) + "종목을 파일에서 복원했다(" + date_yyyymmdd + ")");
     }
 }
 
 void DailyLookupCache::save_today(const std::string& date_yyyymmdd, const symbol::SymbolTable& symbols) const
 {
-    // [wire] 값 순서: bars, average_5, average_10, average_20, close, r5, r10, r20, atr_percent, volume
+    // [wire] 값 순서: bars, average_5, average_10, average_20, close, roll_5, roll_10, roll_20, atr_percent, volume
     //  — kColumns칸 고정(읽는 쪽이 칸수로 형식을 가린다)
-    nlohmann::json document = nlohmann::json::object();
+    //  락 안에서는 오늘치 항목만 베끼고(날짜 문자열은 8자라 할당이 없다), json 문서는 락 밖에서 만든다.
+    std::vector<std::pair<symbol::SymbolId, DailyLookup>> today;
     {
         std::lock_guard<std::mutex> lock(mutex_);
 
@@ -125,15 +142,20 @@ void DailyLookupCache::save_today(const std::string& date_yyyymmdd, const symbol
         {
             const DailyLookup& daily_lookup = by_symbol_[symbol];
 
-            if (daily_lookup.date_yyyymmdd != date_yyyymmdd)
+            if (daily_lookup.date_yyyymmdd == date_yyyymmdd)
             {
-                continue;
+                today.emplace_back(symbol, daily_lookup);
             }
-
-            document[symbols.name(symbol).string()] = nlohmann::json::array({daily_lookup.bars, daily_lookup.average_5, daily_lookup.average_10, daily_lookup.average_20,
-                                                 daily_lookup.close, daily_lookup.r5, daily_lookup.r10, daily_lookup.r20,
-                                                 daily_lookup.atr_percent, daily_lookup.volume});
         }
+    }
+
+    nlohmann::json document = nlohmann::json::object();
+
+    for (const auto& [symbol, daily_lookup] : today)
+    {
+        document[symbols.name(symbol).string()] = nlohmann::json::array({daily_lookup.bars, daily_lookup.average_5, daily_lookup.average_10, daily_lookup.average_20,
+                                             daily_lookup.close, daily_lookup.roll_5, daily_lookup.roll_10, daily_lookup.roll_20,
+                                             daily_lookup.atr_percent, daily_lookup.volume});
     }
 
     const std::string path = cache_path(date_yyyymmdd);
@@ -220,10 +242,16 @@ constexpr int kDailyLookupSleepPaperMs = 600; // 모의계좌 — 키 한도 초
 // 근거: 두 한도는 api/KisRateBucket.h bucket_published_limit 주석 참고.
 constexpr int kWarmBoardWaitSec        = 120; // 초, 장 전 데우기가 시세판 목록·첫 판을 기다리는 상한
 constexpr int kWarmProgressEvery       = 250; // 종목, 장 전 데우기 진행 로그 간격
+constexpr int kMinDailyBars            = 20;  // 봉, 이보다 짧으면 정배열·ATR을 재지 않는다
+constexpr int kSma5Period              = 5;
+constexpr int kSma10Period             = 10;
+constexpr int kSma20Period             = 20;
+constexpr int kAtrPeriod               = 14;
+constexpr unsigned long long kNanosecondsPerMillisecond = 1000000ULL;
 
 // 후보 하나의 일봉을 받아 SMA·롤오프·ATR로 요약한다. 20봉 미만이면 bars만 채워 돌려준다.
 //  조회 간격은 호출자가 책임진다.
-DailyLookup fetch_daily_lookup(KisClient& kis, const DevScanCfg& config, const std::string& ticker,
+DailyLookup fetch_daily_lookup(KisClient& kis, const DeviationScaleScanConfig& config, const std::string& ticker,
                        const std::string& date_yyyymmdd)
 {
     auto daily_ohlcv = kis.get_daily_ohlcv(ticker, config.align_daily_n);
@@ -231,7 +259,7 @@ DailyLookup fetch_daily_lookup(KisClient& kis, const DevScanCfg& config, const s
     daily_lookup.date_yyyymmdd  = date_yyyymmdd;
     daily_lookup.bars = static_cast<int>(daily_ohlcv.size());
 
-    if (daily_lookup.bars < 20)
+    if (daily_lookup.bars < kMinDailyBars)
     {
         return daily_lookup;
     }
@@ -247,9 +275,12 @@ DailyLookup fetch_daily_lookup(KisClient& kis, const DevScanCfg& config, const s
 
         return sum / count;
     };
-    daily_lookup.average_5 = simple_moving_average(5); daily_lookup.average_10 = simple_moving_average(10); daily_lookup.average_20 = simple_moving_average(20);
-    daily_lookup.r5 = daily_ohlcv[4].close; daily_lookup.r10 = daily_ohlcv[9].close;
-    daily_lookup.r20 = daily_ohlcv[19].close;
+    daily_lookup.average_5  = simple_moving_average(kSma5Period);
+    daily_lookup.average_10 = simple_moving_average(kSma10Period);
+    daily_lookup.average_20 = simple_moving_average(kSma20Period);
+    daily_lookup.roll_5  = daily_ohlcv[kSma5Period - 1].close;  // 오늘을 접어 넣을 때 창 밖으로 나가는 봉
+    daily_lookup.roll_10 = daily_ohlcv[kSma10Period - 1].close;
+    daily_lookup.roll_20 = daily_ohlcv[kSma20Period - 1].close;
     daily_lookup.close = daily_ohlcv[0].close;
     daily_lookup.volume = static_cast<double>(daily_ohlcv[0].volume);
     // [formula] ATR(14) — True Range = max(고−저, |고−전일종가|, |저−전일종가|)의 14봉 평균.
@@ -257,7 +288,7 @@ DailyLookup fetch_daily_lookup(KisClient& kis, const DevScanCfg& config, const s
     double true_range_sum = 0.0;
     int    true_range_count   = 0;
 
-    for (size_t index = 0; index + 1 < daily_ohlcv.size() && true_range_count < 14; ++index, ++true_range_count)
+    for (size_t index = 0; index + 1 < daily_ohlcv.size() && true_range_count < kAtrPeriod; ++index, ++true_range_count)
     {
         const double previous_close = daily_ohlcv[index + 1].close;
         const double high = daily_ohlcv[index].high, low = daily_ohlcv[index].low;
@@ -292,6 +323,12 @@ class DailyWarmer
 public:
     ~DailyWarmer()
     {
+        stop();
+    }
+
+    // 스레드를 멈추고 기다린다. 다시 띄우지는 않는다(started_는 그대로 둔다).
+    void stop()
+    {
         stop_.store(true, std::memory_order_release);
 
         if (worker_.joinable())
@@ -300,12 +337,14 @@ public:
         }
     }
 
-    void start(const KisConfig& kis_config, const DevScanCfg& config)
+    void start(const MarketBoard& board, const KisConfig& kis_config, const DeviationScaleScanConfig& config)
     {
         if (started_.exchange(true))
         {
             return;
         }
+
+        board_ = &board;
 
         // 장 전 한 번 도는 데우기라 던지면 로그를 남기고 끝낸다. 다시 돌리면 이미 받은 종목을 처음부터 또 조회해
         //  키 한도를 다시 쓴다. 못 받은 종목은 장중 조회가 채운다.
@@ -407,7 +446,7 @@ private:
         return cached;
     }
 
-    void run(const KisConfig& kis_config, const DevScanCfg& config)
+    void run(const KisConfig& kis_config, const DeviationScaleScanConfig& config)
     {
         thread_name::set_current("DailyWarm");
         const int until = config.daily_warm_until_hhmm;
@@ -419,7 +458,7 @@ private:
         }
 
         // 시세판이 목록(요청 44건)과 첫 판을 받는 데 몇 초 걸린다.
-        MarketBoard& board = MarketBoard::instance();
+        const MarketBoard& board = *board_;
 
         if (!wait_for(kWarmBoardWaitSec, [&board]
         {
@@ -531,6 +570,7 @@ private:
 
     std::atomic<bool>                                started_{false};
     std::atomic<bool>                                stop_{false};
+    const MarketBoard*                               board_ = nullptr; // start()가 스레드를 띄우기 전에 정한다
     std::thread                                      worker_;
     std::mutex                                       mutex_; // ready_만 지킨다
     std::vector<std::pair<std::string, DailyLookup>> ready_;
@@ -545,7 +585,7 @@ int drain_daily_warm(const std::string& date_yyyymmdd, symbol::SymbolTable& symb
     return g_daily_warmer.drain(date_yyyymmdd, symbols);
 }
 
-std::vector<Features> lookup_and_filter(KisClient& kis, const DevScanCfg& config, const std::string& date_yyyymmdd,
+std::vector<Features> lookup_and_filter(KisClient& kis, const DeviationScaleScanConfig& config, const std::string& date_yyyymmdd,
                                    const CandidateSet& candidates, const QuoteTable& quotes,
                                    const MarketGate& gate, LookupStats& statistics, symbol::SymbolTable& symbols)
 {
@@ -609,7 +649,7 @@ std::vector<Features> lookup_and_filter(KisClient& kis, const DevScanCfg& config
             statistics.rest_ms += std::chrono::duration_cast<std::chrono::milliseconds>(
                                  std::chrono::steady_clock::now() - fetch_start).count();
             statistics.wait_ms += static_cast<long long>(
-                (KisClient::rate_wait_ns_this_thread() - wait_before_ns) / 1000000ULL);
+                (KisClient::rate_wait_ns_this_thread() - wait_before_ns) / kNanosecondsPerMillisecond);
             ++statistics.fetched;
             g_lookup_cache.put(symbol, daily_lookup);
         }
@@ -620,7 +660,7 @@ std::vector<Features> lookup_and_filter(KisClient& kis, const DevScanCfg& config
 
         ++statistics.looked_up;
 
-        if (daily_lookup.bars < 20)
+        if (daily_lookup.bars < kMinDailyBars)
         {
             ++statistics.short_bars;
             continue;
@@ -641,7 +681,7 @@ std::vector<Features> lookup_and_filter(KisClient& kis, const DevScanCfg& config
         quant::moving_average::SimpleMovingAverages previous;
         previous.average_5 = daily_lookup.average_5; previous.average_10 = daily_lookup.average_10; previous.average_20 = daily_lookup.average_20;
         const quant::moving_average::SimpleMovingAverages moving_average =
-            quant::moving_average::fold_today(previous, daily_lookup.r5, daily_lookup.r10, daily_lookup.r20, price);
+            quant::moving_average::fold_today(previous, daily_lookup.roll_5, daily_lookup.roll_10, daily_lookup.roll_20, price);
         // average_10 은 정배열 판정(aligned) 안에서만 쓰여 여기서는 꺼내지 않는다.
         const double average_5  = moving_average.average_5;
         const double average_20 = moving_average.average_20;
@@ -653,16 +693,16 @@ std::vector<Features> lookup_and_filter(KisClient& kis, const DevScanCfg& config
         }
 
         double trend = average_20 > 0.0 ? (average_5 - average_20) / average_20 : 0.0;   // 추세강도(정배열 기울기, D-141부터 20일 기준)
-        double pull  = average_20 > 0.0 ? (price - average_20) / average_20 : 0.0;   // 눌림깊이(음수=SMA20 아래)
+        double pullback = average_20 > 0.0 ? (price - average_20) / average_20 : 0.0;   // 눌림깊이(음수=SMA20 아래)
 
         // 과확장 컷 — 이격 상한 초과는 존 밴드 진입이 불가한 폭등주라 슬롯만 낭비한다.
-        if (config.max_deviation_percent > 0.0 && pull > config.max_deviation_percent)
+        if (config.max_deviation_percent > 0.0 && pullback > config.max_deviation_percent)
         {
-            ++statistics.overext;
+            ++statistics.overextended;
             continue;
         }
 
-        passed.push_back({symbol, trend, pull, daily_lookup.atr_percent, turnover, 0.0});
+        passed.push_back({symbol, trend, pullback, daily_lookup.atr_percent, turnover, 0.0});
         ++statistics.aligned;
     }
 
@@ -679,8 +719,13 @@ std::vector<Features> lookup_and_filter(KisClient& kis, const DevScanCfg& config
 
 namespace universe
 {
-void start_daily_warm(const KisConfig& kis_config, const DevScanCfg& config)
+void start_daily_warm(const MarketBoard& board, const KisConfig& kis_config, const DeviationScaleScanConfig& config)
 {
-    detail::g_daily_warmer.start(kis_config, config);
+    detail::g_daily_warmer.start(board, kis_config, config);
+}
+
+void stop_daily_warm()
+{
+    detail::g_daily_warmer.stop();
 }
 } // namespace universe

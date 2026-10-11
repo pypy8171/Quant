@@ -7,18 +7,11 @@
 #include "core/Types.h"
 #include "utils/EtfFilter.h"
 #include "utils/Logger.h"
-#include <algorithm>
-#include <functional>
 #include <chrono>
-#include <cmath>
 #include <ctime>
-#include <filesystem>
-#include <fstream>
-#include <mutex>
+#include <memory>
 #include <nlohmann/json.hpp>
 #include <string>
-#include <string_view>
-#include <thread>
 #include <vector>
 
 namespace universe
@@ -28,7 +21,7 @@ using namespace detail;
 namespace
 {
 // 거래일 YYYYMMDD — KST 고정(머신 TZ 무관). 이름은 호출부와 맞춰 둔다.
-std::string local_ymd()
+std::string local_date_yyyymmdd()
 {
     return kst::date_yyyymmdd(std::time(nullptr));
 }
@@ -37,8 +30,8 @@ std::string local_ymd()
 // DeviationScale 유니버스 선정. 단계는 넷이다 — 후보 수집과 점수는 시세판 표·일봉 캐시만 보고(D-153),
 //  KIS REST는 지수 게이트와 캐시에 없는 종목의 일봉 조회뿐이다.
 //  스캔 스레드에서만 부른다. 실패는 예외 대신 빈 목록으로 돌려준다.
-ScanResult scan_devscale(KisClient& kis, const DevScanCfg& config, symbol::SymbolTable& symbols,
-                         QuoteTable& quotes)
+ScanResult scan_devscale(KisClient& kis, const DeviationScaleScanConfig& config, const MarketBoard& board,
+                         symbol::SymbolTable& symbols, QuoteTable& quotes)
 {
     // 계측(문항 2): 단계별 경과를 요약 로그에 붙인다 — "일봉조회=0인데 40초"가 어느 단계인지 가르기 위해.
     using scan_clock = std::chrono::steady_clock;
@@ -48,7 +41,7 @@ ScanResult scan_devscale(KisClient& kis, const DevScanCfg& config, symbol::Symbo
         return std::chrono::duration_cast<std::chrono::milliseconds>(scan_clock::now() - from).count();
     };
 
-    const std::string date_yyyymmdd = local_ymd();   // 일봉 캐시의 거래일 키
+    const std::string date_yyyymmdd = local_date_yyyymmdd();   // 일봉 캐시의 거래일 키
     g_lookup_cache.load_today(date_yyyymmdd, symbols); // 장중 재기동 시 일봉 재조회를 막는다
 
     // 장 전 데우기 스레드가 받아 둔 일봉을 옮긴다. 옮긴 게 있으면 파일에도 남겨 재기동 때 다시 받지 않는다.
@@ -57,12 +50,12 @@ ScanResult scan_devscale(KisClient& kis, const DevScanCfg& config, symbol::Symbo
         g_lookup_cache.save_today(date_yyyymmdd, symbols);
     }
 
-    const std::shared_ptr<const BoardSnapshot> board =
-        config.market_board ? MarketBoard::instance().snapshot() : nullptr;
+    const MarketBoard* const                   active_board = config.market_board ? &board : nullptr;
+    const std::shared_ptr<const BoardSnapshot> snapshot     = active_board ? active_board->snapshot() : nullptr;
 
-    if (board)
+    if (snapshot)
     {
-        load_quote_table(*board, quotes, symbols);
+        load_quote_table(*snapshot, quotes, symbols);
     }
     else
     {
@@ -83,7 +76,7 @@ ScanResult scan_devscale(KisClient& kis, const DevScanCfg& config, symbol::Symbo
 
     CandidateSet candidates(symbols.capacity());
     const auto   collect_start = scan_clock::now();
-    collect_candidates(config, date_yyyymmdd, quotes, candidates, symbols);
+    collect_candidates(config, active_board, date_yyyymmdd, quotes, candidates, symbols);
     const long long collect_ms = ms_since(collect_start);   // 시세 표·일봉 캐시만 본다(REST 없음)
 
     if (!config.require_aligned)
@@ -119,7 +112,7 @@ ScanResult scan_devscale(KisClient& kis, const DevScanCfg& config, symbol::Symbo
              " 정배열=" + std::to_string(statistics.aligned) +
              " 역배열컷=" + std::to_string(statistics.misaligned) +
              " 데이터부족(<20봉)=" + std::to_string(statistics.short_bars) +
-             " 과확장컷=" + std::to_string(statistics.overext) +
+             " 과확장컷=" + std::to_string(statistics.overextended) +
              " 거래대금미달=" + std::to_string(statistics.illiquid) +
              " 예산소진=" + std::to_string(statistics.budget_skipped) +
              " 등록=" + std::to_string(out.symbols.size()));

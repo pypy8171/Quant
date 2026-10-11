@@ -3,9 +3,13 @@
 #include "universe/MarketBoard.h"
 
 #include <cassert>
+#include <cstdint>
 #include <cstdio>
+#include <ctime>
+#include <memory>
 #include <nlohmann/json.hpp>
 #include <string>
+#include <vector>
 
 using namespace universe;
 
@@ -180,7 +184,8 @@ void check_universe_file_schema()
     RankedUniverse ranked;
     ranked.ranked_at = 1790000000; // 2026-09-21 KST 무렵
     ranked.stocks    = {{"005930", "삼성전자", 84500.0, "KOSPI"}};
-    ranked.listing   = {{"005930", "삼성전자", "KOSPI"}, {"100001", "", "KOSDAQ"}};
+    ranked.listing   = std::make_shared<const std::vector<ListedStock>>(
+        std::vector<ListedStock>{{"005930", "삼성전자", "KOSPI"}, {"100001", "", "KOSDAQ"}});
 
     const nlohmann::json document = nlohmann::json::parse(universe_file_text(ranked, "naver-live 0901"));
     assert(document["schema"] == 1);
@@ -196,6 +201,39 @@ void check_universe_file_schema()
     assert(document["name_map"].contains("005930"));
     assert(!document["name_map"].contains("100001")); // 빈 이름은 싣지 않는다
     assert(document.contains("scanned_at"));
+}
+
+// 재랭킹 결과는 종목 목록을 복사하지 않고 같은 객체를 나눠 쥔다. 목록을 나눠 쥔 두 결과는 같은 사전을 내고,
+//  목록이 아직 없으면(nullptr) 사전이 비어 있다.
+void check_listing_shared_between_ranks()
+{
+    const auto listing = std::make_shared<const std::vector<ListedStock>>(
+        std::vector<ListedStock>{{"005930", "삼성전자", "KOSPI"}, {"100001", "", "KOSDAQ"}});
+
+    RankedUniverse first;
+    first.ranked_at = 1790000000;
+    first.stocks    = {{"005930", "삼성전자", 84500.0, "KOSPI"}};
+    first.listing   = listing;
+
+    RankedUniverse second = first; // 재랭킹 한 번 더 — 목록 포인터만 복사된다
+    second.stocks         = {{"100001", "", 1000.0, "KOSDAQ"}};
+
+    assert(first.listing.get() == second.listing.get());
+    assert(listing.use_count() == 3);
+
+    const nlohmann::json first_document  = nlohmann::json::parse(universe_file_text(first, "x"));
+    const nlohmann::json second_document = nlohmann::json::parse(universe_file_text(second, "x"));
+    assert(first_document["market_map"] == second_document["market_map"]);
+    assert(first_document["name_map"] == second_document["name_map"]);
+    assert(first_document["market_map"].size() == 2);
+
+    RankedUniverse empty_listing;
+    empty_listing.ranked_at = 1790000000;
+    empty_listing.stocks    = first.stocks;
+    const nlohmann::json empty_document = nlohmann::json::parse(universe_file_text(empty_listing, "x"));
+    assert(empty_document["market_map"].empty());
+    assert(empty_document["name_map"].empty());
+    assert(empty_document["count"] == 1);
 }
 
 } // namespace
@@ -245,6 +283,7 @@ int main()
     check_rank_per_market_union();
     check_turnover_filled_half_rule();
     check_universe_file_schema();
+    check_listing_shared_between_ranks();
     check_minute_due_window();
     check_minute_rows_format();
     std::puts("test_market_board: ok");

@@ -1,16 +1,19 @@
 // KIS REST 디코더(api/KisRestDecode.h) 단위 테스트. 분봉: 숫자 필드 실패 처리·시각 변환·페이지 병합(중복·날짜
 // 필터·커서)·interval 집계(OHLC 병합·정렬·bar_index·count 상한). 잔고: 행 필터·주문가능수량 "모름"·요약 폴백·
-// 배열/객체 output2. 전광판: 키 후보 순서·빈 코드. 미체결: 한도 초과·빈 본문은 실패, 행 필터·커서. 헤더 전용이라 HTTP·인증 링크 없이 돈다.
+// 배열/객체 output2. 전광판: 키 후보 순서·빈 코드. 미체결: 한도 초과·빈 본문은 실패, 행 필터·커서. HTTP·인증 링크 없이 돈다.
 // 관련 결정: D-051(분봉), D-059(잔고·전광판·KisResult).
 #include "api/KisRestDecode.h"
 #include "core/KstTime.h"
 #include "api/KisResult.h"
 
-#include <cassert>
+#include <chrono>
+#include <cstdint>
 #include <iostream>
 #include <nlohmann/json.hpp>
+#include <optional>
 #include <string>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 using nlohmann::json;
@@ -32,11 +35,11 @@ int g_pass = 0;
     } while (0)
 
 // output2 한 행. KIS는 숫자도 문자열로 준다.
-json row(const char* date, const char* hour, const char* output, const char* header, const char* line, const char* code, const char* value)
+json row(const char* date, const char* hour, const char* open, const char* high, const char* low, const char* close, const char* volume)
 {
-    return json{{"stck_bsop_date", date}, {"stck_cntg_hour", hour}, {"stck_oprc", output},
-                {"stck_hgpr", header},         {"stck_lwpr", line},         {"stck_prpr", code},
-                {"cntg_vol", value}};
+    return json{{"stck_bsop_date", date}, {"stck_cntg_hour", hour}, {"stck_oprc", open},
+                {"stck_hgpr", high},         {"stck_lwpr", low},         {"stck_prpr", close},
+                {"cntg_vol", volume}};
 }
 
 int test_number()
@@ -134,16 +137,16 @@ int test_aggregate()
     CHECK(one.size() == 1 && one[0].close == 128);
 
     // interval 1은 원본 그대로(최신→과거).
-    auto ident = kis_rest::aggregate_minutes(raw_minutes, "005930", 1, 10);
-    CHECK(ident.size() == 6 && ident[0].close == 128 && ident[5].close == 101);
+    auto aggregated = kis_rest::aggregate_minutes(raw_minutes, "005930", 1, 10);
+    CHECK(aggregated.size() == 6 && aggregated[0].close == 128 && aggregated[5].close == 101);
 
     // 날짜가 다르면 같은 버킷 번호라도 합치지 않는다.
     std::vector<kis_rest::RawMinute> two_days = {
         {"20260910", "090000", 1, 1, 1, 1, 1},
         {"20260911", "090000", 2, 2, 2, 2, 2},
     };
-    auto aggregated = kis_rest::aggregate_minutes(two_days, "005930", 3, 10);
-    CHECK(aggregated.size() == 2 && aggregated[0].close == 2 && aggregated[1].close == 1);
+    auto two_day_bars = kis_rest::aggregate_minutes(two_days, "005930", 3, 10);
+    CHECK(two_day_bars.size() == 2 && two_day_bars[0].close == 2 && two_day_bars[1].close == 1);
 
     // 시각이 깨진 행은 건너뛴다. 빈 입력·interval 0·count 0은 빈 결과(0으로 나누지 않는다).
     std::vector<kis_rest::RawMinute> bad = {{"20260911", "xx", 1, 1, 1, 1, 1}};

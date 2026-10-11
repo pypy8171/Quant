@@ -28,7 +28,7 @@ struct PlanRow
     std::string name;
     Action      action          = Action::Hold;
     std::string signal_date;            // YYYY-MM-DD, BUY_OPEN 만
-    std::string d0;                     // YYYY-MM-DD, 급등일. 같은 (종목, d0) 신호는 한 번만 산다
+    std::string surge_date;                   // YYYY-MM-DD, 급등일. 같은 (종목, d0) 신호는 한 번만 산다
     double      stop_basis_low  = 0.0;  // 관찰 중 최저 저가(원)
     double      stop_percent    = 0.0;  // 손절 = 관찰 최저 저가 × (1 − 이 값/100)
     double      take_percent    = 0.0;  // 익절 = 실제 매수가 × (1 + 이 값/100)

@@ -2,6 +2,13 @@
 //  공용 준비는 test_order_router_support.h, 실행 순서는 test_order_router.cpp의 main.
 #include "test_order_router_support.h"
 
+#include <atomic>
+#include <cstdint>
+#include <filesystem>
+#include <string>
+#include <system_error>
+#include <thread>
+
 // ─── 이번 세션 주문을 닫는 취소가 저널에 실제 주문번호로 남는다 ─────────────────────
 //  close_session_order(청산차단 취소·기동 취소)는 CANCEL 저널의 주문번호를 digits_to_number("ORD-000001")로 적어
 //  늘 0이었다. 리플레이는 번호 0 레코드를 미결 대조에 쓰지 않아, 재기동 때 이미 취소한 주문이 미결로 되살아났다.

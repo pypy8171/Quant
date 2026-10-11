@@ -1,6 +1,7 @@
 #include "strategy/MACrossStrategy.h"
 
-// placeholder
+#include <optional>
+#include <string>
 
 std::string MACrossStrategy::describe() const
 {

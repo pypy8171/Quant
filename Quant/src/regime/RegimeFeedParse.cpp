@@ -8,7 +8,12 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdlib>
+#include <ctime>
+#include <optional>
+#include <string>
+#include <string_view>
 #include <vector>
 
 namespace regime_feed
@@ -30,6 +35,8 @@ const nlohmann::json* child(const nlohmann::json& node, const char* key)
 } // namespace detail
 
 using detail::child;
+using detail::kVotingSymbols;
+using detail::VotingSymbol;
 
 namespace
 {
@@ -93,12 +100,26 @@ const nlohmann::json* regular_period(const nlohmann::json& result)
     return period ? child(*period, "regular") : nullptr;
 }
 
+// 네이버 지수 코드(itemCode)에 맞는 지표. 표결 표에 없는 코드면 비움.
+std::optional<Indicator> indicator_of_naver_code(std::string_view code)
+{
+    for (const VotingSymbol& symbol : kVotingSymbols)
+    {
+        if (!symbol.naver_code.empty() && symbol.naver_code == code)
+        {
+            return symbol.key;
+        }
+    }
+
+    return std::nullopt;
+}
+
 } // namespace
 
-std::map<std::string, Change> parse_naver_index(std::string_view body, std::time_t now_utc)
+Changes parse_naver_index(std::string_view body, std::time_t now_utc)
 {
-    std::map<std::string, Change> indexes;
-    const std::string             today = kst::datetime(now_utc).substr(0, 10);
+    Changes           indexes;
+    const std::string today = kst::datetime(now_utc).substr(0, 10);
     const nlohmann::json document = nlohmann::json::parse(body, nullptr, false);
     const nlohmann::json* datas   = child(document, "datas");
 
@@ -114,6 +135,14 @@ std::map<std::string, Change> parse_naver_index(std::string_view body, std::time
         const std::optional<double> price = number_field(row, "closePriceRaw");
 
         if (code == nullptr || !code->is_string() || !percent || !price)
+        {
+            continue;
+        }
+
+        // 표결 표에 네이버 코드가 있는 지표만 받는다. 다른 코드는 쓰는 곳이 없어 버린다.
+        const std::optional<Indicator> indicator = indicator_of_naver_code(code->get_ref<const std::string&>());
+
+        if (!indicator)
         {
             continue;
         }
@@ -140,7 +169,7 @@ std::map<std::string, Change> parse_naver_index(std::string_view body, std::time
             change.premarket    = true;
         }
 
-        indexes[code->get<std::string>()] = change;
+        indexes[*indicator] = change;
     }
 
     return indexes;

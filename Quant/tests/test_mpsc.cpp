@@ -14,7 +14,6 @@
 #include "core/MpscQueue.h"
 #include "core/MutexQueue.h"
 
-#include <atomic>
 #include <cstdio>
 #include <thread>
 #include <vector>
@@ -26,9 +25,9 @@ struct Message
 };
 
 template <typename Queue>
-bool run_test(const char* name, int number_producers, int per_producer, size_t capture)
+bool run_test(const char* name, int number_producers, int per_producer, size_t capacity)
 {
-    Queue queue(capture);
+    Queue queue(capacity);
     const long long total = static_cast<long long>(number_producers) * per_producer;
 
     // ── 생산자 N개: 각자 (producer_id, 0..M-1) 를 순서대로 push (가득 차면 재시도)

@@ -2,6 +2,18 @@
 //  ETF 접두사·미국 종목 폴백 리스트는 config JSON을 먼저 읽는다. [why D-048] 파일 분할 경위.
 #include "KisClientInternal.h"
 
+#include <algorithm>
+#include <chrono>
+#include <cstdint>
+#include <cstdlib>
+#include <fstream>
+#include <functional>
+#include <iterator>
+#include <string>
+#include <thread>
+#include <unordered_set>
+#include <vector>
+
 // ═══════════════════════════════════════════════════════════════════════════
 //  하드코딩 리스트 externalize — 외부 JSON에서 로드, 부재·오류 시 내장 폴백.
 //  프로젝트 패턴(universe_scan.json)과 동일: ifstream + 파싱 + LOG_WARN 폴백.
@@ -12,6 +24,11 @@ namespace
 {
 // 순위 응답 원문을 로그에 남길 길이 — rt_cd와 첫 몇 행을 보기에 넉넉하다.
 constexpr std::string::size_type kRankingPreviewChars = 400;
+// 파싱이 0건이거나 오류일 때 남기는 원문 길이, 유니버스 응답의 디버그 길이.
+constexpr std::string::size_type kRankingRawPreviewChars = 500;
+constexpr std::string::size_type kResponsePreviewChars   = 300;
+// 종목별 조회 사이에 쉬는 시간 — KIS 초당 거래건수 제한(1req/200ms) 회피.
+constexpr std::chrono::milliseconds kPerSymbolPause{200};
 
 // ETF/ETN 제외용 이름 접두사 — Quant/config/etf_prefixes.json 미존재 시 폴백.
 const std::vector<std::string> ETF_PREFIXES_FALLBACK = {
@@ -509,12 +526,12 @@ std::vector<KisClient::EstInvestorFlow> KisClient::fetch_est_investor_ranking(
 
         if (result.empty())
         {
-            LOG_WARN("[KIS] 당일 수급 랭킹 파싱 0건 — 스키마 확인용 원문: " + response.substr(0, 500));
+            LOG_WARN("[KIS] 당일 수급 랭킹 파싱 0건 — 스키마 확인용 원문: " + response.substr(0, kRankingRawPreviewChars));
         }
     }
     catch (const std::exception& exception)
     {
-        LOG_ERROR("[KIS] 당일 수급 랭킹 파싱 오류: " + std::string(exception.what()) + " 원문: " + response.substr(0, 300));
+        LOG_ERROR("[KIS] 당일 수급 랭킹 파싱 오류: " + std::string(exception.what()) + " 원문: " + response.substr(0, kResponsePreviewChars));
     }
 
     return result;
@@ -551,7 +568,7 @@ std::vector<std::string> KisClient::fetch_universe_by_pbr(double max_pbr, const 
         return {};
     }
 
-    LOG_DEBUG("[KIS] Universe(" + market_div + ") 응답: " + response.substr(0, 300));
+    LOG_DEBUG("[KIS] Universe(" + market_div + ") 응답: " + response.substr(0, kResponsePreviewChars));
 
     std::vector<std::string> result;
 
@@ -643,8 +660,7 @@ std::vector<std::string> KisClient::fetch_us_universe_by_pbr(double max_pbr, con
         }
 
         result.push_back(ticker);
-        // KIS 초당 거래건수 제한 회피 (1req/200ms)
-        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        std::this_thread::sleep_for(kPerSymbolPause);
     }
 
     LOG_INFO("[KIS-US] Universe(" + exchange + ") PBR<=" + std::to_string(max_pbr) +

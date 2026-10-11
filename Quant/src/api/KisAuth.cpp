@@ -2,6 +2,14 @@
 //  발급 HTTP 왕복은 refresh_mutex_만 쥔 채 돈다. [why D-073]
 //  [why D-048] 파일 분할 경위.
 #include "KisClientInternal.h"
+
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
+#include <ctime>
+#include <fstream>
+#include <mutex>
+#include <string>
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -11,6 +19,9 @@
 #include <curl/curl.h> // curl_global_init/cleanup — 프로세스당 한 번
 #include <unistd.h>    // getpid — 토큰 캐시 tmp 이름 구분
 #endif
+
+// struct tm 의 tm_year 는 1900년 기준 햇수다.
+static constexpr int kTmYearBase = 1900;
 
 // 토큰 캐시 tmp 파일 이름을 프로세스마다 다르게 하려고 쓴다. [why D-122]
 static unsigned long current_process_id()
@@ -121,7 +132,7 @@ bool KisClient::issue_token(std::chrono::seconds reuse_margin)
 
                     if (sscanf(expires.c_str(), "%d-%d-%d %d:%d:%d", &year, &month, &day, &hour, &minute, &second) == 6)
                     {
-                        tm_exp.tm_year = year - 1900;
+                        tm_exp.tm_year = year - kTmYearBase;
                         tm_exp.tm_mon = month - 1;
                         tm_exp.tm_mday = day;
                         tm_exp.tm_hour = hour;
@@ -179,7 +190,7 @@ bool KisClient::issue_token(std::chrono::seconds reuse_margin)
 
             if (sscanf(expires.c_str(), "%d-%d-%d %d:%d:%d", &year, &month, &day, &hour, &minute, &second) == 6)
             {
-                tm_exp.tm_year = year - 1900;
+                tm_exp.tm_year = year - kTmYearBase;
                 tm_exp.tm_mon = month - 1;
                 tm_exp.tm_mday = day;
                 tm_exp.tm_hour = hour;

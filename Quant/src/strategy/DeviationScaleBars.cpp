@@ -1,8 +1,16 @@
 // strategy/DeviationScaleBars.cpp — 이격 분할 전략의 봉 준비: 체결 집계기·판단 봉·프리페치(일봉·분봉·자본)·봉 시각.
 //  관련 결정: D-035·D-074(자본 조회 한도)·D-069·D-072(체결 봉)·D-115(프리페치 풀).
 #include "strategy/DeviationScaleStrategy.h"
+#include <chrono>
 #include <condition_variable>
+#include <cstdint>
 #include <map>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <string>
+#include <utility>
+#include <vector>
 
 namespace
 {
@@ -61,7 +69,7 @@ DeviationScaleStrategy::load_decision_bars(const TradeData& trade, double curren
     int bars_bucket = -1;
     uint64_t bars_version = 0;
     {
-        std::lock_guard<std::mutex> lock(snap_mutex_);
+        std::lock_guard<std::mutex> lock(snapshot_mutex_);
 
         if (!snapshot_.daily)
         {
@@ -86,7 +94,7 @@ DeviationScaleStrategy::load_decision_bars(const TradeData& trade, double curren
     if (websocket_bars_)
     {
         // 날짜가 바뀌면 집계기를 비운다 — REST 분봉은 당일치만 돌려주므로 어제 봉이 SMA에 섞이면 뜻이 다르다.
-        std::string today = kst_ymd();
+        std::string today = kst_date_yyyymmdd();
 
         if (aggregator_day_ != today)
         {
@@ -177,25 +185,25 @@ void DeviationScaleStrategy::prefetch_once()
     //  창은 08:50~15:35로 장 마감 청산(15:15)까지 덮는다.
     //  근거: 한도 초과가 500으로 오는 것은 실측 — DAILY_LOG.md 2026-09-04 항목(분봉 호출량이 실전 한도의 70%).
     const int hhmm = kst_hhmm(std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()));
-    const int wday = kst_tm().tm_wday;
-    const bool weekday = wday >= 1 && wday <= 5;
+    const int weekday_number = kst_tm().tm_wday;
+    const bool weekday = weekday_number >= 1 && weekday_number <= 5;
     const bool in_session = weekday && hhmm >= kPrefetchWindowOpenHhmm && hhmm <= kPrefetchWindowCloseHhmm;
 
     // 창 밖이라도 스냅샷이 아직 없으면 한 번은 받는다. 애프터마켓(16:00~20:00)에 재기동하면 창 안에서 받을 기회가
     //  없어 일봉 미준비로 판단을 계속 건너뛰고, 다시 맡은 보유분에 익절·손절이 걸리지 않았다(10-01 실계좌 082270·016360).
     bool first_snapshot_missing;
     {
-        std::lock_guard<std::mutex> lock(snap_mutex_);
+        std::lock_guard<std::mutex> lock(snapshot_mutex_);
         first_snapshot_missing = !snapshot_.daily || !snapshot_.bars;
     }
 
     if (kis_ && weekday && (in_session || first_snapshot_missing))
     {
         // 일봉·자본: 날짜 바뀌면 1회 갱신(장중엔 사실상 1일 1회).
-        std::string today = kst_ymd();
+        std::string today = kst_date_yyyymmdd();
         bool need_daily;
         {
-            std::lock_guard<std::mutex> lock(snap_mutex_);
+            std::lock_guard<std::mutex> lock(snapshot_mutex_);
             need_daily = !snapshot_.daily || snapshot_.daily_date != today;
         }
 
@@ -209,7 +217,7 @@ void DeviationScaleStrategy::prefetch_once()
             if (!daily_ohlcv.empty())
             {
                 double equity = fetch_equity();
-                std::lock_guard<std::mutex> lock(snap_mutex_);
+                std::lock_guard<std::mutex> lock(snapshot_mutex_);
                 snapshot_.daily = std::make_shared<const std::vector<MarketData>>(std::move(daily_ohlcv));
                 snapshot_.daily_date = std::move(today);
                 snapshot_.equity = equity;
@@ -226,7 +234,7 @@ void DeviationScaleStrategy::prefetch_once()
         const int bucket = kst_bar_bucket(parameters_.interval_min);
         bool need_bars;
         {
-            std::lock_guard<std::mutex> lock(snap_mutex_);
+            std::lock_guard<std::mutex> lock(snapshot_mutex_);
             need_bars = !snapshot_.bars || snapshot_.bars_bucket != bucket;
 
             if (need_bars && websocket_bars_ && snapshot_.bars && !seed_wanted_.load(std::memory_order_relaxed))
@@ -253,7 +261,7 @@ void DeviationScaleStrategy::prefetch_once()
 
             if (!bars.empty())
             {
-                std::lock_guard<std::mutex> lock(snap_mutex_);
+                std::lock_guard<std::mutex> lock(snapshot_mutex_);
                 snapshot_.bars = std::make_shared<const std::vector<MarketData>>(std::move(bars));
                 snapshot_.bars_bucket = bucket;
                 ++snapshot_.bars_version;
@@ -276,7 +284,7 @@ double DeviationScaleStrategy::fetch_equity()
 {
     constexpr std::chrono::seconds kRetryCooldown{60}; // 조회 실패 뒤 다시 부르지 않는 시간
 
-    std::string today = kst_ymd();
+    std::string today = kst_date_yyyymmdd();
 
     {
         std::unique_lock<std::mutex> lock(g_equity_cache.mutex);

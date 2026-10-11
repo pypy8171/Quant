@@ -1,6 +1,13 @@
 // test_engine 공용 준비의 몸통 — 단언 수와 시험용 피드·전략의 메서드.
 #include "test_engine_support.h"
 
+#include <cstdint>
+#include <mutex>
+#include <optional>
+#include <string>
+#include <utility>
+#include <vector>
+
 namespace engine_test
 {
 
@@ -191,7 +198,7 @@ void BuyEachOnce::on_start()
         symbol_ids_.push_back(symbol_of(ticker));
     }
 
-    fired_.assign(tickers_.size(), false);
+    fired_.assign(tickers_.size(), 0);
 }
 
 std::vector<WatchSpec> BuyEachOnce::get_watch_specifications() const
@@ -217,7 +224,7 @@ std::optional<OrderSignal> BuyEachOnce::on_trade(const TradeData& trade)
             continue;
         }
 
-        fired_[index] = true;
+        fired_[index] = 1;
         OrderSignal signal;
         signal.ticker          = tickers_[index];
         signal.symbol_id       = trade.symbol_id;

@@ -2,6 +2,12 @@
 //  공용 준비는 test_order_gate_support.h, 실행 순서는 test_order_gate.cpp의 main.
 #include "test_order_gate_support.h"
 
+#include <cstdint>
+#include <filesystem>
+#include <format>
+#include <string>
+#include <system_error>
+
 // ─── 바스켓 슬롯 제외(D-109) ────────────────────────────────────────────
 //  바스켓 슬리브가 든 종목은 장중 전략의 슬롯을 먹지 않는다. 상한 2에서 제외 종목 둘을 채워도 새 BUY가 통과하고,
 //  open_slot_count·plan_displacement 후보·snapshot_positions 표시가 같은 집합을 본다.
@@ -192,7 +198,7 @@ void test_publish_ledger_matches_gate()
 // ─── 테스트 23: 장부 사본이 원본과 같은 값을 싣는다 (D-114 단계 2.5) ──────────
 //   전략 쪽이 OrderGate 대신 읽을 사본이다. 사본이 원본과 한 자리라도 다르면 전략이 딴 장부를 보고
 //   매매하게 되므로, 사본의 모든 칸을 원본 접근자와 맞춰 본다.
-// ─── 판정은 코드만, 문장은 describe가 (CODE_REVIEW W-8) ────────────────────
+// ─── 판정은 코드만, 문장은 describe가 ────────────────────
 void test_verdict_codes_and_describe()
 {
     OrderGate::Config config;
@@ -296,7 +302,7 @@ void test_gross_exposure_uses_mark_price()
     PASS("gross_exposure_uses_mark_price");
 }
 
-// ─── 테스트 27: 매수·매도 선점은 따로 센다 (전수조사 B1b-1) ─────────────────────
+// ─── 테스트 27: 매수·매도 선점은 따로 센다 ─────────────────────
 //  부호 있는 합 하나로 두던 때는 매수 10·매도 3이 +7로 뭉쳐, 매수 10 체결이 10을 풀면 0에서 멈추며
 //  살아 있는 매도 3까지 지웠다. 그 뒤 매도 가능 수량을 3주 부풀려 봐 이미 판 주식을 다시 팔 수 있었다.
 void test_buy_and_sell_reservations_kept_apart()

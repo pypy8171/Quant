@@ -17,6 +17,8 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstdint>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <future>
@@ -25,7 +27,9 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <thread>
+#include <utility>
 #include <vector>
 
 using json = nlohmann::json;
@@ -559,6 +563,66 @@ int seed_peak_write_does_not_block_readers()
 }
 } // namespace
 
+// 봉을 상태 기계에 넘길 때 하루치를 통째로 복사하던 것을 새 봉이 닿는 만큼만 받게 바꿨다. 09:10에 앞 10분을 시드하고
+//  나머지는 1분씩 틱으로 만들어 넘겨도 한꺼번에 시드한 하루(shadow_emits_no_order)와 같은 신호 행이 나와야 한다.
+int live_minutes_match_seeded_day()
+{
+    constexpr int     kTicksPerBar  = 4;
+    constexpr int     kTickSpacing  = 15; // 초
+    constexpr int64_t kBarVolume    = 1000;
+    constexpr double  kAfterPrice   = 10630.0;
+
+    Harness harness("live_minutes");
+    harness.now = kst_time(9, 10);
+    harness.strategy->on_start();
+    harness.strategy->run_prefetch_once(); // 09:10 이전 봉만 받는다(진행 중 분은 프리페치가 뺀다). 첫 틱 때 시드된다
+
+    struct LiveBar
+    {
+        int    minute;
+        double open;
+        double high;
+        double low;
+        double close;
+    };
+
+    std::vector<LiveBar> live_bars;
+
+    for (int minute = 10; minute <= 30; ++minute)
+    {
+        live_bars.push_back({minute, 10550, 10600, 10450, 10550});
+    }
+
+    live_bars.push_back({31, 10550, 10600, 10500, 10520});
+    live_bars.push_back({32, 10520, 10650, 10510, 10620});
+
+    for (const LiveBar& bar : live_bars)
+    {
+        const double prices[kTicksPerBar] = {bar.open, bar.high, bar.low, bar.close};
+
+        for (int tick_index = 0; tick_index < kTicksPerBar; ++tick_index)
+        {
+            harness.now     = kst_time(9, bar.minute, tick_index * kTickSpacing);
+            TradeData trade = tick_at(harness.now, prices[tick_index]);
+            trade.quantity  = kBarVolume / kTicksPerBar;
+            std::vector<OrderSignal> out;
+            harness.strategy->on_trade_batch(trade, out);
+            CHECK(out.empty());
+        }
+    }
+
+    harness.now = kst_time(9, 33);
+    CHECK(harness.step(kAfterPrice) == 0); // 09:32 봉이 닫힌다
+
+    const std::vector<std::string> signals = rows_with(harness.path, "SIGNAL");
+    CHECK(signals.size() == 1);
+    CHECK(column(signals[0], 3) == "932");
+    CHECK(column(signals[0], 9) == "10640.00");
+    CHECK(column(signals[0], 10) == "10460.00");
+    CHECK(rows_with(harness.path, "ARM").size() == 1);
+    return 0;
+}
+
 int main()
 {
     int failed = 0;
@@ -574,6 +638,7 @@ int main()
     failed |= shadow_rows_survive_concurrent_writers();
     failed |= market_making_drops_book_without_ticker();
     failed |= seed_peak_write_does_not_block_readers();
+    failed |= live_minutes_match_seeded_day();
 
     if (failed != 0)
     {

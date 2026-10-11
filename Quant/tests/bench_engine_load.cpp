@@ -17,6 +17,14 @@
 
 #include "bench_engine_load_support.h"
 
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <string>
+#include <system_error>
+#include <vector>
+
 using namespace engine_load_bench;
 
 int main(int argc, char** argv)

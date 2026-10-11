@@ -7,9 +7,12 @@
 #include "core/SymbolTable.h"
 
 #include <chrono>
+#include <cstdint>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace
@@ -192,14 +195,14 @@ int main()
 
     // 4. 측정(원칙 7). 전략 40개(종목 하나씩) × 틱 20만 건 — 전부 순회 vs 라우터. 결과는 같아야 한다.
     {
-        constexpr int kStrats = 40;
+        constexpr int kStrategyCount = 40;
         constexpr int kTicks  = 200'000;
 
         symbol::SymbolTable                           table;
         std::vector<std::unique_ptr<FakeStrategy>> strategies;
-        std::vector<TradeData>                     ticks(kStrats);
+        std::vector<TradeData>                     ticks(kStrategyCount);
 
-        for (int index = 0; index < kStrats; ++index)
+        for (int index = 0; index < kStrategyCount; ++index)
         {
             const std::string ticker = "0" + std::to_string(10000 + index);
             strategies.push_back(std::make_unique<FakeStrategy>("S" + std::to_string(index), std::vector<std::string>{ticker}));
@@ -207,21 +210,21 @@ int main()
             ticks[index].symbol_id    = table.intern(ticker);
         }
 
-        auto ps = pointers(strategies);
+        auto strategy_pointers = pointers(strategies);
         strategy::Router router;
-        router.rebuild(ps, [&table](const std::string& ticker)
+        router.rebuild(strategy_pointers, [&table](const std::string& ticker)
         {
             return table.intern(ticker);
         });
-        CHECK(router.routes() == kStrats && router.all_count() == 0);
+        CHECK(router.routes() == kStrategyCount && router.all_count() == 0);
 
         const auto start_time = std::chrono::steady_clock::now();
 
         for (int tick_index = 0; tick_index < kTicks; ++tick_index)
         {
-            const auto& trade = ticks[tick_index % kStrats];
+            const auto& trade = ticks[tick_index % kStrategyCount];
 
-            for (auto* strategy : ps)
+            for (auto* strategy : strategy_pointers)
             {
                 (void)strategy->on_trade(trade);
             }
@@ -231,7 +234,7 @@ int main()
 
         for (int tick_index = 0; tick_index < kTicks; ++tick_index)
         {
-            const auto& trade = ticks[tick_index % kStrats];
+            const auto& trade = ticks[tick_index % kStrategyCount];
             router.for_each(trade.symbol_id, [&trade](StrategyBase* strategy)
             {
                 (void)strategy->on_trade(trade);
@@ -242,12 +245,12 @@ int main()
 
         for (const auto& strategy : strategies)
         {
-            CHECK(strategy->hits == 2 * kTicks / kStrats);
+            CHECK(strategy->hits == 2 * kTicks / kStrategyCount);
         }
 
         const auto ns_all = std::chrono::duration_cast<std::chrono::nanoseconds>(end_time - start_time).count() / kTicks;
-        const auto ns_rt  = std::chrono::duration_cast<std::chrono::nanoseconds>(later_time - end_time).count() / kTicks;
-        std::cout << "  틱당 전부 순회 " << ns_all << "ns, 라우터 " << ns_rt << "ns (전략 " << kStrats << "개)\n";
+        const auto route_ns  = std::chrono::duration_cast<std::chrono::nanoseconds>(later_time - end_time).count() / kTicks;
+        std::cout << "  틱당 전부 순회 " << ns_all << "ns, 라우터 " << route_ns << "ns (전략 " << kStrategyCount << "개)\n";
     }
 
     // 5. 측정(원칙 7). 문자열 필드가 남은 OrderSignal을 신호 링(push 복사 → pop 이동)으로 10만 건 보내는 신호당 시간.

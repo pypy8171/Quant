@@ -4,7 +4,10 @@
 
 #include <cassert>
 #include <cmath>
+#include <cstddef>
 #include <cstdio>
+#include <cstdlib>
+#include <ctime>
 #include <string>
 
 using namespace regime_feed;
@@ -38,17 +41,17 @@ void check_naver_index()
     ]})";
     const auto indexes = parse_naver_index(body, kEvening0923);
     assert(indexes.size() == 2); // 등락 없는 줄은 뺀다
-    const Change& kospi = indexes.at("KOSPI");
+    const Change& kospi = indexes.at(Indicator::Kospi);
     assert(near(*kospi.percent, -1.25) && near(*kospi.price, 3401.5) && !kospi.premarket && kospi.source == "naver");
-    const Change& kosdaq = indexes.at("KOSDAQ");
+    const Change& kosdaq = indexes.at(Indicator::Kosdaq);
     assert(near(*kosdaq.percent, 0.0) && near(*kosdaq.previous_percent, 0.8) && kosdaq.premarket);
 
     // 마감 뒤: 마지막 거래가 오늘이면 표시 등락이 오늘 것이다. 다음 날 아침에는 어제 것이라 0이다.
     const std::string closed = R"({"datas":[{"itemCode":"KOSPI","marketStatus":"CLOSE","fluctuationsRatioRaw":"1.95",
         "closePriceRaw":"6971.35","localTradedAt":"2026-09-23T15:30:00+09:00"}]})";
-    const Change after_close = parse_naver_index(closed, kEvening0923).at("KOSPI");
+    const Change after_close = parse_naver_index(closed, kEvening0923).at(Indicator::Kospi);
     assert(near(*after_close.percent, 1.95) && !after_close.premarket);
-    const Change next_morning = parse_naver_index(closed, kMorning0924).at("KOSPI");
+    const Change next_morning = parse_naver_index(closed, kMorning0924).at(Indicator::Kospi);
     assert(near(*next_morning.percent, 0.0) && near(*next_morning.previous_percent, 1.95) && next_morning.premarket);
 
     assert(parse_naver_index("", kEvening0923).empty());
@@ -100,13 +103,13 @@ void check_fred_csv()
 
 void check_votes_and_scale()
 {
-    assert(vote_for("NQ_F", 2.242) == 2);
-    assert(vote_for("NQ_F", 0.5) == 1);
-    assert(vote_for("NQ_F", 0.39) == 0);
-    assert(vote_for("USDKRW", 0.677) == -1); // 원화 약세는 위험회피
-    assert(vote_for("VIX", -9.5) == 2);
-    assert(vote_for("KOSPI", -1.5) == -2);
-    assert(vote_for("UNKNOWN", 5.0) == 0);
+    assert(vote_for(Indicator::NqFutures, 2.242) == 2);
+    assert(vote_for(Indicator::NqFutures, 0.5) == 1);
+    assert(vote_for(Indicator::NqFutures, 0.39) == 0);
+    assert(vote_for(Indicator::UsdKrw, 0.677) == -1); // 원화 약세는 위험회피
+    assert(vote_for(Indicator::Vix, -9.5) == 2);
+    assert(vote_for(Indicator::Kospi, -1.5) == -2);
+    assert(vote_for(Indicator::Tyx30, 5.0) == 0); // 표결 표에 없는 참고 지표
 
     const Thresholds thresholds;
     const double expected[] = {0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.0};
@@ -122,15 +125,15 @@ void check_votes_and_scale()
 void check_open_reference()
 {
     Changes changes;
-    changes["NQ_F"]  = change_of(1.0, 25000.0);
-    changes["TNX10"] = change_of(0.1, 4.2);
+    changes[Indicator::NqFutures]  = change_of(1.0, 25000.0);
+    changes[Indicator::Tnx10] = change_of(0.1, 4.2);
     bool should_save = false;
 
     // 오늘 날짜 파일이 있으면 그대로 쓴다.
     const OpenReference kept = choose_open_reference(
         "{\"date\":\"2026-09-23\",\"ts\":\"2026-09-23T09:00:05+09:00\",\"prices\":{\"NQ_F\":24900.0}}", changes, kEvening0923,
         should_save);
-    assert(!should_save && kept.timestamp == "2026-09-23T09:00:05+09:00" && near(kept.prices.at("NQ_F"), 24900.0));
+    assert(!should_save && kept.timestamp == "2026-09-23T09:00:05+09:00" && near(kept.prices.at(Indicator::NqFutures), 24900.0));
 
     // 어제 파일이면 지금 가격으로 새로 잡는다.
     const OpenReference fresh = choose_open_reference(R"({"date":"2026-09-22","prices":{"NQ_F":1.0}})", changes,
@@ -150,29 +153,29 @@ void check_build_regime_golden()
     kospi.previous_percent = 0.9;
     kospi.premarket    = true;
     kospi.source       = "naver";
-    changes["KOSPI"]   = kospi;
+    changes[Indicator::Kospi]   = kospi;
     Change kosdaq      = kospi;
     kosdaq.price       = 860.0;
-    changes["KOSDAQ"]  = kosdaq;
+    changes[Indicator::Kosdaq]  = kosdaq;
 
     Change nasdaq           = change_of(2.242, 25000.0);
     nasdaq.previous_percent     = 1.9;
     nasdaq.since_settle_percent = 0.342;
-    changes["NQ_F"]         = nasdaq;
-    changes["ES_F"]         = change_of(1.55, 6700.0);
+    changes[Indicator::NqFutures]         = nasdaq;
+    changes[Indicator::EsFutures]         = change_of(1.55, 6700.0);
 
     Change rate10       = change_of(0.0, 4.968);
     rate10.previous_percent = 0.4;
     rate10.premarket    = true;
-    changes["TNX10"]    = rate10;
-    changes["VIX"]      = change_of(-0.352, 16.0);
-    changes["USDKRW"]   = change_of(0.677, 1390.0);
-    changes["WTI"]      = change_of(-0.961, 70.0);
-    changes["TYX30"]    = change_of(0.1, 5.29);
-    changes["DGS2"]     = change_of(0.0, 4.76);
+    changes[Indicator::Tnx10]    = rate10;
+    changes[Indicator::Vix]      = change_of(-0.352, 16.0);
+    changes[Indicator::UsdKrw]   = change_of(0.677, 1390.0);
+    changes[Indicator::Wti]      = change_of(-0.961, 70.0);
+    changes[Indicator::Tyx30]    = change_of(0.1, 5.29);
+    changes[Indicator::Dgs2]     = change_of(0.0, 4.76);
     Change high_yield;
     high_yield.error = "no_data";
-    changes["HY"]    = high_yield;
+    changes[Indicator::HighYield]    = high_yield;
 
     const Thresholds             thresholds;
     const nlohmann::ordered_json regime = build_regime(changes, OpenReference{}, thresholds, kEvening0923);
@@ -217,15 +220,15 @@ void check_build_regime_golden()
 void check_intra_and_invalid()
 {
     Changes changes;
-    changes["NQ_F"]  = change_of(0.0, 25100.0);
-    changes["TNX10"] = change_of(0.0, 4.0);
-    changes["VIX"]   = change_of(0.0, 16.0);
-    changes["WTI"]   = change_of(0.0, 70.0);
+    changes[Indicator::NqFutures]  = change_of(0.0, 25100.0);
+    changes[Indicator::Tnx10] = change_of(0.0, 4.0);
+    changes[Indicator::Vix]   = change_of(0.0, 16.0);
+    changes[Indicator::Wti]   = change_of(0.0, 70.0);
     OpenReference reference;
     reference.date           = "2026-09-23";
     reference.timestamp             = "2026-09-23T09:00:05+09:00";
-    reference.prices["NQ_F"]  = 25000.0; // +0.4% → +1
-    reference.prices["TNX10"] = 4.1;     // −2.4% → 금리 하락이라 +1
+    reference.prices[Indicator::NqFutures]  = 25000.0; // +0.4% → +1
+    reference.prices[Indicator::Tnx10] = 4.1;     // −2.4% → 금리 하락이라 +1
 
     const Thresholds             thresholds;
     const nlohmann::ordered_json regime = build_regime(changes, reference, thresholds, kEvening0923);
@@ -234,7 +237,7 @@ void check_intra_and_invalid()
     assert(regime["components"]["TNX10"]["intra"]["vote"] == 1);
     assert(regime["open_ref_ts"] == "2026-09-23T09:00:05+09:00");
 
-    changes.erase("WTI");
+    changes.erase(Indicator::Wti);
     const nlohmann::ordered_json invalid = build_regime(changes, reference, thresholds, kEvening0923);
     assert(invalid["valid"] == false && invalid["regime"] == "UNKNOWN" && invalid["entry_scale"].is_null());
     assert(invalid["components"]["WTI"]["pct"].is_null() && invalid["components"]["WTI"]["err"].is_null());
@@ -242,18 +245,50 @@ void check_intra_and_invalid()
     // 청산선 이하면 매수 비율 0.
     Changes crash;
 
-    for (const char* key : {"KOSPI", "KOSDAQ", "NQ_F", "ES_F"})
+    for (const Indicator indicator : {Indicator::Kospi, Indicator::Kosdaq, Indicator::NqFutures, Indicator::EsFutures})
     {
-        crash[key] = change_of(-3.0, 100.0);
+        crash[indicator] = change_of(-3.0, 100.0);
     }
 
-    crash["VIX"] = change_of(12.0, 30.0);
+    crash[Indicator::Vix] = change_of(12.0, 30.0);
     const nlohmann::ordered_json liquidate = build_regime(crash, OpenReference{}, thresholds, kEvening0923);
     assert(liquidate["risk_score"] == -10 && liquidate["entry_halt"] == true && liquidate["force_liquidate"] == false);
     Thresholds strict;
     strict.liquidate_score = -10;
     const nlohmann::ordered_json strict_regime = build_regime(crash, OpenReference{}, strict, kEvening0923);
     assert(strict_regime["force_liquidate"] == true && near(strict_regime["entry_scale"].get<double>(), 0.0));
+}
+
+// 지표 키를 문자열에서 enum으로 바꾼 뒤에도 파일·문서에 적히는 이름이 옛 키와 같아야 한다.
+void check_indicator_names()
+{
+    const char* expected[] = {"KOSPI", "KOSDAQ", "NQ_F", "ES_F", "TNX10", "VIX", "USDKRW", "WTI", "TYX30", "DGS2", "HY"};
+
+    for (std::size_t index = 0; index < kIndicatorCount; ++index)
+    {
+        const Indicator indicator = static_cast<Indicator>(index);
+        assert(indicator_name(indicator) == expected[index]);
+        assert(indicator_from_name(expected[index]) == indicator);
+    }
+
+    assert(!indicator_from_name("UNKNOWN").has_value());
+
+    // 표결 표에 없는 네이버 코드는 버린다.
+    const std::string body = R"({"datas":[
+        {"itemCode":"KOSPI","marketStatus":"OPEN","fluctuationsRatioRaw":"-1.25","closePriceRaw":"3401.5"},
+        {"itemCode":"KPI200","marketStatus":"OPEN","fluctuationsRatioRaw":"0.5","closePriceRaw":"400"}
+    ]})";
+    const Changes indexes = parse_naver_index(body, kEvening0923);
+    assert(indexes.size() == 1 && indexes.find(Indicator::Kospi) != nullptr);
+
+    // 장초 기준점 파일: 아는 키만 읽고, 모르는 키는 버린다.
+    bool                should_save = false;
+    const OpenReference kept        = choose_open_reference(
+        R"({"date":"2026-09-23","prices":{"TNX10":4.1,"NQ_F":24900.0,"OLD_KEY":1.0}})", Changes{}, kEvening0923,
+        should_save);
+    assert(!should_save && kept.prices.size() == 2);
+    assert(near(kept.prices.at(Indicator::NqFutures), 24900.0) && near(kept.prices.at(Indicator::Tnx10), 4.1));
+    assert(kept.prices.find(Indicator::Vix) == nullptr);
 }
 
 } // namespace
@@ -268,6 +303,7 @@ int main()
     check_open_reference();
     check_build_regime_golden();
     check_intra_and_invalid();
+    check_indicator_names();
     std::printf("test_regime_feed: 전부 통과\n");
     return 0;
 }

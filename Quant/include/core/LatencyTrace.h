@@ -7,13 +7,13 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
-#include <bit>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace trace
 {

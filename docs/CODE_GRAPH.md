@@ -25,7 +25,7 @@ graph LR
   core -->|20| ipc
   core -->|10| risk
   core -->|5| strategy
-  core -->|2| universe
+  core -->|4| universe
   core -->|56| utils
   exchange -->|7| core
   exchange -->|3| utils
@@ -45,10 +45,10 @@ graph LR
   strategy -->|6| api
   strategy -->|33| core
   strategy --> risk
-  strategy -->|7| universe
+  strategy -->|6| universe
   strategy -->|18| utils
   universe -->|2| api
-  universe -->|16| core
+  universe -->|17| core
   universe -->|26| utils
   utils --> core
 ```
@@ -64,7 +64,7 @@ graph LR
 | `core/Types.h` | 60 |
 | `core/KstTime.h` | 43 |
 | `utils/ThreadName.h` | 32 |
-| `core/SymbolTable.h` | 26 |
+| `core/SymbolTable.h` | 27 |
 | `core/Engine.h` | 23 |
 | `strategy/StrategyBase.h` | 16 |
 | `core/WakeGate.h` | 15 |
@@ -419,6 +419,7 @@ graph LR
   n_core_Engine_cpp --> n_core_KstTime_h
   n_core_Engine_cpp --> n_core_LatencyTrace_h
   n_core_Engine_cpp --> n_core_ReconcilePlan_h
+  n_core_Engine_cpp --> n_universe_UniverseScanner_h
   n_core_Engine_cpp --> n_utils_Logger_h
   n_core_Engine_cpp --> n_utils_ThreadName_h
   n_core_Engine_cpp --> n_utils_Utf8_h
@@ -467,6 +468,7 @@ graph LR
   n_core_Engine_h --> n_risk_OrderGate_h
   n_core_Engine_h --> n_risk_ProtectiveOrders_h
   n_core_Engine_h --> n_strategy_StrategyBase_h
+  n_core_Engine_h --> n_universe_MarketBoard_h
   n_core_Engine_h --> n_utils_GenerationCopy_h
   n_core_EngineConfigure_cpp --> n_core_AppConfig_h
   n_core_EngineConfigure_cpp --> n_core_Engine_h
@@ -815,6 +817,7 @@ graph LR
   n_regime_RegimeFeedParse_cpp --> n_core_KstTime_h
   n_regime_RegimeFeedScore_cpp --> n_core_KstTime_h
   n_risk_DisplacementDesk_cpp --> n_risk_DisplacementDesk_h
+  n_risk_DisplacementDesk_cpp --> n_risk_EntryPriority_h
   n_risk_DisplacementDesk_cpp --> n_utils_Logger_h
   n_risk_DisplacementDesk_h --> n_core_Types_h
   n_risk_DisplacementDesk_h --> n_risk_OrderGate_h
@@ -854,6 +857,7 @@ graph LR
   n_risk_PositionLedgerReconcile_cpp --> n_risk_PositionLedger_h
   n_risk_PositionLedgerTypes_h --> n_core_SymbolTable_h
   n_risk_PositionLedgerTypes_h --> n_core_Types_h
+  n_risk_PositionLedgerTypes_h --> n_risk_Money_h
   n_risk_ProtectiveOrders_cpp --> n_risk_ProtectiveOrders_h
   n_risk_ProtectiveOrders_h --> n_risk_OrderGate_h
   n_risk_ProtectiveOrders_h --> n_risk_ProtectiveRule_h
@@ -971,7 +975,6 @@ graph LR
   n_strategy_VwapPullbackStrategy_cpp --> n_core_KstTime_h
   n_strategy_VwapPullbackStrategy_cpp --> n_core_PrefetchPool_h
   n_strategy_VwapPullbackStrategy_cpp --> n_strategy_VwapPullbackStrategy_h
-  n_strategy_VwapPullbackStrategy_cpp --> n_universe_MarketBoard_h
   n_strategy_VwapPullbackStrategy_cpp --> n_utils_Logger_h
   n_strategy_VwapPullbackStrategy_cpp --> n_utils_Utf8_h
   n_strategy_VwapPullbackStrategy_h --> n_core_BarAggregator_h
@@ -986,6 +989,7 @@ graph LR
   n_universe_MarketBoard_cpp --> n_utils_ThreadGuard_h
   n_universe_MarketBoard_cpp --> n_utils_ThreadName_h
   n_universe_MarketBoard_cpp --> n_utils_Utf8_h
+  n_universe_MarketBoardParse_cpp --> n_core_SymbolTable_h
   n_universe_MarketBoardParse_cpp --> n_universe_MarketBoard_h
   n_universe_ScoreWeight_cpp --> n_universe_ScoreWeight_h
   n_universe_ScoreWeight_h --> n_core_SymbolTable_h

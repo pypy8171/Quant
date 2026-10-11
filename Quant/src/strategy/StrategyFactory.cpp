@@ -12,17 +12,19 @@
 #include "universe/UniverseScanner.h"
 #include "utils/Logger.h"
 #include <algorithm>
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 using json = nlohmann::json;
 
 namespace strategy_load
 {
-// 종목 id 인덱스 비트를 켠다 — 배열은 종목 테이블 용량만큼 한 번만 늘린다.
-void mark_symbol(std::vector<bool>& bits, symbol::SymbolId symbol, size_t capacity)
+// 종목 id 인덱스 표시를 켠다 — 배열은 종목 테이블 용량만큼 한 번만 늘린다.
+void mark_symbol(std::vector<uint8_t>& bits, symbol::SymbolId symbol, size_t capacity)
 {
     if (symbol == symbol::kNone)
     {
@@ -31,15 +33,15 @@ void mark_symbol(std::vector<bool>& bits, symbol::SymbolId symbol, size_t capaci
 
     if (symbol >= bits.size())
     {
-        bits.resize(std::max<size_t>(capacity, symbol + 1), false);
+        bits.resize(std::max<size_t>(capacity, symbol + 1), 0);
     }
 
-    bits[symbol] = true;
+    bits[symbol] = 1;
 }
 
-bool has_symbol(const std::vector<bool>& bits, symbol::SymbolId symbol)
+bool has_symbol(const std::vector<uint8_t>& bits, symbol::SymbolId symbol)
 {
-    return symbol != symbol::kNone && symbol < bits.size() && bits[symbol];
+    return symbol != symbol::kNone && symbol < bits.size() && bits[symbol] != 0;
 }
 
 void add_gated(const LoadPass& context, std::unique_ptr<StrategyBase> strategy)
@@ -176,16 +178,17 @@ static void load_intraday_breakout(LoadPass& context, const json& node)
     {
         // ── 거래대금 상위 스캔 유니버스(ITB v2) ─────────────────────────
         //  실전 도메인 키로 거래대금 랭킹 → 등락률/가격 필터 → (option)수급 → 레짐 게이트.
-        universe::ItbScanCfg scan_config;
+        universe::ItbScanConfig scan_config;
         scan_config.scan_top_n   = node.value("scan_top_n", 30);
         scan_config.change_min      = node.value("chg_min", 0.02);
         scan_config.change_max      = node.value("chg_max", 0.12);
         scan_config.min_price    = node.value("min_price", 3000.0);
-        scan_config.standard_deviation_filter    = node.value("sd_filter", true);
+        scan_config.foreign_net_buy_filter = node.value("sd_filter", true); // 키 이름은 옛 것 — 운영 config가 쓴다
         scan_config.risk_off_index = node.value("risk_off_index_pct", -0.01);
         scan_config.risk_off_index_resume = node.value("risk_off_resume_pct", scan_config.risk_off_index);
         scan_config.risk_off_dwell_sec  = node.value("risk_off_dwell_sec", 0);
-        scan_config.max_register = node.value("max_concurrent_positions", 3) * 2; // 후보는 상한의 2배까지 등록(경쟁)
+        constexpr int kItbCandidateMultiplier = 2; // 후보는 동시 보유 상한의 2배까지 등록(경쟁)
+        scan_config.max_register = node.value("max_concurrent_positions", 3) * kItbCandidateMultiplier;
 
         if (!context.has_quote_kis)
         {
@@ -336,7 +339,7 @@ static void load_market_making(LoadPass& context, const json& node)
 //    + average_loss_percent(평단손절, 0=비활성) + 장 마감(market_close_exit_hhmm, 기본 2100=장중 강제청산 안 함 — 엔진이 20:00까지 도니 1600은 애프터마켓 청산이 된다, D-097).
 //  covered = 이미 스캔 전략이 담당하는 종목(id 인덱스 비트, 중복 부착 방지). rest_price_feed 합성틱으로 on_trade 구동.
 static void attach_holding_exit_managers(LoadPass& context, const json& exit_manager_node,
-                                     const std::vector<bool>& covered)
+                                         const std::vector<uint8_t>& covered)
 {
     Engine& engine = context.engine;
     double seed_trail_display    = exit_manager_node.value("seed_trail_pct", 2.0);     // 표시용(%)
@@ -376,13 +379,14 @@ static void attach_holding_exit_managers(LoadPass& context, const json& exit_man
         return;
     }
 
-    int added = 0, skipped = 0;
+    int added   = 0;
+    int skipped = 0;
 
     for (const Holding& holding : balance->holdings)
     {
         const std::string& code  = holding.ticker;
-        const std::string& pname = holding.name;
-        const int    hq = holding.quantity;
+        const std::string& holding_name = holding.name;
+        const int    held_quantity = holding.quantity;
         const double average_value = holding.average_price;
 
         if (has_symbol(covered, engine.symbols().lookup(code))) // 스캔 전략이 이미 담당 → 이중 부착 방지(잔고 티커는 문자열)
@@ -392,7 +396,7 @@ static void attach_holding_exit_managers(LoadPass& context, const json& exit_man
         }
 
         auto strategy = std::make_unique<IntradayBreakoutStrategy>(
-            code, /*entry_quantity=*/0, /*hold_quantity=*/hq, /*start_in_position=*/true,
+            code, /*entry_quantity=*/0, /*hold_quantity=*/held_quantity, /*start_in_position=*/true,
             channel_min, /*breakout_epsilon=*/0.002, /*trail_percent=*/0.010, /*hard_percent=*/0.015,
             market_close_hhmm, cooldown_sec, /*average_price=*/average_value, average_loss_percent,
             seed_trail_percent, exit_near_average_percent, /*no_new_entry_hhmm=*/1,
@@ -400,12 +404,12 @@ static void attach_holding_exit_managers(LoadPass& context, const json& exit_man
         strategy->set_exit_near_average_arm(exit_arm_percent);
         strategy->set_guard_warmup_sec(guard_warmup_sec);
         strategy->set_seed_hard_stop(seed_hard_percent, seed_hard_skip_percent, seed_hard_from, seed_hard_bars);
-        strategy->set_name(pname);
-        engine.register_ticker_name(code, pname); // 로그 라벨(보유분 종목명)
+        strategy->set_name(holding_name);
+        engine.register_ticker_name(code, holding_name); // 로그 라벨(보유분 종목명)
         engine.mark_exit_managed_ticker(code);        // 스캔 슬리브의 신규매수에서 제외
         add_gated(context, std::move(strategy));
-        LOG_INFO("[Main]   + 청산 관리(ITB) " + code + " " + pname + " 보유 " +
-                 std::to_string(hq) + "주 @평단 " + std::to_string(static_cast<long long>(average_value)) +
+        LOG_INFO("[Main]   + 청산 관리(ITB) " + code + " " + holding_name + " 보유 " +
+                 std::to_string(held_quantity) + "주 @평단 " + std::to_string(static_cast<long long>(average_value)) +
                  " (trail=" + std::to_string(seed_trail_display) + "% 본전탈출=" +
                  std::to_string(exit_near_average_display) + "%(무장 -" + std::to_string(arm_display) + "%) 유예" +
                  std::to_string(guard_warmup_sec) + "s market_close=" + std::to_string(market_close_hhmm) + ")");
@@ -430,12 +434,12 @@ static bool parse_active_regimes(const json& node, const std::string& type, std:
 
     for (const auto& regime_node : node["active_regimes"])
     {
-        const std::string& rs = regime_node.is_string() ? regime_node.get_ref<const std::string&>() : kEmptyRegimeName;
-        Regime             parsed = Regime::from_string(rs);
+        const std::string& regime_text = regime_node.is_string() ? regime_node.get_ref<const std::string&>() : kEmptyRegimeName;
+        Regime             parsed = Regime::from_string(regime_text);
 
         if (parsed == Regime::UNKNOWN)
         {
-            LOG_WARN("[Main] " + type + " 알 수 없는 active_regimes 값: '" + rs +
+            LOG_WARN("[Main] " + type + " 알 수 없는 active_regimes 값: '" + regime_text +
                       "' (BULL/NEUTRAL/BEAR만 유효) — 무시됨");   // G-2
         }
         else
@@ -639,7 +643,7 @@ void load_strategies(StrategyLoadCtx& context, const json& strategies)
     {
         const json& strategy = *strategy_node;
         std::string type = strategy.value("type", std::string());
-        size_t n_before = context.engine.strategy_count();
+        size_t strategy_count_before = context.engine.strategy_count();
 
         auto iterator = LOADERS.find(StrategyType::from_string(type));
 
@@ -655,10 +659,10 @@ void load_strategies(StrategyLoadCtx& context, const json& strategies)
         iterator->second(pass, strategy);
         pass.pending_regimes = nullptr;
 
-        if (gated && context.engine.strategy_count() > n_before)
+        if (gated && context.engine.strategy_count() > strategy_count_before)
         {
             LOG_INFO("[Main] " + type + " 활성국면: " + std::to_string(active_regimes.size()) + "개 × 전략 " +
-                     std::to_string(context.engine.strategy_count() - n_before) + "개");
+                     std::to_string(context.engine.strategy_count() - strategy_count_before) + "개");
         }
     }
 

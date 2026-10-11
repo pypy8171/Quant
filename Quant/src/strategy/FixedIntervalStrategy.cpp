@@ -1,5 +1,10 @@
 #include "strategy/FixedIntervalStrategy.h"
 
+#include <chrono>
+#include <cstdint>
+#include <optional>
+#include <string>
+
 namespace
 {
 // 출처: KRX 애프터마켓 16:00~20:00(D-097). 주문 게이트의 after_open/close 창과 따로 둔다 — 여기는 신호만 막는다.
@@ -10,7 +15,7 @@ constexpr int kAfterMarketCloseHHMM = 2000;
 std::string FixedIntervalStrategy::describe() const
 {
     return id() + " | BUY=" + std::to_string(buy_quantity_) + " SELL=" + std::to_string(sell_quantity_) + " every " +
-           std::to_string(interval_sec_) + "s";
+           std::to_string(interval_seconds_) + "s";
 }
 
 bool FixedIntervalStrategy::is_in_session(int32_t hhmmss) const
@@ -24,10 +29,10 @@ bool FixedIntervalStrategy::is_in_session(int32_t hhmmss) const
 void FixedIntervalStrategy::on_start()
 {
     symbol_id_ = symbol_of(ticker_);
-    last_signal_ = std::chrono::steady_clock::now() - std::chrono::seconds(interval_sec_); // 즉시 첫 신호 허용
+    last_signal_ = std::chrono::steady_clock::now() - std::chrono::seconds(interval_seconds_); // 즉시 첫 신호 허용
     phase_ = Phase::BUY;
     LOG_INFO("[FixedInterval] 시작: " + ticker_ + " BUY=" + std::to_string(buy_quantity_) +
-             " SELL=" + std::to_string(sell_quantity_) + " 주기=" + std::to_string(interval_sec_) + "초");
+             " SELL=" + std::to_string(sell_quantity_) + " 주기=" + std::to_string(interval_seconds_) + "초");
 }
 
 std::optional<OrderSignal> FixedIntervalStrategy::on_trade(const TradeData& trade)
@@ -45,7 +50,7 @@ std::optional<OrderSignal> FixedIntervalStrategy::on_trade(const TradeData& trad
     auto now = std::chrono::steady_clock::now();
     auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_signal_).count();
 
-    if (elapsed < interval_sec_)
+    if (elapsed < interval_seconds_)
     {
         return std::nullopt;
     }

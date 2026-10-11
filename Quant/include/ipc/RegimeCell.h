@@ -7,6 +7,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <type_traits>
 
 namespace ipc
 {
@@ -20,5 +21,12 @@ struct RegimeCell
     // Regime::Value 를 정수로 담는다. ipc 는 core 의 타입을 모르고, 읽는 쪽이 제 타입으로 되돌린다.
     std::atomic<int32_t> code{kRegimeNone};
 };
+
+// 공유 메모리 칸에 그대로 놓인다. MSVC x64 계산: atomic<int32_t> 하나 = 4. 원자 필드라 trivially copyable 은 아니고,
+//  표준 배치·자명한 소멸·잠금 없는 원자만 본다.
+static_assert(sizeof(RegimeCell) == 4, "RegimeCell 크기가 바뀌었다 — 공유 메모리 자리표를 다시 본다");
+static_assert(std::is_standard_layout_v<RegimeCell> && std::is_trivially_destructible_v<RegimeCell>,
+              "RegimeCell 은 공유 메모리에 놓인다");
+static_assert(std::atomic<int32_t>::is_always_lock_free, "공유 메모리 단어는 잠금 없는 원자여야 한다");
 
 } // namespace ipc

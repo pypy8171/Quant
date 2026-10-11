@@ -82,7 +82,7 @@ struct SymbolCache
     std::unique_ptr<std::atomic<int64_t>[]> last_price_at_ns{std::make_unique<std::atomic<int64_t>[]>(table.capacity())};
 
     // 청산 관리가 붙은 종목(id 인덱스). 기동 시 단일스레드 구간에서만 켜고 전략 스레드는 읽기만 한다.
-    std::vector<bool> exit_managed{std::vector<bool>(table.capacity(), false)};
+    std::vector<uint8_t> exit_managed{std::vector<uint8_t>(table.capacity(), 0)}; // 값 0/1. vector<bool> 은 비트 단위라 참조를 못 돌려준다
 };
 
 } // namespace engine

@@ -338,6 +338,7 @@
 - [GateReasons.h](../Quant/include/risk/GateReasons.h) — 게이트 거부 사유 문자열 계약(D-067)
 - [LedgerJournal.h](../Quant/include/risk/LedgerJournal.h) — 원장 선기록 저널: 192바이트 고정 레코드·CRC32·seq, 주문을 보내기 전에 적고 재기동 때 리플레이(D-113)
 - [LedgerKeys.h](../Quant/include/risk/LedgerKeys.h) — 원장 키 (계좌 번호, 종목 id)를 만들고 되찾는 표 — OrderGate에서 뗐다. 신호·체결마다 부르는 함수는 헤더 인라인(D-118 예외, 잰 수치는 파일 안)
+- [Money.h](../Quant/include/risk/Money.h) — 원화 금액 단위(원 단위 정수 Won)와 반올림 규칙 한 곳 — 장부·게이트의 금액 셈이 모두 거친다(0.5는 0에서 먼 쪽)
 - [OrderGate.h](../Quant/include/risk/OrderGate.h) — 주문 전 위험 검증 게이트
 - [PositionLedger.h](../Quant/include/risk/PositionLedger.h) — 원장(보유·선점·평단·매도가능·손익·현금)과 저널·장부 사본 발행 — OrderGate에서 뗐다. 판정은 Reader로 락 쥔 채 읽는다
 - [PositionLedgerTypes.h](../Quant/include/risk/PositionLedgerTypes.h) — 주문 장부가 주고받는 값 묶음(선점·미결 주문·주문 이름표·체결 결과·매도가능 조각·보유 한 줄). PositionLedger.h가 같은 이름으로 다시 부른다

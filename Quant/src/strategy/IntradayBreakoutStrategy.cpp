@@ -1,5 +1,10 @@
 #include "strategy/IntradayBreakoutStrategy.h"
 
+#include <chrono>
+#include <cmath>
+#include <optional>
+#include <string>
+
 std::string IntradayBreakoutStrategy::describe() const
 {
     return "ITB | " + ticker_ + " | ch=" + std::to_string(channel_min_) + "m eps=" + std::to_string(epsilon_) +
@@ -118,7 +123,9 @@ void IntradayBreakoutStrategy::update_peak_and_trough(double price)
         peak_ = price;
 
         // 시드 고점 저장은 0.1% 이상 올랐을 때만 — 틱마다 파일을 쓰지 않는다.
-        if (position_is_seed_ && peak_ >= last_saved_peak_ * 1.001)
+        constexpr double kSeedPeakSaveStep = 1.001;
+
+        if (position_is_seed_ && peak_ >= last_saved_peak_ * kSeedPeakSaveStep)
         {
             SeedPeakStore::save(ticker_, peak_);
             last_saved_peak_ = peak_;
@@ -350,12 +357,12 @@ std::optional<OrderSignal> IntradayBreakoutStrategy::roll_bucket(double price, i
 std::optional<OrderSignal> IntradayBreakoutStrategy::breakout_entry(double bucket_close, int hhmm,
                                                                     std::chrono::system_clock::time_point timestamp)
 {
-    double high_count = *std::max_element(closes_.begin(), closes_.end());
+    double channel_high = *std::max_element(closes_.begin(), closes_.end());
     bool cooldown_ok = !have_cooldown_ || timestamp >= cooldown_until_;
     int no_entry_hhmm = (no_new_entry_hhmm_ > 0 ? no_new_entry_hhmm_ : market_close_hhmm_);
     bool session_ok = hhmm < no_entry_hhmm; // 마감 임박 신규진입 금지
 
-    if (!(cooldown_ok && session_ok && bucket_close > high_count && bucket_close > day_base_price_ * (1.0 + epsilon_)))
+    if (!(cooldown_ok && session_ok && bucket_close > channel_high && bucket_close > day_base_price_ * (1.0 + epsilon_)))
     {
         return std::nullopt;
     }
@@ -368,10 +375,10 @@ std::optional<OrderSignal> IntradayBreakoutStrategy::breakout_entry(double bucke
     }
 
     auto signal = make_signal(OrderSide::BUY, quantity, bucket_close, timestamp,
-                              "채널돌파 종가=" + price_string(bucket_close) + ">hiN=" + price_string(high_count) +
+                              "채널돌파 종가=" + price_string(bucket_close) + ">hiN=" + price_string(channel_high) +
                                   " 기준점=" + price_string(day_base_price_));
     LOG_INFO("[ITB] BUY " + tag() + " qty=" + std::to_string(quantity) + " @" + price_string(bucket_close) +
-             " (돌파 hiN=" + price_string(high_count) + ")");
+             " (돌파 hiN=" + price_string(channel_high) + ")");
     in_position_ = true;
     position_is_seed_ = false; // 신규 진입분 — 타이트 스탑 적용
     SeedPeakStore::erase(ticker_);
@@ -443,6 +450,6 @@ OrderSignal IntradayBreakoutStrategy::make_signal(OrderSide side, int quantity, 
 {
     OrderSignal signal = StrategyBase::make_signal(ticker_, symbol_id_, side, OrderType::MARKET, quantity, timestamp);
     signal.price = price; // MARKET은 미사용이나 로깅·명목 상한 계산·향후 LIMIT 대비
-    signal.reason = reason; // G4: 판단 근거(돌파/청산 사유)를 신호에 실어 영속
-    return signal; // account_id="" (기본) — OrderGate 장부 시드 계좌키와 일치(C-1)
+    signal.reason = reason; // 판단 근거(돌파/청산 사유)를 신호에 실어 영속
+    return signal; // account_id="" (기본) — OrderGate 장부 시드 계좌키와 일치
 }

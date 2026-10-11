@@ -18,13 +18,14 @@
 
 #include <algorithm>
 #include <atomic>
-#include <cassert>
 #include <chrono>
+#include <cstdint>
 #include <iomanip>
 #include <iostream>
 #include <memory>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace

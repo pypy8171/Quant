@@ -8,17 +8,12 @@
 #include "utils/Logger.h"
 #include "utils/ThreadName.h"
 #include "utils/Utf8.h"
-#include <algorithm>
 #include <functional>
 #include <chrono>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
-#include <iomanip>
 #include <memory>
-#include <sstream>
-#include <thread>
-#include <unordered_set>
 #include <utility>
 #include <nlohmann/json.hpp>
 
@@ -308,6 +303,6 @@ void Engine::mark_exit_managed(symbol::SymbolId symbol)
 {
     if (symbol != symbol::kNone && symbol < symbols_.exit_managed.size())
     {
-        symbols_.exit_managed[symbol] = true;
+        symbols_.exit_managed[symbol] = 1;
     }
 }

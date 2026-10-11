@@ -25,7 +25,6 @@
 #include "core/TickSize.h"
 #include "core/Types.h"
 
-#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -34,7 +33,6 @@
 #include <iostream>
 #include <mutex>
 #include <string>
-#include <thread>
 #include <vector>
 
 #ifdef _WIN32
@@ -233,7 +231,7 @@ void attach_callbacks(KisWebSocket& websocket, SharedState& shared, const std::s
         },
         [&shared, &ticker](const TradeData& trade)
         {
-            if (trade.ticker.string() != ticker)
+            if (trade.ticker.view() != ticker) // 체결마다 std::string을 만들지 않는다
             {
                 return;
             }

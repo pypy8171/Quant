@@ -15,6 +15,13 @@
 
 #include "test_order_router_support.h"
 
+#include <cstdlib>
+#include <ctime>
+#include <filesystem>
+#include <iostream>
+#include <string>
+#include <system_error>
+
 int main()
 {
 #ifdef _WIN32

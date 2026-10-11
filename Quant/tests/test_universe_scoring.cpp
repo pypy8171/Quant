@@ -7,11 +7,12 @@
 #include <cassert>
 #include <cmath>
 #include <iostream>
+#include <string>
 #include <vector>
 
 namespace
 {
-using universe::DevScanCfg;
+using universe::DeviationScaleScanConfig;
 using universe::detail::Features;
 using universe::detail::score_cross_section;
 using universe::detail::CandidateSet;
@@ -24,15 +25,15 @@ bool near(double actual, double expected)
     return std::fabs(actual - expected) < 1e-9;
 }
 
-Features make_features(double trend, double pull, double atr_percent, double turnover)
+Features make_features(double trend, double pullback, double atr_percent, double turnover)
 {
-    return Features{0, trend, pull, atr_percent, turnover, 0.0};
+    return Features{0, trend, pullback, atr_percent, turnover, 0.0};
 }
 
 // 하나만 통과했거나 전 종목 값이 같으면 정규화할 분포가 없어 점수가 모두 0이다.
 void check_degenerate()
 {
-    const DevScanCfg config;
+    const DeviationScaleScanConfig config;
     std::vector<Features> single{make_features(0.3, -0.1, 0.02, 1e9)};
     score_cross_section(config, single);
     assert(near(single[0].score, 0.0));
@@ -45,12 +46,12 @@ void check_degenerate()
 // 두 종목이면 z는 ±1이다. 추세는 그대로, 눌림은 부호를 뒤집고, 변동성은 감점으로 들어간다.
 void check_weighted_sum()
 {
-    DevScanCfg config;
+    DeviationScaleScanConfig config;
     config.score_weight_trend    = 1.0;
     config.score_weight_pullback = 2.0;
     config.score_weight_volume   = 0.5;
 
-    // 첫 종목: 추세 높음(z=+1), 눌림 깊음(pull 작음 → 반전 z=+1), 변동성 높음(z=+1 → 감점).
+    // 첫 종목: 추세 높음(z=+1), 눌림 깊음(pullback 작음 → 반전 z=+1), 변동성 높음(z=+1 → 감점).
     std::vector<Features> passed{make_features(0.2, -0.1, 0.04, 0.0), make_features(0.1, 0.1, 0.02, 0.0)};
     score_cross_section(config, passed);
     assert(near(passed[0].score, 1.0 + 2.0 - 0.5));
@@ -60,7 +61,7 @@ void check_weighted_sum()
 // 열 종목 중 하나만 10이면 평균 1·표준편차 3이라 그 종목의 z는 3 — 2로 잘린다. 나머지는 -1/3.
 void check_clip()
 {
-    DevScanCfg config;
+    DeviationScaleScanConfig config;
     config.score_weight_pullback = 0.0;
     config.score_weight_volume   = 0.0;
 
@@ -74,7 +75,7 @@ void check_clip()
 // 유동성 축은 가중치가 0이 아닐 때만 돈다. 거래대금은 로그를 취하고, 0(결측)은 알려진 값의 중앙값으로 채운다.
 void check_liquidity()
 {
-    DevScanCfg config;
+    DeviationScaleScanConfig config;
     config.score_weight_trend    = 0.0;
     config.score_weight_pullback = 0.0;
     config.score_weight_volume   = 0.0;
@@ -117,7 +118,7 @@ void check_turnover_top()
     quotes[tie]    = {10000.0, 5e9, 0.0, "마바건설"};      // first와 거래대금 같음, 티커가 뒤
     quotes[thin]   = {10000.0, 1e8, 0.0, "얇은종목"};      // min_turnover 미만
 
-    DevScanCfg config;
+    DeviationScaleScanConfig config;
     config.min_turnover   = 1e9;
     config.turnover_top_n = 2;
 
@@ -161,7 +162,7 @@ void check_volume_surge()
     lookup.date_yyyymmdd = "20260925";
     universe::detail::g_lookup_cache.put(stale, lookup);
 
-    DevScanCfg config;
+    DeviationScaleScanConfig config;
     config.value_top_n = 5;
     CandidateSet candidates(symbols.capacity());
     take_volume_surge(config, quotes, today, candidates, symbols);
@@ -187,7 +188,7 @@ void check_change_top()
     quotes[weak]    = {10000.0, 5e9, 0.0, "약한종목", 0.5};    // 1% 미만
     quotes[falling] = {10000.0, 5e9, 0.0, "내린종목", -4.0};
 
-    DevScanCfg config;
+    DeviationScaleScanConfig config;
     config.change_top_n       = 10;
     config.change_min_percent = 1.0;
     CandidateSet candidates(symbols.capacity());
@@ -200,6 +201,43 @@ void check_change_top()
     assert(off.symbols.empty());
 }
 
+// 파일 축 캐시의 이름 두 층: 공유 층으로 옮긴 뒤에도 name_of가 같은 이름을 내고, 캐시 사본은 같은 공유 층을 나눠
+//  쥔다. 사본에 더한 이름은 사본에만 보이고, 사본을 다시 옮기면 두 층이 이어 붙는다.
+void check_candidate_name_layers()
+{
+    symbol::SymbolTable symbols(16);
+    const symbol::SymbolId first  = symbols.intern("000001");
+    const symbol::SymbolId second = symbols.intern("000002");
+    const symbol::SymbolId third  = symbols.intern("000003");
+
+    CandidateSet cache(symbols.capacity());
+    assert(cache.add(first, "가나전자"));
+    assert(cache.add(second, "다라화학"));
+    assert(cache.name_of(first) == "가나전자");
+
+    cache.freeze_names();
+    assert(cache.names.empty());
+    assert(cache.shared_names && cache.shared_names->size() == 2);
+    assert(cache.name_of(first) == "가나전자");
+    assert(cache.name_of(second) == "다라화학");
+
+    CandidateSet copy = cache; // 캐시를 꺼내 쓰는 자리와 같은 복사
+    assert(copy.shared_names.get() == cache.shared_names.get());
+    assert(copy.add(third, "마바건설"));
+    assert(!copy.add(first, "다른이름"));
+    assert(copy.name_of(third) == "마바건설");
+    assert(copy.name_of(first) == "가나전자");
+    assert(cache.name_of(third).empty());
+
+    copy.freeze_names();
+    assert(copy.shared_names->size() == 3);
+    assert(copy.shared_names.get() != cache.shared_names.get());
+    assert(copy.name_of(second) == "다라화학");
+    assert(copy.name_of(third) == "마바건설");
+    assert(cache.shared_names->size() == 2);
+    assert((copy.symbols == std::vector<symbol::SymbolId>{first, second, third}));
+}
+
 int main()
 {
     check_degenerate();
@@ -209,6 +247,7 @@ int main()
     check_turnover_top();
     check_volume_surge();
     check_change_top();
+    check_candidate_name_layers();
     std::cout << "test_universe_scoring: all passed" << std::endl;
     return 0;
 }

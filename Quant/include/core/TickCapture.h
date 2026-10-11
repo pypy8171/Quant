@@ -9,14 +9,13 @@
 #include "core/Types.h"
 #include "core/WakeGate.h"
 
-#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
-#include <cstring>
 #include <filesystem>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <type_traits>
 

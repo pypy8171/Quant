@@ -412,10 +412,11 @@ void Engine::open_tick_capture()
 void Engine::install_feed_callbacks()
 {
     // 수신 스레드 = 이 콜백을 부르는 수신 스레드 번호 = 행렬의 행. 한 행은 그 스레드만 넣는다(SPSC 셀, 원칙 5).
-    feed_.websocket->set_lane_callbacks([this](uint32_t lane, const OrderBook& in)
+    //  소스가 준 구조체에 번호·시각을 바로 찍는다(콜백이 비const 참조인 까닭은 Quant/include/core/IFeedSource.h) —
+    //  push가 셀에 한 번 베끼는 것이 유일한 복사다.
+    feed_.websocket->set_lane_callbacks([this](uint32_t lane, OrderBook& order_book)
                        {
-                           OrderBook order_book = in;
-                           order_book.symbol_id       = symbols_.table.intern(order_book.ticker);
+                           order_book.symbol_id = symbols_.table.intern(order_book.ticker);
 
                            // 번호가 안 붙은 호가는 접는다 — 체결 줄과 같은 규칙이다(아래 체결 콜백). [why D-114 단계 5]
                            if (order_book.symbol_id == symbol::kNone)
@@ -443,12 +444,10 @@ void Engine::install_feed_callbacks()
 
                            fan_out_order_book(lane, order_book);
                        },
-                       [this](uint32_t lane, const TradeData& in)
+                       [this](uint32_t lane, TradeData& trade)
                        {
-                           // 트리비얼 복사 타입이라 이동이 곧 복사다 — 여기서 한 번 복사해 id를 찍고 push가 셀에 한 번 더 베낀다. 수신 시각은
-                           //  수신 스레드가 디코드 시점에 찍은 값을 지키고, 안 찍힌 소스만 여기서 찍는다.
-                           TradeData trade = in;
-                           trade.symbol_id       = symbols_.table.intern(trade.ticker);
+                           // 수신 시각은 수신 스레드가 디코드 시점에 찍은 값을 지키고, 안 찍힌 소스만 여기서 찍는다.
+                           trade.symbol_id = symbols_.table.intern(trade.ticker);
 
                            // 번호가 안 붙었으면 이 줄을 접는다. 시세 역할은 표에 없는 티커를 버리고 세고
                            //  (청하지 않은 종목이 세션에 실려 온 것이다), 전략 역할은 주문 쪽이 제때 안 달아

@@ -1,7 +1,21 @@
 #include "utils/Utf8.h"
 
+#include <cstdint>
+#include <filesystem>
+#include <string>
+#include <string_view>
+
 namespace utf8
 {
+namespace
+{
+constexpr unsigned kThreeByteMinimum = 0x800u;    // 3바이트 꼴의 최소 코드포인트 — 아래면 과잉 인코딩
+constexpr unsigned kFourByteMinimum  = 0x10000u;  // 4바이트 꼴의 최소 코드포인트
+constexpr unsigned kSurrogateFirst   = 0xD800u;   // UTF-16 대리쌍 영역 — UTF-8에서는 금지
+constexpr unsigned kSurrogateLast    = 0xDFFFu;
+constexpr unsigned kCodePointMaximum = 0x10FFFFu; // 유니코드 마지막 코드포인트
+} // namespace
+
 bool is_valid_utf8(std::string_view text)
 {
     size_t index = 0;
@@ -54,10 +68,10 @@ bool is_valid_utf8(std::string_view text)
             code_point = (code_point << 6) | (following & 0x3Fu);
         }
 
-        const bool overlong = (extra == 2 && code_point < 0x800u) || (extra == 3 && code_point < 0x10000u);
-        const bool surrogate = code_point >= 0xD800u && code_point <= 0xDFFFu;
+        const bool overlong = (extra == 2 && code_point < kThreeByteMinimum) || (extra == 3 && code_point < kFourByteMinimum);
+        const bool surrogate = code_point >= kSurrogateFirst && code_point <= kSurrogateLast;
 
-        if (overlong || surrogate || code_point > 0x10FFFFu)
+        if (overlong || surrogate || code_point > kCodePointMaximum)
         {
             return false;
         }

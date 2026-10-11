@@ -11,11 +11,13 @@
 #include "strategy/StrategyBase.h"
 #include "utils/Logger.h"
 
+#include <chrono>
 #include <cstdlib>
+#include <initializer_list>
 #include <memory>
 #include <iostream>
-#include <map>
-#include <set>
+#include <optional>
+#include <string>
 #include <vector>
 
 namespace
@@ -35,7 +37,7 @@ int g_checks = 0;
 
 using Clock = SignalDispatcher::Clock;
 
-OrderSignal signal(const char* ticker, OrderSide side, int quantity, OrderAction action = OrderAction::NEW,
+OrderSignal make_signal(const char* ticker, OrderSide side, int quantity, OrderAction action = OrderAction::NEW,
                 const char* strategy = "T")
 {
     OrderSignal signal;
@@ -95,18 +97,18 @@ struct Rig
 int test_stamp()
 {
     Rig rig(open_config());
-    rig.dispatcher.submit(signal("A", OrderSide::BUY, 1));
-    rig.dispatcher.submit(signal("A", OrderSide::SELL, 2));
+    rig.dispatcher.submit(make_signal("A", OrderSide::BUY, 1));
+    rig.dispatcher.submit(make_signal("A", OrderSide::SELL, 2));
     CHECK(rig.out.size() == 2 && rig.out[0].sequence == 1 && rig.out[1].sequence == 2 && rig.dispatcher.sequence() == 2);
     CHECK(rig.out[1].side == OrderSide::SELL && rig.out[1].quantity == 2);
 
     // 로그 한 줄 — 취소는 동작을 앞에, 대상 주문을 뒤에 적는다.
-    auto cancel_signal            = signal("A", OrderSide::BUY, 0, OrderAction::CANCEL);
+    auto cancel_signal            = make_signal("A", OrderSide::BUY, 0, OrderAction::CANCEL);
     cancel_signal.original_client_order_id = "oid-7";
     cancel_signal.reason          = "재구성";
     const auto line   = dispatch::describe(cancel_signal, "<A>");
     CHECK(line == "[T] <A> 취소 BUY 0 대상=oid-7 | 근거: 재구성");
-    CHECK(dispatch::describe(signal("A", OrderSide::SELL, 3), "A") == "[T] A SELL 3");
+    CHECK(dispatch::describe(make_signal("A", OrderSide::SELL, 3), "A") == "[T] A SELL 3");
     return 0;
 }
 
@@ -120,21 +122,21 @@ int test_strategy_gate()
     });
 
     // 비활성 전략: 신규 매수만 막고 매도·취소는 통과.
-    rig.dispatcher.from_strategy(false, false, signal("A", OrderSide::BUY, 1));
+    rig.dispatcher.from_strategy(false, false, make_signal("A", OrderSide::BUY, 1));
     CHECK(rig.out.empty());
-    rig.dispatcher.from_strategy(false, false, signal("A", OrderSide::SELL, 1));
-    rig.dispatcher.from_strategy(false, false, signal("A", OrderSide::BUY, 0, OrderAction::CANCEL));
+    rig.dispatcher.from_strategy(false, false, make_signal("A", OrderSide::SELL, 1));
+    rig.dispatcher.from_strategy(false, false, make_signal("A", OrderSide::BUY, 0, OrderAction::CANCEL));
     CHECK(rig.out.size() == 2 && rig.out[1].action == OrderAction::CANCEL);
 
     // 청산 관리 티커: ITB_ 밖 전략의 신규는 매수·매도 다 막고, 취소·정정과 ITB_는 통과.
-    rig.dispatcher.from_strategy(true, false, signal("G", OrderSide::BUY, 1));
-    rig.dispatcher.from_strategy(true, false, signal("G", OrderSide::SELL, 1));
+    rig.dispatcher.from_strategy(true, false, make_signal("G", OrderSide::BUY, 1));
+    rig.dispatcher.from_strategy(true, false, make_signal("G", OrderSide::SELL, 1));
     CHECK(rig.out.size() == 2);
-    rig.dispatcher.from_strategy(true, false, signal("G", OrderSide::SELL, 0, OrderAction::REPLACE));
-    rig.dispatcher.from_strategy(true, true, signal("G", OrderSide::BUY, 1));
+    rig.dispatcher.from_strategy(true, false, make_signal("G", OrderSide::SELL, 0, OrderAction::REPLACE));
+    rig.dispatcher.from_strategy(true, true, make_signal("G", OrderSide::BUY, 1));
     CHECK(rig.out.size() == 4 && rig.out[3].strategy_id == "T");
     // 청산 관리 밖 티커는 어느 전략이든 통과.
-    rig.dispatcher.from_strategy(true, false, signal("H", OrderSide::BUY, 1));
+    rig.dispatcher.from_strategy(true, false, make_signal("H", OrderSide::BUY, 1));
     CHECK(rig.out.size() == 5);
 
     // 전략이 디스패처에 주는 active는 국면 축과 유니버스 축의 AND다 — 어느 한쪽이 닫히면 신규매수가 막힌다 (D-077).
@@ -156,15 +158,15 @@ int test_strategy_gate()
         {
             return std::nullopt;
         }
-    } stop_token;
-    CHECK(stop_token.is_active() && stop_token.in_universe());
-    stop_token.set_in_universe(false);
-    CHECK(!stop_token.is_active());
-    stop_token.set_active(false);
-    stop_token.set_in_universe(true);
-    CHECK(!stop_token.is_active() && stop_token.in_universe());
-    stop_token.set_active(true);
-    CHECK(stop_token.is_active());
+    } stub_strategy;
+    CHECK(stub_strategy.is_active() && stub_strategy.in_universe());
+    stub_strategy.set_in_universe(false);
+    CHECK(!stub_strategy.is_active());
+    stub_strategy.set_active(false);
+    stub_strategy.set_in_universe(true);
+    CHECK(!stub_strategy.is_active() && stub_strategy.in_universe());
+    stub_strategy.set_active(true);
+    CHECK(stub_strategy.is_active());
     return 0;
 }
 
@@ -176,22 +178,22 @@ int test_manual_sell_halt()
     rig.publish();
     CHECK(rig.gate.is_manual_sell_halted() && !rig.gate.is_manual_buy_halted() && !rig.gate.is_entry_halted());
 
-    rig.dispatcher.from_strategy(true, false, signal("A", OrderSide::SELL, 1));
+    rig.dispatcher.from_strategy(true, false, make_signal("A", OrderSide::SELL, 1));
     CHECK(rig.out.empty());
-    rig.dispatcher.from_strategy(true, false, signal("A", OrderSide::BUY, 1));
-    rig.dispatcher.from_strategy(true, false, signal("A", OrderSide::SELL, 0, OrderAction::CANCEL));
+    rig.dispatcher.from_strategy(true, false, make_signal("A", OrderSide::BUY, 1));
+    rig.dispatcher.from_strategy(true, false, make_signal("A", OrderSide::SELL, 0, OrderAction::CANCEL));
     CHECK(rig.out.size() == 2 && rig.out[0].side == OrderSide::BUY && rig.out[1].action == OrderAction::CANCEL);
 
     rig.gate.set_manual_halt(OrderSide::SELL, false);
     rig.publish();
-    rig.dispatcher.from_strategy(true, false, signal("A", OrderSide::SELL, 1));
+    rig.dispatcher.from_strategy(true, false, make_signal("A", OrderSide::SELL, 1));
     CHECK(rig.out.size() == 3 && rig.out[2].side == OrderSide::SELL);
 
     // 매수 정지는 is_entry_halted()로만 드러난다(전략이 신호를 안 만든다) — 디스패처는 매도를 막지 않는다.
     rig.gate.set_manual_halt(OrderSide::BUY, true);
     rig.publish();
     CHECK(rig.gate.is_entry_halted() && !rig.gate.is_manual_sell_halted());
-    rig.dispatcher.from_strategy(true, false, signal("A", OrderSide::SELL, 1));
+    rig.dispatcher.from_strategy(true, false, make_signal("A", OrderSide::SELL, 1));
     CHECK(rig.out.size() == 4);
     return 0;
 }
@@ -200,26 +202,26 @@ int test_manual_sell_halt()
 int test_universe_exit_judge()
 {
     using namespace universe_exit;
-    const Thresholds thread{40, 600, 2};
+    const Thresholds thresholds{40, 600, 2};
     // 부재 20초(첫 부재 스캔)는 아무것도 아니고, 40초(둘째 연속 부재)에 차단, 600초에 해제.
-    CHECK(judge_absent(0, thread, true) == Absent::KEEP);
-    CHECK(judge_absent(20, thread, true) == Absent::KEEP);
-    CHECK(judge_absent(40, thread, true) == Absent::BLOCK);
-    CHECK(judge_absent(599, thread, true) == Absent::BLOCK);
-    CHECK(judge_absent(600, thread, true) == Absent::DROP);
+    CHECK(judge_absent(0, thresholds, true) == Absent::KEEP);
+    CHECK(judge_absent(20, thresholds, true) == Absent::KEEP);
+    CHECK(judge_absent(40, thresholds, true) == Absent::BLOCK);
+    CHECK(judge_absent(599, thresholds, true) == Absent::BLOCK);
+    CHECK(judge_absent(600, thresholds, true) == Absent::DROP);
     // 이미 차단된 종목에 BLOCK을 다시 내지 않는다 — 로그가 20초마다 반복되지 않게.
-    CHECK(judge_absent(40, thread, false) == Absent::KEEP);
-    CHECK(judge_absent(599, thread, false) == Absent::KEEP);
-    CHECK(judge_absent(600, thread, false) == Absent::DROP);
+    CHECK(judge_absent(40, thresholds, false) == Absent::KEEP);
+    CHECK(judge_absent(599, thresholds, false) == Absent::KEEP);
+    CHECK(judge_absent(600, thresholds, false) == Absent::DROP);
     // block≤0이면 차단 없이 해제만, drop≤0이면 해제 없이 차단만.
     CHECK(judge_absent(1000, Thresholds{0, 600, 2}, true) == Absent::DROP);
     CHECK(judge_absent(300, Thresholds{0, 600, 2}, true) == Absent::KEEP);
     CHECK(judge_absent(1000, Thresholds{40, 0, 2}, true) == Absent::BLOCK);
     CHECK(judge_absent(1000, Thresholds{40, 0, 2}, false) == Absent::KEEP);
     // 복귀: 차단 중 present 2회 연속에 푼다. 열려 있는 종목은 판정 대상이 아니다. confirm≤1은 1회.
-    CHECK(!judge_return(1, thread, false));
-    CHECK(judge_return(2, thread, false));
-    CHECK(!judge_return(5, thread, true));
+    CHECK(!judge_return(1, thresholds, false));
+    CHECK(judge_return(2, thresholds, false));
+    CHECK(!judge_return(5, thresholds, true));
     CHECK(judge_return(1, Thresholds{40, 600, 0}, false));
     // 차단이 해제보다 늦으면 해제 시각에 맞춘다. drop이 꺼져 있으면 그대로 둔다.
     CHECK(clamp_block(900, 600) == 600);
@@ -355,7 +357,7 @@ int test_force_liquidation_throttle()
 int test_trim_once()
 {
     auto config                    = open_config();
-    config.max_notional_per_ticker = 1000.0;
+    config.max_notional_per_ticker = 1000;
     Rig rig(config);
     rig.gate.ledger().seed_position("", "A", 20, 100.0);
     rig.publish();
@@ -381,7 +383,7 @@ int test_trim_once()
 int test_sleeve_scan_skips_basket()
 {
     auto config                    = open_config();
-    config.max_notional_per_ticker = 1000.0;
+    config.max_notional_per_ticker = 1000;
     Rig rig(config);
     rig.gate.ledger().set_slot_exempt(rig.gate.ledger().strategy_index_of("BASKET_MAIN"), {"BK"});
     rig.gate.ledger().seed_position("", "BK", 50, 100.0); // 명목 5,000 > 한도 1,000이지만 바스켓 것

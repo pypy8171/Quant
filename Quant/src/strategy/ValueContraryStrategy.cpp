@@ -1,11 +1,21 @@
 #include "strategy/ValueContraryStrategy.h"
 
+#include <chrono>
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
 namespace
 {
 // 미국 정규장(서머타임 기준) KST 22:30~05:00. 표준시 전환은 반영하지 않는다.
 constexpr int kUsSessionOpenHhmm  = 2230;
 constexpr int kUsSessionCloseHhmm = 500;
 constexpr int kHhmmNextDay        = 2400; // 자정 뒤 hhmm에 더해 전날 밤 창 뒤로 놓는다
+constexpr double kNoPbrLimit      = 999.0; // pbr_max가 0이면 상한 없이 조회한다 — KIS 조회의 사실상 무한대
+constexpr int    kMinBarsForSignal = 4;    // 판정에 쓰는 최소 봉 수
 } // namespace
 
 std::string ValueContraryStrategy::describe() const
@@ -36,8 +46,8 @@ void ValueContraryStrategy::on_start()
         // KOSPI(J) + KOSDAQ(W) 합산
         // J·W는 KIS 시장 코드가 아니라 fetch_universe_by_pbr 안에서 FID_INPUT_ISCD 0001·1001로 바뀌는 우리 표기다
         //  (2026-09-27 샘플 대조로 고침 — KIS 공식 샘플 volume_rank에서 J는 KRX, W는 ELW다. KisUniverse.cpp 주석 참고).
-        auto kospi = kis_->fetch_universe_by_pbr(pbr_max_ > 0 ? pbr_max_ : 999.0, "J");
-        auto kosdaq = kis_->fetch_universe_by_pbr(pbr_max_ > 0 ? pbr_max_ : 999.0, "W");
+        auto kospi = kis_->fetch_universe_by_pbr(pbr_max_ > 0 ? pbr_max_ : kNoPbrLimit, "J");
+        auto kosdaq = kis_->fetch_universe_by_pbr(pbr_max_ > 0 ? pbr_max_ : kNoPbrLimit, "W");
         universe = std::move(kospi);
         universe.insert(universe.end(), std::make_move_iterator(kosdaq.begin()), std::make_move_iterator(kosdaq.end()));
     }
@@ -72,7 +82,7 @@ void ValueContraryStrategy::on_start()
             bars.erase(bars.begin());
         }
 
-        if (static_cast<int>(bars.size()) < 4)
+        if (static_cast<int>(bars.size()) < kMinBarsForSignal)
         {
             continue;
         }

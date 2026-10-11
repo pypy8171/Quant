@@ -5,7 +5,8 @@
 #include "ipc/SharedSpscRing.h"
 #include "ipc/OrderChannel.h"
 
-#include <cstring>
+#include <cstddef>
+#include <cstdint>
 #include <iostream>
 #include <string>
 

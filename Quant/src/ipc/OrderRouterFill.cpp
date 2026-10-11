@@ -250,7 +250,7 @@ void OrderRouter::restore_from_order_reason(const FillNotification& fill_notific
         return;
     }
 
-    // 선점(reserved_)은 이전 세션과 함께 사라졌다. 연결 체결 처리가
+    // 선점(PositionRow::reserved)은 이전 세션과 함께 사라졌다. 연결 체결 처리가
     //  on_fill_confirmed로 선점을 깎으므로, 주문수량만큼 먼저 되살려 순변화를 맞춘다.
     //  일부만 체결되고 나머지가 취소되면 그만큼 선점이 남는데, 주기 잔고 대조의
     //  reset_reserved()가 실제 잔고로 되맞춘다.
@@ -348,8 +348,8 @@ ManagedOrder* OrderRouter::find_linked_order_locked(const FillNotification& fill
 //  체결이 통째로 버려져 장부·포지션이 91주(약 498만원) 어긋났다.
 //  체결 자체는 실재하므로 버리지 않고 장부·포지션에 반영한다. 전략 귀속만 알 수 없어
 //  strategy_id를 "UNLINKED"로 남긴다(사후 분석에서 구분 가능).
-//  선점(reserved_)은 이전 세션과 함께 사라졌다. on_fill_confirmed는 선점 해제를 전제로
-//  reserved_를 깎으므로, 그대로 부르면 음수 선점이 생겨 이후 한도 계산이 왜곡된다.
+//  선점(PositionRow::reserved)은 이전 세션과 함께 사라졌다. on_fill_confirmed는 선점 해제를 전제로
+//  선점을 깎으므로, 그대로 부르면 음수 선점이 생겨 이후 한도 계산이 왜곡된다.
 //  같은 수량을 on_intent로 먼저 되살린 뒤 해제시켜 순변화를 0으로 맞춘다(장부에도 INTENT→FILL 두 줄로 남는다).
 //  미연결은 history_에 없어 우리 쪽 주문수량을 모른다. 대신 전문 [16]ODER_QTY가 그 주문의 총수량이라,
 //  있으면 연결된 주문과 같은 방식으로 누적 체결을 그 수량까지 묶는다. 상한이 키가 아니라 수량이 되므로
@@ -524,8 +524,9 @@ void OrderRouter::emit_fill(const ManagedOrder& fill_order, const FillNotificati
                              fill_order.order_id, fill_notification.ticker, quantity, static_cast<int>(fill_notification.filled_price)));
     }
 
-    journal_.write_trade_row("FILL", fill_order, quantity, fill_notification.filled_price, result.realized_pnl,
-                             result.strategy_realized_pnl);
+    // 장부 CSV는 금액 칸을 double로 받는다 — 원 단위 정수(money::Won)를 여기서 명시해 넘긴다.
+    journal_.write_trade_row("FILL", fill_order, quantity, fill_notification.filled_price,
+                             static_cast<double>(result.realized_pnl), static_cast<double>(result.strategy_realized_pnl));
 }
 
 void OrderRouter::publish_fill_result(const FillNotification& fill_notification, const std::string& strategy_id,
@@ -534,8 +535,10 @@ void OrderRouter::publish_fill_result(const FillNotification& fill_notification,
 #ifdef HAS_ZMQ
     if (zmq_)
     {
-        zmq_->publish_fill(fill_notification, strategy_id, result.commission, result.tax, result.average_price,
-                           result.net_quantity, result.realized_pnl);
+        // 발행 전문은 금액 칸이 double이다 — 원 단위 정수(money::Won)를 여기서 명시해 넘긴다.
+        zmq_->publish_fill(fill_notification, strategy_id, static_cast<double>(result.commission),
+                           static_cast<double>(result.tax), static_cast<double>(result.average_price), result.net_quantity,
+                           static_cast<double>(result.realized_pnl));
     }
 #else
     (void)fill_notification;

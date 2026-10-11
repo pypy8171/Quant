@@ -1,5 +1,7 @@
 #include "api/KisWsDecode.h"
 
+#include <cstring>
+
 namespace kis_websocket
 {
 void split_fields(std::string_view text, char delim, std::vector<std::string_view>& out)

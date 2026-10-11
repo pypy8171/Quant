@@ -8,8 +8,9 @@
 #include "core/KstTime.h"
 
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
-#include <cstdlib>
+#include <ctime>
 #include <iostream>
 #include <string>
 #include <string_view>
@@ -106,8 +107,8 @@ int main()
         const BarSlot tomorrow   = bars::slot_of(90000, utc_of("090000") + 86400, 3, 900, 1530);
         CHECK(today_last < tomorrow && tomorrow.day == today_last.day + 1);
         // 봉 시작 시각은 버킷의 첫 분.
-        const auto stop_token = std::chrono::system_clock::to_time_t(bars::slot_start(slot_b, utc_of("090259"), 3));
-        CHECK(stop_token == utc_of("090000"));
+        const auto slot_start_time = std::chrono::system_clock::to_time_t(bars::slot_start(slot_b, utc_of("090259"), 3));
+        CHECK(slot_start_time == utc_of("090000"));
     }
 
     // ── 한 봉 안 OHLC·누적 거래량 차, 다음 버킷 첫 틱이 앞 봉을 닫음, bar_index 0=최신 ──
@@ -298,14 +299,14 @@ int main()
 
         for (int index = 0; index < 7; ++index)
         {
-            const std::string message  = mins[index];
+            const std::string minute_text  = mins[index];
             const double      price = 100.0 + index;
             accumulated_volume += 5;
-            CHECK(one.on_tick(tick(message + "10", price + 0.5, 5, accumulated_volume)));
-            CHECK(three.on_tick(tick(message + "10", price + 0.5, 5, accumulated_volume)));
+            CHECK(one.on_tick(tick(minute_text + "10", price + 0.5, 5, accumulated_volume)));
+            CHECK(three.on_tick(tick(minute_text + "10", price + 0.5, 5, accumulated_volume)));
             accumulated_volume += 7;
-            CHECK(one.on_tick(tick(message + "40", price, 7, accumulated_volume)));
-            CHECK(three.on_tick(tick(message + "40", price, 7, accumulated_volume)));
+            CHECK(one.on_tick(tick(minute_text + "40", price, 7, accumulated_volume)));
+            CHECK(three.on_tick(tick(minute_text + "40", price, 7, accumulated_volume)));
         }
 
         const auto snapshot_one = one.snapshot(kSamsung);

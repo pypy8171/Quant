@@ -2,6 +2,21 @@
 //  관련 결정: D-046·D-055(매도가능 클램프)·D-082(장 마감 순서)·D-111(트레일)·D-114(보호 주문 표)·D-156.
 #include "strategy/DeviationScaleStrategy.h"
 
+#include <chrono>
+#include <mutex>
+#include <string>
+#include <utility>
+#include <vector>
+
+namespace
+{
+// 장 마감 청산의 사유 문자열. 낼 때만 만든다.
+std::string market_close_tag(int hhmm)
+{
+    return "장 마감(" + std::to_string(hhmm) + ")";
+}
+} // namespace
+
 bool DeviationScaleStrategy::close_at_market_end(int hhmm, std::vector<OrderSignal>& out)
 {
     // ── 장 마감 안전장치: 전량 취소 + 시장가 청산 ────────────────────────────
@@ -14,15 +29,21 @@ bool DeviationScaleStrategy::close_at_market_end(int hhmm, std::vector<OrderSign
     //  (09-14 15:15 청산 신호 41건 중 접수 3건, 6종목 1,120만원 이월). 전략 쪽 매도가능 클램프(잔고 조회
     //  1회, 09-11 마감엔 종목당 13초)도 건너뛴다 — 예약 익절이 묶은 수량은 라우터가 그 자리에서 취소하고
     //  전량을 낸다(청산차단 자가정리). 뒤따르는 취소는 라우터가 "취소 불요"로 닫는다. [why D-082]
-    int position = confirmed_position(parameters_.account, symbol_id_, parameters_.ticker);
-    const std::string tag = "장 마감(" + std::to_string(hhmm) + ")";
-    emit_liquidation(out, position, std::chrono::steady_clock::now(), tag, kMarketCloseBackoffMs,
-                     /*clamp_sellable=*/false); // 백오프(자체 로깅)
-    bool cancelled = cancel_all(out);
+    //  마감 뒤에는 체결마다 여기를 지난다 — 사유 문자열은 실제로 낼 때와 취소를 로그로 남길 때만 만든다.
+    const int  position = confirmed_position(parameters_.account, symbol_id_, parameters_.ticker);
+    const auto now      = std::chrono::steady_clock::now();
+
+    if (liquidation_due(position, now))
+    {
+        emit_liquidation(out, position, now, market_close_tag(hhmm), kMarketCloseBackoffMs,
+                         /*clamp_sellable=*/false); // 백오프(자체 로깅)
+    }
+
+    const bool cancelled = cancel_all(out);
 
     if (cancelled && position <= 0)
     {
-        LOG_INFO("[" + id() + "] " + tag + " — 미체결 취소(보유 0)");
+        LOG_INFO("[" + id() + "] " + market_close_tag(hhmm) + " — 미체결 취소(보유 0)");
     }
 
     return true;
@@ -77,7 +98,7 @@ bool DeviationScaleStrategy::exit_on_protective_rules(double current_price, std:
         {
             liquidation_.last_average_price = 0.0;
         }
-        else if (position != liquidation_.average_position_seen && ledger_sellable(parameters_.account, parameters_.ticker))
+        else if (position != liquidation_.average_position_seen && ledger_sellable(parameters_.account, symbol_id_, parameters_.ticker))
         {
             (void)sellable_quantity();
         }
@@ -96,10 +117,16 @@ bool DeviationScaleStrategy::exit_on_protective_rules(double current_price, std:
             current_price <= liquidation_.last_average_price * (1.0 - parameters_.stop_loss_percent / 100.0))
         {
             cancel_all(out);
-            const std::string tag = "손절(평단 " + format_one_decimal(liquidation_.last_average_price) + " -" +
-                                    format_one_decimal(parameters_.stop_loss_percent) + "%)";
-            // 스탑은 지수 백오프 상한을 30초로 둔다 — 5분 보류는 손절이 아니다.
-            emit_liquidation(out, position, now, tag, kLiquidationBackoffMs);
+
+            // 손절 조건이 참인 동안 틱마다 여기를 지난다 — 백오프 창 안이면 사유 문자열을 만들지 않는다.
+            if (liquidation_due(position, now))
+            {
+                const std::string tag = "손절(평단 " + format_one_decimal(liquidation_.last_average_price) + " -" +
+                                        format_one_decimal(parameters_.stop_loss_percent) + "%)";
+                // 스탑은 지수 백오프 상한을 30초로 둔다 — 5분 보류는 손절이 아니다.
+                emit_liquidation(out, position, now, tag, kLiquidationBackoffMs);
+            }
+
             liquidation_.stop_cooldown_until = now + std::chrono::seconds(parameters_.stop_cooldown_sec);
             return true;
         }
@@ -118,7 +145,7 @@ bool DeviationScaleStrategy::exit_on_protective_rules(double current_price, std:
         }
         else
         {
-            if (liquidation_.last_average_price <= 0.0 && ledger_sellable(parameters_.account, parameters_.ticker))
+            if (liquidation_.last_average_price <= 0.0 && ledger_sellable(parameters_.account, symbol_id_, parameters_.ticker))
             {
                 (void)sellable_quantity();
             }
@@ -129,10 +156,15 @@ bool DeviationScaleStrategy::exit_on_protective_rules(double current_price, std:
                                                      parameters_.trail_arm_percent, parameters_.trail_percent))
             {
                 cancel_all(out);
-                const std::string tag = "트레일(고가 " + format_one_decimal(liquidation_.hold_peak_price) + " -" +
-                                        format_one_decimal(parameters_.trail_percent) + "%, 평단 " +
-                                        format_one_decimal(liquidation_.last_average_price) + ")";
-                emit_liquidation(out, position, now, tag, kLiquidationBackoffMs);
+
+                if (liquidation_due(position, now))
+                {
+                    const std::string tag = "트레일(고가 " + format_one_decimal(liquidation_.hold_peak_price) + " -" +
+                                            format_one_decimal(parameters_.trail_percent) + "%, 평단 " +
+                                            format_one_decimal(liquidation_.last_average_price) + ")";
+                    emit_liquidation(out, position, now, tag, kLiquidationBackoffMs);
+                }
+
                 liquidation_.stop_cooldown_until = now + std::chrono::seconds(parameters_.stop_cooldown_sec);
                 return true;
             }
@@ -142,12 +174,12 @@ bool DeviationScaleStrategy::exit_on_protective_rules(double current_price, std:
     return false;
 }
 
-OrderSignal DeviationScaleStrategy::make_market_sell(int quantity, const std::string& reason)
+OrderSignal DeviationScaleStrategy::make_market_sell(int quantity, std::string reason)
 {
     OrderSignal signal = make_signal(parameters_.ticker, symbol_id_, OrderSide::SELL, OrderType::MARKET, quantity);
     signal.action = OrderAction::NEW;
     signal.account_id = parameters_.account;
-    signal.reason = reason; // G4: 청산 사유(존 이탈/장 마감 등)를 신호에 실어 영속
+    signal.reason = std::move(reason); // 청산 사유(존 이탈/장 마감 등)를 신호에 실어 영속
     signal.reference_price =
         liquidation_reference_price(); // 시장가는 price=0이라 이 값이 없으면 1주문 명목 상한이 비어 버린다
     return signal;
@@ -165,8 +197,21 @@ double DeviationScaleStrategy::liquidation_reference_price()
         return liquidation_.last_average_price;
     }
 
-    std::lock_guard<std::mutex> lock(snap_mutex_);
+    std::lock_guard<std::mutex> lock(snapshot_mutex_);
     return snapshot_.bars && !snapshot_.bars->empty() ? (*snapshot_.bars)[0].close : 0.0;
+}
+
+bool DeviationScaleStrategy::liquidation_due(int position, std::chrono::steady_clock::time_point now) const
+{
+    if (position <= 0)
+    {
+        return false;
+    }
+
+    // emit_liquidation의 진행 판정과 같다 — 직전 시도보다 보유가 줄었으면 백오프가 풀린다.
+    const bool progressed = liquidation_.last_position < 0 || position < liquidation_.last_position;
+    const bool in_backoff = liquidation_.next.time_since_epoch().count() != 0 && now < liquidation_.next;
+    return progressed || !in_backoff;
 }
 
 bool DeviationScaleStrategy::emit_liquidation(std::vector<OrderSignal>& out, int position,
@@ -209,18 +254,19 @@ bool DeviationScaleStrategy::emit_liquidation(std::vector<OrderSignal>& out, int
 
     liquidation_.last_position = position;
     ++liquidation_.fail_streak;
+    constexpr int kBackoffShiftMax = 4; // 30초 × 2^4 = 480초까지만 늘린다
     int shift = liquidation_.fail_streak - 1;
 
-    if (shift > 4)
+    if (shift > kBackoffShiftMax)
     {
-        shift = 4;
+        shift = kBackoffShiftMax;
     }
 
-    long long milliseconds = 30000LL << shift; // 30/60/120/240/480…
+    long long milliseconds = static_cast<long long>(kLiquidationBackoffMs) << shift; // 30/60/120/240/480초
 
     if (milliseconds > max_backoff_ms)
     {
-        milliseconds = max_backoff_ms; // capture 기본 5분, 스탑 경로는 30초
+        milliseconds = max_backoff_ms; // 장 마감 경로 기본 5분, 스탑 경로는 30초
     }
 
     liquidation_.next = now + std::chrono::milliseconds(milliseconds);
@@ -239,7 +285,7 @@ int DeviationScaleStrategy::sell_room(int position)
 int DeviationScaleStrategy::sellable_quantity()
 {
     // 장부 접근자가 주입돼 있으면 그것으로 끝낸다 — 샤드 스레드에서 REST를 부르지 않는다. [why D-055]
-    if (const auto sellable_from_ledger = ledger_sellable(parameters_.account, parameters_.ticker))
+    if (const auto sellable_from_ledger = ledger_sellable(parameters_.account, symbol_id_, parameters_.ticker))
     {
         if (sellable_from_ledger->average_price > 0.0)
         {
@@ -260,7 +306,7 @@ int DeviationScaleStrategy::sellable_quantity()
     {
         // 접근자 미주입(단독 실행·테스트) 경로. 샤드 스레드에서 동기로 돌므로 재시도만 뗀다 —
         //  실패는 아래에서 0으로 떨어지고 다음 하트비트에 다시 온다.
-        KisClient::FastFailScope ff;
+        KisClient::FastFailScope fast_fail;
         const KisResult<AccountBalance> balance = kis_client->get_balance();
 
         if (!balance)

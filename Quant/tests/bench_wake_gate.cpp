@@ -15,7 +15,7 @@
 using Clock = std::chrono::steady_clock;
 using namespace std::chrono_literals;
 
-// 가이드 5절의 순번 카운터 꼴. seen을 잡은 뒤 큐를 다시 보고, 그동안 seq_가 안 바뀌었으면 잔다.
+// 가이드 5절의 순번 카운터 꼴. seen을 잡은 뒤 큐를 다시 보고, 그동안 sequence_가 안 바뀌었으면 잔다.
 struct AtomicGate
 {
     std::atomic<uint32_t> sequence_{0};
@@ -38,8 +38,8 @@ struct AtomicGate
 };
 
 // test_wake_gate 4번과 같은 왕복 — 소비자가 잠든 것을 확인하고 push+notify, 깨어나 pop한 시각까지를 잰다.
-template <class Gate, class WaitFn, class SleepFn>
-void run(const char* name, Gate& gate, WaitFn do_wait, SleepFn is_sleeping)
+template <class Gate, class WaitFunction, class SleepFunction>
+void run(const char* name, Gate& gate, WaitFunction do_wait, SleepFunction is_sleeping)
 {
     RingBuffer<int>        queue{64};
     std::atomic<bool>      stop{false};
@@ -77,7 +77,7 @@ void run(const char* name, Gate& gate, WaitFn do_wait, SleepFn is_sleeping)
         }
 
         // sleeping이 켜진 직후는 아직 재확인 단계일 수 있어 조금 더 기다려 wait 안으로 들어가게 한다.
-        for (const auto spin0 = Clock::now(); Clock::now() - spin0 < 50us;)
+        for (const auto spin_start = Clock::now(); Clock::now() - spin_start < 50us;)
         {
             std::this_thread::yield();
         }
@@ -90,9 +90,9 @@ void run(const char* name, Gate& gate, WaitFn do_wait, SleepFn is_sleeping)
             return;
         }
 
-        const auto n0 = Clock::now();
+        const auto notify_start = Clock::now();
         gate.notify();
-        notify_ns.push_back(static_cast<double>((Clock::now() - n0).count()));
+        notify_ns.push_back(static_cast<double>((Clock::now() - notify_start).count()));
 
         while (consumed.load(std::memory_order_acquire) <= round_index)
         {

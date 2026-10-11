@@ -10,6 +10,7 @@
 #include <windows.h>
 #else
 #include <cerrno>
+#include <cstdint>
 #include <ctime>
 #endif
 

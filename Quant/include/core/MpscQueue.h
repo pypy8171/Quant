@@ -3,6 +3,7 @@
 #include <bit>
 #include <cstddef>
 #include <cstdint>
+#include <new>
 #include <optional>
 #include <utility>
 #include <vector>

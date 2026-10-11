@@ -7,9 +7,13 @@
 
 #include <cassert>
 #include <chrono>
+#include <cstdint>
+#include <functional>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace

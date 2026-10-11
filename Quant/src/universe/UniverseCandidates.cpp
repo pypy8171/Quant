@@ -10,18 +10,19 @@
 #include "utils/EtfFilter.h"
 #include "utils/Logger.h"
 #include <algorithm>
-#include <functional>
+#include <cstddef>
+#include <cstdint>
+#include <exception>
 #include <memory>
 #include <optional>
-#include <chrono>
-#include <cmath>
-#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <mutex>
 #include <nlohmann/json.hpp>
 #include <string>
 #include <string_view>
+#include <system_error>
+#include <utility>
 #include <vector>
 
 namespace universe::detail
@@ -66,7 +67,7 @@ bool excluded_by_name(const std::string& name, int& etf_drop, int& reit_drop)
 //  가격·거래대금 하한·상장 여부·ETF·리츠 필터를 같이 건다. 값이 같으면 티커 순으로 자른다 — 같은 시세면 같은 집합이
 //  나오게. 순위에 오른 종목 수를 돌려준다(로그용).
 template <typename Metric>
-std::size_t take_top_by(const DevScanCfg& config, const QuoteTable& quotes, int count, CandidateSet& candidates,
+std::size_t take_top_by(const DeviationScaleScanConfig& config, const QuoteTable& quotes, int count, CandidateSet& candidates,
                         const symbol::SymbolTable& symbols, Metric metric)
 {
     struct Ranked
@@ -147,7 +148,7 @@ std::size_t take_top_by(const DevScanCfg& config, const QuoteTable& quotes, int 
 
 // 유니버스 한 줄을 후보에 붓는다 — 파일 축과 시세판 축이 같은 규칙(ETF·리츠 이름 필터·가격 구간)을 쓴다.
 //  결과: 1=새로 넣음, 0=걸러짐, -1=중복.
-int add_universe_entry(const DevScanCfg& config, const std::string& ticker, std::string name, double price,
+int add_universe_entry(const DeviationScaleScanConfig& config, const std::string& ticker, std::string name, double price,
                        std::string_view market, CandidateSet& candidates, symbol::SymbolTable& symbols)
 {
     if (ticker.empty() || excluded_by_name(name, candidates.etf_drop, candidates.reit_drop))
@@ -187,7 +188,7 @@ int add_universe_entry(const DevScanCfg& config, const std::string& ticker, std:
 //  우선순위를 준다. 파일이 없으면 경고하고 건너뛴다.
 //  전종목 코드→시장 사전(market_map)을 top-N보다 먼저 적재해, 뒤 축(거래대금·거래증가율·등락률) 종목의 시장도
 //  해석되게 한다 — 없으면 kosdaq_enabled 게이트가 그쪽으로 샌다.
-void take_universe_file(const DevScanCfg& config, CandidateSet& candidates, symbol::SymbolTable& symbols)
+void take_universe_file(const DeviationScaleScanConfig& config, CandidateSet& candidates, symbol::SymbolTable& symbols)
 {
     if (config.universe_file.empty())
     {
@@ -254,16 +255,19 @@ void take_universe_file(const DevScanCfg& config, CandidateSet& candidates, symb
 }
 
 // 시세판 재랭킹 축 — 파일 축과 같은 자리·같은 규칙이다. 코드→시장 사전은 시세판의 전 종목 목록이다. [why D-147]
-void take_board_axis(const DevScanCfg& config, const RankedUniverse& ranked, CandidateSet& candidates,
+void take_board_axis(const DeviationScaleScanConfig& config, const RankedUniverse& ranked, CandidateSet& candidates,
                      symbol::SymbolTable& symbols)
 {
-    for (const ListedStock& listed : ranked.listing)
+    if (ranked.listing)
     {
-        const symbol::SymbolId symbol = symbols.intern(listed.code);
-
-        if (symbol != symbol::kNone)
+        for (const ListedStock& listed : *ranked.listing)
         {
-            candidates.set_market(symbol, market_from_text(listed.market));
+            const symbol::SymbolId symbol = symbols.intern(listed.code);
+
+            if (symbol != symbol::kNone)
+            {
+                candidates.set_market(symbol, market_from_text(listed.market));
+            }
         }
     }
 
@@ -285,13 +289,15 @@ void take_board_axis(const DevScanCfg& config, const RankedUniverse& ranked, Can
 // 유니버스 파일 축을 붓되, 파일이 지난번 파싱 뒤로 다시 쓰이지 않았으면 그때 결과를 쓴다.
 //  재스캔(20초)이 파일 갱신(1분)보다 잦아 세 번 중 두 번은 같은 내용을 다시 파싱하게 되기 때문이다.
 //  candidates는 비어 있어야 한다 — 파일 축이 맨 앞 축이다.
-void take_universe_file_cached(const DevScanCfg& config, CandidateSet& candidates, symbol::SymbolTable& symbols)
+//  사본을 꺼낼 때 id·자리 벡터는 복사하고(호출자가 이 위에 다른 축을 더 붓는다) 이름은 공유 층을 나눠 쥔다.
+void take_universe_file_cached(const DeviationScaleScanConfig& config, const MarketBoard* board, CandidateSet& candidates,
+                               symbol::SymbolTable& symbols)
 {
     // 시세판이 켜져 있고 한 번이라도 뽑았으면 그 결과를 쓴다. 결과가 같은 판이면(1분에 한 번 바뀐다) 지난번 사본을 쓴다.
     //  아직 못 뽑았으면(장 전 기동 직후) 아래 파일 축으로 간다 — 전날 시세판이 써 둔 파일이다.
-    if (config.market_board)
+    if (board)
     {
-        const std::shared_ptr<const RankedUniverse> ranked = MarketBoard::instance().ranked();
+        const std::shared_ptr<const RankedUniverse> ranked = board->ranked();
 
         if (ranked)
         {
@@ -300,14 +306,15 @@ void take_universe_file_cached(const DevScanCfg& config, CandidateSet& candidate
 
                 if (ranked == g_board_axis_source && !g_file_axis_cache.symbols.empty())
                 {
-                    candidates = g_file_axis_cache;   // 복사가 맞다 — 호출자가 이 위에 다른 축을 더 붓는다
+                    candidates = g_file_axis_cache;
                     return;
                 }
             }
 
             take_board_axis(config, *ranked, candidates, symbols);
+            candidates.freeze_names();
             std::lock_guard<std::mutex> lock(g_candidate_mutex);
-            g_file_axis_cache   = candidates;   // 복사가 맞다 — 호출자가 candidates에 다른 축을 계속 붓는다
+            g_file_axis_cache   = candidates;
             g_board_axis_source = ranked;
             g_file_axis_written = {};
             return;
@@ -330,14 +337,15 @@ void take_universe_file_cached(const DevScanCfg& config, CandidateSet& candidate
 
         if (written == g_file_axis_written && !g_file_axis_cache.symbols.empty())
         {
-            candidates = g_file_axis_cache;   // 복사가 맞다 — 호출자가 이 위에 다른 축을 더 붓는다
+            candidates = g_file_axis_cache;
             return;
         }
     }
 
     take_universe_file(config, candidates, symbols);
+    candidates.freeze_names();
     std::lock_guard<std::mutex> lock(g_candidate_mutex);
-    g_file_axis_cache   = candidates;   // 복사가 맞다 — 호출자가 candidates에 다른 축을 계속 붓는다
+    g_file_axis_cache   = candidates;
     g_file_axis_written = written;
     g_board_axis_source.reset();
 }
@@ -346,7 +354,7 @@ void take_universe_file_cached(const DevScanCfg& config, CandidateSet& candidate
 //  가져와 ETF·리츠 필터를 그대로 적용한다(이름이 없으면 버린다).
 //  티커 문자열 순으로 순회한다. 종목 id는 intern 순서라 실행마다 달라지고, 그 순서로 돌면 같은 입력에서도
 //  align_lookup_max로 잘리는 지점이 함께 바뀌어 유니버스가 재현되지 않는다. Ticker는 고정 길이라 비교가 싸다.
-void take_full_market(const DevScanCfg& config, const QuoteTable& quotes, CandidateSet& candidates,
+void take_full_market(const DeviationScaleScanConfig& config, const QuoteTable& quotes, CandidateSet& candidates,
                       const symbol::SymbolTable& symbols)
 {
     if (!config.full_market || !candidates.have_market_map)
@@ -407,7 +415,7 @@ void take_full_market(const DevScanCfg& config, const QuoteTable& quotes, Candid
 // 거래대금 상위 축 — 시세 표(재스캔마다 새로 읽는 전 종목 장중 시세)에서 당일 누적 거래대금 상위
 //  turnover_top_n종목을 붓는다. 추가 조회는 없다. 시가총액 축은 대형주가 거래 없이도 자리를 먹어 뺐다 [why D-146].
 //  market_map이 있으면 코스피·코스닥 상장 종목만 본다(ETN·ETF 코드는 사전에 없다).
-void take_turnover_top(const DevScanCfg& config, const QuoteTable& quotes, CandidateSet& candidates,
+void take_turnover_top(const DeviationScaleScanConfig& config, const QuoteTable& quotes, CandidateSet& candidates,
                        const symbol::SymbolTable& symbols)
 {
     if (config.turnover_top_n <= 0)
@@ -427,7 +435,7 @@ void take_turnover_top(const DevScanCfg& config, const QuoteTable& quotes, Candi
 
 // 거래증가율 상위 축 — 당일 누적 거래량 ÷ 전일 거래량. 옛 KIS 거래증가율 순위(30행 상한)를 대신한다.
 //  전일 거래량은 일봉 캐시에서 읽으므로 장 전 데우기나 지난 스캔이 일봉을 받아 둔 종목만 순위에 오른다 [why D-153].
-void take_volume_surge(const DevScanCfg& config, const QuoteTable& quotes, const std::string& date_yyyymmdd,
+void take_volume_surge(const DeviationScaleScanConfig& config, const QuoteTable& quotes, const std::string& date_yyyymmdd,
                        CandidateSet& candidates, const symbol::SymbolTable& symbols)
 {
     if (config.value_top_n <= 0)
@@ -455,7 +463,7 @@ void take_volume_surge(const DevScanCfg& config, const QuoteTable& quotes, const
 
 // 등락률 상위 축 — 지금 강한 종목. 옛 KIS 업종 등락률 축(업종 26개 × 10행, 조회 26건)을 대신한다.
 //  시세판이 전 종목 등락률을 주므로 업종을 돌 필요가 없다. change_min_percent 미만은 넣지 않는다 [why D-029·D-153].
-void take_change_top(const DevScanCfg& config, const QuoteTable& quotes, CandidateSet& candidates,
+void take_change_top(const DeviationScaleScanConfig& config, const QuoteTable& quotes, CandidateSet& candidates,
                      const symbol::SymbolTable& symbols)
 {
     if (config.change_top_n <= 0)
@@ -536,7 +544,37 @@ std::string_view CandidateSet::name_of(symbol::SymbolId symbol) const
         return {};
     }
 
-    return names[slot_of[symbol]];
+    const size_t slot        = slot_of[symbol];
+    const size_t shared_size = shared_names ? shared_names->size() : 0;
+
+    if (slot < shared_size)
+    {
+        return (*shared_names)[slot];
+    }
+
+    return names[slot - shared_size];
+}
+
+void CandidateSet::freeze_names()
+{
+    if (names.empty())
+    {
+        return;
+    }
+
+    if (!shared_names)
+    {
+        shared_names = std::make_shared<const std::vector<std::string>>(std::move(names));
+        names.clear();
+        return;
+    }
+
+    std::vector<std::string> joined;
+    joined.reserve(shared_names->size() + names.size());
+    joined.insert(joined.end(), shared_names->begin(), shared_names->end());
+    joined.insert(joined.end(), std::make_move_iterator(names.begin()), std::make_move_iterator(names.end()));
+    shared_names = std::make_shared<const std::vector<std::string>>(std::move(joined));
+    names.clear();
 }
 
 Market CandidateSet::market_of(symbol::SymbolId symbol) const
@@ -549,12 +587,12 @@ Market CandidateSet::market_of(symbol::SymbolId symbol) const
     return have_market_map ? Market::Unknown : Market::Kospi;
 }
 
-void collect_candidates(const DevScanCfg& config, const std::string& date_yyyymmdd, const QuoteTable& quotes,
-                        CandidateSet& candidates, symbol::SymbolTable& symbols)
+void collect_candidates(const DeviationScaleScanConfig& config, const MarketBoard* board, const std::string& date_yyyymmdd,
+                        const QuoteTable& quotes, CandidateSet& candidates, symbol::SymbolTable& symbols)
 {
     // 정배열 프리필터로 상당수가 탈락하므로 여기선 max_register로 자르지 않고 넓게 모은다.
     //  축 순서(재랭킹·파일 → 거래대금 → 거래증가율 → 등락률 → 전 종목)가 일봉 조회 우선순위다.
-    take_universe_file_cached(config, candidates, symbols);
+    take_universe_file_cached(config, board, candidates, symbols);
     take_turnover_top(config, quotes, candidates, symbols);
     take_volume_surge(config, quotes, date_yyyymmdd, candidates, symbols);
     take_change_top(config, quotes, candidates, symbols);

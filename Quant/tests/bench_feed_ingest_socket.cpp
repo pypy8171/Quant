@@ -2,6 +2,9 @@
 //  공용 준비는 bench_feed_ingest_support.h, 모드별 실행은 bench_feed_ingest.cpp의 main.
 #include "bench_feed_ingest_support.h"
 
+#include <cstdint>
+#include <string>
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Winsock/BSD 소켓 이식 래퍼
 // ─────────────────────────────────────────────────────────────────────────────

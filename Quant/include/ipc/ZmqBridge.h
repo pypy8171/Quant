@@ -6,14 +6,15 @@
 #include "core/HealthSnapshot.h"
 #include "core/Types.h"
 #include "ipc/RegimeCell.h"
-#include <array>
 #include <atomic>
+#include <cstdint>
 #include <functional>
 #include <mutex>
 #include <queue>
 #include <string>
 #include <string_view>
 #include <thread>
+#include <utility>
 #include <zmq.hpp>
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -34,11 +35,15 @@
 //  TRADE는 송신 쪽에서도 한 건 한 프레임이 아니다 — 최대 500건을 JSON 배열 한 프레임에 실어 보낸다.
 //  건마다 보내면 발행 스레드가 초당 51만 건에서 멎어 그 위로는 소켓이 조용히 버렸다. [why D-139]
 // ─────────────────────────────────────────────────────────────────────────────
+// 기본 포트 — config `zmq_pub_port`·`zmq_rep_port`가 없을 때 쓰는 값.
+constexpr int kZmqDefaultPubPort = 5555;
+constexpr int kZmqDefaultRepPort = 5556;
+
 class ZmqBridge
 {
 public:
     // rep_port가 0 이하면 REP 소켓을 아예 열지 않는다 — PUB만 여는 발행 전용 모드다. [why D-129]
-    explicit ZmqBridge(int pub_port = 5555, int rep_port = 5556);
+    explicit ZmqBridge(int pub_port = kZmqDefaultPubPort, int rep_port = kZmqDefaultRepPort);
     ~ZmqBridge();
     // 스레드·뮤텍스를 소유한다 — 복사는 원본과 사본이 같은 자원을 두 번 닫는 길이라 막는다.
     ZmqBridge(const ZmqBridge&)            = delete;

@@ -6,6 +6,7 @@
 //   ② flush 계약  : flush() 반환 시점에 그 전에 반환된 log()가 전부 파일에 있다
 //   ③ 드롭 계수   : 가득 차서 버린 수가 dropped()에 잡히고, 기록 + 드롭 = 발행 수
 //   ④ 작업 이름   : ScopedName이 끝나면 스레드 이름이 "T" + 스레드 번호로 돌아간다(풀 스레드가 옛 이름을 쥐지 않는다)
+//   ⑤ 값 전달   : 넘긴 변수는 그대로 남고, 긴 임시 문자열도 잘리지 않고 기록되며, 임계값 아래 레벨은 버린다
 //
 // 사용법: test_logger   (cwd 하위 logs_test/ 에 파일을 만들고 끝나면 지운다)
 
@@ -13,19 +14,21 @@
 #include "utils/ThreadName.h"
 
 #include <cassert>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <system_error>
 #include <thread>
 #include <vector>
 
 namespace
 {
 
-const std::filesystem::path kDir = "logs_test";
-const std::filesystem::path kFile = kDir / "test_logger.log";
+const std::filesystem::path kLogDirectory = "logs_test";
+const std::filesystem::path kFile = kLogDirectory / "test_logger.log";
 
 // 파일에서 "T<t> S<sequence>" 꼴 줄을 세고 스레드별 sequence 단조 증가를 확인한다.
 size_t count_and_check_order(int threads)
@@ -139,17 +142,59 @@ void test_scoped_name_clears()
     std::printf("[PASS] scoped name clears\n");
 }
 
+// ⑤ 문자열을 값으로 받아 옮긴다: 넘긴 변수는 그대로 남고, 조립한 임시 문자열(작은 문자열 최적화보다 긴 것)은
+//  잘리지 않고 파일에 그대로 실린다. 임계값 아래 레벨은 여전히 버린다.
+bool file_has(const std::string& text)
+{
+    std::ifstream in(kFile);
+    std::string   line;
+
+    while (std::getline(in, line))
+    {
+        if (line.find(text) != std::string::npos)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void test_message_moved_into_record()
+{
+    constexpr size_t kLongLength = 200;
+    auto&            logger      = Logger::instance();
+
+    const std::string kept = "SINKKEPT-lvalue";
+    logger.info(kept);
+    assert(kept == "SINKKEPT-lvalue"); // 값 전달이라 호출자 변수는 그대로다
+
+    const std::string long_body(kLongLength, 'x');
+    logger.warn("SINKLONG-" + long_body);
+
+    logger.set_min_level(LogLevel::WARN);
+    logger.info("SINKFILTERED");
+    logger.set_min_level(LogLevel::INFO);
+    logger.flush();
+
+    assert(file_has(kept));
+    assert(file_has("SINKLONG-" + long_body));
+    assert(!file_has("SINKFILTERED"));
+    std::printf("[PASS] message moved into record\n");
+}
+
 } // namespace
 
 int main()
 {
     std::error_code error_code;
-    std::filesystem::create_directories(kDir, error_code);
+    std::filesystem::create_directories(kLogDirectory, error_code);
     std::filesystem::remove(kFile, error_code);
 
     test_multi_producer_no_loss();
     test_flush_contract();
     test_scoped_name_clears();
+    test_message_moved_into_record();
 
     Logger::instance().flush();
     std::printf("ALL PASS\n");

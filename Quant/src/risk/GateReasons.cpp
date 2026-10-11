@@ -1,5 +1,7 @@
 #include "risk/GateReasons.h"
 
+#include <string>
+
 namespace gate_reason
 {
 std::string rate_limit(bool per_minute, int limit)

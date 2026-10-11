@@ -14,6 +14,7 @@
 
 #include "core/RingBuffer.h"
 #include <condition_variable>
+#include <cstdlib>
 #include <mutex>
 #include <thread>
 #include <atomic>
@@ -34,13 +35,13 @@ using nanoseconds = std::chrono::nanoseconds;
 // ─────────────────────────────────────────────────────────────────────────────
 // 티커 200개 동적 생성
 // ─────────────────────────────────────────────────────────────────────────────
-static constexpr int N_TICKERS = 200;
+static constexpr int kTickerCount = 200;
 
 static std::vector<std::string> make_tickers() {
     std::vector<std::string> parts;
-    parts.reserve(N_TICKERS);
+    parts.reserve(kTickerCount);
 
-    for (int ticker_index = 1; ticker_index <= N_TICKERS; ++ticker_index) {
+    for (int ticker_index = 1; ticker_index <= kTickerCount; ++ticker_index) {
         char buffer[8];
         std::snprintf(buffer, sizeof(buffer), "%06d", ticker_index);
         parts.emplace_back(buffer);
@@ -127,7 +128,7 @@ struct PipelineStats {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // WS 시뮬레이션 Producer
-//   - N_TICKERS 종목, 종목당 order_book_rate OB/seconds + trade_rate TD/seconds
+//   - kTickerCount 종목, 종목당 order_book_rate OB/seconds + trade_rate TD/seconds
 // ─────────────────────────────────────────────────────────────────────────────
 static void websocket_producer_fn(RingBuffer<MockOrderBook>& order_book_queue,
     RingBuffer<MockTradeData>& trade_queue,
@@ -138,13 +139,13 @@ static void websocket_producer_fn(RingBuffer<MockOrderBook>& order_book_queue,
     int order_book_rate,
     int trade_rate)
 {
-    static const auto TICKERS = make_tickers();  // 한 번만 생성
+    static const auto kTickers = make_tickers();  // 한 번만 생성
 
-    const int     total_rate = N_TICKERS * (order_book_rate + trade_rate);
-    const int64_t INTERVAL_US = 1'000'000 / total_rate;
+    const int     total_rate = kTickerCount * (order_book_rate + trade_rate);
+    const int64_t interval_us = 1'000'000 / total_rate;
 
     std::mt19937 random_engine(42);
-    std::uniform_int_distribution<int> ticker_dist(0, N_TICKERS - 1);
+    std::uniform_int_distribution<int> ticker_dist(0, kTickerCount - 1);
     // OB:TD 비율을 type_dist 범위로 근사 — order_book_rate/(order_book_rate+trade_rate) 확률로 OB, 나머지 TD
     const int type_range = order_book_rate + trade_rate;
     std::uniform_int_distribution<int> type_dist(0, type_range - 1);
@@ -156,7 +157,7 @@ static void websocket_producer_fn(RingBuffer<MockOrderBook>& order_book_queue,
 
     while (!stop_flag.load(std::memory_order_relaxed) && steady_clock::now() < deadline) {
         busy_wait_until(next_send);
-        next_send += std::chrono::microseconds(INTERVAL_US);
+        next_send += std::chrono::microseconds(interval_us);
 
         int     ticker_index = ticker_dist(random_engine);
         bool    is_order_book = (type_dist(random_engine) < order_book_rate);
@@ -167,7 +168,7 @@ static void websocket_producer_fn(RingBuffer<MockOrderBook>& order_book_queue,
         //  실장(하루 수백 건)보다 훨씬 잦게 넣어 소비자 폴링이 밀리는지 본다.
         if (sequence % 500 == 0) {
             MockFill mock_fill{};
-            std::memcpy(mock_fill.ticker, TICKERS[ticker_index].c_str(), 7);
+            std::memcpy(mock_fill.ticker, kTickers[ticker_index].c_str(), 7);
             mock_fill.send_ts_ns = now_ns;
             mock_fill.sequence = fill_sequence++;
             mock_fill.quantity = 1 + static_cast<int>(fill_sequence % 10);
@@ -191,7 +192,7 @@ static void websocket_producer_fn(RingBuffer<MockOrderBook>& order_book_queue,
 
         if (is_order_book) {
             MockOrderBook order_book{};
-            std::memcpy(order_book.ticker, TICKERS[ticker_index].c_str(), 7);
+            std::memcpy(order_book.ticker, kTickers[ticker_index].c_str(), 7);
             order_book.send_ts_ns = now_ns;
             order_book.sequence = sequence++;
 
@@ -213,7 +214,7 @@ static void websocket_producer_fn(RingBuffer<MockOrderBook>& order_book_queue,
         }
         else {
             MockTradeData trade{};
-            std::memcpy(trade.ticker, TICKERS[ticker_index].c_str(), 7);
+            std::memcpy(trade.ticker, kTickers[ticker_index].c_str(), 7);
             trade.send_ts_ns = now_ns;
             trade.sequence = sequence++;
             trade.price = 70000.0 + (sequence % 100);
@@ -442,26 +443,29 @@ int main(int argc, char** argv) {
     }
 
     std::string mode = (argc > 2) ? argv[2] : "normal";
-    int OB_PER_TICKER, TD_PER_TICKER;
+    int order_books_per_ticker = 0;
+    int trades_per_ticker      = 0;
 
     if (mode == "burst") {
-        OB_PER_TICKER = 20; TD_PER_TICKER = 50;
+        order_books_per_ticker = 20;
+        trades_per_ticker      = 50;
     }
     else {
-        OB_PER_TICKER = 5;  TD_PER_TICKER = 10;
+        order_books_per_ticker = 5;
+        trades_per_ticker      = 10;
     }
 
     std::cout << "=== Pipeline E2E Stress Test ===\n";
     std::cout << "Duration       : " << duration << " sec\n";
     std::cout << "Topology       : WS_producer -> [ob_q, td_q] -> strategy -> order_q -> order_thread\n";
     std::cout << "                 WS_producer -> fill_q -> fill_thread (1 fill / 500 msg)\n";
-    std::cout << "Tickers        : " << N_TICKERS << "\n";
+    std::cout << "Tickers        : " << kTickerCount << "\n";
     std::cout << "Mode           : " << mode << "\n";
-    std::cout << "OB rate        : " << OB_PER_TICKER << " msg/sec/ticker (total "
-        << N_TICKERS * OB_PER_TICKER << "/sec)\n";
-    std::cout << "TD rate        : " << TD_PER_TICKER << " msg/sec/ticker (total "
-        << N_TICKERS * TD_PER_TICKER << "/sec)\n";
-    std::cout << "Total in       : " << N_TICKERS * (OB_PER_TICKER + TD_PER_TICKER) << " msg/sec\n\n";
+    std::cout << "OB rate        : " << order_books_per_ticker << " msg/sec/ticker (total "
+        << kTickerCount * order_books_per_ticker << "/sec)\n";
+    std::cout << "TD rate        : " << trades_per_ticker << " msg/sec/ticker (total "
+        << kTickerCount * trades_per_ticker << "/sec)\n";
+    std::cout << "Total in       : " << kTickerCount * (order_books_per_ticker + trades_per_ticker) << " msg/sec\n\n";
 
     RingBuffer<MockOrderBook>   order_book_queue(16384);
     RingBuffer<MockTradeData>   trade_queue(16384);
@@ -477,7 +481,7 @@ int main(int argc, char** argv) {
 
     std::thread websocket_thread(websocket_producer_fn, std::ref(order_book_queue), std::ref(trade_queue), std::ref(fill_queue),
         std::ref(statistics), std::ref(stop_flag), duration,
-        OB_PER_TICKER, TD_PER_TICKER);
+        order_books_per_ticker, trades_per_ticker);
     std::thread strategy_thread(strategy_fn, std::ref(order_book_queue), std::ref(trade_queue),
         std::ref(order_queue), std::ref(statistics), std::ref(stop_flag));
     std::thread order_thread(order_fn, std::ref(order_queue), std::ref(statistics), std::ref(stop_flag));

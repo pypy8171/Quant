@@ -7,9 +7,12 @@
 #include "core/SymbolTable.h"
 #include "core/Types.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace exchange
@@ -52,6 +55,47 @@ struct Execution
     symbol::SymbolId symbol_id     = symbol::kNone;
     PriceKrw         price_krw     = 0;
     int32_t          quantity      = 0;
+};
+
+// 체결을 받는 쪽을 가리키는 비소유 참조. std::function과 달리 만들 때 할당·복사가 없고, 호출은 함수 포인터 한 번이다.
+//  [inv] 가리키는 호출체는 이 참조를 쓰는 동안 살아 있어야 한다 — 그래서 호출 중에만 쓰는 인자로만 둔다(멤버로 두지 않는다).
+class ExecutionSink
+{
+public:
+    ExecutionSink() = default;
+
+    ExecutionSink(std::nullptr_t)
+    {
+    }
+
+    template <typename Callable>
+        requires(!std::is_same_v<std::remove_cvref_t<Callable>, ExecutionSink> &&
+                 !std::is_same_v<std::remove_cvref_t<Callable>, std::nullptr_t>)
+    ExecutionSink(Callable&& callable)
+        : object_(const_cast<void*>(static_cast<const void*>(std::addressof(callable))))
+        , call_(&invoke<std::remove_reference_t<Callable>>)
+    {
+    }
+
+    void operator()(const Execution& execution) const
+    {
+        call_(object_, execution);
+    }
+
+    explicit operator bool() const
+    {
+        return call_ != nullptr;
+    }
+
+private:
+    template <typename Callable>
+    static void invoke(void* object, const Execution& execution)
+    {
+        (*static_cast<Callable*>(object))(execution);
+    }
+
+    void* object_                           = nullptr;
+    void (*call_)(void*, const Execution&) = nullptr;
 };
 
 // 한 가격에 줄 서 있는 주문들. 먼저 온 것이 먼저 체결된다(시간 우선).
@@ -108,10 +152,10 @@ public:
     // 단일가로 한 번에 맞춘다. 그 가격 이상 매수·이하 매도 중 min(누적 매수, 누적 매도)만큼이 그 한 가격에 체결된다.
     //  남는 쪽은 가격·시간 우선으로 자른다.
     //  돌려주는 값은 체결 수량 합. 체결마다 on_execution을 부른다.
-    int64_t run_auction(const std::function<void(const Execution&)>& on_execution);
+    int64_t run_auction(ExecutionSink on_execution);
 
     // 연속매매 — 반대편 최우선호가부터 맞추고, 남으면 오더북에 쌓는다. 돌려주는 값은 이번에 맞은 수량.
-    int64_t match(const IncomingOrder& order, const std::function<void(const Execution&)>& on_execution);
+    int64_t match(const IncomingOrder& order, ExecutionSink on_execution);
 
     // 지금 최우선 매수호가. 없으면 0.
     [[nodiscard]] PriceKrw best_bid_krw() const;
@@ -146,7 +190,7 @@ private:
     //  돌려준 수량을 보고 부른 쪽이 뺀다.
     int64_t take_from_level(PriceLevel& level, int32_t wanted_quantity, uint64_t counterparty_order_id,
                             OrderSide resting_side, PriceKrw execution_price,
-                            const std::function<void(const Execution&)>& on_execution);
+                            ExecutionSink on_execution);
 
     // run_auction의 단계 함수들. 체결 순서(시장가 먼저, 그다음 가격 우선·시간 우선)는 run_auction 주석이 정본이다.
     // 한 줄에서 아직 수량이 남은 맨 앞 주문. 다 체결된 앞자리는 지나가며 줄에서 뺀다. 없으면 nullptr.
@@ -233,8 +277,15 @@ public:
     // 종목 하나를 단일가로 맞춘다.
     int64_t run_auction(symbol::SymbolId symbol_id);
 
+    // 종목 하나를 단일가로 맞추고 체결을 on_execution에 넘긴다(set_execution_callback으로 넣은 콜백은 부르지 않는다).
+    //  주문마다 콜백을 바꿔 끼우던 부하시험 수신 쪽이 std::function을 매번 만들지 않게 둔다.
+    int64_t run_auction(symbol::SymbolId symbol_id, ExecutionSink on_execution);
+
     // 연속매매 — 즉시 맞추고 남으면 쌓는다. 돌려주는 값은 이번에 맞은 수량.
     int64_t match(const IncomingOrder& order);
+
+    // match와 같고, 체결은 on_execution에 넘긴다(set_execution_callback으로 넣은 콜백은 부르지 않는다).
+    int64_t match(const IncomingOrder& order, ExecutionSink on_execution);
 
     [[nodiscard]] SymbolBook* book_of(symbol::SymbolId symbol_id);
 

@@ -9,7 +9,7 @@
 //
 // 사용법: bench_gate_contention [duration_sec=3] [fill_rate=1000] [reconcile_ms=100] [ops_ms=200] [journal=0]
 //   journal: 0 원장 저널 없음, 1 저널(매 기록 fflush, 운영 기본), 2 저널+fsync. 쓰기 쪽이 저널을 적는 동안
-//   읽기가 얼마나 막히는지(CODE_REVIEW W-2)를 같은 부하로 견준다. 저널은 임시 폴더에 쓰고 끝나면 지운다.
+//   읽기가 얼마나 막히는지를 같은 부하로 견준다. 저널은 임시 폴더에 쓰고 끝나면 지운다.
 //   fill_rate=0 이고 reconcile_ms=0 이고 ops_ms=0 이면 기준선(쓰기 없음)만 찍는다.
 //   같은 인자로 기준선을 먼저 찍고 부하를 건 결과를 이어 찍는다.
 // 관련 결정: D-058.
@@ -18,10 +18,12 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <string>
+#include <system_error>
 #include <thread>
 #include <vector>
 
@@ -156,7 +158,7 @@ void run_reconciler(OrderGate& gate, const std::string& account, int every_ms, s
 }
 
 // 운영단말 역할 — 보유 스냅샷만 주기적으로 뜬다.
-void run_ops(const OrderGate& gate, int every_ms, std::atomic<bool>& stop)
+void run_operations(const OrderGate& gate, int every_ms, std::atomic<bool>& stop)
 {
     if (every_ms <= 0)
     {
@@ -215,14 +217,14 @@ void run_case(const char* label, double duration_sec, int fill_rate, int reconci
     {
         run_reconciler(gate, account, reconcile_ms, stop);
     });
-    std::thread ops([&]
+    std::thread operations_thread([&]
     {
-        run_ops(gate, ops_ms, stop);
+        run_operations(gate, ops_ms, stop);
     });
     Result result = run_reader(gate, account, duration_sec, stop);
     filler.join();
     reconciler.join();
-    ops.join();
+    operations_thread.join();
     report(label, result, duration_sec);
 
     if (journal_mode > 0)

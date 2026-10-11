@@ -12,6 +12,9 @@
 
 #include "ipc/FillChannel.h"
 
+#include <chrono>
+#include <cstddef>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>

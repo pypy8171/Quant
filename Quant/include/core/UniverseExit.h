@@ -2,7 +2,6 @@
 #include "core/SymbolTable.h"
 
 #include <algorithm>
-#include <string>
 #include <vector>
 
 // ─────────────────────────────────────────────────────────────────────────────

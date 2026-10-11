@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 #include "core/Types.h" // symbol::SymbolId, symbol::Ticker, strategy_table::StrategyId
@@ -87,6 +88,12 @@ struct ControlRequest
     // kRegisterStrategy. 티커 칸(15자)을 겹쳐 쓰지 않는다 — 전략 이름은 설정이 정해 31자까지 온다.
     strategy_table::StrategyName strategy_name;
 };
+
+// 통로에 통째로 memcpy 되는 레코드라 크기를 고정한다. MSVC x64 계산: 8바이트 칸 3개 24 + 번호 2개 8 + rank·row_count 8
+//  + kind·바이트 4개 5 = 45 → 8 정렬 48, double 5개 40 = 88, account 32 + exchange 8 + Ticker 16 + StrategyName 32 = 176.
+static_assert(sizeof(ControlRequest) == 176, "ControlRequest 크기가 바뀌었다 — 통로 레코드 호환을 다시 본다");
+static_assert(std::is_trivially_copyable_v<ControlRequest> && std::is_standard_layout_v<ControlRequest>,
+              "ControlRequest 는 memcpy 로 옮긴다");
 
 // 계좌 이름을 칸에 담는다. 칸을 넘으면 자르고 끝에 0을 넣는다.
 void set_account(ControlRequest& request, std::string_view account) noexcept;

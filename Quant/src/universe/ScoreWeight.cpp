@@ -1,6 +1,10 @@
 #include "universe/ScoreWeight.h"
 
+#include <cmath>
+#include <cstddef>
 #include <functional>
+#include <numeric>
+#include <vector>
 
 namespace universe
 {

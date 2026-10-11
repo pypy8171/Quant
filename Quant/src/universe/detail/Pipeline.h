@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <ctime>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <string_view>
@@ -22,11 +23,15 @@ namespace universe::detail
 //  바뀔 일이 없다. 당일봉은 따로 받지 않고 현재가를 SMA에 직접 접어 넣는다 —
 //  s_n_live = (s_n*n - r_n + price_live) / n. 그래서 정배열·이격 판정은 재스캔마다
 //  새 값으로 다시 나오고, REST만 하루 1회로 줄어든다.
-//  px_live는 랭킹 축이 실어오는 전 종목 시세 파일(네이버 벌크)에서 온다. 이 파일이
+//  price_live는 엔진 안 시세판(MarketBoard, config.market_board — 네이버 시세 폴링)에서 온다. 그 폴링이
 //  끊기면 price가 전일 종가로 돌아가 판정이 정말로 얼어붙는다 — 나이를 경고로 내보낸다.
 //  캐시가 없던 때는 재스캔마다 후보 전체의 일봉을 다시 받았고, 그 비용이
 //  rescan_interval에 반비례해 후보 집합을 넓히는 것 자체가 막혔다(align_lookup_max가 그 캡).
 //  ATR·봉수처럼 확정봉만 쓰는 값은 그대로 하루 고정이다.
+// KIS 업종 지수 코드 [wire] — 코스피 종합·코스닥 종합. 지수 게이트 두 곳(DevScale·ITB)이 같이 쓴다.
+constexpr const char* kKospiIndexCode  = "0001";
+constexpr const char* kKosdaqIndexCode = "1001";
+
 struct DailyLookup
 {
     std::string date_yyyymmdd;                       // 조회 시각의 로컬 날짜(YYYYMMDD)
@@ -35,7 +40,9 @@ struct DailyLookup
     double close = 0.0;                    // 최신 종가(d[0])
     // [formula] SMA에 오늘 가격을 접어 넣을 때 빠지는 봉의 종가.
     //  s_n_live = (s_n*n - roll_n + price_live) / n — REST 없이 정배열을 장중 갱신한다.
-    double r5 = 0.0, r10 = 0.0, r20 = 0.0;
+    double roll_5  = 0.0;
+    double roll_10 = 0.0;
+    double roll_20 = 0.0;
     double atr_percent = 0.0;                  // ATR(14)/종가. 정배열 판정용 일봉 재활용(추가 REST 0)
     double volume = 0.0;                   // 주, 전일 거래량(d[0]). 거래증가율 축의 분모
 };
@@ -91,12 +98,15 @@ Market market_from_text(std::string_view text);
 // 후보 합집합 — 수집 축들이 공유하는 누적기이자 파일 축 재사용 캐시의 몸통이다.
 //  모든 축이 시세판 표·일봉 캐시만 보므로 재스캔마다 새로 모은다(D-153 전에는 KIS 순위·업종 축을 120초 캐시했다).
 //  종목은 id로 든다 — 응답·파일의 문자열 티커는 붓는 자리(take_*)에서 intern한다. [why D-112]
+//  이름은 두 층이다. 앞 자리들의 이름은 바뀌지 않는 공유 층(shared_names)에, 그 뒤에 더한 이름은 이 집합의 names에 든다.
+//  파일 축 캐시를 꺼내 쓸 때 id·자리 벡터만 복사하고 이름 문자열은 공유 층을 포인터로 나눠 쥔다.
 struct CandidateSet
 {
     static constexpr uint32_t kNoSlot = UINT32_MAX;
 
     std::vector<symbol::SymbolId> symbols;       // 등록 순서 = 일봉 점검 우선순위
-    std::vector<std::string>      names;         // symbols와 같은 순서
+    std::shared_ptr<const std::vector<std::string>> shared_names; // 자리 0..크기-1의 이름. 없으면 nullptr
+    std::vector<std::string>      names;         // 공유 층 뒤 자리의 이름(symbols와 같은 순서)
     std::vector<uint32_t>         slot_of;       // 종목 id → symbols 자리. kNoSlot=미등록(옛 seen)
     std::vector<Market>           market;        // 종목 id → 시장. Unlisted=사전에 없음
     std::vector<symbol::SymbolId> market_listed; // 사전에 올라온 종목(전 종목 확장 축의 원천)
@@ -114,7 +124,11 @@ struct CandidateSet
     void set_market(symbol::SymbolId symbol, Market value);
 
     // [inv] 반환 뷰는 candidates 수명 안, names에 삽입이 없는 구간에서만 유효하다(재할당이 뷰를 끊는다).
+    //  공유 층의 이름은 그 층을 쥔 집합이 하나라도 살아 있는 동안 유효하다.
     std::string_view name_of(symbol::SymbolId symbol) const;
+
+    // names를 공유 층 뒤에 이어 붙여 새 공유 층으로 옮긴다. 캐시에 넣기 전에 부른다.
+    void freeze_names();
 
     // market_map이 있는데도 사전에 없는 티커는 코스피·코스닥 보통주가 아니다(ETN 등).
     //  사전이 없는 구 파일에서는 태그 없는 후보를 KOSPI로 간주해 기존 동작을 유지한다.
@@ -125,7 +139,7 @@ struct CandidateSet
 //  재스캔 스레드가 유일한 호출자지만 g_candidate_mutex가 지키는 후보 풀과 같은 규약으로 뮤텍스를 둔다.
 //  [inv] 프로세스 전역이라 슬리브 여럿이 같은 래치를 공유한다. 슬리브마다 임계가 다르면
 //   먼저 발화한 쪽 판정이 나머지에도 걸린다 — 임계가 갈리는 순간 1회 경고한다. [why D-033]
-struct IdxGateLatch
+struct IndexGateLatch
 {
     bool risk_off = false;                              // [inv] 현재 차단 상태(래치된 값)
     bool primed = false;                           // [inv] since가 유효한가 — 첫 전환 전에는 false
@@ -143,7 +157,7 @@ extern std::mutex g_index_latch_mutex;
 //  지수가 경계를 오갈 때 게이트도 같이 떨었다(2026-08-21 최소 2분 53초 간격 토글).
 //  observed=false는 조회 실패다 — 판정도 타이머도 건드리지 않는다. 반환은 "지금 차단인가".
 //  [why D-033]
-bool latch_risk_off(IdxGateLatch& latch, double change, bool observed, double trip, double resume,
+bool latch_risk_off(IndexGateLatch& latch, double change, bool observed, double trip, double resume,
                     int dwell_sec, const char* label);
 
 // 시장별 risk_off 게이트(2026-08-19 회의). 코스피 급락은 전이 회피를 위해 코스피·코스닥
@@ -170,25 +184,26 @@ struct MarketGate
 // 지수 등락률 조회 2콜. kosdaq_enabled=false면 코스닥 지수 조회조차 생략한다.
 //  판정은 래치를 거친다(히스테리시스·최소 체류) — 시세 조회를 먼저 끝내고 락을 잡는다.
 //  [lock-order] g_index_latch_mutex는 REST 호출 밖에서만 잡는다. g_candidate_mutex와 겹치지 않는다.
-MarketGate build_market_gate(KisClient& kis, const DevScanCfg& config);
+MarketGate build_market_gate(KisClient& kis, const DeviationScaleScanConfig& config);
 
 // 시세 표의 당일 누적 거래대금 상위 turnover_top_n종목을 candidates에 붓는다. 0이면 아무것도 안 한다.
 //  가격·거래대금 하한·ETF·리츠 필터를 거치고, market_map이 있으면 상장 종목만 본다 [why D-146].
-void take_turnover_top(const DevScanCfg& config, const QuoteTable& quotes, CandidateSet& candidates,
+void take_turnover_top(const DeviationScaleScanConfig& config, const QuoteTable& quotes, CandidateSet& candidates,
                        const symbol::SymbolTable& symbols);
 
 // 시세 표의 당일 누적 거래량 ÷ 일봉 캐시의 전일 거래량 상위 value_top_n종목을 붓는다. 0이면 아무것도 안 한다.
 //  전일 거래량이 캐시에 없는 종목은 순위에 없다 [why D-153].
-void take_volume_surge(const DevScanCfg& config, const QuoteTable& quotes, const std::string& date_yyyymmdd,
+void take_volume_surge(const DeviationScaleScanConfig& config, const QuoteTable& quotes, const std::string& date_yyyymmdd,
                        CandidateSet& candidates, const symbol::SymbolTable& symbols);
 
 // 시세 표의 등락률 상위 change_top_n종목(change_min_percent 이상)을 붓는다. 0이면 아무것도 안 한다 [why D-153].
-void take_change_top(const DevScanCfg& config, const QuoteTable& quotes, CandidateSet& candidates,
+void take_change_top(const DeviationScaleScanConfig& config, const QuoteTable& quotes, CandidateSet& candidates,
                      const symbol::SymbolTable& symbols);
 
 // 후보 합집합을 채운다. 시세판 표와 일봉 캐시만 보므로 KIS 조회가 없다 [why D-153].
-void collect_candidates(const DevScanCfg& config, const std::string& date_yyyymmdd, const QuoteTable& quotes,
-                        CandidateSet& candidates, symbol::SymbolTable& symbols);
+//  board는 재랭킹 축을 줄 시세판이다. nullptr이면 유니버스 파일 축을 쓴다.
+void collect_candidates(const DeviationScaleScanConfig& config, const MarketBoard* board, const std::string& date_yyyymmdd,
+                        const QuoteTable& quotes, CandidateSet& candidates, symbol::SymbolTable& symbols);
 
 //  점수는 원자료를 바로 더하지 않는다. 추세·눌림·변동성은 단위도 일별 분산도 달라서 그대로
 //   더하면 그날 우연히 많이 벌어진 축이 점수를 지배한다. 통과 집합 안에서 각각 z-score로
@@ -196,12 +211,19 @@ void collect_candidates(const DevScanCfg& config, const std::string& date_yyyymm
 struct Features
 {
     symbol::SymbolId symbol;
-    double           trend, pull, atr_percent, turnover, score; // atr_percent는 ATR(14)/종가(변동성 축)
+    double           trend       = 0.0; // 추세강도 (SMA5-SMA20)/SMA20
+    double           pullback    = 0.0; // 눌림깊이 (price-SMA20)/SMA20, 음수=SMA20 아래
+    double           atr_percent = 0.0; // ATR(14)/종가(변동성 축)
+    double           turnover    = 0.0;
+    double           score       = 0.0;
 };
 
 struct LookupStats
 {
-    int looked_up = 0, aligned = 0, short_bars = 0, overext = 0;
+    int looked_up    = 0;
+    int aligned      = 0;
+    int short_bars   = 0;
+    int overextended = 0;
     int fetched = 0, cache_hit = 0;
     int illiquid = 0;         // 거래대금 하한 미달로 버린 수
     int misaligned = 0;       // 정배열 조건 미충족으로 버린 수(진단용)
@@ -214,7 +236,7 @@ struct LookupStats
 // 2단: 정배열 프리필터 — 후보를 일봉으로 검사해 정배열=Y(≥20봉)만 통과시킨다.
 //  데이터부족(신규상장 <20봉)은 여기서 자동 제외된다. 일봉 조회 비용은 align_lookup_max로
 //  캡하되 캐시 히트는 예산을 쓰지 않는다. 정배열 규칙은 MaAlign.h의 quant::moving_average::aligned 하나를 전략과 같이 쓴다.
-std::vector<Features> lookup_and_filter(KisClient& kis, const DevScanCfg& config, const std::string& date_yyyymmdd,
+std::vector<Features> lookup_and_filter(KisClient& kis, const DeviationScaleScanConfig& config, const std::string& date_yyyymmdd,
                                    const CandidateSet& candidates, const QuoteTable& quotes,
                                    const MarketGate& gate, LookupStats& statistics, symbol::SymbolTable& symbols);
 
@@ -227,15 +249,15 @@ int drain_daily_warm(const std::string& date_yyyymmdd, symbol::SymbolTable& symb
 //  [formula] S = weight_trend·z(추세) + weight_pull·z(-눌림) - weight_volume·z(ATR%) + weight_liquidity·z(log 거래대금).
 //   ATR%는 ATR(14)/종가, 곧 변동성이다(설정 키 이름 score_w_vol의 vol은 거래량이 아니라 이것이다). 변동성은 뺀다 — 추세·눌림이 같다면 덜 흔들리는 쪽이 낫다.
 //   거래대금은 더한다 — 같은 조건이면 두꺼운 쪽이 청산 슬리피지가 작다. 기본값 0(비활성)이다.
-void score_cross_section(const DevScanCfg& config, std::vector<Features>& passed);
+void score_cross_section(const DeviationScaleScanConfig& config, std::vector<Features>& passed);
 
 // 3단: 점수 내림차순으로 등록한다. score_top_n>0이면 상위 N만 남긴다.
 //  절단이 없어도 정렬은 한다 — 등록 순서가 그대로 진입 우선순위라, 안 정렬하면
 //  유니버스 파일 순서(시총·거래대금)가 우선순위를 먹는다.
 //  동점은 티커 사전순으로 가른다(`ranks_before`, 순위 계산과 같은 규칙) — 같은 입력이면 늘 같은 종목이 잘린다.
-ScanResult rank_and_truncate(const DevScanCfg& config, std::vector<Features>& passed, const CandidateSet& candidates,
+ScanResult rank_and_truncate(const DeviationScaleScanConfig& config, std::vector<Features>& passed, const CandidateSet& candidates,
                              const symbol::SymbolTable& symbols);
 
 // 프리필터 risk_off — 기존 동작(후보 앞에서부터 max_register개). 점수는 없다.
-ScanResult take_first_n(const DevScanCfg& config, const CandidateSet& candidates, const MarketGate& gate);
+ScanResult take_first_n(const DeviationScaleScanConfig& config, const CandidateSet& candidates, const MarketGate& gate);
 } // namespace universe::detail

@@ -55,8 +55,8 @@ int main()
     // ── ① 계좌 칸 ──────────────────────────────────────────────────────────
     {
         ipc::ControlRequest request;
-        ipc::set_account(request, "50204275");
-        check(ipc::account_of(request) == "50204275", "계좌 이름이 칸에 들어가고 그대로 나온다");
+        ipc::set_account(request, "12345678");
+        check(ipc::account_of(request) == "12345678", "계좌 이름이 칸에 들어가고 그대로 나온다");
 
         const std::string long_name(ipc::kControlAccountMax + 20, 'A');
         ipc::set_account(request, long_name);

@@ -4,8 +4,13 @@
 #include "core/KstTime.h"
 #include "utils/Logger.h"
 #include <algorithm>
+#include <chrono>
+#include <ctime>
 #include <format>
-#include <cmath>
+#include <set>
+#include <string>
+#include <utility>
+#include <vector>
 
 SurgeHoldStrategy::SurgeHoldStrategy(Params parameters, OwnedSink owned_sink)
     : parameters_(std::move(parameters)), owned_sink_(std::move(owned_sink)), clock_([]

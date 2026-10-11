@@ -1,5 +1,8 @@
 #include "core/KstTime.h"
 
+#include <cstdint>
+#include <format>
+
 namespace
 {
 // struct tm 의 연도 기준점.

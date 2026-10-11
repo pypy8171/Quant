@@ -7,8 +7,8 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
-#include <cstdlib>
 #include <iostream>
+#include <mutex>
 #include <stop_token>
 #include <thread>
 #include <vector>
@@ -113,7 +113,7 @@ int main()
                 std::this_thread::yield();
             }
 
-            for (const auto spin0 = Clock::now(); Clock::now() - spin0 < 50us;)
+            for (const auto spin_start = Clock::now(); Clock::now() - spin_start < 50us;)
             {
                 std::this_thread::yield();
             }

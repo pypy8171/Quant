@@ -16,7 +16,7 @@
 
 #include "ipc/Heartbeat.h"
 
-#include <cassert>
+#include <cstdint>
 #include <iostream>
 #include <string>
 

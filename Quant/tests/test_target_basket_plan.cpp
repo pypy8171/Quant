@@ -16,8 +16,12 @@
 #include "strategy/TargetBasketPlan.h"
 
 #include <cmath>
+#include <cstdlib>
 #include <iostream>
 #include <map>
+#include <string>
+#include <utility>
+#include <vector>
 
 namespace
 {

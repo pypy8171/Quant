@@ -3,10 +3,17 @@
 #include "strategy/SurgeHoldStrategy.h"
 #include "core/KstTime.h"
 #include "utils/Logger.h"
-#include <algorithm>
+#include <cstdint>
+#include <ctime>
+#include <filesystem>
 #include <format>
 #include <fstream>
+#include <optional>
 #include <sstream>
+#include <string>
+#include <system_error>
+#include <utility>
+#include <vector>
 
 using json = nlohmann::json;
 
@@ -83,7 +90,7 @@ std::optional<SurgeHoldStrategy::Status> status_from(const std::string& text)
 json position_json(const SurgeHoldStrategy::Position& position)
 {
     return json{{"ticker", position.ticker},
-                {"d0", position.d0},
+                {"d0", position.surge_date},
                 {"entry_date", position.entry_date},
                 {"quantity", position.quantity},
                 {"ordered", position.ordered},
@@ -112,7 +119,7 @@ std::optional<SurgeHoldStrategy::Position> position_from(const json& node)
 
     SurgeHoldStrategy::Position position;
     position.ticker         = node.value("ticker", std::string());
-    position.d0             = node.value("d0", std::string());
+    position.surge_date             = node.value("d0", std::string());
     position.entry_date     = node.value("entry_date", std::string());
     position.quantity       = node.value("quantity", 0);
     position.ordered        = node.value("ordered", 0);

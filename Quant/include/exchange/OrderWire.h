@@ -11,6 +11,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <type_traits>
 
 namespace exchange
 {
@@ -65,6 +66,8 @@ struct OrderWireRecord
 
 static_assert(sizeof(OrderWireBatchHeader) == kOrderWireHeaderBytes, "묶음머리는 16바이트여야 한다");
 static_assert(sizeof(OrderWireRecord) == kOrderWireRecordBytes, "주문 한 건은 32바이트여야 한다");
+static_assert(std::is_trivially_copyable_v<OrderWireBatchHeader> && std::is_trivially_copyable_v<OrderWireRecord>,
+              "전문은 바이트째 읽고 쓴다 — 생성자·가상 함수를 두지 않는다");
 static_assert(static_cast<uint8_t>(OrderSide::BUY) == 0, "전문의 side 값은 OrderSide 를 그대로 쓴다");
 static_assert(static_cast<uint8_t>(OrderSide::SELL) == 1, "전문의 side 값은 OrderSide 를 그대로 쓴다");
 

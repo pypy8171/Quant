@@ -2,6 +2,15 @@
 //  공용 준비는 test_engine_support.h, 실행 순서는 test_engine.cpp의 main.
 #include "test_engine_support.h"
 
+#include <chrono>
+#include <cstdint>
+#include <iostream>
+#include <memory>
+#include <set>
+#include <string>
+#include <utility>
+#include <vector>
+
 namespace engine_test
 {
 

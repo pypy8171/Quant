@@ -4,6 +4,7 @@
 #include "core/TickCapture.h"
 
 #include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <iostream>
 #include <string>
@@ -55,10 +56,10 @@ OrderBook make_book(int index)
     order_book.hhmmss  = 90100;
     order_book.received_ns = 1'050'000'000;
 
-    for (int innermost_index = 0; innermost_index < 5; ++innermost_index)
+    for (int level = 0; level < 5; ++level)
     {
-        order_book.asks[innermost_index] = {70100.0 + innermost_index * 100 + index, 100 + innermost_index};
-        order_book.bids[innermost_index] = {70000.0 - innermost_index * 100 - index, 200 + innermost_index};
+        order_book.asks[level] = {70100.0 + level * 100 + index, 100 + level};
+        order_book.bids[level] = {70000.0 - level * 100 - index, 200 + level};
     }
 
     return order_book;

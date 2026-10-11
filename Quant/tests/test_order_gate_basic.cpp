@@ -2,6 +2,8 @@
 //  공용 준비는 test_order_gate_support.h, 실행 순서는 test_order_gate.cpp의 main.
 #include "test_order_gate_support.h"
 
+#include <string>
+
 // ─── 테스트 1: Kill switch ────────────────────────────────────────────────
 void test_kill_switch()
 {
@@ -40,7 +42,7 @@ void test_position_limit()
 void test_daily_loss_limit()
 {
     OrderGate::Config config;
-    config.daily_loss_limit   = -100000.0;
+    config.daily_loss_limit   = -100'000;
     config.max_orders_per_min = 100;
     config.max_orders_per_sec = 100;
     OrderGate gate(config);
@@ -127,7 +129,7 @@ void test_sell_bypasses_position_check()
     PASS("sell_bypasses_position_check");
 }
 
-// ─── 테스트 8: 중복 신호는 rate slot 소모 안 함 (C5 fix) ─────────────────
+// ─── 테스트 8: 중복 신호는 rate slot 소모 안 함 ─────────────────
 void test_deduplicate_does_not_consume_rate_slot()
 {
     OrderGate::Config config;
@@ -174,7 +176,7 @@ static OrderGate::Config notional_config()
     config.deduplicate_window_sec   = 0.0;
     config.max_quantity_per_ticker = 100'000;
     config.max_quantity_per_order  = 10'000;
-    config.max_notional_per_order = 50'000'000.0;
+    config.max_notional_per_order = 50'000'000;
     return config;
 }
 

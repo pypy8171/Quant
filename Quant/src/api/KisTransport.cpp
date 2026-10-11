@@ -4,6 +4,16 @@
 //  Quant/src/api/KisClient.cpp. [why D-048]
 #include "KisClientInternal.h"
 
+#include <algorithm>
+#include <chrono>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib> // std::getenv(QUANT_HTTP_NOPOOL)
+#include <initializer_list>
+#include <iterator>
+#include <mutex>
+#include <thread>
+
 #include "api/HttpGet.h"
 #include "api/KisRateBucket.h"
 
@@ -100,6 +110,13 @@ static bool http_nopool()
     return disabled;
 }
 
+namespace
+{
+// HTTP 상태 코드 구간의 첫 값 — 4xx 는 요청 쪽 오류, 5xx 는 서버 쪽 오류.
+constexpr int kHttpClientErrorFirst = 400;
+constexpr int kHttpServerErrorFirst = 500;
+} // namespace
+
 // ═══════════════════════════════════════════════════════════════════════════
 //  플랫폼별 HTTP 구현
 // ═══════════════════════════════════════════════════════════════════════════
@@ -169,6 +186,13 @@ static WinHttpResult crack_url(const std::string& url)
 //  전송 계층 실패 시 캐시를 파기해 다음 호출이 새 연결을 맺는다(끊긴 keep-alive 복구).
 namespace
 {
+// WinHttpSetTimeouts 순서대로 resolve·connect·send·receive. 기본값(무한대급)에서 내려 전송 계층 히컵이
+//  스레드를 오래 잡지 않게 한다.
+constexpr int kResolveTimeoutMs = 5000;
+constexpr int kConnectTimeoutMs = 5000;
+constexpr int kSendTimeoutMs    = 10000;
+constexpr int kReceiveTimeoutMs = 15000;
+
 struct WinHttpConn
 {
     HINTERNET     session = nullptr;
@@ -221,9 +245,7 @@ static HINTERNET acquire_connection(const WinHttpResult& win_http_result)
         return nullptr;
     }
 
-    // 명시적 타임아웃(milliseconds): resolve/connect/send/receive. 기본값(무한대급)에서 하향해
-    // 전송 계층 히컵이 스레드를 오래 잡지 않게 한다.
-    WinHttpSetTimeouts(thread_connection.session, 5000, 5000, 10000, 15000);
+    WinHttpSetTimeouts(thread_connection.session, kResolveTimeoutMs, kConnectTimeoutMs, kSendTimeoutMs, kReceiveTimeoutMs);
 
     thread_connection.connect = WinHttpConnect(thread_connection.session, win_http_result.host.c_str(), win_http_result.port, 0);
 
@@ -313,7 +335,7 @@ static std::string winhttp_request_once(const std::string& method, const std::st
                         &statusCode, &statusSize, WINHTTP_NO_HEADER_INDEX);
     status_code = static_cast<int>(statusCode);
 
-    if (statusCode >= 400)
+    if (statusCode >= kHttpClientErrorFirst)
     {
         char errbuf[32];
         snprintf(errbuf, sizeof(errbuf), "[WinHTTP] HTTP %lu", statusCode);
@@ -344,7 +366,6 @@ static std::string winhttp_request_once(const std::string& method, const std::st
 #else
 // ─── Linux: libcurl ────────────────────────────────────────────────────────
 #include <curl/curl.h>
-#include <cstdlib> // std::getenv(QUANT_HTTP_NOPOOL)
 
 static size_t write_callback(char* pointer, size_t size, size_t nmemb, std::string* data)
 {
@@ -507,7 +528,7 @@ static std::string request_with_retry(const std::string& method, const std::stri
         int status = 0;
         response = platform_request_once(method, url, headers, overlay, body, transport_ok, status);
         // 재시도 대상: 전송 실패(항상) 또는 조회(GET)의 5xx. 그 외(2xx/4xx)는 즉시 반환.
-        const bool retryable = !transport_ok || (idempotent && status >= 500);
+        const bool retryable = !transport_ok || (idempotent && status >= kHttpServerErrorFirst);
 
         if (!retryable)
         {
@@ -553,7 +574,7 @@ static std::string request_with_retry(const std::string& method, const std::stri
 //  버킷은 인스턴스(=app_key)마다 따로다 — 한도가 app_key 단위라 시세 클라이언트와 주문
 //  클라이언트의 예산은 서로 무관하다. 총 호출량을 줄이지는 못하고 순서만 고르게 만든다.
 // 근거: 한도가 app_key 단위라는 것은 docs/DECISIONS.md D-009·D-138. 실계좌는 주문 키가 곧 시세 키라 D-138부터
-//  같은 키 클라이언트끼리 버킷을 나눠 쓴다(KisClient::share_rate_bucket_with). 한도 숫자는 KisRateBucket.h 주석 참고.
+//  같은 키 클라이언트끼리 버킷을 나눠 쓴다(rate_bucket_ 을 shared_ptr 로 들고 복사 생성 때 같이 든다). 한도 숫자는 KisRateBucket.h 주석 참고.
 // ═══════════════════════════════════════════════════════════════════════════
 //  KIS 밖 주소 — 인증도 한도 버킷도 없는 GET
 // ═══════════════════════════════════════════════════════════════════════════

@@ -8,6 +8,7 @@
 #include "core/Types.h"
 
 #include <chrono>
+#include <cstdint>
 #include <ctime>
 #include <functional>
 #include <mutex>
@@ -16,6 +17,7 @@
 #include <string>
 #include <thread>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace poller

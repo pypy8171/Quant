@@ -1,7 +1,18 @@
 #include "risk/ProtectiveOrders.h"
 
+#include <cstdio>
+#include <mutex>
+#include <string>
+#include <utility>
+#include <vector>
+
 namespace risk
 {
+namespace
+{
+constexpr const char* kProtectOwner = "PROTECT"; // 규칙에 주인이 없을 때 보호 주문이 쓰는 전략 id
+} // namespace
+
 void ProtectiveOrderBook::arm(const ProtectiveRule& rule)
 {
     if (rule.symbol == symbol::kNone)
@@ -137,7 +148,7 @@ std::vector<OrderSignal> ProtectiveOrderBook::evaluate(const std::vector<OrderGa
         signal.quantity = quantity;
         signal.price = 0.0;
         signal.reference_price = current_price;
-        signal.strategy_id = entry.rule.owner.empty() ? std::string("PROTECT") : entry.rule.owner;
+        signal.strategy_id = entry.rule.owner.empty() ? std::string(kProtectOwner) : entry.rule.owner;
         signal.strategy_index = entry.rule.owner_index;
         signal.reason = "보호주문:" + reason;
         out.push_back(std::move(signal));

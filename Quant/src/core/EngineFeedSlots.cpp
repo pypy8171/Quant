@@ -28,6 +28,20 @@ int32_t Engine::websocket_slot_priority(const WatchSpec& specification) const
     return symbol < websocket_slots_.size() ? websocket_slots_[symbol].priority : websocket_slot::kUnranked;
 }
 
+// 칸 재배정 한 회차가 단계 사이에 넘기는 값. specifications·entries·ids·specification_index는 같은 순번으로 맞물린다 —
+//  entries[k]는 specifications[specification_index[k]]의 칸 상태이고 ids[k]는 그 종목 id다.
+struct Engine::WebSocketSlotRound
+{
+    std::chrono::steady_clock::time_point now;
+    std::vector<WatchSpec>                specifications;
+    std::vector<websocket_slot::Entry>    entries;
+    std::vector<symbol::SymbolId>         ids;
+    std::vector<size_t>                   specification_index;
+    std::vector<bool>                     taken;
+    int                                   used = 0;
+    websocket_slot::Plan                  plan;
+};
+
 void Engine::rebalance_websocket_slots()
 {
     // 칸 개념이 없는 소스(리플레이)거나 연결 전이면 하지 않는다 — 연결 전 목록은 connect()가 건다.
@@ -43,16 +57,16 @@ void Engine::rebalance_websocket_slots()
         return;
     }
 
-    std::vector<WatchSpec> specifications;
+    WebSocketSlotRound round;
     {
         std::lock_guard<std::mutex> specifications_lock(watch_specifications_mutex_);
-        specifications.reserve(watch_specifications_.size());
+        round.specifications.reserve(watch_specifications_.size());
 
         for (const auto& specification : watch_specifications_)
         {
             if (websocket_slot::is_managed(specification))
             {
-                specifications.push_back(specification);
+                round.specifications.push_back(specification);
             }
         }
     }
@@ -62,16 +76,26 @@ void Engine::rebalance_websocket_slots()
         websocket_slots_.resize(symbols_.table.capacity() + 1);
     }
 
-    const auto                    now = std::chrono::steady_clock::now();
-    std::vector<websocket_slot::Entry>   entries;
-    std::vector<symbol::SymbolId> ids;
-    std::vector<size_t>           specification_index;
-    int                           used = 0;
-    entries.reserve(specifications.size());
+    round.now = std::chrono::steady_clock::now();
+    gather_websocket_slot_entries(round);
 
-    for (size_t index = 0; index < specifications.size(); ++index)
+    websocket_slot::Rules rules;
+    rules.capacity = round.used + free_slots;
+    round.plan     = websocket_slot::plan(round.entries, rules);
+
+    release_websocket_slots(round);
+    take_websocket_slots(round);
+    log_protected_off_socket(round);
+}
+
+// 칸 재배정 단계 — 관리 대상 종목마다 지금 칸 상태(채널 수·우선순위·소켓에 있는지·쥔 시간)를 모은다.
+void Engine::gather_websocket_slot_entries(WebSocketSlotRound& round)
+{
+    round.entries.reserve(round.specifications.size());
+
+    for (size_t index = 0; index < round.specifications.size(); ++index)
     {
-        const WatchSpec&       specification = specifications[index];
+        const WatchSpec&       specification = round.specifications[index];
         const symbol::SymbolId symbol        = symbols_.table.lookup(specification.ticker);
 
         if (symbol == symbol::kNone || symbol >= websocket_slots_.size())
@@ -90,7 +114,7 @@ void Engine::rebalance_websocket_slots()
             // 처음 칸에 오른 것을 본 때 — 재연결로 다시 걸린 종목이 REST로도 겹쳐 받지 않게 넘침에서 뺀다.
             if (state.on_since == std::chrono::steady_clock::time_point{})
             {
-                state.on_since = now;
+                state.on_since = round.now;
 
                 if (poller_)
                 {
@@ -98,26 +122,26 @@ void Engine::rebalance_websocket_slots()
                 }
             }
 
-            entry.held_sec = std::chrono::duration_cast<std::chrono::seconds>(now - state.on_since).count();
-            used          += entry.channels;
+            entry.held_sec = std::chrono::duration_cast<std::chrono::seconds>(round.now - state.on_since).count();
+            round.used    += entry.channels;
         }
         else
         {
             state.on_since = {};
         }
 
-        entries.push_back(entry);
-        ids.push_back(symbol);
-        specification_index.push_back(index);
+        round.entries.push_back(entry);
+        round.ids.push_back(symbol);
+        round.specification_index.push_back(index);
     }
+}
 
-    websocket_slot::Rules rules;
-    rules.capacity = used + free_slots;
-    const websocket_slot::Plan plan = websocket_slot::plan(entries, rules);
-
-    for (size_t chosen : plan.release)
+// 칸 재배정 단계 — 계획이 내주라고 한 종목을 구독 해제하고 REST 넘침으로 돌린다.
+void Engine::release_websocket_slots(WebSocketSlotRound& round)
+{
+    for (size_t chosen : round.plan.release)
     {
-        const WatchSpec& specification = specifications[specification_index[chosen]];
+        const WatchSpec& specification = round.specifications[round.specification_index[chosen]];
 
         if (!feed_.websocket->unsubscribe_incremental(specification))
         {
@@ -129,16 +153,20 @@ void Engine::rebalance_websocket_slots()
             poller_->add_overflow(specification);
         }
 
-        websocket_slots_[ids[chosen]].on_since = {};
-        LOG_INFO("[WS칸] 칸 내줌 — " + specification.ticker + " 우선순위=" + std::to_string(entries[chosen].priority) +
-                 " 쥔 시간=" + std::to_string(entries[chosen].held_sec) + "초, 이제 REST로 받는다");
+        websocket_slots_[round.ids[chosen]].on_since = {};
+        LOG_INFO("[WS칸] 칸 내줌 — " + specification.ticker + " 우선순위=" + std::to_string(round.entries[chosen].priority) +
+                 " 쥔 시간=" + std::to_string(round.entries[chosen].held_sec) + "초, 이제 REST로 받는다");
     }
+}
 
-    std::vector<bool> taken(entries.size(), false);
+// 칸 재배정 단계 — 계획이 받으라고 한 종목을 구독하고 넘침에서 뺀다. 받은 것은 round.taken에 표시한다.
+void Engine::take_websocket_slots(WebSocketSlotRound& round)
+{
+    round.taken.assign(round.entries.size(), false);
 
-    for (size_t chosen : plan.take)
+    for (size_t chosen : round.plan.take)
     {
-        const WatchSpec& specification = specifications[specification_index[chosen]];
+        const WatchSpec& specification = round.specifications[round.specification_index[chosen]];
 
         // 상한에 걸려 실패하면 소켓 쪽이 넘침 목록에 다시 올린다 — REST로 계속 받는다.
         if (!feed_.websocket->subscribe_incremental(specification) || !feed_.websocket->has_specification(specification))
@@ -151,23 +179,26 @@ void Engine::rebalance_websocket_slots()
             poller_->remove_overflow(specification);
         }
 
-        taken[chosen]                   = true;
-        websocket_slots_[ids[chosen]].on_since = now;
-        LOG_INFO("[WS칸] 칸 받음 — " + specification.ticker + " 우선순위=" + std::to_string(entries[chosen].priority));
+        round.taken[chosen]                          = true;
+        websocket_slots_[round.ids[chosen]].on_since = round.now;
+        LOG_INFO("[WS칸] 칸 받음 — " + specification.ticker + " 우선순위=" + std::to_string(round.entries[chosen].priority));
     }
+}
 
-    // 보유·선점 종목이 칸 밖에 남는 것은 칸 전부를 보유·선점이 쥔 때뿐이다. 바뀔 때만 한 줄 남긴다 — 판정 행이 센다.
-    for (size_t index = 0; index < entries.size(); ++index)
+// 칸 재배정 단계 — 보유·선점 종목이 칸 밖에 남는 것은 칸 전부를 보유·선점이 쥔 때뿐이다. 바뀔 때만 한 줄 남긴다 — 판정 행이 센다.
+void Engine::log_protected_off_socket(const WebSocketSlotRound& round)
+{
+    for (size_t index = 0; index < round.entries.size(); ++index)
     {
-        WebSocketSlotState& state       = websocket_slots_[ids[index]];
-        const bool   off_socket  = !entries[index].on_socket && !taken[index];
-        const bool   must_listen = entries[index].priority <= websocket_slot::kProtected;
-        const bool   warn        = must_listen && off_socket;
+        WebSocketSlotState& state       = websocket_slots_[round.ids[index]];
+        const bool          off_socket  = !round.entries[index].on_socket && !round.taken[index];
+        const bool          must_listen = round.entries[index].priority <= websocket_slot::kProtected;
+        const bool          warn        = must_listen && off_socket;
 
         if (warn != state.warned_off_socket)
         {
             state.warned_off_socket = warn;
-            const std::string& ticker = specifications[specification_index[index]].ticker;
+            const std::string& ticker = round.specifications[round.specification_index[index]].ticker;
 
             if (warn)
             {

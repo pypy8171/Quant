@@ -7,6 +7,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <type_traits>
 
 namespace ipc
 {
@@ -38,6 +39,13 @@ public:
 private:
     std::atomic<int64_t> last_ns_{0};
 };
+
+// 공유 메모리 칸에 그대로 놓인다(SharedHeartbeats). MSVC x64 계산: atomic<int64_t> 하나 = 8. 원자 필드라 trivially
+//  copyable 은 아니고, 표준 배치·자명한 소멸·잠금 없는 원자만 본다.
+static_assert(sizeof(Heartbeat) == 8, "Heartbeat 크기가 바뀌었다 — 공유 메모리 자리표를 다시 본다");
+static_assert(std::is_standard_layout_v<Heartbeat> && std::is_trivially_destructible_v<Heartbeat>,
+              "Heartbeat 는 공유 메모리에 놓인다");
+static_assert(std::atomic<int64_t>::is_always_lock_free, "공유 메모리 단어는 잠금 없는 원자여야 한다");
 
 // 보는 쪽. 상태를 들고 있다가 전이가 일어난 순간을 알려 준다.
 //  [inv] 관찰 스레드 하나만 부른다 — 동기화는 Heartbeat의 원자 변수 하나뿐이다.

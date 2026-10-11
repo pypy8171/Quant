@@ -3,6 +3,7 @@
 #include "utils/Logger.h"
 
 #include <string>
+#include <string_view>
 
 namespace thread_guard
 {

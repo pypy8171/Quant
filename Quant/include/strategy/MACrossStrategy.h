@@ -2,6 +2,10 @@
 #include "strategy/StrategyBase.h"
 #include <deque>
 #include <numeric>
+#include <optional>
+#include <string>
+#include <utility>
+#include <vector>
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MACrossStrategy  —  골든크로스 / 데드크로스 전략

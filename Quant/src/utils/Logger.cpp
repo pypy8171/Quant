@@ -4,17 +4,25 @@
 #include "core/MpscQueue.h"
 
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cstdint>
 #include <cstring>
 #include <cstdlib>
+#include <ctime>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <memory>
 #include <mutex>
 #include <sstream>
 #include <stop_token>
+#include <string>
+#include <system_error>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #ifdef _WIN32
@@ -84,9 +92,9 @@ struct Logger::Implementation
     }
 
     // hot path: 시각 스탬프만 찍고 큐에 넘긴다(포맷팅은 writer가 수행). 락 없음.
-    void submit(LogLevel level, const std::string& message)
+    void submit(LogLevel level, std::string message)
     {
-        Record record{level, std::chrono::system_clock::now(), message, nullptr};
+        Record record{level, std::chrono::system_clock::now(), std::move(message), nullptr};
         const char* thread_label = thread_name::current(); // 끝 NUL 포함 kMaxLength 이하가 보장된다
         std::memcpy(record.thread_label.data(), thread_label, std::strlen(thread_label));
 
@@ -332,17 +340,22 @@ Logger::~Logger() = default;
 
 Logger& Logger::instance()
 {
-    static Logger institution;
-    return institution;
+    static Logger logger;
+    return logger;
 }
+
+namespace
+{
+constexpr unsigned long kPathBufferLength = 4096; // 실행 파일 경로 버퍼(문자 수). 윈도우 긴 경로 상한 32,767보다 작지만 실행 파일 경로에는 넉넉하다
+} // namespace
 
 std::filesystem::path Logger::executable_directory()
 {
 #ifdef _WIN32
-    wchar_t buffer[4096];
-    unsigned long length = GetModuleFileNameW(nullptr, buffer, 4096);
+    wchar_t buffer[kPathBufferLength];
+    unsigned long length = GetModuleFileNameW(nullptr, buffer, kPathBufferLength);
 
-    if (length == 0 || length >= 4096)
+    if (length == 0 || length >= kPathBufferLength)
     {
         return std::filesystem::current_path();
     }
@@ -415,14 +428,14 @@ std::filesystem::path Logger::path_for(const std::string& name) const
     return base_directory.path / name;
 }
 
-void Logger::log(LogLevel level, const std::string& message)
+void Logger::log(LogLevel level, std::string message)
 {
     if (level < min_level_.load(std::memory_order_relaxed))
     {
         return;
     }
 
-    implementation_->submit(level, message);
+    implementation_->submit(level, std::move(message));
 }
 
 void Logger::flush()
@@ -440,22 +453,22 @@ void Logger::set_min_level(LogLevel min_level)
     min_level_.store(min_level, std::memory_order_relaxed);
 }
 
-void Logger::info(const std::string& message)
+void Logger::info(std::string message)
 {
-    log(LogLevel::INFO, message);
+    log(LogLevel::INFO, std::move(message));
 }
 
-void Logger::warn(const std::string& message)
+void Logger::warn(std::string message)
 {
-    log(LogLevel::WARN, message);
+    log(LogLevel::WARN, std::move(message));
 }
 
-void Logger::error(const std::string& message)
+void Logger::error(std::string message)
 {
-    log(LogLevel::ERROR, message);
+    log(LogLevel::ERROR, std::move(message));
 }
 
-void Logger::debug(const std::string& message)
+void Logger::debug(std::string message)
 {
-    log(LogLevel::DEBUG, message);
+    log(LogLevel::DEBUG, std::move(message));
 }

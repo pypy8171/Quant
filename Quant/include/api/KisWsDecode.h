@@ -16,8 +16,8 @@
 
 #include <charconv>
 #include <chrono>
+#include <cstdint>
 #include <cstdlib>
-#include <cstring>
 #include <span>
 #include <string>
 #include <string_view>

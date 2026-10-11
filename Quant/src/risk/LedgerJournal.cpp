@@ -2,11 +2,23 @@
 
 #include "utils/Logger.h"
 
+#include <chrono>
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
+#include <filesystem>
 #include <format>
+#include <functional>
+#include <mutex>
+#include <string>
+#include <string_view>
+#include <system_error>
+#include <utility>
+#include <vector>
 
 namespace ledger_journal
 {
-// 묶음 쓰기 목록의 처음 용량. 잠금 한 번 사이에 쌓이는 레코드는 보통 몇 건이라 넉넉하다(W-2).
+// 묶음 쓰기 목록의 처음 용량. 잠금 한 번 사이에 쌓이는 레코드는 보통 몇 건이라 넉넉하다.
 constexpr size_t kBatchReserve = 256;
 
 namespace
@@ -78,17 +90,19 @@ std::FILE* open_journal_file(const std::filesystem::path& file, const char* mode
 #endif
 }
 
+constexpr uint32_t kCrcInitialValue = 0xFFFFFFFFu; // CRC-32 표준 초기값이자 마지막 XOR 값
+
 uint32_t crc32(const void* data, size_t length) noexcept
 {
     const auto* bytes = static_cast<const unsigned char*>(data);
-    uint32_t value = 0xFFFFFFFFu;
+    uint32_t value = kCrcInitialValue;
 
     for (size_t index = 0; index < length; ++index)
     {
         value = detail::kCrcTable[(value ^ bytes[index]) & 0xFFu] ^ (value >> 8);
     }
 
-    return value ^ 0xFFFFFFFFu;
+    return value ^ kCrcInitialValue;
 }
 
 LedgerJournal::LedgerJournal(const std::filesystem::path& directory, std::string_view date_yyyymmdd, bool fsync)

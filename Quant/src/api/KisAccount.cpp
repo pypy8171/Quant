@@ -1,10 +1,13 @@
 // api/KisAccount.cpp — 잔고·미체결 조회(연속조회 tr_cont 포함). 장부 재시드·대사가 읽는다.
 //  [why D-048] 파일 분할 경위.
 #include "KisClientInternal.h"
-#include "api/KisRestDecode.h"
 
-#include "core/KstTime.h"
 #include <ctime>
+#include <expected>
+#include <format>
+
+#include "api/KisRestDecode.h"
+#include "core/KstTime.h"
 
 // ─── 잔고 조회 (체결 확인용) — inquire-balance ────────────────────────────
 //  output1 = 보유종목 배열(pdno·hldg_qty·pchs_avg_pric), output2 = 계좌 요약. 필드 해석은

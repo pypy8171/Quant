@@ -7,17 +7,7 @@
 #include "api/KisErrorCodes.h"
 #include "utils/EtfFilter.h"
 #include "utils/Logger.h"
-#include <algorithm>
-#include <functional>
-#include <chrono>
-#include <cstdio>
-#include <cstdlib>
-#include <fstream>
 #include <nlohmann/json.hpp>
-#include <sstream>
-#include <stdexcept>
-#include <thread>
-#include <unordered_set>
 #ifndef _WIN32
 #include <fcntl.h>    // open — fsync용 (V-2)
 #include <sys/stat.h> // chmod — 토큰 캐시 0600 (W-4)

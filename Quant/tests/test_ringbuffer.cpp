@@ -3,7 +3,6 @@
 
 #include "core/RingBuffer.h"
 #include <thread>
-#include <atomic>
 #include <cassert>
 #include <chrono>
 #include <iostream>
@@ -69,24 +68,24 @@ static void test_high_water() {
 }
 
 static void test_spsc_correctness() {
-	RingBuffer<int> rest_bar(1024);
+	RingBuffer<int> ring(1024);
 	constexpr int kItemCount = 1'000'000;
 
-	std::thread produced([&] {
+	std::thread producer_thread([&] {
 		for (int index = 0; index < kItemCount; ++index)
 		{
-			while (!rest_bar.push(index))
+			while (!ring.push(index))
 			{
 				std::this_thread::yield();
 			}
 		}
 		});
 
-	std::thread consumed([&] {
+	std::thread consumer_thread([&] {
 		int expected = 0;
 
 		while (expected < kItemCount) {
-			auto popped = rest_bar.pop();
+			auto popped = ring.pop();
 
 			if (!popped)
 			{
@@ -99,33 +98,33 @@ static void test_spsc_correctness() {
 		}
 		});
 
-	produced.join();
-	consumed.join();
+	producer_thread.join();
+	consumer_thread.join();
 	std::cout << "[OK] SPSC ordering preserved over " << kItemCount << " items\n";
 }
 
 static void test_throughput() {
-	RingBuffer<int> rest_bar(4096);
+	RingBuffer<int> ring(4096);
 	constexpr int kItemCount = 10'000'000;
 
 	auto start_time = std::chrono::steady_clock::now();
 
-	std::thread produced([&] {
+	std::thread producer_thread([&] {
 		for (int index = 0; index < kItemCount; ++index)
 		{
-			while (!rest_bar.push(index))
+			while (!ring.push(index))
 			{
 				std::this_thread::yield();
 			}
 		}
 		});
 
-	std::thread consumed([&] {
+	std::thread consumer_thread([&] {
 		int received = 0;
 
 		while (received < kItemCount)
 		{
-			auto popped = rest_bar.pop();
+			auto popped = ring.pop();
 
 			if (!popped)
 			{
@@ -137,8 +136,8 @@ static void test_throughput() {
 		}
 		});
 
-	produced.join();
-	consumed.join();
+	producer_thread.join();
+	consumer_thread.join();
 
 	auto end_time = std::chrono::steady_clock::now();
 	auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();

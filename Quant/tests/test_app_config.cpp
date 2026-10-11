@@ -4,7 +4,6 @@
 
 #include <iostream>
 #include <stdexcept>
-#include <string>
 
 using json = nlohmann::json;
 
@@ -147,13 +146,13 @@ int main()
     {
         json document = minimal_document();
         document["kis"]["is_paper"] = false;
-        document["risk"] = {{"max_qty_per_ticker", 7},        {"daily_loss_limit", -50000.0},
+        document["risk"] = {{"max_qty_per_ticker", 7},        {"daily_loss_limit", -50000},
                             {"session_open_hhmm", 930},        {"after_market", false},
                             {"order_min_interval_ms", 500},    {"displace_enabled", true}};
         const AppConfig app = parse_config(document);
         CHECK(app.has_risk);
         CHECK(app.risk.max_quantity_per_ticker == 7);
-        CHECK(app.risk.daily_loss_limit == -50000.0);
+        CHECK(app.risk.daily_loss_limit == -50000);
         CHECK(app.risk.session_open_min == 9 * 60 + 30);
         CHECK(app.risk.session_close_min == 15 * 60 + 30);
         CHECK(app.risk.after_open_min == 0 && app.risk.after_close_min == 0);
@@ -178,6 +177,19 @@ int main()
         CHECK(app.regime_strategies.at(Regime::BULL).at(0) == "DevScale_*");
         CHECK(app.regime_strategies.at(Regime::BEAR).at(0) == "ITB");
         CHECK(app.strategies.size() == 1);
+    }
+
+    // 7. 문서를 넘겨받는 판(json&&)은 빌려 읽는 판과 같은 값을 내고, 전략 배열을 옮겨 온다.
+    {
+        json document = minimal_document();
+        document["strategies"] = json::array({{{"type", "DEVSCALE"}, {"id", "A"}}, {{"type", "ITB"}}});
+        const AppConfig borrowed = parse_config(document);
+        const AppConfig moved    = parse_config(json(document));
+        CHECK(moved.strategies == borrowed.strategies);
+        CHECK(moved.strategies.size() == 2 && moved.strategies[0]["id"] == "A");
+        CHECK(moved.kis.account_no == borrowed.kis.account_no);
+        CHECK(parse_config(minimal_document()).strategies.is_array());
+        CHECK(parse_config(minimal_document()).strategies.empty());
     }
 
     std::cout << "test_app_config OK (" << g_checks << " checks)\n";

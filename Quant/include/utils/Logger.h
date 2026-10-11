@@ -20,7 +20,7 @@ enum class LogLevel
 //   최악 지연을 낮추려고 I/O를 hot path에서 분리했다.
 //
 //   큐·writer 스레드·파일 핸들은 `Logger::Implementation`(`Quant/src/utils/Logger.cpp`)에 있다. 이 헤더는 많은 파일이 직접 포함해
-//   `<fstream>`·`<iostream>`·`<thread>`·`MpscQueue.h`를 여기 두면 헤더 한 줄 수정에 전체 재컴파일 80초가 들었다(T-3).
+//   `<fstream>`·`<iostream>`·`<thread>`·`MpscQueue.h`를 여기 두면 헤더 한 줄 수정에 전체 재컴파일 80초가 들었다.
 //   [inv] 로그를 부르는 스레드는 Logger 소멸(정적 소멸) 전에 join돼 있어야 한다. 소멸 뒤 호출은 미정의.
 class Logger
 {
@@ -61,15 +61,16 @@ public:
     [[nodiscard]] std::filesystem::path path_for(const std::string& name) const;
 
     // hot path: 임계값 아래면 바로 돌아가고, 아니면 시각 스탬프만 찍어 큐에 넘긴다(포맷팅은 writer가 한다).
-    void log(LogLevel level, const std::string& message);
+    //  message는 값으로 받아 큐 레코드까지 옮긴다 — 호출자가 조립한 임시 문자열은 복사 없이 들어간다.
+    void log(LogLevel level, std::string message);
 
-    void info(const std::string& message);
+    void info(std::string message);
 
-    void warn(const std::string& message);
+    void warn(std::string message);
 
-    void error(const std::string& message);
+    void error(std::string message);
 
-    void debug(const std::string& message);
+    void debug(std::string message);
 
     // 이 호출 전에 반환된 log()가 모두 파일/콘솔에 반영될 때까지 블로킹(테스트·종료 직전 정합 확인용).
     void flush();

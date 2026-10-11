@@ -204,9 +204,9 @@ int main()
         CHECK(matrix.producers() == 1 && matrix.consumers() == 1);
         CHECK(matrix.empty(0));
 
-        for (uint32_t innermost_index = 0; innermost_index < 4; ++innermost_index)
+        for (uint32_t sequence_number = 0; sequence_number < 4; ++sequence_number)
         {
-            CHECK(matrix.push(0, 1, Item{1, innermost_index}));
+            CHECK(matrix.push(0, 1, Item{1, sequence_number}));
         }
 
         CHECK(!matrix.push(0, 1, Item{1, 4}));
@@ -216,10 +216,10 @@ int main()
         CHECK(received && received->sequence == 0);
         CHECK(matrix.push(0, 1, Item{1, 4}));
 
-        for (uint32_t innermost_index = 1; innermost_index <= 4; ++innermost_index)
+        for (uint32_t sequence_number = 1; sequence_number <= 4; ++sequence_number)
         {
             received = matrix.pop(0);
-            CHECK(received && received->sequence == innermost_index);
+            CHECK(received && received->sequence == sequence_number);
         }
 
         CHECK(!matrix.pop(0));
@@ -269,12 +269,12 @@ int main()
     {
         std::cout << "[측정] hardware_concurrency=" << std::thread::hardware_concurrency() << '\n';
 
-        for (uint32_t innermost_index : {1u, 2u, 4u})
+        for (uint32_t matrix_size : {1u, 2u, 4u})
         {
-            const auto run_result = run_matrix(innermost_index, innermost_index, 240, 4000, 1024);
+            const auto run_result = run_matrix(matrix_size, matrix_size, 240, 4000, 1024);
             CHECK(run_result.received == 240u * 4000u);
             CHECK(run_result.order_ok && run_result.shard_ok);
-            std::cout << "[측정] " << innermost_index << "x" << innermost_index << " 소비자당 " << (240u * 4000u / innermost_index) << "건: " << run_result.ns_per
+            std::cout << "[측정] " << matrix_size << "x" << matrix_size << " 소비자당 " << (240u * 4000u / matrix_size) << "건: " << run_result.ns_per
                       << "ns/건, 전체 " << run_result.wall_ms << "ms\n";
         }
     }

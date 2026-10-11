@@ -5,6 +5,7 @@
 #include "strategy/DevScaleRules.h"
 
 #include <cmath>
+#include <cstdlib>
 #include <iostream>
 #include <map>
 #include <sstream>

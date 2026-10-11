@@ -5,6 +5,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdio>
+#include <cstdlib>
 #include <mutex>
 #include <stop_token>
 #include <thread>
@@ -41,12 +42,12 @@ Stats summarize(std::vector<double>& values)
 }
 
 template <typename F>
-Stats measure(int iters, F&& one_wait)
+Stats measure(int iterations, F&& one_wait)
 {
     std::vector<double> received;
-    received.reserve(static_cast<size_t>(iters));
+    received.reserve(static_cast<size_t>(iterations));
 
-    for (int index = 0; index < iters; ++index)
+    for (int index = 0; index < iterations; ++index)
     {
         const auto start_time = steady_clock::now();
         one_wait();
@@ -62,21 +63,21 @@ void print_row(const char* name, double asked_us, const Stats& statistics)
                 statistics.max_us);
 }
 
-void run_table(const char* title, int iters)
+void run_table(const char* title, int iterations)
 {
-    std::printf("[%s] %d회\n", title, iters);
-    print_row("sleep_for(100us)", 100.0, measure(iters, []
+    std::printf("[%s] %d회\n", title, iterations);
+    print_row("sleep_for(100us)", 100.0, measure(iterations, []
     {
         std::this_thread::sleep_for(microseconds(100));
     }));
-    print_row("sleep_for(1ms)", 1000.0, measure(iters, []
+    print_row("sleep_for(1ms)", 1000.0, measure(iterations, []
     {
         std::this_thread::sleep_for(milliseconds(1));
     }));
 
     std::mutex mutex;
     std::condition_variable condition_variable;
-    print_row("cv.wait_for(1ms)", 1000.0, measure(iters, [&]
+    print_row("cv.wait_for(1ms)", 1000.0, measure(iterations, [&]
     {
         std::unique_lock<std::mutex> lock(mutex);
         condition_variable.wait_for(lock, milliseconds(1));
@@ -84,16 +85,16 @@ void run_table(const char* title, int iters)
     // 격자를 안 타는 길(Windows 고해상도 대기 타이머 / POSIX nanosleep). 시세 줄 스레드의 유휴 잠이
     //  이것을 쓴다 — 위 두 줄과 같은 500us 를 부탁해 얼마나 자는지 나란히 본다. [why D-137]
     std::stop_source stop_source;
-    print_row("precise(500us)", 500.0, measure(iters, [&]
+    print_row("precise(500us)", 500.0, measure(iterations, [&]
     {
         wake::sleep_precise_unless_stopped(stop_source.get_token(), microseconds(500));
     }));
-    print_row("cv.wait_for(500us)", 500.0, measure(iters, [&]
+    print_row("cv.wait_for(500us)", 500.0, measure(iterations, [&]
     {
         std::unique_lock<std::mutex> lock(mutex);
         condition_variable.wait_for(lock, microseconds(500));
     }));
-    print_row("yield()", 0.0, measure(iters, []
+    print_row("yield()", 0.0, measure(iterations, []
     {
         std::this_thread::yield();
     }));
@@ -103,14 +104,14 @@ void run_table(const char* title, int iters)
 
 int main(int argc, char** argv)
 {
-    const int iters = argc > 1 ? std::atoi(argv[1]) : 1000;
-    run_table("기본 타이머", iters);
+    const int iterations = argc > 1 ? std::atoi(argv[1]) : 1000;
+    run_table("기본 타이머", iterations);
 
 #ifdef _WIN32
     // Windows 10 2004+에서는 호출 프로세스에만 적용된다. 종료 시 되돌린다.
     if (timeBeginPeriod(1) == TIMERR_NOERROR)
     {
-        run_table("timeBeginPeriod(1)", iters);
+        run_table("timeBeginPeriod(1)", iterations);
         timeEndPeriod(1);
     }
     else

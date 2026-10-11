@@ -1,5 +1,7 @@
 #include "core/LatencyTrace.h"
 
+#include <bit>
+
 namespace
 {
 // CSV 한 줄 길이 어림 — 재할당을 한 번으로 줄이려는 값이다.

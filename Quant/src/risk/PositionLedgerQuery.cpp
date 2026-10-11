@@ -2,31 +2,24 @@
 #include "risk/PositionLedger.h"
 #include "ipc/LedgerSnapshot.h"
 #include <algorithm>
+#include <cstdint>
 #include <cstring>
+#include <functional>
+#include <mutex>
+#include <string>
+#include <utility>
+#include <vector>
 
 size_t PositionLedger::open_slot_count() const
 {
     std::lock_guard<std::mutex> lock(positions_mutex_);
     size_t open = 0;
 
-    for (const auto& entry : positions_)
+    for (const auto& [key, row] : rows_)
     {
-        if (entry.second > 0 && !slot_exempt_.contains(entry.first.symbol))
+        if (row.takes_slot() && !slot_exempt_.contains(key.symbol))
         {
             ++open;
-        }
-    }
-
-    for (const auto& entry : reserved_)
-    {
-        if (entry.second.buy > 0 && !slot_exempt_.contains(entry.first.symbol))
-        {
-            auto iterator = positions_.find(entry.first);
-
-            if (iterator == positions_.end() || iterator->second <= 0)
-            {
-                ++open;
-            }
         }
     }
 
@@ -38,73 +31,65 @@ size_t PositionLedger::open_slot_count() const
 int PositionLedger::position(const std::string& account, const std::string& ticker) const
 {
     std::lock_guard<std::mutex> lock(positions_mutex_);
-    auto iterator = positions_.find(keys_.lookup(account, ticker));
-    return (iterator != positions_.end()) ? iterator->second : 0;
+    return row_locked(keys_.lookup(account, ticker)).position;
 }
 
 int PositionLedger::position(const std::string& account, symbol::SymbolId symbol) const
 {
     std::lock_guard<std::mutex> lock(positions_mutex_);
-    auto iterator = positions_.find(keys_.lookup(account, symbol));
-    return (iterator != positions_.end()) ? iterator->second : 0;
+    return row_locked(keys_.lookup(account, symbol)).position;
 }
 
 int PositionLedger::reserved(const std::string& account, const std::string& ticker) const
 {
     std::lock_guard<std::mutex> lock(positions_mutex_);
-    auto iterator = reserved_.find(keys_.lookup(account, ticker));
-    return (iterator != reserved_.end()) ? iterator->second.net() : 0;
+    return row_locked(keys_.lookup(account, ticker)).reserved.net();
 }
 
 int PositionLedger::reserved(const std::string& account, symbol::SymbolId symbol) const
 {
     std::lock_guard<std::mutex> lock(positions_mutex_);
-    auto iterator = reserved_.find(keys_.lookup(account, symbol));
-    return (iterator != reserved_.end()) ? iterator->second.net() : 0;
+    return row_locked(keys_.lookup(account, symbol)).reserved.net();
 }
 
 int PositionLedger::reserved_sell(const std::string& account, symbol::SymbolId symbol) const
 {
     std::lock_guard<std::mutex> lock(positions_mutex_);
-    auto iterator = reserved_.find(keys_.lookup(account, symbol));
-    return (iterator != reserved_.end()) ? iterator->second.sell : 0;
+    return row_locked(keys_.lookup(account, symbol)).reserved.sell;
 }
 
-double PositionLedger::average_price(const std::string& account, const std::string& ticker) const
+PositionLedger::Won PositionLedger::average_price(const std::string& account, const std::string& ticker) const
 {
     std::lock_guard<std::mutex> lock(positions_mutex_);
-    auto iterator = average_prices_.find(keys_.lookup(account, ticker));
-    return (iterator != average_prices_.end()) ? iterator->second : 0.0;
+    return row_locked(keys_.lookup(account, ticker)).average_price;
 }
 
-double PositionLedger::daily_pnl() const
+PositionLedger::Won PositionLedger::daily_pnl() const
 {
     std::lock_guard<std::mutex> lock(pnl_mutex_);
     return daily_pnl_;
 }
 
-// ─── 보유 포지션 스냅샷 (G3 강제청산) ────────────────────────────────────────
+// ─── 보유 포지션 스냅샷(강제청산) ────────────────────────────────────────
 std::vector<PositionLedger::HeldPos> PositionLedger::snapshot_positions() const
 {
     std::vector<HeldPos> out;
     std::lock_guard<std::mutex> lock(positions_mutex_);
-    out.reserve(positions_.size());
+    out.reserve(rows_.size());
 
-    for (const auto& entry : positions_)
+    for (const auto& [key, row] : rows_)
     {
-        if (entry.second <= 0)
+        if (row.position <= 0)
         {
             continue; // 롱 보유분만 청산 대상
         }
 
-        const PosKey& key = entry.first;
         HeldPos held_position;
-        held_position.account = keys_.account_of(key);
-        held_position.ticker  = keys_.ticker_of(key).string();
-        held_position.symbol  = key.symbol;
-        held_position.quantity     = entry.second;
-        auto average_price_iterator = average_prices_.find(key);
-        held_position.average_price = (average_price_iterator != average_prices_.end()) ? average_price_iterator->second : 0.0;
+        held_position.account       = keys_.account_of(key);
+        held_position.ticker        = keys_.ticker_of(key).string();
+        held_position.symbol        = key.symbol;
+        held_position.quantity      = row.position;
+        held_position.average_price = static_cast<double>(row.average_price);
         held_position.slot_exempt   = slot_exempt_.contains(key.symbol);
         out.push_back(std::move(held_position));
     }
@@ -118,7 +103,7 @@ std::vector<PositionLedger::HeldPos> PositionLedger::snapshot_positions() const
 //
 //  [inv] 판 안에서는 사본을 읽지 않는다. 판 번호가 홀수인 동안 읽는 쪽 함수(collect_rows·row)는
 //  짝수가 될 때까지 도는데, 그 짝수를 만드는 것이 자기 자신이라 영영 안 끝난다.
-//  그래서 미체결(reserved_)을 먼저 싣고 보유(positions_)를 돌 때 매도가능을 같이 셈한다.
+//  그래서 한 줄을 적을 때 선점과 보유를 같이 보고 매도가능을 그 자리에서 셈한다.
 void PositionLedger::publish(ipc::LedgerSnapshot& snapshot, const std::function<void(ipc::LedgerGlobals&)>& fill_globals,
                              int max_concurrent_positions, double max_gross_exposure_percent) const
 {
@@ -126,7 +111,7 @@ void PositionLedger::publish(ipc::LedgerSnapshot& snapshot, const std::function<
     std::lock_guard<std::mutex> publish_lock(ledger_publish_mutex_);
 
     // 자기 원자변수가 지키는 값들은 positions_mutex_ 밖에서 읽는다 — 잠금을 쥔 구간을 좁게 둔다.
-    const double equity = equity_.load(std::memory_order_relaxed);
+    const Won equity = equity_.load(std::memory_order_relaxed);
 
     snapshot.begin_publish();
 
@@ -150,18 +135,16 @@ void PositionLedger::publish(ipc::LedgerSnapshot& snapshot, const std::function<
             globals.account[copied] = '\0';
         }
 
-        // ① 미체결 선점 먼저. 보유를 돌 때 매도가능(상한 - 미체결 매도)을 한 번에 셈하기 위해서다.
-        publish_reserved_rows_locked(snapshot, account, tally);
-        // ② 보유.
-        publish_position_rows_locked(snapshot, account, tally);
+        publish_rows_locked(snapshot, account, tally);
 
         // 자리(슬롯)와 예산(총노출) 중 하나만 막혀도 신규 종목을 열 여력이 없다. capacity_full()과 같은 셈이다.
         //  [inv] 슬롯 면제 종목은 자리를 먹지 않는다 — check()·open_slot_count()·entry_snapshot()과 같은
-        //  규칙이다. 자리 세는 곳이 다섯인데 셈이 하나라도 다르면 전략과 게이트가 딴 판단을 한다. [why D-109]
+        //  규칙(PositionRow::takes_slot)이다. 셈이 하나라도 다르면 전략과 게이트가 딴 판단을 한다. [why D-109]
         const bool slots_are_full = max_concurrent_positions > 0
                                     && tally.open_slots >= static_cast<size_t>(max_concurrent_positions);
-        const bool budget_is_full = max_gross_exposure_percent > 0.0 && equity > 0.0
-                                    && tally.gross >= max_gross_exposure_percent * equity * 0.95;
+        const bool budget_is_full = max_gross_exposure_percent > 0.0 && equity > 0
+                                    && tally.gross >= money::ceil_won(max_gross_exposure_percent
+                                                                      * static_cast<double>(equity) * kBudgetFullRatio);
 
         globals.open_slot_count = static_cast<int32_t>(tally.open_slots);
         globals.capacity_full   = (slots_are_full || budget_is_full) ? 1 : 0;
@@ -182,79 +165,25 @@ uint32_t PositionLedger::publish_account_locked() const
 {
     uint32_t account = kUnknownAccount;
 
-    for (const auto& entry : positions_)
+    for (const auto& [key, row] : rows_)
     {
-        if (entry.second != 0 && entry.first.account < account)
+        if ((row.position != 0 || !row.reserved.empty()) && key.account < account)
         {
-            account = entry.first.account;
-        }
-    }
-
-    for (const auto& entry : reserved_)
-    {
-        if (!entry.second.empty() && entry.first.account < account)
-        {
-            account = entry.first.account;
+            account = key.account;
         }
     }
 
     return account;
 }
 
-// 사본 ① — 미체결 선점 줄. 보유 없이 매수 선점만 있는 종목의 자리와 매수 선점 명목을 tally에 더한다.
+// 사본 줄 싣기 — 보유나 선점이 있는 줄만 싣는다. 자리·총노출 명목을 tally에 더한다.
+//  매도가능은 sellable_view()와 같은 셈이다 — 보유와 KIS 상한 중 작은 쪽에서 미체결 매도를 뺀다.
 //  [inv] positions_mutex_를 쥐고 부른다.
-void PositionLedger::publish_reserved_rows_locked(ipc::LedgerSnapshot& snapshot, uint32_t account,
-                                                  PublishTally& tally) const
+void PositionLedger::publish_rows_locked(ipc::LedgerSnapshot& snapshot, uint32_t account, PublishTally& tally) const
 {
-    for (const auto& entry : reserved_)
+    for (const auto& [key, row] : rows_)
     {
-        const PosKey& key = entry.first;
-
-        if (entry.second.empty())
-        {
-            continue;
-        }
-
-        if (key.account != account)
-        {
-            ++tally.foreign_rows;
-            continue;
-        }
-
-        const bool exempt = slot_exempt_.contains(key.symbol);
-
-        ipc::LedgerRow& row = snapshot.row_for_write(key.symbol);
-        row.reserved        = entry.second.net();
-        row.reserved_sell   = entry.second.sell;
-        row.slot_exempt     = exempt ? 1 : 0;
-
-        if (entry.second.buy > 0)
-        {
-            const auto position_iterator = positions_.find(key);
-
-            // 보유 없이 매수 선점만 있는 종목도 자리를 하나 문다.
-            if (!exempt && (position_iterator == positions_.end() || position_iterator->second <= 0))
-            {
-                ++tally.open_slots;
-            }
-
-            const auto reserved_price_iterator = reserved_price_.find(key);
-            tally.gross += entry.second.buy * ((reserved_price_iterator != reserved_price_.end()) ? reserved_price_iterator->second : 0.0);
-        }
-    }
-}
-
-// 사본 ② — 보유 줄. 매도가능은 sellable_view()와 같은 셈이다 — 보유와 KIS 상한 중 작은 쪽에서 미체결 매도를 뺀다.
-//  미체결 매도는 ①이 같은 줄에 먼저 적어 둔 row.reserved_sell을 읽는다.
-//  [inv] positions_mutex_를 쥐고 부른다.
-void PositionLedger::publish_position_rows_locked(ipc::LedgerSnapshot& snapshot, uint32_t account,
-                                                  PublishTally& tally) const
-{
-    for (const auto& entry : positions_)
-    {
-        const PosKey& key = entry.first;
-
-        if (entry.second == 0)
+        if (row.position == 0 && row.reserved.empty())
         {
             continue; // 닫힌 자리는 사본에 없는 것과 같다
         }
@@ -265,35 +194,38 @@ void PositionLedger::publish_position_rows_locked(ipc::LedgerSnapshot& snapshot,
             continue;
         }
 
-        const auto   average_price_iterator = average_prices_.find(key);
-        const double average_price = (average_price_iterator != average_prices_.end()) ? average_price_iterator->second : 0.0;
-        const bool   exempt        = slot_exempt_.contains(key.symbol);
+        const bool exempt = slot_exempt_.contains(key.symbol);
 
-        ipc::LedgerRow& row = snapshot.row_for_write(key.symbol);
-        row.position        = entry.second;
-        row.average_price   = average_price;
-        row.slot_exempt     = exempt ? 1 : 0;
+        ipc::LedgerRow& out = snapshot.row_for_write(key.symbol);
+        out.slot_exempt     = exempt ? 1 : 0;
 
-        if (entry.second > 0)
+        if (!row.reserved.empty())
         {
-            if (!exempt)
-            {
-                ++tally.open_slots;
-            }
+            out.reserved      = row.reserved.net();
+            out.reserved_sell = row.reserved.sell;
+        }
 
-            const auto mark_iterator = mark_prices_.find(key); // 총노출은 게이트 gross_exposure()와 같이 현재가 우선
-            tally.gross += entry.second * ((mark_iterator != mark_prices_.end()) ? mark_iterator->second : average_price);
+        if (row.position != 0)
+        {
+            out.position      = row.position;
+            out.average_price = static_cast<double>(row.average_price);
+        }
 
-            int        sellable_limit    = entry.second;
-            const auto sellable_iterator = sellable_.find(key);
+        if (row.takes_slot() && !exempt)
+        {
+            ++tally.open_slots;
+        }
 
-            if (sellable_iterator != sellable_.end() && sellable_iterator->second < sellable_limit)
-            {
-                sellable_limit = sellable_iterator->second;
-            }
+        tally.gross += static_cast<Won>(row.reserved.buy) * row.reserved_price;
 
-            const int pending_sell = row.reserved_sell;
-            row.sellable = (sellable_limit > pending_sell) ? (sellable_limit - pending_sell) : 0;
+        if (row.position > 0)
+        {
+            // 총노출은 게이트 gross_exposure()와 같이 현재가 우선
+            const Won price = (row.mark_price != 0) ? row.mark_price : row.average_price;
+            tally.gross += static_cast<Won>(row.position) * price;
+
+            const int sellable_limit = std::min(row.position, row.sellable_or(row.position));
+            out.sellable             = std::max(0, sellable_limit - row.reserved.sell);
         }
     }
 }

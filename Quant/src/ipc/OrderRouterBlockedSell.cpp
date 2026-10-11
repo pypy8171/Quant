@@ -22,7 +22,7 @@ static bool is_open_session_sell(const ManagedOrder& managed_order, symbol::Symb
 //  전제: SELL이 40240000(주문가능분 없음)으로 막힌 직후 호출. 그 종목의 미체결 예약매도가
 //  보유수량을 묶어 ord_psbl_qty=0이 된 상황을 KIS 미체결 조회로 규명하고, 예약을 취소해
 //  수량을 풀어준 뒤 시장가 매도를 1회 재시도한다. 취소한 예약이 이번 세션 주문(history_에
-//  ODNO가 있음)이면 CANCELLED로 닫고 장부(PositionLedger) 선점(reserved_)을 풀어 장부 행을 남긴다 — 그러지
+//  ODNO가 있음)이면 CANCELLED로 닫고 장부(PositionLedger) 선점(PositionRow::reserved)을 풀어 장부 행을 남긴다 — 그러지
 //  않으면 선점이 스윕 때까지 남아 한도 계산을 조인다(C-2). 이전 세션·수동 예약은 history_에
 //  없으므로 선점은 건드리지 않고 매도가능수량만 되돌린다(포지션 정합은 체결통보로).
 OrderAck OrderRouter::reconcile_blocked_sell(const OrderSignal& signal, const OrderGate::OrderRef& reference, bool& intent_taken)
@@ -223,7 +223,7 @@ bool OrderRouter::close_session_order(uint64_t kis_order_number, const char* rea
                          OrderGate::OrderRef{order_number_of(closed.order_id), kis_order_number, closed.signal.type});
     }
 
-    // 선점(reserved_)만 풀면 잔고 시드값 sellable_(취소 전 스냅샷, 주문가능 0)이 그대로라 다음 매도도 0으로
+    // 선점(PositionRow::reserved)만 풀면 잔고 시드값 PositionRow::sellable(취소 전 스냅샷, 주문가능 0)이 그대로라 다음 매도도 0으로
     //  깎인다 — 09-14 15:00 096770 은 익절 취소 뒤 재매도가 유량한도에 막히자 재시도 3회가 전부 "매도가능 0".
     //  브로커에서 풀린 수량만큼 되돌린다(이전 세션 줄과 같은 처리).
     if (closed.signal.side == OrderSide::SELL)

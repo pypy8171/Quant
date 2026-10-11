@@ -4,11 +4,13 @@
 #include "risk/ProtectiveRule.h"
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <ctime>
 #include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 class KisClient;
@@ -277,6 +279,16 @@ public:
 
     std::optional<SellableInfo> ledger_sellable(const std::string& account, const std::string& ticker) const;
 
+    // 정수 id 버전 — 체결마다 묻는 전략(DevScale 손절·트레일·익절 덮개)이 쓴다. 문자열 해시가 없다.
+    //  id가 kNone이거나 id 제공자가 없으면 문자열 버전으로 돌아간다(confirmed_position과 같은 규칙). [why D-105]
+    void set_sellable_provider_by_id(std::function<SellableInfo(const std::string&, symbol::SymbolId)> provider)
+    {
+        sellable_provider_by_id_ = std::move(provider);
+    }
+
+    std::optional<SellableInfo> ledger_sellable(const std::string& account, symbol::SymbolId symbol,
+                                                const std::string& ticker) const;
+
     // 보호 주문 표 주입 — Engine이 전략 등록 때 넣는다. 미주입이면 아래 arm_protective가 아무것도 하지 않는다. [why D-114]
     //  수명은 Engine이 가진다 — 표는 Engine 멤버고 전략보다 늦게 죽는다. [inv]
     void set_protective_registry(risk::ProtectiveOrderRegistry* registry)
@@ -305,6 +317,9 @@ protected:
     OrderSignal make_signal(std::string_view ticker, symbol::SymbolId symbol, OrderSide side, OrderType type,
                             int quantity,
                             std::chrono::system_clock::time_point timestamp = std::chrono::system_clock::now()) const;
+
+    // 주문 이름 "전략id:tag:순번"을 할당 한 번으로 만든다. 순번은 부른 쪽이 올려서 넘긴다. 로그·취소 대조용 문자열이다.
+    std::string make_order_id(std::string_view tag, uint64_t sequence) const;
 
     // KST 시각을 HHMM 정수로(09:05 → 905). 초는 버린다.
     static int kst_hhmm(std::time_t now_utc);
@@ -347,9 +362,10 @@ protected:
     std::function<bool()> entry_halt_provider_; // 신규매수 차단 여부(OrderGate). 미주입=false
     std::function<double()> entry_scale_provider_; // 매수 명목 비율(OrderGate). 미주입=1.0
     std::function<SellableInfo(const std::string&, const std::string&)> sellable_provider_; // 장부 매도가능·평단
+    std::function<SellableInfo(const std::string&, symbol::SymbolId)> sellable_provider_by_id_; // 같은 장부, 종목 정수 id로
     risk::ProtectiveOrderRegistry* protective_registry_ = nullptr; // non-owning; 보호 주문 표(Engine 소유). 미주입=표 없음
     SymbolResolver symbol_resolver_; // 종목 문자열 → id(Engine::register_symbol). 미주입=kNone
-    std::atomic<bool> active_{true};      // 국면 게이트(Engine이 설정). 기본 true=통과 (G-1)
+    std::atomic<bool> active_{true};      // 국면 게이트(Engine이 설정). 기본 true=통과
     std::atomic<bool> in_universe_{true}; // 유니버스 재스캔 게이트(Engine이 설정). 미등록 전략은 늘 true
     uint32_t          shard_index_ = 0;   // 소유 샤드. Engine::setup_shards·register_strategy_runtime가 쓴다
     strategy_table::StrategyId strategy_index_ = strategy_table::kNone; // 전략 번호. Engine이 등록 때 정한다

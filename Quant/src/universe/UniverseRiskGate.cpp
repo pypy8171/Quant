@@ -9,31 +9,22 @@
 #include "core/Types.h"
 #include "utils/EtfFilter.h"
 #include "utils/Logger.h"
-#include <algorithm>
-#include <functional>
 #include <chrono>
-#include <cmath>
-#include <ctime>
-#include <filesystem>
-#include <fstream>
 #include <mutex>
 #include <nlohmann/json.hpp>
 #include <string>
-#include <string_view>
-#include <thread>
-#include <vector>
 
 namespace universe::detail
 {
 namespace
 {
-IdxGateLatch g_kospi_latch;
-IdxGateLatch g_kosdaq_latch;
+IndexGateLatch g_kospi_latch;
+IndexGateLatch g_kosdaq_latch;
 } // namespace
 
 std::mutex   g_index_latch_mutex;
 
-bool latch_risk_off(IdxGateLatch& latch, double change, bool observed, double trip, double resume,
+bool latch_risk_off(IndexGateLatch& latch, double change, bool observed, double trip, double resume,
                     int dwell_sec, const char* label)
 {
     // 관측 실패에는 판정하지 않는다. KisClient::get_index_price는 응답 파싱이 어긋나면
@@ -121,19 +112,19 @@ bool MarketGate::allows(Market market) const
     return kospi_pass;
 }
 
-MarketGate build_market_gate(KisClient& kis, const DevScanCfg& config)
+MarketGate build_market_gate(KisClient& kis, const DeviationScaleScanConfig& config)
 {
     MarketGate market_gate;
     // [wire] 조회가 어긋나면 KisClient가 로그 없이 IndexPrice{}를 돌려준다 — price>0이 관측
     //  성공의 유일한 표식이다. 지수 평보합도 price는 양수라 오탐이 없다.
-    const auto kospi = kis.get_index_price("0001");
+    const auto kospi = kis.get_index_price(kKospiIndexCode);
     market_gate.kospi_observation = kospi.price > 0.0;
     market_gate.kospi_change = kospi.change_rate / 100.0;   // [wire] KIS는 % 단위
     // 근거: UniverseItb.cpp 지수 등락률 주석 참고(단위의 공식 출처는 찾지 못했다).
 
     if (config.kosdaq_enabled)
     {
-        const auto kosdaq = kis.get_index_price("1001");   // [wire] 코스닥 종합지수
+        const auto kosdaq = kis.get_index_price(kKosdaqIndexCode);
         market_gate.kosdaq_observation = kosdaq.price > 0.0;
         market_gate.kosdaq_change = kosdaq.change_rate / 100.0;
     }

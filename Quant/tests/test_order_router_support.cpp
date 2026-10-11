@@ -1,6 +1,14 @@
 // test_order_router 공용 준비의 몸통 — 스텁의 응답 흉내와 시험 도우미.
 #include "test_order_router_support.h"
 
+#include <cstdint>
+#include <ctime>
+#include <fstream>
+#include <iostream>
+#include <string>
+#include <utility>
+#include <vector>
+
 // ─── KIS 응답 시뮬레이션 Stub ─────────────────────────────────────────────────
 StubOrderExecutor::StubOrderExecutor(bool flag, std::string output)
     : succeed(flag)

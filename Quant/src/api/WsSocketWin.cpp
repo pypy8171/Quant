@@ -26,6 +26,9 @@
 namespace
 {
 
+// 수신 버퍼 크기 — 한 프레임을 한 번에 받기에 넉넉한 값.
+constexpr size_t kReceiveBufferBytes = 128 * 1024;
+
 std::wstring to_wide(const std::string& text)
 {
     if (text.empty())
@@ -42,7 +45,7 @@ std::wstring to_wide(const std::string& text)
 class WinHttpWsSocket final : public WsSocket
 {
 public:
-    WinHttpWsSocket() : buffer_(128 * 1024)
+    WinHttpWsSocket() : buffer_(kReceiveBufferBytes)
     {
     }
 

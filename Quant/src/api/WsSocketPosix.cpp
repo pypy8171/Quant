@@ -19,6 +19,15 @@
 namespace
 {
 
+// 핸드셰이크 응답 원문을 로그에 남길 길이.
+constexpr std::string::size_type kHandshakePreviewChars = 120;
+
+// [wire] RFC 6455 5.2 페이로드 길이 인코딩 — 125 이하는 한 바이트, 126 표식 뒤 2바이트(65535 이하), 127 표식 뒤 8바이트.
+constexpr size_t  kPayloadLengthOneByteMax      = 125;
+constexpr size_t  kPayloadLengthTwoByteMax      = 65535;
+constexpr uint8_t kPayloadLengthTwoByteMarker   = 126;
+constexpr uint8_t kPayloadLengthEightByteMarker = 127;
+
 size_t append_response_body(char* cursor, size_t size, size_t name, std::string* out)
 {
     out->append(cursor, size * name);
@@ -142,7 +151,7 @@ bool websocket_tcp_connect(const std::string& host, int port, int& out_descripto
     if (response.find("101") == std::string::npos)
     {
         LOG_WARN("[WS] 핸드셰이크 응답에 101 없음 (recv " + std::to_string(response.size()) +
-                 "B): " + response.substr(0, 120));
+                 "B): " + response.substr(0, kHandshakePreviewChars));
         ::close(descriptor);
         return false;
     }
@@ -165,19 +174,19 @@ void websocket_send_text_linux(int descriptor, const std::string& data)
 
     frame.push_back(0x81); // FIN=1, opcode=1(Text)
 
-    if (length <= 125)
+    if (length <= kPayloadLengthOneByteMax)
     {
         frame.push_back(uint8_t(0x80 | length));
     }
-    else if (length <= 65535)
+    else if (length <= kPayloadLengthTwoByteMax)
     {
-        frame.push_back(0x80 | 126);
+        frame.push_back(0x80 | kPayloadLengthTwoByteMarker);
         frame.push_back(uint8_t(length >> 8));
         frame.push_back(uint8_t(length));
     }
     else
     {
-        frame.push_back(0x80 | 127);
+        frame.push_back(0x80 | kPayloadLengthEightByteMarker);
 
         for (int index = 7; index >= 0; --index)
         {
@@ -230,7 +239,7 @@ bool websocket_recv_frame_linux(int descriptor, std::string& out, std::string& e
         const bool masked = ((header[1] >> 7) & 1) != 0;
         uint64_t length = header[1] & 0x7F;
 
-        if (length == 126)
+        if (length == kPayloadLengthTwoByteMarker)
         {
             uint8_t extended_length[2];
 
@@ -242,7 +251,7 @@ bool websocket_recv_frame_linux(int descriptor, std::string& out, std::string& e
 
             length = (uint64_t(extended_length[0]) << 8) | extended_length[1];
         }
-        else if (length == 127)
+        else if (length == kPayloadLengthEightByteMarker)
         {
             uint8_t extended_length[8];
 

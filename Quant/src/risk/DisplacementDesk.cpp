@@ -1,17 +1,23 @@
 #include "risk/DisplacementDesk.h"
 
+#include <chrono>
+#include <cstddef>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "risk/EntryPriority.h"
 #include "utils/Logger.h"
 
 namespace risk
 {
 namespace
 {
-// 교체 보류 시한의 기본값 — config의 displace_slot_hold_sec이 0 이하일 때만 쓴다.
-//  게이트의 슬롯 예약(note_displacement)도 같은 값으로 잡으므로 둘을 같이 고친다. [inv]
-constexpr int kDefaultHoldSeconds = 120;
+// 교체 매도의 전략 id — 장부 전략 열과 매도 신호가 같은 이름을 쓴다.
+constexpr const char* kDisplaceStrategyId = "DISPLACE";
 } // namespace
 
-DisplacementDesk::DisplacementDesk(OrderGate& gate) : gate_(gate), displace_index_(gate.ledger().strategy_index_of("DISPLACE"))
+DisplacementDesk::DisplacementDesk(OrderGate& gate) : gate_(gate), displace_index_(gate.ledger().strategy_index_of(kDisplaceStrategyId))
 {
 }
 
@@ -88,7 +94,7 @@ DisplacementDesk::Verdict DisplacementDesk::consider(OrderSignal& signal, Clock:
     sell.quantity        = plan.quantity;
     sell.price           = 0.0;
     sell.reference_price = plan.average_price; // 시장가 명목 백스톱이 우회되지 않게 평단을 stamp
-    sell.strategy_id     = "DISPLACE";
+    sell.strategy_id     = kDisplaceStrategyId;
     sell.strategy_index  = displace_index_;
     sell.reason          = plan.reason;
     LOG_INFO("[Displace] " + label(plan.ticker) + " 전량 매도 " + std::to_string(plan.quantity) + "주 — " + plan.reason);
@@ -97,7 +103,7 @@ DisplacementDesk::Verdict DisplacementDesk::consider(OrderSignal& signal, Clock:
     held_symbol_  = signal.symbol_id;
     drain_logged_ = false;
     const int hold_seconds = gate_.config().displace_slot_hold_sec;
-    held_until_ = now + std::chrono::seconds(hold_seconds > 0 ? hold_seconds : kDefaultHoldSeconds);
+    held_until_ = now + std::chrono::seconds(hold_seconds > 0 ? hold_seconds : EntryPriority::kDefaultSlotHoldSec); // 게이트의 슬롯 예약과 같은 기본값
     held_.push_back(std::move(signal)); // 매도 체결로 자리가 나면 take_ready가 낸다
     signal = std::move(sell);
     return Verdict::kSellFirst;

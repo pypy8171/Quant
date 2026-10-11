@@ -12,8 +12,10 @@
 #include <ctime>
 #include <filesystem>
 #include <functional>
+#include <optional>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 class TargetBasketStrategy : public StrategyBase

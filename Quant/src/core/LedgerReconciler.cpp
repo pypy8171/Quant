@@ -16,7 +16,7 @@ LedgerReconciler::LedgerReconciler(OrderGate& gate, FetchBalance fetch)
 
 // ─── G5: 실계좌 보유분 장부 부트스트랩 ──────────────────────────────────────
 //  계좌키는 account=""(전략 신호의 기본 account_id와 일치, C-1). 평단까지 시드해야
-//  매도 실현손익·일일손실 한도가 실제와 정합(C-2). reset_daily가 positions_/avg_prices_를
+//  매도 실현손익·일일손실 한도가 실제와 정합(C-2). reset_daily가 보유·평단(PositionLedger::rows_)을
 //  보존하므로 장 시작 리셋 후에도 유지 — 프로세스 기동당 1회면 충분.
 bool LedgerReconciler::bootstrap(int attempts, std::chrono::milliseconds retry_delay)
 {
@@ -99,11 +99,11 @@ void LedgerReconciler::resync_holdings(const AccountBalance& balance, bool resyn
 
     std::vector<reconcile::Held> broker_now;
 
-    // 잔고는 서버 확정 스냅샷 → 미체결 선점(reserved_)을 통째로 비우고 실보유만 신뢰.
+    // 잔고는 서버 확정 스냅샷 → 미체결 선점(PositionRow::reserved)을 통째로 비우고 실보유만 신뢰.
     //  체결피드(H0STCNI0) 부재로 누적된 H-1 드리프트(과잉 선점 → 정상신호 과잉차단)를
     //  동기화 시점마다 해소한다(#1). reset은 seed 재기록 전에 1회.
     //  체결통보가 오는 WS 모드에서는 건너뛴다 — 그쪽은 장부가 체결로 이미 갱신되고,
-    //  reserved_에는 아직 살아 있는 지정가 주문이 잡혀 있어 비우면 재발주를 부른다.
+    //  선점에는 아직 살아 있는 지정가 주문이 잡혀 있어 비우면 재발주를 부른다.
     if (resync_positions)
     {
         position_ledger.reset_reserved();
@@ -286,8 +286,8 @@ void LedgerReconciler::capture_baseline(double total_evaluation, std::optional<d
 }
 
 // ─── 주기 대조 ──────────────────────────────────────────────────────────────
-//  rest_price_feed_ 모드는 체결콜백(OrderRouter::on_fill)이 미등록이라 positions_/daily_pnl_이
-//  갱신되지 않는다(치명). 매 사이클 잔고를 재조회해 1) output1 보유분으로 positions_/average_prices_
+//  rest_price_feed_ 모드는 체결콜백(OrderRouter::on_fill)이 미등록이라 보유(PositionLedger::rows_)·daily_pnl_이
+//  갱신되지 않는다(치명). 매 사이클 잔고를 재조회해 1) output1 보유분으로 rows_의 보유·평단을
 //  재동기, 2) output2 총평가금(tot_evlu_amt)의 당일 기준선 대비 델타를 daily_pnl_로 세팅한다.
 //  [wire] 출처: KIS 공식 샘플 inquire_balance(TTTC8434R/VTTC8434R) — output1 종목별 보유, output2 tot_evlu_amt, 2026-09-27 MCP 확인.
 //  절대 평가손익(evlu_pfls)이 아니라 "당일 기준선 델타"를 쓴다 — 이미 -30% 물린 미실현손실을

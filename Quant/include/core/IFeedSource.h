@@ -16,12 +16,15 @@ namespace feed
 class IFeedSource
 {
 public:
-    using OrderBookCb = std::function<void(const OrderBook&)>;
-    using TradeCb     = std::function<void(const TradeData&)>;
+    // 호가·체결 콜백은 비const 참조로 받는다 — Engine이 수신 스레드에서 종목 번호(symbol_id)와 수신 시각(received_ns)을
+    //  받은 구조체에 바로 찍는다. const로 두면 찍으려고 구조체 하나를 한 번 더 베껴야 했다(초당 수십만 건이 지나는 자리다).
+    //  구현은 자기 지역 변수나 링 칸을 넘기고, 부른 뒤 그 값을 다시 읽지 않는다. 체결통보는 장부가 그대로 받으므로 const다.
+    using OrderBookCb = std::function<void(OrderBook&)>;
+    using TradeCb     = std::function<void(TradeData&)>;
     using FillCb      = std::function<void(const FillNotification&)>;
     // 수신 스레드 번호가 붙은 콜백 — 첫 인자가 이 이벤트를 부르는 수신 스레드의 번호(0 ≤ lane < lanes()).
-    using LaneOrderBookCb = std::function<void(uint32_t, const OrderBook&)>;
-    using LaneTradeCb     = std::function<void(uint32_t, const TradeData&)>;
+    using LaneOrderBookCb = std::function<void(uint32_t, OrderBook&)>;
+    using LaneTradeCb     = std::function<void(uint32_t, TradeData&)>;
 
     virtual ~IFeedSource() = default;
 

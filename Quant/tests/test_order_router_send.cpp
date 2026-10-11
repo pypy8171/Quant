@@ -2,6 +2,16 @@
 //  공용 준비는 test_order_router_support.h, 실행 순서는 test_order_router.cpp의 main.
 #include "test_order_router_support.h"
 
+#include <atomic>
+#include <chrono>
+#include <cstdint>
+#include <optional>
+#include <stdexcept>
+#include <string>
+#include <thread>
+#include <utility>
+#include <variant>
+
 // ─── 선점 정리가 KIS 답을 기다리는 주문의 선점을 풀지 않는다 ─────────────────────
 //   선점은 전송 전 INTENT 때 생기고 이력에는 답이 온 뒤에 들어간다. 그 사이에 데이터 스레드의 정리가 돌면
 //   이력만 보고 방금 잡은 선점을 풀었다. 스텁이 전송 도중에 정리를 불러 그 순간을 그대로 만든다.

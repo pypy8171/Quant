@@ -2,6 +2,8 @@
 //  공용 준비는 test_order_router_support.h, 실행 순서는 test_order_router.cpp의 main.
 #include "test_order_router_support.h"
 
+#include <string>
+
 // ─── 테스트 1: OrderGate 거부 → KIS 호출 없이 REJECTED ───────────────────────
 void test_gate_rejected()
 {

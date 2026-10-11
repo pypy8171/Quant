@@ -1,5 +1,6 @@
 #include "utils/ThreadName.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -44,7 +45,8 @@ void set_current(const std::string& name)
     std::wstring wide(name.begin(), name.end()); // 이름은 ASCII만 쓴다
     SetThreadDescription(GetCurrentThread(), wide.c_str());
 #else
-    pthread_setname_np(pthread_self(), name.substr(0, 15).c_str());
+    constexpr size_t kLinuxThreadNameMax = 15; // pthread 이름은 NUL 포함 16바이트
+    pthread_setname_np(pthread_self(), name.substr(0, kLinuxThreadNameMax).c_str());
 #endif
 }
 

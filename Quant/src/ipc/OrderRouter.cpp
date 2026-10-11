@@ -4,8 +4,11 @@
 #include "ipc/OrderRouter.h"
 #include "ipc/SideLabel.h"
 
+#include <algorithm>
+#include <cstdint>
 #include <format>
 #include <iterator>
+#include <string_view>
 #include <vector>
 
 // ─── 내부 순번 ID 생성  "ORD-000001" ─────────────────────────────────────

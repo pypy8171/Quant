@@ -5,6 +5,11 @@
 #include "utils/Logger.h"
 #include <format>
 
+namespace
+{
+constexpr const char* kUnknownReject = "알 수 없는 게이트 거부";
+}
+
 std::string OrderGate::describe(const GateVerdict& verdict) const
 {
     switch (verdict.code)
@@ -22,23 +27,57 @@ std::string OrderGate::describe(const GateVerdict& verdict) const
         return "ENTRY_HALT 활성 — 신규 진입 정지(청산은 허용)";
 
     case GateReject::OutsideSession:
-    {
-        const int64_t now_min = verdict.amount;
-        std::string   text    = std::format("{} ({:02}:{:02}, 허용 {:02}:{:02}~{:02}:{:02}", gate_reason::kOutsideSession,
-                                            now_min / 60, now_min % 60,
-                                            config_.session_open_min / 60, config_.session_open_min % 60,
-                                            config_.session_close_min / 60, config_.session_close_min % 60);
+        return describe_session(verdict);
 
-        if (config_.after_close_min > config_.after_open_min)
-        {
-            text += std::format(" 및 {:02}:{:02}~{:02}:{:02}", config_.after_open_min / 60, config_.after_open_min % 60,
-                                config_.after_close_min / 60, config_.after_close_min % 60);
-        }
+    case GateReject::BadQuantity:
+    case GateReject::OrderQuantityLimit:
+    case GateReject::OrderNotionalLimit:
+    case GateReject::TickerQuantityLimit:
+    case GateReject::TickerNotionalLimit:
+        return describe_size_limit(verdict);
 
-        text += ") — 매매 창에만 주문한다";
-        return text;
+    case GateReject::ConcurrentLimit:
+    case GateReject::DisplaceCooling:
+    case GateReject::SlotReserved:
+    case GateReject::PriorityBar:
+        return describe_slot(verdict);
+
+    case GateReject::GrossExposure:
+    case GateReject::DailyLoss:
+    case GateReject::PnlStale:
+    case GateReject::Duplicate:
+    case GateReject::RatePerSecond:
+    case GateReject::RatePerMinute:
+        return describe_guard(verdict);
     }
 
+    return kUnknownReject;
+}
+
+// 매매 창 밖 — 지금 시각(KST 분)과 허용 창(정규장, 있으면 애프터마켓까지)을 적는다.
+std::string OrderGate::describe_session(const GateVerdict& verdict) const
+{
+    const int64_t now_min = verdict.amount;
+    std::string   text    = std::format("{} ({:02}:{:02}, 허용 {:02}:{:02}~{:02}:{:02}", gate_reason::kOutsideSession,
+                                        now_min / 60, now_min % 60,
+                                        config_.session_open_min / 60, config_.session_open_min % 60,
+                                        config_.session_close_min / 60, config_.session_close_min % 60);
+
+    if (config_.after_close_min > config_.after_open_min)
+    {
+        text += std::format(" 및 {:02}:{:02}~{:02}:{:02}", config_.after_open_min / 60, config_.after_open_min % 60,
+                            config_.after_close_min / 60, config_.after_close_min % 60);
+    }
+
+    text += ") — 매매 창에만 주문한다";
+    return text;
+}
+
+// 수량·명목 한도 — 1주문 수량·명목과 종목당 수량·명목.
+std::string OrderGate::describe_size_limit(const GateVerdict& verdict) const
+{
+    switch (verdict.code)
+    {
     case GateReject::BadQuantity:
         return std::format("잘못된 주문 수량 ({})", verdict.amount);
 
@@ -55,6 +94,16 @@ std::string OrderGate::describe(const GateVerdict& verdict) const
     case GateReject::TickerNotionalLimit:
         return std::format("종목당 명목 한도 초과 ({} > {})", verdict.amount, static_cast<long long>(config_.max_notional_per_ticker));
 
+    default:
+        return kUnknownReject;
+    }
+}
+
+// 자리(슬롯) 사유 — 동시 보유 한도·교체 쿨다운·비운 슬롯 예약·점수 우선순위.
+std::string OrderGate::describe_slot(const GateVerdict& verdict) const
+{
+    switch (verdict.code)
+    {
     case GateReject::ConcurrentLimit:
     {
         std::string text = std::format("동시 보유 종목 한도 초과 ({} >= {}, 실보유 {} 선점만 {})", verdict.amount,
@@ -81,12 +130,22 @@ std::string OrderGate::describe(const GateVerdict& verdict) const
                            verdict.rank, verdict.base, verdict.ceiling, verdict.ratio, verdict.bar, verdict.amount,
                            config_.max_concurrent_positions);
 
+    default:
+        return kUnknownReject;
+    }
+}
+
+// 보호·유량 사유 — 총노출·일일 손실·손익 정체·중복 신호·초당·분당 주문 한도.
+std::string OrderGate::describe_guard(const GateVerdict& verdict) const
+{
+    switch (verdict.code)
+    {
     case GateReject::GrossExposure:
         return std::format("총노출 한도 초과 ({} > {} = 자본 {}×{:g}) — 신규 매수 정지(청산 허용)", verdict.amount, verdict.ceiling,
                            static_cast<long long>(verdict.money), config_.max_gross_exposure_percent);
 
     case GateReject::DailyLoss:
-        return std::format("일일 손실 한도 초과 (현재 {:.0f}원 / 한도 {:.0f}원)", verdict.money, config_.daily_loss_limit);
+        return std::format("일일 손실 한도 초과 (현재 {}원 / 한도 {}원)", verdict.money, config_.daily_loss_limit);
 
     case GateReject::PnlStale:
         return "PNL_STALE — 잔고 대조 정체(daily_pnl 미갱신), 신규 진입 보수적 정지";
@@ -99,9 +158,10 @@ std::string OrderGate::describe(const GateVerdict& verdict) const
 
     case GateReject::RatePerMinute:
         return gate_reason::rate_limit(true, config_.max_orders_per_min);
-    }
 
-    return "알 수 없는 게이트 거부";
+    default:
+        return kUnknownReject;
+    }
 }
 
 // ─── 일별 리셋 (거래일 첫 회차) ─────────────────────────────────────────────────
@@ -116,7 +176,7 @@ bool OrderGate::reset_daily(uint32_t trading_date_yyyymmdd)
         return false;
     }
 
-    ledger_.set_daily_pnl(0.0); // 저널에도 DAILY_PNL 0 — 리셋 전 체결이 리플레이로 되살아나지 않게
+    ledger_.set_daily_pnl(0); // 저널에도 DAILY_PNL 0 — 리셋 전 체결이 리플레이로 되살아나지 않게
 
     {
         std::lock_guard<std::mutex> lock(rate_mutex_);
@@ -133,7 +193,7 @@ bool OrderGate::reset_daily(uint32_t trading_date_yyyymmdd)
 
     ledger_.expire_reservations(trading_date_yyyymmdd); // 미체결 선점 일일 만료 — 사유는 PositionLedger::expire_reservations
 
-    // average_prices_ / positions_ 는 영속 장부 — 장 시작에 초기화하지 않는다
+    // 보유·평단은 영속 장부 — 장 시작에 초기화하지 않는다
     LOG_INFO(std::format("[OrderGate] 하루 리셋 - 거래일({}) 선점·당일 손익·주문 한도를 새로 열었다", trading_date_yyyymmdd));
     return true;
 }

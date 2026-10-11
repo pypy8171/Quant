@@ -13,15 +13,25 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
+#include <ctime>
+#include <exception>
 #include <filesystem>
 #include <format>
 #include <fstream>
 #include <future>
 #include <iterator>
+#include <memory>
+#include <mutex>
 #include <nlohmann/json.hpp>
+#include <string>
+#include <string_view>
+#include <system_error>
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
 namespace universe
 {
@@ -35,6 +45,8 @@ constexpr std::string_view kPollingEndpoint = "https://polling.finance.naver.com
 constexpr int              kListingPageSize = 100;
 constexpr int              kListingMaxPages = 60; // 코스피 25쪽·코스닥 19쪽(09-26). 응답이 어긋나도 끝없이 돌지 않게
 constexpr std::int64_t     kSecondsPerMinute = 60;
+constexpr int              kDefaultCodesPerCall = 900; // 폴링 한 번에 묻는 종목 수(config 0일 때)
+constexpr size_t           kCsvBytesPerRow = 96;      // 시세판 CSV 한 줄 80바이트 안팎 — 예약 크기
 // 루프가 예외로 끝났을 때 다시 돌기 전에 쉬는 시간. 같은 원인으로 곧바로 다시 던져 로그만 쌓이는 것을 막는다.
 constexpr std::chrono::milliseconds kRestartPause{1000};
 
@@ -163,13 +175,16 @@ std::string universe_file_text(const RankedUniverse& ranked, const std::string& 
     nlohmann::json market_map = nlohmann::json::object();
     nlohmann::json name_map   = nlohmann::json::object();
 
-    for (const ListedStock& listed : ranked.listing)
+    if (ranked.listing)
     {
-        market_map[listed.code] = listed.market;
-
-        if (!listed.name.empty())
+        for (const ListedStock& listed : *ranked.listing)
         {
-            name_map[listed.code] = listed.name;
+            market_map[listed.code] = listed.market;
+
+            if (!listed.name.empty())
+            {
+                name_map[listed.code] = listed.name;
+            }
         }
     }
 
@@ -225,7 +240,7 @@ std::string board_minute_rows(const BoardSnapshot& board)
     const std::string board_tail =
         std::format(",{},{},{}\n", board.quotes.size(), board.failed_requests, board.request_count);
     std::string rows;
-    rows.reserve(board.quotes.size() * 96); // 한 줄 80바이트 안팎
+    rows.reserve(board.quotes.size() * kCsvBytesPerRow);
 
     for (const BoardQuote& quote : board.quotes)
     {
@@ -235,12 +250,6 @@ std::string board_minute_rows(const BoardSnapshot& board)
     }
 
     return rows;
-}
-
-MarketBoard& MarketBoard::instance()
-{
-    static MarketBoard board;
-    return board;
 }
 
 MarketBoard::~MarketBoard()
@@ -259,7 +268,7 @@ void MarketBoard::start(const Config& config)
 
     if (config_.codes_per_call == 0)
     {
-        config_.codes_per_call = 900;
+        config_.codes_per_call = kDefaultCodesPerCall;
     }
 
     config_.period_sec = std::max(1, config_.period_sec);
@@ -313,7 +322,7 @@ std::shared_ptr<const RankedUniverse> MarketBoard::ranked() const
 std::shared_ptr<const std::vector<ListedStock>> MarketBoard::listing() const
 {
     std::lock_guard<std::mutex> lock(mutex_);
-    return published_listing_;
+    return listing_;
 }
 
 bool MarketBoard::wait_new_board(std::uint64_t seen, std::chrono::milliseconds timeout, std::stop_token stop_token) const
@@ -338,12 +347,14 @@ void MarketBoard::run()
         // 목록은 KST 날짜가 바뀔 때 다시 받는다. 못 받았으면 시세도 못 받으니 다음 주기에 다시 한다.
         const std::string today = kst::date_yyyymmdd(std::time(nullptr));
 
-        if ((listing_date_ != today || listing_.empty()) && refresh_listing())
+        const bool have_listing = listing_ && !listing_->empty();
+
+        if ((listing_date_ != today || !have_listing) && refresh_listing())
         {
             listing_date_ = today;
         }
 
-        if (!listing_.empty() && sweep())
+        if (listing_ && !listing_->empty() && sweep())
         {
             if (!config_.minute_directory.empty())
             {
@@ -414,12 +425,11 @@ bool MarketBoard::refresh_listing()
         }
     }
 
-    listing_ = std::move(listing);
     request_urls_.clear();
 
-    for (size_t begin = 0; begin < listing_.size(); begin += config_.codes_per_call)
+    for (size_t begin = 0; begin < listing.size(); begin += config_.codes_per_call)
     {
-        const size_t end = std::min(begin + config_.codes_per_call, listing_.size());
+        const size_t end = std::min(begin + config_.codes_per_call, listing.size());
         std::string  url(kPollingEndpoint);
 
         for (size_t index = begin; index < end; ++index)
@@ -429,18 +439,21 @@ bool MarketBoard::refresh_listing()
                 url.push_back(',');
             }
 
-            url.append(listing_[index].code);
+            url.append(listing[index].code);
         }
 
         request_urls_.push_back(std::move(url));
     }
 
+    // 목록 객체는 여기서 한 번 만들고, 재랭킹 결과·일봉 데우기는 같은 객체를 포인터로 나눠 쥔다.
+    auto published = std::make_shared<const std::vector<ListedStock>>(std::move(listing));
+
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        published_listing_ = std::make_shared<const std::vector<ListedStock>>(listing_);
+        listing_ = published;
     }
 
-    LOG_INFO("[MarketBoard] 종목 목록 " + std::to_string(listing_.size()) + "종목(개별주) — 시세 요청 " +
+    LOG_INFO("[MarketBoard] 종목 목록 " + std::to_string(published->size()) + "종목(개별주) — 시세 요청 " +
              std::to_string(request_urls_.size()) + "개로 나눈다");
     return true;
 }
@@ -462,7 +475,7 @@ bool MarketBoard::sweep()
 
     auto   board  = std::make_shared<BoardSnapshot>();
     size_t failed = 0;
-    board->quotes.reserve(listing_.size());
+    board->quotes.reserve(listing_ ? listing_->size() : 0);
 
     for (std::future<std::string>& body : bodies)
     {
@@ -539,7 +552,7 @@ void MarketBoard::rerank()
 {
     const std::shared_ptr<const BoardSnapshot> board = snapshot();
 
-    if (!board)
+    if (!board || !listing_)
     {
         return;
     }
@@ -554,8 +567,8 @@ void MarketBoard::rerank()
 
     auto ranked       = std::make_shared<RankedUniverse>();
     ranked->ranked_at = board->received_at;
-    ranked->stocks    = rank_universe(listing_, *board, config_.n_market_value, config_.n_turnover, config_.min_turnover);
-    ranked->listing   = listing_;
+    ranked->stocks    = rank_universe(*listing_, *board, config_.n_market_value, config_.n_turnover, config_.min_turnover);
+    ranked->listing   = listing_; // 포인터만 나눠 쥔다
 
     if (ranked->stocks.empty())
     {

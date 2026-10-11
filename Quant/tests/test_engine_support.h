@@ -119,7 +119,7 @@ private:
     std::vector<std::string>      tickers_;
     std::string                   id_;
     std::vector<symbol::SymbolId> symbol_ids_;
-    std::vector<bool>             fired_;
+    std::vector<uint8_t>          fired_;
 };
 
 // ─── 케이스 — 0이면 통과, 아니면 실패 코드. test_engine.cpp의 main이 부른다 ───

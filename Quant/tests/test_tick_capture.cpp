@@ -5,6 +5,7 @@
 #include "core/TickCapture.h"
 
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <filesystem>
 #include <iostream>
@@ -53,10 +54,10 @@ OrderBook make_book(int index)
     order_book.received_ns   = 7'000'000 + index; // 수신 스레드가 찍은 값이 캡처에 그대로 남는다
     order_book.timestamp = std::chrono::system_clock::time_point(std::chrono::microseconds(1'700'000'000'000'000LL + index));
 
-    for (int innermost_index = 0; innermost_index < 5; ++innermost_index)
+    for (int level = 0; level < 5; ++level)
     {
-        order_book.asks[innermost_index] = {70100.0 + innermost_index * 100 + index, 100 + innermost_index};
-        order_book.bids[innermost_index] = {70000.0 - innermost_index * 100 - index, 200 + innermost_index};
+        order_book.asks[level] = {70100.0 + level * 100 + index, 100 + level};
+        order_book.bids[level] = {70000.0 - level * 100 - index, 200 + level};
     }
 
     return order_book;
@@ -90,11 +91,11 @@ int main()
         feed::Record record;
 
         CHECK(reader.next(record) && record.kind == feed::kKindTrade);
-        const TradeData start_time = feed::to_trade(record.trade);
-        CHECK(start_time.ticker == "005930" && start_time.symbol_id == 1 && start_time.hhmmss == 90100);
-        CHECK(start_time.price == 70000.0 && start_time.quantity == 10 && start_time.direction == 1 && start_time.market == Market::KR);
-        CHECK(start_time.strength == 100.5 && start_time.accumulated_volume == 1000 && start_time.received_ns == 5'000'000);
-        CHECK(start_time.timestamp == make_trade(0).timestamp);
+        const TradeData decoded_trade = feed::to_trade(record.trade);
+        CHECK(decoded_trade.ticker == "005930" && decoded_trade.symbol_id == 1 && decoded_trade.hhmmss == 90100);
+        CHECK(decoded_trade.price == 70000.0 && decoded_trade.quantity == 10 && decoded_trade.direction == 1 && decoded_trade.market == Market::KR);
+        CHECK(decoded_trade.strength == 100.5 && decoded_trade.accumulated_volume == 1000 && decoded_trade.received_ns == 5'000'000);
+        CHECK(decoded_trade.timestamp == make_trade(0).timestamp);
 
         CHECK(reader.next(record) && record.kind == feed::kKindBook);
         const OrderBook decoded_book = feed::to_book(record.book);
@@ -208,12 +209,12 @@ int main()
         }
 
         auto end_time = std::chrono::steady_clock::now();
-        const feed::TradeBody blk = feed::to_body(source);
+        const feed::TradeBody body = feed::to_body(source);
         int64_t accumulator = 0;
 
         for (int index = 0; index < kN; ++index)
         {
-            TradeData trade = feed::to_trade(blk);
+            TradeData trade = feed::to_trade(body);
             accumulator += trade.quantity + static_cast<int64_t>(trade.ticker.size());
         }
 
@@ -233,14 +234,14 @@ int main()
             feed::TickCapture        capture(path, 4096);
             std::vector<std::thread> threads;
 
-            for (int time_value = 0; time_value < 4; ++time_value)
+            for (int thread_index = 0; thread_index < 4; ++thread_index)
             {
                 threads.emplace_back(
-                    [&capture, time_value]
+                    [&capture, thread_index]
                     {
                         for (int index = 0; index < 500; ++index)
                         {
-                            capture.on_trade(make_trade(time_value * 500 + index));
+                            capture.on_trade(make_trade(thread_index * 500 + index));
                         }
                     });
             }

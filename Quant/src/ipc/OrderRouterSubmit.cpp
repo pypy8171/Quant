@@ -8,6 +8,7 @@
 #include "utils/Logger.h"
 #include <algorithm>
 #include <chrono>
+#include <type_traits>
 
 #include <format>
 #include <string_view>

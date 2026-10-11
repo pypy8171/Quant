@@ -1,5 +1,6 @@
 #include "core/PaperExecutor.h"
 
+#include <cstdio>
 #include <thread>
 
 namespace feed

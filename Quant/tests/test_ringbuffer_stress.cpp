@@ -9,9 +9,10 @@
 //  - 메모리 누수 / 데이터 무결성 / latency 분포 측정
 
 #include "core/RingBuffer.h"
+#include "core/Types.h"
+#include <cstdlib>
 #include <thread>
 #include <atomic>
-#include <cassert>
 #include <chrono>
 #include <iostream>
 #include <iomanip>
@@ -40,12 +41,12 @@ struct alignas(64) MockOrderBook {
 	uint64_t sequence;                 // 무결성 검증용 시퀀스 번호
 	char     padding[16];         // 200바이트 근접
 };
-static_assert(sizeof(MockOrderBook) >= 192, "OrderBook size check");
+static_assert(sizeof(MockOrderBook) >= sizeof(OrderBook), "모의 호가는 Types.h의 OrderBook보다 작지 않아야 같은 부하를 흉내 낸다");
 
 // ─────────────────────────────────────────────────────────────────
 // 통계 수집
 // ─────────────────────────────────────────────────────────────────
-struct Stats {
+struct Statistics {
 	std::atomic<uint64_t> produced{ 0 };
 	std::atomic<uint64_t> consumed{ 0 };
 	std::atomic<uint64_t> push_failed{ 0 };   // 큐 full로 재시도
@@ -60,15 +61,15 @@ struct Stats {
 //   - 종목당 burst (10-50건 연속) → 짧은 idle
 //   - 종목 6개 round-robin (실제 다종목 모니터링 환경)
 // ─────────────────────────────────────────────────────────────────
-static void producer_fn(RingBuffer<MockOrderBook>& rest_bar,
-	Stats& statistics,
+static void producer_fn(RingBuffer<MockOrderBook>& ring,
+	Statistics& statistics,
 	std::atomic<bool>& stop_flag,
 	int duration_sec)
 {
-	static const char* TICKERS[] = {
+	static const char* kTickers[] = {
 		"005930", "000660", "005380", "035720", "051910", "006400"
 	};
-	constexpr int N_TICKERS = sizeof(TICKERS) / sizeof(TICKERS[0]);
+	constexpr int kTickerCount = sizeof(kTickers) / sizeof(kTickers[0]);
 
 	std::mt19937 random_engine(42);
 	std::uniform_int_distribution<int> burst_dist(10, 50);
@@ -80,8 +81,8 @@ static void producer_fn(RingBuffer<MockOrderBook>& rest_bar,
 
 	while (!stop_flag.load(std::memory_order_relaxed) && steady_clock::now() < deadline) {
 		int burst = burst_dist(random_engine);
-		const char* ticker = TICKERS[ticker_index];
-		ticker_index = (ticker_index + 1) % N_TICKERS;
+		const char* ticker = kTickers[ticker_index];
+		ticker_index = (ticker_index + 1) % kTickerCount;
 
 		for (int burst_index = 0; burst_index < burst; ++burst_index) {
 			MockOrderBook order_book{};
@@ -102,7 +103,7 @@ static void producer_fn(RingBuffer<MockOrderBook>& rest_bar,
 			// Push (가득 차면 재시도, 운영 환경에선 데이터 손실 옵션도 있음)
 			int retries = 0;
 
-			while (!rest_bar.push(order_book)) {
+			while (!ring.push(order_book)) {
 				if (++retries > 1000) {
 					statistics.push_failed.fetch_add(1, std::memory_order_relaxed);
 					break;
@@ -126,8 +127,8 @@ static void producer_fn(RingBuffer<MockOrderBook>& rest_bar,
 //   - 시퀀스 번호 검증 (순서/무손실)
 //   - end-to-end latency 측정
 // ─────────────────────────────────────────────────────────────────
-static void consumer_fn(RingBuffer<MockOrderBook>& rest_bar,
-	Stats& statistics,
+static void consumer_fn(RingBuffer<MockOrderBook>& ring,
+	Statistics& statistics,
 	std::atomic<bool>& stop_flag)
 {
 	uint64_t expected_sequence[6] = { 0, 0, 0, 0, 0, 0 };  // 종목별 sequence
@@ -167,8 +168,8 @@ static void consumer_fn(RingBuffer<MockOrderBook>& rest_bar,
 
 	statistics.latencies_ns.reserve(10'000'000);
 
-	while (!stop_flag.load(std::memory_order_relaxed) || !rest_bar.empty()) {
-		auto option = rest_bar.pop();
+	while (!stop_flag.load(std::memory_order_relaxed) || !ring.empty()) {
+		auto option = ring.pop();
 
 		if (!option) {
 			std::this_thread::sleep_for(std::chrono::microseconds(10));
@@ -269,15 +270,15 @@ int main(int argc, char** argv) {
 	std::cout << "Pattern        : 6 tickers, burst(10-50)/idle(50-500us)\n";
 	std::cout << "Consumer       : variable work per msg + integrity check\n\n";
 
-	RingBuffer<MockOrderBook> rest_bar(4096);
-	Stats statistics;
+	RingBuffer<MockOrderBook> ring(4096);
+	Statistics statistics;
 	std::atomic<bool> stop_flag{ false };
 
 	auto start_time = steady_clock::now();
 
-	std::thread produced(producer_fn, std::ref(rest_bar), std::ref(statistics),
+	std::thread producer_thread(producer_fn, std::ref(ring), std::ref(statistics),
 		std::ref(stop_flag), duration);
-	std::thread consumed(consumer_fn, std::ref(rest_bar), std::ref(statistics),
+	std::thread consumer_thread(consumer_fn, std::ref(ring), std::ref(statistics),
 		std::ref(stop_flag));
 
 	// 진행 상황 표시 (5초마다)
@@ -292,9 +293,9 @@ int main(int argc, char** argv) {
 			<< "\n";
 	}
 
-	produced.join();
+	producer_thread.join();
 	stop_flag.store(true);
-	consumed.join();
+	consumer_thread.join();
 
 	auto end_time = steady_clock::now();
 	auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();

@@ -104,7 +104,7 @@ void Engine::maybe_rescan_universe()
     }
 
     if (universe_rescan_.run(*scan_kis, *ledger_snapshot_, std::chrono::steady_clock::now(),
-                             universe::MarketBoard::instance().generation()))
+                             market_board_.generation()))
     {
         publish_watch_priorities();
     }

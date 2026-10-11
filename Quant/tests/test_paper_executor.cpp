@@ -5,8 +5,10 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <iostream>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -25,7 +27,7 @@ int g_checks = 0;
         }                                                                                  \
     } while (0)
 
-OrderSignal signal(const std::string& ticker, OrderSide side, int quantity, double price, double reference = 0.0)
+OrderSignal make_signal(const std::string& ticker, OrderSide side, int quantity, double price, double reference = 0.0)
 {
     OrderSignal signal;
     signal.ticker    = ticker;
@@ -65,7 +67,7 @@ int main()
 
     // 1. 시장가 매수: 접수 시점엔 체결 없음, 다음 틱 가격에 체결. 장부·현금 반영.
     {
-        const auto acknowledgement = executor.submit_order_acknowledgement(signal("005930", OrderSide::BUY, 10, 0.0, 70000.0));
+        const auto acknowledgement = executor.submit_order_acknowledgement(make_signal("005930", OrderSide::BUY, 10, 0.0, 70000.0));
         CHECK(acknowledgement.ok() && acknowledgement.kis_order_no == "9000000001" && acknowledgement.krx_forwarding_org_no == "PAPER");
         CHECK(fills.empty() && executor.open_count() == 1);
         executor.on_tick(tick("000660", 100000.0, 90100)); // 다른 종목 틱은 무관
@@ -84,7 +86,7 @@ int main()
 
     // 2. 지정가 매도: 가격이 닿기 전엔 대기, 닿으면 틱 가격에 체결. 대기 중엔 매도가능수량이 준다.
     {
-        const auto acknowledgement = executor.submit_order_acknowledgement(signal("005930", OrderSide::SELL, 4, 71000.0));
+        const auto acknowledgement = executor.submit_order_acknowledgement(make_signal("005930", OrderSide::SELL, 4, 71000.0));
         CHECK(acknowledgement.ok());
         executor.on_tick(tick("005930", 70500.0, 90200));
         CHECK(fills.size() == 1);
@@ -100,20 +102,20 @@ int main()
 
     // 3. 거부: 보유 초과 매도는 40240000, 현금 초과 매수는 E_PAPER_CASH, 수량 0은 E_PAPER_ARG.
     {
-        const auto submit_order_acknowledgement_a = executor.submit_order_acknowledgement(signal("005930", OrderSide::SELL, 7, 0.0, 70000.0));
+        const auto submit_order_acknowledgement_a = executor.submit_order_acknowledgement(make_signal("005930", OrderSide::SELL, 7, 0.0, 70000.0));
         CHECK(!submit_order_acknowledgement_a.ok() && submit_order_acknowledgement_a.error_code == kis_error::kNoSellableQty);
-        const auto submit_order_acknowledgement_b = executor.submit_order_acknowledgement(signal("000660", OrderSide::BUY, 100, 100000.0));
+        const auto submit_order_acknowledgement_b = executor.submit_order_acknowledgement(make_signal("000660", OrderSide::BUY, 100, 100000.0));
         CHECK(!submit_order_acknowledgement_b.ok() && submit_order_acknowledgement_b.error_code == "E_PAPER_CASH");
-        const auto submit_order_acknowledgement_c = executor.submit_order_acknowledgement(signal("000660", OrderSide::BUY, 0, 100000.0));
+        const auto submit_order_acknowledgement_c = executor.submit_order_acknowledgement(make_signal("000660", OrderSide::BUY, 0, 100000.0));
         CHECK(!submit_order_acknowledgement_c.ok() && submit_order_acknowledgement_c.error_code == "E_PAPER_ARG");
         CHECK(executor.open_count() == 0);
     }
 
     // 4. 대기 매수의 명목은 현금에서 미리 잡힌다.
     {
-        const auto submit_order_acknowledgement_a = executor.submit_order_acknowledgement(signal("000660", OrderSide::BUY, 5, 100000.0));
+        const auto submit_order_acknowledgement_a = executor.submit_order_acknowledgement(make_signal("000660", OrderSide::BUY, 5, 100000.0));
         CHECK(submit_order_acknowledgement_a.ok());
-        const auto submit_order_acknowledgement_b = executor.submit_order_acknowledgement(signal("000660", OrderSide::BUY, 2, 100000.0));
+        const auto submit_order_acknowledgement_b = executor.submit_order_acknowledgement(make_signal("000660", OrderSide::BUY, 2, 100000.0));
         CHECK(!submit_order_acknowledgement_b.ok() && submit_order_acknowledgement_b.error_code == "E_PAPER_CASH");
         const auto cancel = executor.cancel_order("000660", submit_order_acknowledgement_a.kis_order_no, "PAPER", 0, /*all_remaining=*/true);
         CHECK(cancel.ok() && executor.open_count() == 0);
@@ -121,7 +123,7 @@ int main()
 
     // 5. 취소·정정: 부분 취소는 잔량을 줄이고, 정정은 새 접수번호로 가격·수량을 바꾼다. 없는 주문은 실패.
     {
-        const auto submit_order_acknowledgement = executor.submit_order_acknowledgement(signal("005930", OrderSide::SELL, 6, 80000.0));
+        const auto submit_order_acknowledgement = executor.submit_order_acknowledgement(make_signal("005930", OrderSide::SELL, 6, 80000.0));
         CHECK(submit_order_acknowledgement.ok());
         const auto part = executor.cancel_order("005930", submit_order_acknowledgement.kis_order_no, "PAPER", 2, false);
         CHECK(part.ok() && executor.get_open_orders()->at(0).psbl_qty == 4);
@@ -138,7 +140,7 @@ int main()
 
     // 6. 전량 매도 뒤 장부에서 빠진다.
     {
-        const auto submit_order_acknowledgement = executor.submit_order_acknowledgement(signal("005930", OrderSide::SELL, 3, 0.0, 70000.0));
+        const auto submit_order_acknowledgement = executor.submit_order_acknowledgement(make_signal("005930", OrderSide::SELL, 3, 0.0, 70000.0));
         CHECK(submit_order_acknowledgement.ok());
         executor.on_tick(tick("005930", 69000.0, 90500));
         const auto balance = executor.balance();
@@ -146,7 +148,7 @@ int main()
         CHECK(executor.is_paper());
     }
 
-    // 7. 수신 스레드 둘이 서로 다른 종목 틱을 같이 넣어도 체결 전달은 한 번에 하나다(CODE_REVIEW W-6).
+    // 7. 수신 스레드 둘이 서로 다른 종목 틱을 같이 넣어도 체결 전달은 한 번에 하나다.
     //  받는 쪽 체결 큐가 SPSC라, 콜백이 겹쳐 불리면 실제 엔진에서는 체결이 사라진다.
     {
         symbol::SymbolTable concurrent_symbols;
@@ -179,8 +181,8 @@ int main()
 
         for (int order_index = 0; order_index < kOrdersPerTicker; ++order_index)
         {
-            CHECK(concurrent_executor.submit_order_acknowledgement(signal("005930", OrderSide::BUY, 1, 0.0, 1000.0)).ok());
-            CHECK(concurrent_executor.submit_order_acknowledgement(signal("000660", OrderSide::BUY, 1, 0.0, 1000.0)).ok());
+            CHECK(concurrent_executor.submit_order_acknowledgement(make_signal("005930", OrderSide::BUY, 1, 0.0, 1000.0)).ok());
+            CHECK(concurrent_executor.submit_order_acknowledgement(make_signal("000660", OrderSide::BUY, 1, 0.0, 1000.0)).ok());
         }
 
         std::atomic<bool> start{false};

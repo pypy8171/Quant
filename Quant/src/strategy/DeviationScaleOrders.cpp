@@ -2,6 +2,13 @@
 //  관련 결정: D-006(교차 가드)·D-033(시그니처의 진입 축)·D-036(원 사이징)·D-081(베이스 잔량·먼지)·D-083(국면 매수비율)·D-156.
 #include "strategy/DeviationScaleStrategy.h"
 
+#include <chrono>
+#include <cmath>
+#include <cstdint>
+#include <string>
+#include <utility>
+#include <vector>
+
 DeviationScaleStrategy::SplitPlan DeviationScaleStrategy::plan_split_steps(int position, double current_price,
                                                                            double simple_moving_average, bool warming,
                                                                            std::chrono::steady_clock::time_point now)
@@ -40,15 +47,15 @@ DeviationScaleStrategy::SplitSizing DeviationScaleStrategy::size_split_budget() 
     // 국면 매수비율(OrderGate::entry_scale, 0~1)을 명목에 곱한다. 스위치(halt)가 아니라 비율이라
     //  코스피 −1%면 70%, −2%면 40%처럼 줄어들고 반등하면 돌아온다. 0.1 단위로 끊어 3분마다
     //  분할 매수가 재구성되는 일을 막고, 시그니처에 붙여 바뀐 회차에만 다시 깐다. [why D-083]
-    const double rscale = std::round(std::clamp(entry_scale(), 0.0, 1.0) * 10.0) / 10.0;
-    const double multiplier = (parameters_.size_mult > 0.0 ? parameters_.size_mult : 1.0) * rscale;
+    const double rounded_scale = std::round(std::clamp(entry_scale(), 0.0, 1.0) * 10.0) / 10.0;
+    const double multiplier = (parameters_.size_multiplier > 0.0 ? parameters_.size_multiplier : 1.0) * rounded_scale;
     // 원 단위 총액이 주어지면 그 금액을 base_percent:max_percent 비율로 베이스·물타기에 나눈다.
     const double base_share =
         parameters_.max_percent > parameters_.base_percent ? parameters_.base_percent / parameters_.max_percent : 1.0;
-    const double base_notional = parameters_.notional_krw > 0.0 ? parameters_.notional_krw * rscale * base_share
+    const double base_notional = parameters_.notional_krw > 0.0 ? parameters_.notional_krw * rounded_scale * base_share
                                                                 : equity * parameters_.base_percent * multiplier;
     const double split_step_budget = parameters_.notional_krw > 0.0
-                                         ? parameters_.notional_krw * rscale - base_notional
+                                         ? parameters_.notional_krw * rounded_scale - base_notional
                                          : equity *
                                                (parameters_.max_percent > parameters_.base_percent
                                                     ? parameters_.max_percent - parameters_.base_percent
@@ -59,7 +66,7 @@ DeviationScaleStrategy::SplitSizing DeviationScaleStrategy::size_split_budget() 
     sizing.split_step_budget = split_step_budget;
     sizing.split_step_notional =
         parameters_.buy_split_steps > 0 ? split_step_budget / parameters_.buy_split_steps : 0.0;
-    sizing.entry_scale_ratio = rscale;
+    sizing.entry_scale_ratio = rounded_scale;
     return sizing;
 }
 
@@ -88,8 +95,8 @@ void DeviationScaleStrategy::plan_base_step(int position, double current_price, 
     // 베이스: 무포지션이면 기준선 근처 지정가 매수(자본의 base_percent). 부분체결로 보유가 목표에 못 미치면
     //  잔량을 같은 자리에 다시 깐다 — 예전엔 1주만 체결돼도 position>0이라 베이스 분할 단계가 빠졌고, 재구성이 잔량
     //  주문을 취소해 익절 매도 1주만 남았다(09-14 375500 09:00:00 1/16 체결 → 09:00:10 잔량 취소, 096770
-    //  13:10 같은 경로). 목표 수량은 처음 깔 때 값을 기억한다 — 값이 움직여 bq가 ±1 흔들리면 1주 매수가
-    //  반복된다. 익절로 줄어든 보유는 채우지 않는다(peak_pos_가 목표에 닿았으면 베이스는 끝난 것). [why D-081]
+    //  13:10 같은 경로). 목표 수량은 처음 깔 때 값을 기억한다 — 값이 움직여 base_target_quantity가 ±1 흔들리면 1주 매수가
+    //  반복된다. 익절로 줄어든 보유는 채우지 않는다(peak_position이 목표에 닿았으면 베이스는 끝난 것). [why D-081]
     //  보유 구간 갱신(update_hold_span)이 먼저 돌아 trading_.peak_position은 이번 보유를 이미 담고 있다.
     const bool base_short = position > 0 && trading_.base_target_quantity > 0 && trading_.peak_position < trading_.base_target_quantity;
 
@@ -130,14 +137,14 @@ void DeviationScaleStrategy::plan_sell_steps(int position, double current_price,
     // 매도 밴드: 이격 +deviation_sell%*i. 보유분을 split_step_count로 균등 분할(숏 방지).
     //  sell_base_average면 기준점이 평단이다. 목표가가 현재가 아래면(이미 목표 초과) 현재가에
     //  낸다 — 지정가로 남되 다음 체결에 붙는다.
-    int sell_avail = position;
-    const int sell_per = parameters_.split_step_count > 0
+    int sell_available = position;
+    const int sell_per_step = parameters_.split_step_count > 0
                              ? (position + parameters_.split_step_count - 1) / parameters_.split_step_count
                              : position; // ceil
     const bool sell_from_average = parameters_.sell_base_average && liquidation_.last_average_price > 0.0;
     const double sell_base = sell_from_average ? liquidation_.last_average_price : sell_base_line;
 
-    for (int split_step_index = 1; split_step_index <= parameters_.split_step_count && sell_avail > 0;
+    for (int split_step_index = 1; split_step_index <= parameters_.split_step_count && sell_available > 0;
          ++split_step_index)
     {
         double sell_price =
@@ -148,12 +155,12 @@ void DeviationScaleStrategy::plan_sell_steps(int position, double current_price,
             sell_price = round_to_tick(current_price, OrderSide::SELL);
         }
 
-        int quantity = sell_avail < sell_per ? sell_avail : sell_per;
+        int quantity = sell_available < sell_per_step ? sell_available : sell_per_step;
 
         if (sell_price > 0.0 && quantity > 0)
         {
             plan.push_back({OrderSide::SELL, sell_price, quantity});
-            sell_avail -= quantity;
+            sell_available -= quantity;
         }
     }
 }
@@ -168,7 +175,7 @@ void DeviationScaleStrategy::plan_buy_steps(double current_price, double simple_
     //  → 활성 즉시 base+물타기를 한꺼번에 예약해 1분 만에 10% 만재되던 성격을 제거. 기준선 위/근처에선
     //    base(+익절 매도레그)만 유지하고, 진짜 눌림이 와야 평단을 낮춘다.
     // 워밍업(기준선=일봉SMA20) 구간에는 물타기를 잠근다. 존 진입 조건이 이격 -pullback_percent~
-    //  +entry_upper_pct라 `cur_px < 일봉SMA20`이 거의 항상 참이 되어, 3분봉 기준선이 뜻하던
+    //  +entry_upper_pct라 `현재가 < 일봉SMA20`이 거의 항상 참이 되어, 3분봉 기준선이 뜻하던
     //  "단기 눌림에서만 추가"가 사실상 상시 개방으로 바뀐다. 변동성이 가장 큰 첫 60분에
     //  base와 물타기가 한꺼번에 나가는 것을 막는다(base 진입과 익절 매도는 그대로 둔다).
     if (!((!parameters_.add_below_simple_moving_average_only || current_price < simple_moving_average) && !warming))
@@ -226,7 +233,7 @@ bool DeviationScaleStrategy::clear_dust(const SplitPlan& split_plan, bool entry_
     //  이 보유는 커질 길이 없이 슬롯만 차지한다. 익절 지정가 대신 시장가로 정리한다. 매수 분할 단계가 있으면
     //  베이스 잔량이 채워지는 중이라 둔다. 오늘 진입해 아직 줄이지 않은 보유는 분할 진행 중이라 먼지로 보지 않는다
     //  (판정은 devscale_rules::is_dust). 재시도 간격은 emit_liquidation 백오프가 맡는다. [why D-081]
-    const bool entered_today = !trading_.entry_date.empty() && trading_.entry_date == kst_ymd();
+    const bool entered_today = !trading_.entry_date.empty() && trading_.entry_date == kst_date_yyyymmdd();
 
     if (devscale_rules::is_dust(position, current_price, parameters_.dust_krw, entered_today, trading_.peak_position))
     {
@@ -240,9 +247,15 @@ bool DeviationScaleStrategy::clear_dust(const SplitPlan& split_plan, bool entry_
         if (!has_buy)
         {
             cancel_all(out);
-            emit_liquidation(out, position, now,
-                             "먼지 정리(평가금 " + format_one_decimal(position * current_price) + " < " +
-                                 format_one_decimal(parameters_.dust_krw) + ")");
+
+            // 백오프 창 안이면 사유 문자열을 만들지 않는다 — 먼지 판정은 틱마다 참으로 남는다.
+            if (liquidation_due(position, now))
+            {
+                emit_liquidation(out, position, now,
+                                 "먼지 정리(평가금 " + format_one_decimal(position * current_price) + " < " +
+                                     format_one_decimal(parameters_.dust_krw) + ")");
+            }
+
             return true;
         }
     }
@@ -265,7 +278,7 @@ bool DeviationScaleStrategy::rebuild_suppressed(const std::string& signal, int p
 
     if (trading_.last_rebuild != std::chrono::steady_clock::time_point{})
     {
-        if (const auto ledger = ledger_sellable(parameters_.account, parameters_.ticker))
+        if (const auto ledger = ledger_sellable(parameters_.account, symbol_id_, parameters_.ticker))
         {
             const long long since_rebuild =
                 std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - trading_.last_rebuild).count();
@@ -295,7 +308,7 @@ bool DeviationScaleStrategy::rebuild_suppressed(const std::string& signal, int p
         return true; // 데드밴드 내 미세이동 → 유지
     }
 
-    // (c) 재구성 최소 간격. (a)(b)는 둘 다 position == last_pos_를 요구하므로, 부분체결이
+    // (c) 재구성 최소 간격. (a)(b)는 둘 다 position == last_position을 요구하므로, 부분체결이
     //     연달아 들어오는 종목은 체결마다 분할 매수를 통째로 헐고 다시 깐다. 분할 단계 2개면
     //     체결 1건에 취소 2 + 신규 2가 나가고, 이게 계좌 공용 주문예산(5/s·20/min)을
     //     한 종목이 독점한다(09-08 12:31~12:36 016610 단독 84건 = 전체의 8할).
@@ -343,7 +356,7 @@ void DeviationScaleStrategy::place_split_steps(const SplitPlan& split_plan, bool
                   "익절밴드 지정가=" + format_one_decimal(split_step.price));
             sell_room -= quantity;
         }
-        else if (entry_on) // G1: 비활성 국면이면 매수 분할 단계 스킵(진입 차단)
+        else if (entry_on) // 비활성 국면이면 매수 분할 단계 스킵(진입 차단)
         {
             place(out, split_step.side, split_step.price, split_step.quantity, buy_context);
         }
@@ -362,7 +375,7 @@ int DeviationScaleStrategy::quantity_for(double notional, double price)
 }
 
 void DeviationScaleStrategy::place(std::vector<OrderSignal>& out, OrderSide side, double price, int quantity,
-                                   const std::string& reason)
+                                   std::string reason)
 {
     if (quantity <= 0)
     {
@@ -377,7 +390,7 @@ void DeviationScaleStrategy::place(std::vector<OrderSignal>& out, OrderSide side
     signal.client_order_id = order_id;
     signal.client_order_number = order_number;
     signal.account_id = parameters_.account;
-    signal.reason = reason; // G4: 판단 근거를 신호에 실어 영속
+    signal.reason = std::move(reason); // 판단 근거를 신호에 실어 영속
     out.push_back(std::move(signal));
     live_.push_back({std::move(order_id), order_number, side, quantity});
 }
@@ -445,5 +458,5 @@ double DeviationScaleStrategy::round_to_tick(double price, OrderSide side)
 
 std::string DeviationScaleStrategy::next_order_id(const char* tag)
 {
-    return id() + ":" + tag + ":" + std::to_string(++sequence_);
+    return make_order_id(tag, ++sequence_);
 }

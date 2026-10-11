@@ -2,6 +2,9 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <optional>
+#include <string>
+#include <utility>
 
 namespace surge
 {
@@ -128,7 +131,7 @@ std::optional<Plan> parse_plan(const nlohmann::json& document, std::string& reas
             row.stop_percent    = number_or(node, "stop_pct", 0.0);
             row.take_percent    = number_or(node, "take_pct", 0.0);
             row.reference_close = number_or(node, "reference_close", 0.0);
-            row.d0              = text_or_empty(node, "d0");
+            row.surge_date              = text_or_empty(node, "d0");
             row.turnover_share  = number_or(node, "turnover_share", 0.0);
 
             if (row.stop_basis_low <= 0.0 || row.stop_percent <= 0.0 || row.take_percent <= 0.0 || row.reference_close <= 0.0)
@@ -137,10 +140,10 @@ std::optional<Plan> parse_plan(const nlohmann::json& document, std::string& reas
                 return std::nullopt;
             }
 
-            const int d0_number     = date_number(row.d0);
+            const int surge_date_number     = date_number(row.surge_date);
             const int signal_number = date_number(row.signal_date);
 
-            if (d0_number == 0 || signal_number == 0 || d0_number > signal_number)
+            if (surge_date_number == 0 || signal_number == 0 || surge_date_number > signal_number)
             {
                 reason = "BUY_OPEN 행의 d0·signal_date가 없거나 d0가 신호일 뒤: " + row.ticker;
                 return std::nullopt;
@@ -173,8 +176,9 @@ bool plan_fresh(int as_of_yyyymmdd, int today_yyyymmdd)
         return false;
     }
 
+    constexpr int kMaxPlanAgeDays = 5; // 계획 파일이 이 일수보다 오래되면 쓰지 않는다
     const auto gap = (days_of(today_yyyymmdd) - days_of(as_of_yyyymmdd)).count();
-    return gap >= 1 && gap <= 5;
+    return gap >= 1 && gap <= kMaxPlanAgeDays;
 }
 
 double stop_price(double stop_basis_low, double stop_percent)

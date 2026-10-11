@@ -3,6 +3,8 @@
 //  만든 쪽·붙은 쪽 손잡이를 둘 두고 본다 — 공유메모리는 같은 프로세스에서도 매핑이 둘이라 검사가 성립한다.
 #include "ipc/SharedRegion.h"
 
+#include <cstddef>
+#include <cstdint>
 #include <cstring>
 #include <iostream>
 #include <string>

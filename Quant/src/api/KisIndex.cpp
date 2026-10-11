@@ -3,6 +3,13 @@
 #include "KisClientInternal.h"
 #include "api/KisRestDecode.h"
 
+namespace
+{
+// 응답 원문을 로그에 남길 길이 — 파싱 실패는 머리만, RAW 덤프는 조금 더.
+constexpr std::string::size_type kParseErrorPreviewChars  = 200;
+constexpr std::string::size_type kRawResponsePreviewChars = 500;
+} // namespace
+
 // ─── 투자자별 매매동향 (외국인·기관 순매수) ──────────────────────────────────
 KisClient::InvestorTrend KisClient::get_investor_trend(const std::string& ticker)
 {
@@ -135,7 +142,7 @@ KisClient::FuturePrice KisClient::get_future_price(const std::string& issue_code
 
         if (document.is_discarded())
         {
-            LOG_WARN("[KIS] get_future_price(" + issue_code + ") JSON 파싱 불가: " + response.substr(0, 200));
+            LOG_WARN("[KIS] get_future_price(" + issue_code + ") JSON 파싱 불가: " + response.substr(0, kParseErrorPreviewChars));
             return future_price;
         }
 
@@ -155,7 +162,7 @@ KisClient::FuturePrice KisClient::get_future_price(const std::string& issue_code
                 }
             }
 
-            LOG_INFO("[KIS] get_future_price RAW " + (dump.empty() ? response.substr(0, 500) : dump));
+            LOG_INFO("[KIS] get_future_price RAW " + (dump.empty() ? response.substr(0, kRawResponsePreviewChars) : dump));
         }
 
         // 시세를 담은 output 객체 탐색: 가격 필드(futs_prpr)를 가진 객체를 우선 확정,
@@ -249,8 +256,8 @@ KisResult<std::vector<FutureContract>> KisClient::get_future_board(const std::st
 
         if (document.is_discarded())
         {
-            LOG_WARN("[KIS] get_future_board JSON 파싱 불가: " + response.substr(0, 200));
-            return kis_fail("parse", response.substr(0, 200));
+            LOG_WARN("[KIS] get_future_board JSON 파싱 불가: " + response.substr(0, kParseErrorPreviewChars));
+            return kis_fail("parse", response.substr(0, kParseErrorPreviewChars));
         }
 
         if (document.value("rt_cd", "0") != "0")
@@ -265,7 +272,7 @@ KisResult<std::vector<FutureContract>> KisClient::get_future_board(const std::st
         if (!dumped)
         {
             dumped = true;
-            LOG_INFO("[KIS] get_future_board RAW " + response.substr(0, 500));
+            LOG_INFO("[KIS] get_future_board RAW " + response.substr(0, kRawResponsePreviewChars));
         }
 
         return kis_rest::decode_future_board(document);

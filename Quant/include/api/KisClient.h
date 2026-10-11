@@ -7,8 +7,6 @@
 #include "core/Types.h"
 #include <chrono>
 #include <cstdint>
-#include <cstdio>
-#include <functional>
 #include <initializer_list>
 #include <memory>
 #include <mutex>

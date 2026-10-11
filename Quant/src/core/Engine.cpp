@@ -2,20 +2,15 @@
 #include "core/KstTime.h"
 #include "core/LatencyTrace.h"
 #include "core/ReconcilePlan.h"
+#include "universe/UniverseScanner.h"
 #include "utils/Logger.h"
 #include "utils/ThreadName.h"
 #include "utils/Utf8.h"
-#include <algorithm>
-#include <functional>
 #include <chrono>
 #include <ctime>
-#include <filesystem>
-#include <fstream>
-#include <iomanip>
 #include <memory>
-#include <sstream>
+#include <string_view>
 #include <thread>
-#include <unordered_set>
 #include <nlohmann/json.hpp>
 
 using namespace std::chrono_literals;
@@ -45,6 +40,7 @@ Engine::Engine(KisConfig kis_config, int fetch_interval_sec)
 Engine::~Engine()
 {
     stop();
+    universe::stop_daily_warm(); // 데우기 스레드가 market_board_를 읽으므로 멤버가 사라지기 전에 멈춘다
 }
 
 // ─── start() 단계 분리 (가독성용, 로직은 그대로) ──────────────────────────────
@@ -566,7 +562,12 @@ void Engine::join_threads()
 //  따로 읽으면 그 사이에 판이 바뀌어 "매도가능 3인데 평단 0" 같은 조합을 본다. [why D-114]
 StrategyBase::SellableInfo Engine::ledger_sellable(const std::string&, const std::string& ticker) const
 {
-    const ipc::LedgerRow row = ledger_snapshot_->row(symbols_.table.lookup(ticker));
+    return ledger_sellable(symbols_.table.lookup(ticker));
+}
+
+StrategyBase::SellableInfo Engine::ledger_sellable(symbol::SymbolId symbol) const
+{
+    const ipc::LedgerRow row = ledger_snapshot_->row(symbol);
     StrategyBase::SellableInfo sellable_info;
     sellable_info.sellable      = row.sellable;
     sellable_info.average_price = row.average_price;

@@ -1,6 +1,14 @@
 #include "strategy/StrategyBase.h"
 #include "core/KstTime.h"
 
+#include <charconv>
+#include <chrono>
+#include <cstdint>
+#include <ctime>
+#include <optional>
+#include <string>
+#include <string_view>
+
 namespace
 {
 constexpr int kHourToHhmm = 100; // HHMM 정수에서 시가 차지하는 자리값
@@ -26,6 +34,17 @@ std::optional<StrategyBase::SellableInfo> StrategyBase::ledger_sellable(const st
     }
 
     return sellable_provider_(account, ticker);
+}
+
+std::optional<StrategyBase::SellableInfo> StrategyBase::ledger_sellable(const std::string& account, symbol::SymbolId symbol,
+                                                                        const std::string& ticker) const
+{
+    if (symbol != symbol::kNone && sellable_provider_by_id_)
+    {
+        return sellable_provider_by_id_(account, symbol);
+    }
+
+    return ledger_sellable(account, ticker);
 }
 
 void StrategyBase::arm_protective(const std::string& account, const std::string& ticker, symbol::SymbolId symbol,
@@ -65,6 +84,20 @@ bool StrategyBase::same_symbol(symbol::SymbolId symbol_id_a, std::string_view a_
     }
 
     return a_ticker == b_ticker;
+}
+
+std::string StrategyBase::make_order_id(std::string_view tag, uint64_t sequence) const
+{
+    constexpr size_t kSequenceDigitsMax = 20; // uint64_t 최댓값의 자릿수
+    constexpr size_t kSeparatorCount    = 2;  // ':' 두 개
+    char             digits[kSequenceDigitsMax];
+    const auto       converted = std::to_chars(digits, digits + kSequenceDigitsMax, sequence);
+
+    const std::string& strategy_id = id();
+    std::string        order_id;
+    order_id.reserve(strategy_id.size() + tag.size() + kSeparatorCount + static_cast<size_t>(converted.ptr - digits));
+    order_id.append(strategy_id).append(1, ':').append(tag).append(1, ':').append(digits, converted.ptr);
+    return order_id;
 }
 
 OrderSignal StrategyBase::make_signal(std::string_view ticker, symbol::SymbolId symbol, OrderSide side, OrderType type,

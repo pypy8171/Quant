@@ -209,7 +209,7 @@ ManagedOrder OrderRouter::make_restored_order(std::string order_id, std::string 
 }
 
 // ─── 유령 선점 정리 ───────────────────────────────────────────────────────
-//  장부(PositionLedger)의 선점(reserved_)은 전송 직전 INTENT 때 생기고 체결·취소·거부로만 풀린다. 통보를 한 번
+//  장부(PositionLedger)의 선점(PositionRow::reserved)은 전송 직전 INTENT 때 생기고 체결·취소·거부로만 풀린다. 통보를 한 번
 //  놓치면 그 선점이 슬롯을 물고 남아, 실제 보유가 한도에 못 미치는데 신규 진입이 막힌다
 //  (09-09: 보유 20인데 "25 >= 25" 거부). 살아 있는 주문이 없는 종목의 선점을 푼다.
 int OrderRouter::sweep_stale_reservations()
@@ -657,10 +657,19 @@ void OrderRouter::add_broker_open_orders(std::vector<CarryRow>& rows)
             continue;
         }
 
+        // 매수·매도 구분 코드가 01·02가 아니면 방향을 모른다. 예전에는 매수로 적었고 사유 기록은 매도로 적어
+        //  두 곳이 달랐다. 모르는 방향은 줄에 넣지 않고 경고만 남긴다 — 이 주문은 기동 취소 대상에서 빠진다.
+        if (open.side != OrderSide::BUY && open.side != OrderSide::SELL)
+        {
+            LOG_WARN("[OrderRouter] 방향을 모르는 브로커 미체결 — 보충하지 않는다 " + open.ticker + " ODNO=" +
+                     open.kis_order_no + " " + std::to_string(open.psbl_qty) + "주");
+            continue;
+        }
+
         LOG_WARN("[OrderRouter] 부속 파일에 없는 미체결 — 브로커 조회로 보충 " + open.ticker + " ODNO=" +
                  open.kis_order_no + " " + std::to_string(open.psbl_qty) + "주");
         rows.push_back({open.kis_order_no, open.krx_forwarding_org_no, open.ticker,
-                        open.side == OrderSide::SELL ? "SELL" : "BUY", std::to_string(open.psbl_qty)});
+                        std::string(side_label(open.side)), std::to_string(open.psbl_qty)});
     }
 }
 
@@ -766,7 +775,7 @@ void OrderRouter::run_stale_cancels(std::stop_token stop_token, const std::vecto
             //  자기 청산이 막힌다 — 09-09 000215은 13:45 취소 뒤 16분간 "매도가능수량 0"으로
             //  교체 진입이 네 번 무산됐다. 매도 취소만 해당한다(매수는 현금을 풀 뿐이다).
             //  재기동 대조가 같은 ODNO를 이번 세션 주문으로 되살렸으면 그 주문도 닫는다 — 취소만 하고 두면
-            //  되살린 주문의 선점(reserved_)이 남아 매도가능이 0으로 굳는다. 10-06 모의 13:42 재기동 뒤
+            //  되살린 주문의 선점(PositionRow::reserved)이 남아 매도가능이 0으로 굳는다. 10-06 모의 13:42 재기동 뒤
             //  003490·016360 등 7종목, 실계좌 138930이 그렇게 익절 매도를 못 냈다. 닫으면서 매도가능도 되돌린다.
             if (!close_session_order(digits_to_number(row[0]), "이전 세션 미체결 정리 취소") && row[3] == "SELL")
             {

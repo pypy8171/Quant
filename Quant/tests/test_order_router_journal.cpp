@@ -2,6 +2,12 @@
 //  공용 준비는 test_order_router_support.h, 실행 순서는 test_order_router.cpp의 main.
 #include "test_order_router_support.h"
 
+#include <ctime>
+#include <filesystem>
+#include <fstream>
+#include <string>
+#include "core/KstTime.h"
+
 // ─── 테스트 15: 재기동 복원 — 사유 기록으로 ODNO 귀속과 잔량 클램프 회복 ─────
 //   이전 세션이 낸 주문이 재기동 뒤에 체결되면, 예전엔 전략도 사유도 모르는 미매핑
 //   체결로 들어가고 주문수량을 몰라 잔량 클램프도 없었다. 접수 시점에 남긴 기록을
@@ -131,8 +137,46 @@ void test_sequence_propagates_to_rows()
     PASS("seq_propagates_to_rows");
 }
 
+// ─── 사유 기록: 방향을 모르는 접수 주문은 적지 않는다 ───
+//  예전에는 NONE을 "SELL"로 적어 재기동 복원이 매도 주문으로 되살렸다. 이제는 건너뛰고 경고만 남긴다.
+//  방향이 분명한 주문은 그대로 적히는지 같이 본다.
+void test_order_reason_skips_unknown_side()
+{
+    OrderJournal journal;
+
+    ManagedOrder unknown_side;
+    unknown_side.status       = OrderStatus::ACCEPTED;
+    unknown_side.kis_order_no = "0000009911";
+    unknown_side.signal       = make_signal("005930", OrderSide::NONE, 5);
+    journal.append_order_reason(unknown_side);
+
+    ManagedOrder known_side   = unknown_side;
+    known_side.kis_order_no   = "0000009912";
+    known_side.signal.side    = OrderSide::BUY;
+    journal.append_order_reason(known_side);
+    journal.flush_append_outbox();
+
+    const std::filesystem::path path =
+        Logger::instance().path_for("order_reasons_" + kst::date_yyyymmdd(std::time(nullptr)) + ".txt");
+    std::ifstream in(path);
+    std::string   line;
+    bool          unknown_written = false;
+    bool          known_written   = false;
+
+    while (std::getline(in, line))
+    {
+        unknown_written = unknown_written || line.starts_with("0000009911|");
+        known_written   = known_written || line.starts_with("0000009912|005930|BUY|5|");
+    }
+
+    assert(!unknown_written);
+    assert(known_written);
+    PASS("order_reason_skips_unknown_side");
+}
+
 void run_journal_tests()
 {
+    test_order_reason_skips_unknown_side();
     test_reason_journal_restart_recovery();
     test_reconcile_row_written();
     test_sequence_propagates_to_rows();

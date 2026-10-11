@@ -7,6 +7,7 @@
 
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <memory>
 #include <unordered_set>
 #include <unordered_map>
@@ -16,6 +17,11 @@ using ops::OpsMsg;
 
 namespace
 {
+
+constexpr int      kNameColumnWidthPx = 140;   // 포지션 표 이름 열 너비
+constexpr int      kPortMax           = 65535; // TCP 포트의 최댓값
+constexpr COLORREF kProfitTextColor   = RGB(214, 0, 0);  // 수익은 빨강
+constexpr COLORREF kLossTextColor     = RGB(0, 80, 214); // 손실은 파랑
 
 CString from_utf8(const std::string& text)
 {
@@ -142,7 +148,7 @@ const wchar_t* state_text(LinkState link_state)
 }
 
 // 포지션 표 열 순서. 매도가능 = 수량 − 대기 매도.
-// [wire] POSITIONS의 reserved는 부호 있는 값이다 — 미체결 매도는 음수, 미체결 매수는 양수(OrderGate::reserved_).
+// [wire] POSITIONS의 reserved는 부호 있는 값이다 — 미체결 매도는 음수, 미체결 매수는 양수(PositionRow::reserved 의 매수·매도 선점을 EngineOpsServer 가 한 값으로 합친다).
 //  09-11 처음엔 그대로 빼서 미체결 매도 25주가 매도가능을 25주 늘려 보였다. 음수만 대기 매도로 센다.
 enum Col
 {
@@ -200,7 +206,7 @@ BOOL OpsTerminalDlg::OnInitDialog()
     positions_.SetExtendedStyle(LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
     positions_.InsertColumn(kColAccount, L"계좌", LVCFMT_LEFT, 80);
     positions_.InsertColumn(kColTicker, L"종목", LVCFMT_LEFT, 60);
-    positions_.InsertColumn(kColName, L"이름", LVCFMT_LEFT, 140);
+    positions_.InsertColumn(kColName, L"이름", LVCFMT_LEFT, kNameColumnWidthPx);
     positions_.InsertColumn(kColQty, L"수량", LVCFMT_RIGHT, 60);
     positions_.InsertColumn(kColAvg, L"평단", LVCFMT_RIGHT, 80);
     positions_.InsertColumn(kColLast, L"현재가", LVCFMT_RIGHT, 80);
@@ -264,7 +270,7 @@ void OpsTerminalDlg::OnConnect()
     const int port = static_cast<int>(GetDlgItemInt(IDC_PORT));
     host.Trim();
 
-    if (host.IsEmpty() || port <= 0 || port > 65535)
+    if (host.IsEmpty() || port <= 0 || port > kPortMax)
     {
         MessageBox(L"호스트와 포트를 확인해 달라.", L"운영단말", MB_ICONWARNING);
         return;
@@ -749,12 +755,12 @@ COLORREF OpsTerminalDlg::profit_color(double value)
 {
     if (value > 0)
     {
-        return RGB(214, 0, 0);
+        return kProfitTextColor;
     }
 
     if (value < 0)
     {
-        return RGB(0, 80, 214);
+        return kLossTextColor;
     }
 
     return GetSysColor(COLOR_WINDOWTEXT);

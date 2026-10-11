@@ -112,7 +112,7 @@ SignalDispatcher::SignalDispatcher(OrderGate& gate, const ipc::LedgerSnapshot& l
                                    SystemIds system_ids)
     : gate_(gate), ledger_(ledger), sink_(std::move(sink)), force_liquidation_index_(system_ids.force_liquidation),
       limit_trim_index_(system_ids.limit_trim),
-      guard_logged_(gate.ledger().symbols().capacity(), false), sell_halt_logged_(gate.ledger().symbols().capacity(), false),
+      guard_logged_(gate.ledger().symbols().capacity(), 0), sell_halt_logged_(gate.ledger().symbols().capacity(), 0),
       last_liquidation_(now), trim_at_(now + std::chrono::seconds(20))
 {
 }
@@ -125,7 +125,7 @@ symbol::SymbolId SignalDispatcher::symbol_of(const OrderSignal& signal) const
     return signal.symbol_id != symbol::kNone ? signal.symbol_id : gate_.ledger().symbol_id_of(signal.ticker);
 }
 
-bool SignalDispatcher::mark_once(std::vector<bool>& flags, symbol::SymbolId symbol)
+bool SignalDispatcher::mark_once(std::vector<uint8_t>& flags, symbol::SymbolId symbol)
 {
     if (symbol >= flags.size())
     {
@@ -137,7 +137,7 @@ bool SignalDispatcher::mark_once(std::vector<bool>& flags, symbol::SymbolId symb
         return false;
     }
 
-    flags[symbol] = true;
+    flags[symbol] = 1;
     return true;
 }
 
@@ -177,7 +177,7 @@ void SignalDispatcher::from_strategy(bool active, bool exit_manager, const Order
 
     if (sell_halt_logged_any_ && !sell_halted)
     {
-        std::fill(sell_halt_logged_.begin(), sell_halt_logged_.end(), false);
+        std::fill(sell_halt_logged_.begin(), sell_halt_logged_.end(), 0);
         sell_halt_logged_any_ = false;
     }
 

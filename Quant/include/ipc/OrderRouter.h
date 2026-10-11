@@ -14,11 +14,10 @@
 #ifdef HAS_ZMQ
 #include "ipc/ZmqBridge.h"
 #endif
-#include <array>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
-#include <deque>
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <stop_token>

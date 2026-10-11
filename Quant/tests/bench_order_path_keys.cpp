@@ -15,6 +15,7 @@
 #include "risk/OrderGate.h"
 
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <format>
 #include <string>

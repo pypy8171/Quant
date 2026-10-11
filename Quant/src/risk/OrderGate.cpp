@@ -4,10 +4,15 @@
 #include "ipc/LedgerSnapshot.h"
 #include "core/KstTime.h"
 #include "utils/Logger.h"
-#include <cmath>
+#include <algorithm>
+#include <chrono>
+#include <cstdint>
 #include <ctime>
 #include <format>
 #include <limits>
+#include <memory>
+#include <mutex>
+#include <string>
 
 using Clock = std::chrono::steady_clock;
 
@@ -17,33 +22,47 @@ namespace
 // 장중 잔여시간 비율 — 09:00에 1.0, 15:00 이후 0.0. 점수 우선순위 바를 오후로 갈수록 낮춘다.
 //  빈 슬롯의 가치는 마감이 다가올수록 떨어진다. 14:30에 상위 종목을 기다리는 건 현금을
 //  들고 하루를 끝내는 것과 같아서, 그때는 바를 없애고 아무나 받는 게 맞다.
-constexpr int kSessionOpenMin  = 9 * 60;   // 09:00 KST
-constexpr int kSessionBarEndMin = 15 * 60; // 15:00 KST — 이후로는 바 없음
+constexpr int kSessionBarEndMin = 15 * 60; // 15:00 KST — 이후로는 바 없음. 개장은 kst::kKrMarketOpenMinute
+// 장 시작 동시호가 매수를 받는 창(분) — 정규장 시작 전 08:50–09:00
+constexpr int kOpeningAuctionWindowMin = 10;
 
 // 금액을 주문 수량으로 옮긴다. 몫이 int 범위를 넘으면 캐스팅 결과가 정해져 있지 않아
 //  x86 에서 INT_MIN 이 나오고, 호출한 쪽 끝의 `quantity > 0 ? quantity : 0` 이 그것을 0 으로
 //  바꾼다 — 한도에 걸리지도 않은 주문이 조용히 수량 0 이 되는 것이다. 그래서 잘라서 받는다.
-//  현금이 조 단위인 구성(부하시험)에서 싼 종목을 만나면 바로 넘는다.
-int quantity_from_notional(double notional, double price)
+//  현금이 조 단위인 구성(부하시험)에서 싼 종목을 만나면 바로 넘는다. 몫은 0 쪽으로 자른다(살 수 있는 주 수).
+int quantity_from_notional(money::Won notional, money::Won price)
 {
-    if (!(price > 0.0) || !std::isfinite(notional))
+    if (price <= 0)
     {
         return 0;
     }
 
-    const double quantity = notional / price;
+    const money::Won quantity = notional / price;
 
-    if (quantity >= static_cast<double>(std::numeric_limits<int>::max()))
+    if (quantity >= std::numeric_limits<int>::max())
     {
         return std::numeric_limits<int>::max();
     }
 
-    if (quantity <= static_cast<double>(std::numeric_limits<int>::lowest()))
+    if (quantity <= std::numeric_limits<int>::lowest())
     {
         return std::numeric_limits<int>::lowest();
     }
 
     return static_cast<int>(quantity);
+}
+
+// 명목 평가가(원) — 지정가는 price, 시장가(0)는 reference_price(직전 현재가). 둘 다 없으면 0이고, 그때는
+//  명목을 못 재므로 수량 한도만 건다. 판정(check)과 클램프가 같은 값을 쓰게 한 곳에 둔다.
+money::Won evaluation_price_of(const OrderSignal& signal)
+{
+    return money::round_won(signal.price > 0.0 ? signal.price : signal.reference_price);
+}
+
+// 총노출 상한(원) — 자본 × 비율을 내린다. "금액 > 실수 한도"와 "금액 > 내린 한도"는 같은 판정이다(Money.h floor_won).
+money::Won gross_exposure_ceiling(double percent, money::Won equity)
+{
+    return money::floor_won(percent * static_cast<double>(equity));
 }
 
 // 지금 KST, 자정부터의 분.
@@ -57,7 +76,7 @@ double session_remaining_ratio()
 {
     const int now_min = kst_minute_of_day();
 
-    if (now_min <= kSessionOpenMin)
+    if (now_min <= kst::kKrMarketOpenMinute)
     {
         return 1.0;
     }
@@ -68,57 +87,43 @@ double session_remaining_ratio()
     }
 
     return static_cast<double>(kSessionBarEndMin - now_min) /
-           static_cast<double>(kSessionBarEndMin - kSessionOpenMin);
+           static_cast<double>(kSessionBarEndMin - kst::kKrMarketOpenMinute);
 }
 } // namespace
 
 // 총노출(§3d) 분자 — 보유는 잔고 대조가 넣은 현재가로, 현재가가 아직 없는 종목(대조 사이에 새로 산 것)은
 //  평단으로 잰다. 미체결 매수 선점은 선점가로 더하고 매도 선점은 노출을 줄이는 쪽이라 보수적으로 뺀다.
 //  분모 equity가 시가 총평가금이라 분자도 시가로 맞춘다 — 원가로 재면 오른 보유분이 한도에서 빠진다.
-double OrderGate::gross_exposure(const PositionLedger::Reader& ledger)
+money::Won OrderGate::gross_exposure(const PositionLedger::Reader& ledger)
 {
-    double gross = 0.0;
+    money::Won gross = 0;
 
-    for (const auto& entry : ledger.positions())
+    for (const auto& [key, row] : ledger.rows())
     {
-        if (entry.second <= 0)
+        if (row.position > 0)
         {
-            continue;
+            const money::Won price = (row.mark_price != 0) ? row.mark_price : row.average_price;
+            gross += static_cast<money::Won>(row.position) * price;
         }
 
-        if (auto mark_iterator = ledger.mark_prices().find(entry.first); mark_iterator != ledger.mark_prices().end())
+        if (row.reserved.buy > 0)
         {
-            gross += entry.second * mark_iterator->second;
-            continue;
+            gross += static_cast<money::Won>(row.reserved.buy) * row.reserved_price;
         }
-
-        auto average_price_iterator = ledger.average_prices().find(entry.first);
-        gross += entry.second * (average_price_iterator != ledger.average_prices().end() ? average_price_iterator->second : 0.0);
-    }
-
-    for (const auto& entry : ledger.reserved())
-    {
-        if (entry.second.buy <= 0)
-        {
-            continue;
-        }
-
-        auto reserved_price_iterator = ledger.reserved_price().find(entry.first);
-        gross += entry.second.buy * (reserved_price_iterator != ledger.reserved_price().end() ? reserved_price_iterator->second : 0.0);
     }
 
     return gross;
 }
 
 // ─── 주문 검증 ──────────────────────────────────────────────────────────────
-// 주의(C6): check()는 항목별 뮤텍스를 독립 스코프로 잡아 호출 단위가 원자적이지 않다.
+// 주의: check()는 항목별 뮤텍스를 독립 스코프로 잡아 호출 단위가 원자적이지 않다.
 // 현재 호출자는 단일 order_thread(Engine::order_thread_fn → OrderRouter::submit)뿐이라
 // check()+on_intent (on_accept는 테스트·도구용)이 직렬 실행돼 검사~사용 사이 경합(TOCTOU, Time-Of-Check-To-Time-Of-Use)이
 // 없다. 멀티 producer로 확장하려면
 // check()+on_intent (on_accept는 테스트·도구용)를 하나의 임계구역으로 묶어 원자적 reserve로 만들어야 한다.
 // ─── 한도 클램프 (BUY NEW) ────────────────────────────────────────────────
 //  check()가 쓰는 것과 같은 한도식을 "얼마까지 되나"로 뒤집어 푼다. 두 곳의 식이 어긋나면
-//  클램프한 수량이 다시 거부되므로, 항목·평가가(evaluation_price)·합산 기준(positions_+reserved_)을
+//  클램프한 수량이 다시 거부되므로, 항목·평가가(evaluation_price)·합산 기준(보유+매수 선점)을
 //  check()와 똑같이 맞춘다.
 int OrderGate::clamp_buy_quantity(const OrderSignal& signal)
 {
@@ -134,15 +139,14 @@ int OrderGate::clamp_buy_quantity(const OrderSignal& signal)
         return quantity;
     }
 
-    // 지정가는 price, 시장가(0)는 reference_price. 둘 다 없으면 명목을 못 재므로 수량 한도만 건다.
-    const double evaluation_price = signal.price > 0.0 ? signal.price : signal.reference_price;
+    const money::Won evaluation_price = evaluation_price_of(signal);
 
     if (config_.max_quantity_per_order > 0 && quantity > config_.max_quantity_per_order)
     {
         quantity = config_.max_quantity_per_order;
     }
 
-    if (evaluation_price > 0.0 && config_.max_notional_per_order > 0.0)
+    if (evaluation_price > 0 && config_.max_notional_per_order > 0)
     {
         const int quantity_ceiling = quantity_from_notional(config_.max_notional_per_order, evaluation_price);
 
@@ -162,34 +166,24 @@ int OrderGate::clamp_buy_quantity(const OrderSignal& signal)
 //  254주·381주 두 번 다 전량 거부, 보유분이 갇혔다). 나갈 수 있는 만큼이라도
 //  내보내는 편이 낫다. 이미 FORCE_LIQ와 디스플레이스먼트는 같은 식으로 깎고 있고,
 //  전략 청산 신호만 이 경로를 안 거치고 있었다.
-//  장부가 그 종목을 모를 때(positions_ 없음 또는 0)는 손대지 않는다 - 과소 인식으로
+//  장부가 그 종목을 모를 때(보유 없음 또는 0)는 손대지 않는다 - 과소 인식으로
 //  정당한 청산을 0주로 깎는 쪽이 거부당하는 것보다 위험하다.
 int OrderGate::clamp_sell_quantity(const OrderSignal& signal, int quantity) const
 {
     const PositionLedger::Reader ledger = ledger_.read();
-    const PosKey key = ledger.keys().lookup(signal);
-    auto position_iterator = ledger.positions().find(key);
+    const PositionRow& row = ledger.row(ledger.keys().lookup(signal));
 
-    if (position_iterator == ledger.positions().end() || position_iterator->second <= 0)
+    if (row.position <= 0)
     {
         return quantity;
     }
 
-    auto reserved_iterator = ledger.reserved().find(key);
-    const int sell_pending = (reserved_iterator != ledger.reserved().end()) ? reserved_iterator->second.sell : 0;
     // 상한은 보유수량이 아니라 매도가능수량이다. 기동 전 세션이 남긴 미체결 매도는
-    //  reserved_에 없고(프로세스 메모리라 재기동으로 사라진다) 잔고의 ord_psbl_qty에만 보인다.
-    int holding_ceiling = position_iterator->second;
-    auto strategy_iterator = ledger.sellable().find(key);
+    //  선점에 없고(프로세스 메모리라 재기동으로 사라진다) 잔고의 ord_psbl_qty에만 보인다.
+    const int holding_ceiling = std::min(row.position, row.sellable_or(row.position));
+    const int sellable        = holding_ceiling - row.reserved.sell;
 
-    if (strategy_iterator != ledger.sellable().end() && strategy_iterator->second < holding_ceiling)
-    {
-        holding_ceiling = strategy_iterator->second;
-    }
-
-    const int sellable = holding_ceiling - sell_pending;
-
-    // 이 파일은 Logger에 의존하지 않는다(게이트 단위 테스트가 단독 링크한다).
+    // 여기서는 로그를 남기지 않는다.
     //  클램프가 실제로 걸리면 호출부 OrderRouter가 "한도 클램프" 한 줄을 남긴다.
     if (sellable <= 0)
     {
@@ -201,14 +195,11 @@ int OrderGate::clamp_sell_quantity(const OrderSignal& signal, int quantity) cons
 
 // BUY NEW의 장부 쪽 한도 — 종목당 수량·명목, 총노출, 주문가능현금. 장부 잠금(Reader)을 한 번 쥐고 잰다.
 //  돌려준 값이 0 이하일 수 있다 — 0으로 자르는 것은 부른 쪽 몫이다.
-int OrderGate::clamp_buy_to_ledger(const OrderSignal& signal, double evaluation_price, int quantity) const
+int OrderGate::clamp_buy_to_ledger(const OrderSignal& signal, money::Won evaluation_price, int quantity) const
 {
     const PositionLedger::Reader ledger = ledger_.read();
-    const PosKey key = ledger.keys().lookup(signal);
-    auto position_iterator = ledger.positions().find(key);
-    auto reserved_iterator = ledger.reserved().find(key);
-    const int current_quantity = (position_iterator != ledger.positions().end() ? position_iterator->second : 0) +
-                        (reserved_iterator != ledger.reserved().end() ? reserved_iterator->second.buy : 0);
+    const PositionRow&           row    = ledger.row(ledger.keys().lookup(signal));
+    const int current_quantity = row.position + row.reserved.buy;
 
     if (config_.max_quantity_per_ticker > 0)
     {
@@ -220,7 +211,7 @@ int OrderGate::clamp_buy_to_ledger(const OrderSignal& signal, double evaluation_
         }
     }
 
-    if (evaluation_price > 0.0 && config_.max_notional_per_ticker > 0.0)
+    if (evaluation_price > 0 && config_.max_notional_per_ticker > 0)
     {
         const int room = quantity_from_notional(config_.max_notional_per_ticker, evaluation_price) - current_quantity;
 
@@ -231,14 +222,13 @@ int OrderGate::clamp_buy_to_ledger(const OrderSignal& signal, double evaluation_
     }
 
     // 총노출(§3d)도 같은 방식으로 남은 여유를 수량으로 환산한다. 재는 법은 check()와 같은 gross_exposure()다.
-    const double equity = ledger_.equity();
+    const money::Won equity = ledger_.equity();
 
-    if (config_.max_gross_exposure_percent > 0.0 && equity > 0.0 && evaluation_price > 0.0)
+    if (config_.max_gross_exposure_percent > 0.0 && equity > 0 && evaluation_price > 0)
     {
-        const double gross = gross_exposure(ledger);
-
-        const double exposure_ceiling  = config_.max_gross_exposure_percent * equity;
-        const int    room = quantity_from_notional(exposure_ceiling - gross, evaluation_price);
+        const money::Won gross            = gross_exposure(ledger);
+        const money::Won exposure_ceiling = gross_exposure_ceiling(config_.max_gross_exposure_percent, equity);
+        const int        room             = quantity_from_notional(exposure_ceiling - gross, evaluation_price);
 
         if (room < quantity)
         {
@@ -249,21 +239,18 @@ int OrderGate::clamp_buy_to_ledger(const OrderSignal& signal, double evaluation_
     // 주문가능현금 클램프. 평가금이 아니라 현금이 매수의 진짜 상한이다. 우리가 이미 낸
     //  미체결 매수 명목을 빼는 것은 보수적으로 중복차감이 될 수 있으나(브로커 값이 이미
     //  반영했을 수 있다), 모자라게 사는 쪽이 전량 거부보다 낫다.
-    const double cash = ledger_.available_cash();
+    const money::Won cash = ledger_.available_cash();
 
-    if (cash > 0.0 && evaluation_price > 0.0)
+    if (cash > 0 && evaluation_price > 0)
     {
-        double pending_buy = 0.0;
+        money::Won pending_buy = 0;
 
-        for (const auto& entry : ledger.reserved())
+        for (const auto& [key, ledger_row] : ledger.rows())
         {
-            if (entry.second.buy <= 0)
+            if (ledger_row.reserved.buy > 0)
             {
-                continue;
+                pending_buy += static_cast<money::Won>(ledger_row.reserved.buy) * ledger_row.reserved_price;
             }
-
-            auto reserved_price_iterator = ledger.reserved_price().find(entry.first);
-            pending_buy += entry.second.buy * (reserved_price_iterator != ledger.reserved_price().end() ? reserved_price_iterator->second : 0.0);
         }
 
         const int room = quantity_from_notional(cash - pending_buy, evaluation_price);
@@ -309,7 +296,7 @@ GateVerdict OrderGate::evaluate(const OrderSignal& signal)
         return verdict;
     }
 
-    // 3. 포지션 수량 한도 (BUY에만 적용) — 실체결(positions_) + 미체결 매수 선점 합산. 미체결 매도는
+    // 3. 포지션 수량 한도 (BUY에만 적용) — 실체결 보유 + 미체결 매수 선점 합산. 미체결 매도는
     //    체결될지 모르므로 빼 주지 않는다(clamp_buy_quantity와 같은 셈).
     //    계좌별 파티션 — 한 계좌 한도는 다른 계좌 주문을 막지 않는다.
     // 장부 키를 여기서 한 번 만든다 — 3절(한도)과 5절(중복 신호 키)이 같은 번호를 쓴다. 처음 보는 계좌·종목은
@@ -327,11 +314,11 @@ GateVerdict OrderGate::evaluate(const OrderSignal& signal)
     }
 
     // 5. 중복 신호 제거 — rate 소비 전에 검사해 중복이 rate slot을 소모하지 않게 함.
-    //    키에 side 포함(MM-1): 시장조성은 같은 틱에 동일 strategy+ticker로 BUY(bid)+SELL(ask)를
+    //    키에 side 포함: 시장조성은 같은 틱에 동일 strategy+ticker로 BUY(bid)+SELL(ask)를
     //    동시 발주한다. side가 없으면 두 번째(ask)가 중복 오거부된다. BUY/SELL은 다른 의도라
     //    중복이 아니다. (같은 side 반복은 여전히 deduplicate — 기존 전략 동작 불변)
     //    스탬프(last_signal_)는 6절 rate 통과 뒤에 찍는다 — rate로 거부된 신호가 deduplicate 창을
-    //    소모하면 창 안의 정당한 재시도까지 "중복"으로 막힌다(W-2).
+    //    소모하면 창 안의 정당한 재시도까지 "중복"으로 막힌다.
     //    지정가는 가격까지 키에 넣는다 — 분할 매수는 같은 종목·같은 방향의 분할 단계 여러 개를 한 틱에
     //    내는데, 주문 스레드가 1초 안에 연달아 처리하면 두 번째 분할 단계부터 "중복"으로 잘렸다
     //    (09-11 10:04 232140 BUY 42@11790·42@11690 둘 다 거부). 같은 가격 반복만 중복이다.
@@ -377,7 +364,7 @@ bool OrderGate::reject_by_switches_and_session(const OrderSignal& signal, GateVe
     }
 
     // 1b. Entry halt — 신규 진입(BUY NEW)만 차단. SELL 청산·취소(CANCEL/REPLACE)는 통과시켜
-    //     지수 급락 시 "신규정지 + 보유분 청산"이 게이트에서 미완료로 남지 않게 한다(C-2).
+    //     지수 급락 시 "신규정지 + 보유분 청산"이 게이트에서 미완료로 남지 않게 한다.
     //     kill_switch_(전방향)와 분리된 국면 리스크 플래그.
     if (entry_halt_.load() && signal.side == OrderSide::BUY && signal.action == OrderAction::NEW)
     {
@@ -398,7 +385,7 @@ bool OrderGate::reject_by_switches_and_session(const OrderSignal& signal, GateVe
         // 장 시작 동시호가 매수는 정규장 시작 전 10분(08:50–09:00)을 더 받는다 — 표시한 신규 매수만. 08:50 앞은
         //  NXT 프리마켓이라 시장가가 거부되고, 매도는 이 창을 쓰지 않는다 [why D-157]
         const bool in_opening_auction = signal.opening_auction && signal.side == OrderSide::BUY &&
-                                        now_min >= config_.session_open_min - 10 && now_min < config_.session_open_min;
+                                        now_min >= config_.session_open_min - kOpeningAuctionWindowMin && now_min < config_.session_open_min;
 
         if (!in_regular && !in_after && !in_opening_auction)
         {
@@ -436,11 +423,12 @@ bool OrderGate::reject_by_order_size(const OrderSignal& signal, GateVerdict& ver
 
     // 명목 평가가: 지정가는 price, 시장가(price=0)는 reference_price(직전 현재가).
     // 시장가가 ref_price도 없으면 명목 백스톱 불가(수량 한도로만 방어).
-    const double evaluation_price = signal.price > 0.0 ? signal.price : signal.reference_price;
+    const money::Won evaluation_price = evaluation_price_of(signal);
+    const money::Won notional         = money::notional(evaluation_price, signal.quantity);
 
-    if (evaluation_price > 0.0 && evaluation_price * signal.quantity > config_.max_notional_per_order)
+    if (evaluation_price > 0 && notional > config_.max_notional_per_order)
     {
-        verdict.amount           = static_cast<int64_t>(evaluation_price * signal.quantity);
+        verdict.amount           = notional;
         verdict.market_reference = !(signal.price > 0.0);
 
         // SELL은 청산 계열이라 거부하지 않는다 — 정당한 청산을 막는 쪽이 대량 매도보다 위험하다.
@@ -463,12 +451,8 @@ bool OrderGate::reject_by_order_size(const OrderSignal& signal, GateVerdict& ver
 bool OrderGate::reject_by_buy_limits(const OrderSignal& signal, const PosKey& key, GateVerdict& verdict)
 {
     const PositionLedger::Reader ledger = ledger_.read();
-    const auto filled_iterator   = ledger.positions().find(key);
-    const auto reserved_iterator = ledger.reserved().find(key);
-    const PositionLedger::Reservation reservation =
-        reserved_iterator != ledger.reserved().end() ? reserved_iterator->second : PositionLedger::Reservation{};
-    int filled           = filled_iterator != ledger.positions().end() ? filled_iterator->second : 0;
-    int current_quantity = filled + reservation.buy;
+    const PositionRow&           row    = ledger.row(key);
+    const int current_quantity = row.position + row.reserved.buy;
 
     if (current_quantity + signal.quantity > config_.max_quantity_per_ticker)
     {
@@ -480,22 +464,22 @@ bool OrderGate::reject_by_buy_limits(const OrderSignal& signal, const PosKey& ke
 
     // 3b. 종목당 명목 한도 — 자본% 사이징의 상한 백스톱. 지정가는 price, 시장가는 ref_price로
     //     보유·예약 합산 평가(시장가가 백스톱을 우회하지 않도록).
-    const double evaluation_price = signal.price > 0.0 ? signal.price : signal.reference_price;
+    const money::Won evaluation_price = evaluation_price_of(signal);
+    const money::Won ticker_notional  = static_cast<money::Won>(current_quantity + signal.quantity) * evaluation_price;
 
-    if (config_.max_notional_per_ticker > 0.0 && evaluation_price > 0.0 &&
-        (current_quantity + signal.quantity) * evaluation_price > config_.max_notional_per_ticker)
+    if (config_.max_notional_per_ticker > 0 && evaluation_price > 0 && ticker_notional > config_.max_notional_per_ticker)
     {
         verdict.code   = GateReject::TickerNotionalLimit;
-        verdict.amount = static_cast<int64_t>((current_quantity + signal.quantity) * evaluation_price);
+        verdict.amount = ticker_notional;
         return true;
     }
 
     // 3c. 동시 보유 종목 상한 — "새 종목"을 여는 BUY NEW에만 적용(기존 보유·예약 종목은 통과).
-    //     총노출 제어: 실보유(positions_>0)∪매수 선점 종목 수가 상한이면 신규 진입 차단.
+    //     총노출 제어: 실보유(보유>0)∪매수 선점 종목 수가 상한이면 신규 진입 차단.
     //     기존 보유·선점이 있는 종목(filled>0 또는 선점 있음)은 새로 여는 게 아니므로 예외.
     //     바스켓 슬리브 소유 종목(slot_exempt_)은 상한을 세지도, 상한에 걸리지도 않는다 [why D-109].
     if (config_.max_concurrent_positions > 0 && signal.action == OrderAction::NEW &&
-        filled == 0 && reservation.empty() && !ledger.slot_exempt().contains(key.symbol) &&
+        row.position == 0 && row.reserved.empty() && !ledger.slot_exempt().contains(key.symbol) &&
         reject_by_concurrent_slots(key, ledger, verdict))
     {
         return true;
@@ -570,28 +554,16 @@ OrderGate::SlotOccupancy OrderGate::count_open_slots(const PosKey& key, const Po
         return taken_rank > 0 && taken_rank < rank;
     };
 
-    for (const auto& entry : ledger.positions())
+    for (const auto& [taken_key, row] : ledger.rows())
     {
-        if (entry.second > 0 && !ledger.slot_exempt().contains(entry.first.symbol))
+        if (!row.takes_slot() || ledger.slot_exempt().contains(taken_key.symbol))
         {
-            ++occupancy.open;
-            ++occupancy.held;
-            occupancy.taken_ahead += counts_ahead(entry.first) ? 1 : 0;
+            continue;
         }
-    }
 
-    for (const auto& entry : ledger.reserved())
-    {
-        if (entry.second.buy > 0 && !ledger.slot_exempt().contains(entry.first.symbol))
-        {
-            auto iterator = ledger.positions().find(entry.first);
-
-            if (iterator == ledger.positions().end() || iterator->second <= 0)
-            {
-                ++occupancy.open;  // 예약만 있는 종목(중복 제외)
-                occupancy.taken_ahead += counts_ahead(entry.first) ? 1 : 0;
-            }
-        }
+        ++occupancy.open; // 실보유 또는 선점만 있는 종목 — 한 줄이 한 종목이라 겹쳐 세지 않는다
+        occupancy.held        += (row.position > 0) ? 1 : 0;
+        occupancy.taken_ahead += counts_ahead(taken_key) ? 1 : 0;
     }
 
     return occupancy;
@@ -651,27 +623,25 @@ bool OrderGate::reject_by_priority_bar(const PosKey& key, const PriorityTable& t
     return false;
 }
 
-// 3d. 포트폴리오 총노출 상한 — 모든 종목 보유(positions_×시가)+미체결 선점(reserved_×선점가) 합이
+// 3d. 포트폴리오 총노출 상한 — 모든 종목 보유(수량×시가)+미체결 선점(수량×선점가) 합이
 //     자본의 max_gross_exposure_percent를 넘게 만드는 BUY를 차단(신규·물타기 공통). 청산(SELL)은 위에서 제외.
 //     종목당 명목(15%)×동시보유(10)=150% 같은 과노출을 총합 단에서 막는다. equity 미주입(0)이면 비활성.
 //     재는 법은 gross_exposure() — 보유는 현재가(없으면 평단), 선점은 선점가. [inv] ledger를 쥔 채 부른다.
 bool OrderGate::reject_by_gross_exposure(const OrderSignal& signal, const PositionLedger::Reader& ledger,
-                                         double evaluation_price, GateVerdict& verdict) const
+                                         money::Won evaluation_price, GateVerdict& verdict) const
 {
-    const double equity = ledger_.equity();
+    const money::Won equity = ledger_.equity();
 
-    if (config_.max_gross_exposure_percent > 0.0 && equity > 0.0 && evaluation_price > 0.0)
+    if (config_.max_gross_exposure_percent > 0.0 && equity > 0 && evaluation_price > 0)
     {
-        const double gross = gross_exposure(ledger);
-
-        const double exposure_ceiling        = config_.max_gross_exposure_percent * equity;
-        const double next_gross = gross + signal.quantity * evaluation_price;
+        const money::Won exposure_ceiling = gross_exposure_ceiling(config_.max_gross_exposure_percent, equity);
+        const money::Won next_gross       = gross_exposure(ledger) + money::notional(evaluation_price, signal.quantity);
 
         if (next_gross > exposure_ceiling)
         {
             verdict.code    = GateReject::GrossExposure;
-            verdict.amount  = static_cast<int64_t>(next_gross);
-            verdict.ceiling = static_cast<int64_t>(exposure_ceiling);
+            verdict.amount  = next_gross;
+            verdict.ceiling = exposure_ceiling;
             verdict.money   = equity;
             return true;
         }
@@ -687,7 +657,7 @@ bool OrderGate::reject_by_loss_guards(const OrderSignal& signal, GateVerdict& ve
     //    (C10) 보유분 추가 하락은 막지 않는다. 강제 청산이 필요하면 별도 청산 로직 도입.
     if (signal.side == OrderSide::BUY)
     {
-        const double daily_pnl = ledger_.daily_pnl();
+        const money::Won daily_pnl = ledger_.daily_pnl();
 
         if (daily_pnl <= config_.daily_loss_limit)
         {
@@ -778,7 +748,7 @@ void OrderGate::publish_ledger(ipc::LedgerSnapshot& snapshot) const
     const auto fill_globals = [this](ipc::LedgerGlobals& globals)
     {
         globals.entry_scale              = entry_scale_.load();
-        globals.max_notional_per_ticker  = config_.max_notional_per_ticker;
+        globals.max_notional_per_ticker  = static_cast<double>(config_.max_notional_per_ticker); // 원 단위 정수 값
         globals.displace_unscored_z      = config_.displace_unscored_z;
         globals.max_concurrent_positions = config_.max_concurrent_positions;
         globals.displace_enabled         = config_.displace_enabled ? 1 : 0;

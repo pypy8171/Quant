@@ -9,18 +9,25 @@
 //  20. 원장 저널 — 쓰다 만 꼬리(전원 장애)는 리플레이가 거기서 멈추고 다음 기동이 잘라 낸다
 //  21. 원장 저널 — 한 레코드가 깨지면(CRC 불일치) 그 앞까지만 적용하고 뒤는 버린다
 //  22. 원장 저널 — 코드페이지에 없는 글자가 든 폴더에서도 연다
-//  23. 원장 저널 — 두 스레드가 같이 적어도 호출이 끝나면 전부 파일에 있고, 순번이 빠짐없이 이어진다 (CODE_REVIEW W-2)
-//  24. 전략별 손익 — 전략이 가진 것보다 많이 팔면 가진 만큼만 그 전략 몫으로 잡고, 수수료·세금도 같은 비율로 나눈다 (CODE_REVIEW W-4)
-//  25. 놓친 매수 체결 — 미체결 매수 이내의 부족분이 두 번 연속 보이면 잔고로 맞추고 예약을 푼다 (CODE_REVIEW W-1)
+//  23. 원장 저널 — 두 스레드가 같이 적어도 호출이 끝나면 전부 파일에 있고, 순번이 빠짐없이 이어진다
+//  24. 전략별 손익 — 전략이 가진 것보다 많이 팔면 가진 만큼만 그 전략 몫으로 잡고, 수수료·세금도 같은 비율로 나눈다
+//  25. 놓친 매수 체결 — 미체결 매수 이내의 부족분이 두 번 연속 보이면 잔고로 맞추고 예약을 푼다
+//  26. 금액 × 수량 — 수량이 int32 끝이어도 단가 42억 9천만 원까지 int64 안이다(컴파일 시점 경계)
 
 #include "risk/PositionLedger.h"
+#include "risk/Money.h"
 #include <cassert>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <filesystem>
 #include <iostream>
 #include <string>
+#include <string_view>
+#include <system_error>
 #include <thread>
 #include <vector>
 #ifdef _WIN32
@@ -63,13 +70,13 @@ void test_partial_fill_average_price()
     // 5주 부분체결 @1000 → 평단 1000 (구버그라면 분모=선점10 → 500)
     auto fill_a = ledger.on_fill_confirmed("005930", OrderSide::BUY, 5, 1000.0);
     assert(fill_a.net_quantity == 5);
-    assert(fill_a.average_price > 999.9 && fill_a.average_price < 1000.1);
+    assert(fill_a.average_price == 1000);
     assert(ledger.reserved("005930") == 5); // 체결분만큼 선점 해제
 
     // 나머지 5주 체결 @1100 → 평단 (5*1000 + 5*1100)/10 = 1050
     auto fill_b = ledger.on_fill_confirmed("005930", OrderSide::BUY, 5, 1100.0);
     assert(fill_b.net_quantity == 10);
-    assert(fill_b.average_price > 1049.9 && fill_b.average_price < 1050.1);
+    assert(fill_b.average_price == 1050);
     assert(ledger.position("005930") == 10);
     assert(ledger.reserved("005930") == 0); // 선점 전부 해제
     PASS("partial_fill_avg_price");
@@ -144,12 +151,11 @@ void test_journal_replay_rebuilds_ledger()
     assert(restarted.position("ACC1", "005930") == 13);
     assert(restarted.reserved("ACC1", "005930") == 2);   // 5주 중 3주 체결 → 잔량 2주 선점
     assert(restarted.reserved("ACC1", "000660") == 0);   // 거부된 주문의 선점은 안 남는다
-    const double average = restarted.average_price("ACC1", "005930");
-    assert(average > 70229.0 && average < 70232.0);      // (10*70000 + 3*71000)/13 = 70230.77
+    assert(restarted.average_price("ACC1", "005930") == 70231); // (10*70000 + 3*71000)/13 = 70230.77 → 원 단위 반올림
     assert(restarted.sellable_view("ACC1", "005930").possible_quantity_cap == 13); // 시드 10 + 매수체결 3
-    assert(restarted.daily_pnl() < -12344.0 && restarted.daily_pnl() > -12346.0);
-    assert(restarted.available_cash() > 4499999.0 && restarted.available_cash() < 4500001.0);
-    assert(restarted.equity() > 9899999.0 && restarted.equity() < 9900001.0);
+    assert(restarted.daily_pnl() == -12345);
+    assert(restarted.available_cash() == 4500000);
+    assert(restarted.equity() == 9900000);
     assert(restarted.journal_failures() == 0);
 
     // FILL은 DB 적재기용으로 체결 결과(수수료·세금·평단·보유)를 reason 칸에 싣는다.
@@ -165,8 +171,8 @@ void test_journal_replay_rebuilds_ledger()
     assert(detail.present == 2);
     assert(detail.regime == -1);                                     // 엔진이 국면을 안 골랐다
     assert(detail.net_quantity == 13);
-    assert(detail.average_price > 70229.0 && detail.average_price < 70232.0);
-    assert(detail.commission > 31.94 && detail.commission < 31.96); // 3 * 71000 * 0.015%
+    assert(detail.average_price == 70231.0);
+    assert(detail.commission == 32.0); // 3 * 71000 * 0.015% = 31.95 → 원 단위 반올림
     assert(detail.tax == 0.0);                                       // 매수는 거래세 없음
 
     // 미결 주문 — 5주 중 3주만 체결돼 결말을 못 본 주문 하나가 남는다(거부된 000660은 닫혔다).
@@ -203,7 +209,7 @@ void test_journal_truncates_broken_tail()
     assert(replayed.truncated_tail);
     assert(replayed.applied == 8);                        // 온전한 8건까지만
     assert(restarted.position("ACC1", "005930") == 13);   // 보유는 그대로
-    assert(restarted.equity() == 0.0);                    // 잘린 CASH는 안 적용된다
+    assert(restarted.equity() == 0);                    // 잘린 CASH는 안 적용된다
 
     // 잘린 꼬리는 파일에서도 떨어져 나가 다음 레코드가 경계에 맞게 붙는다 — 파이썬 판독기가 같은 자리를 본다.
     std::error_code error_code;
@@ -241,7 +247,7 @@ void test_journal_stops_at_corrupt_record()
     assert(replayed.applied == 3);                       // SEED·INTENT·ACCEPT까지
     assert(restarted.position("ACC1", "005930") == 10);  // 체결 전 보유
     assert(restarted.reserved("ACC1", "005930") == 5);   // 선점은 아직 안 풀렸다
-    assert(restarted.daily_pnl() == 0.0);
+    assert(restarted.daily_pnl() == 0);
 
     std::error_code error_code;
     std::filesystem::remove_all(directory, error_code);
@@ -275,7 +281,7 @@ void test_journal_opens_on_non_codepage_path()
 }
 
 // ─── 테스트 23: 두 스레드가 같이 적어도 빠짐없이 순서대로 남는다 ──────────────
-//  원장 잠금 안에서는 버퍼에 쌓기만 하고 잠금 밖에서 모아 쓴다(W-2). 체결 스레드와 잔고 대조 스레드가 겹쳐 적어도
+//  원장 잠금 안에서는 버퍼에 쌓기만 하고 잠금 밖에서 모아 쓴다. 체결 스레드와 잔고 대조 스레드가 겹쳐 적어도
 //  각 호출이 끝나면 제 레코드가 이미 파일에 있어야 하고(버퍼에 남은 채 끝나면 재기동이 그 변경을 잃는다),
 //  파일의 순번은 1부터 하나씩 늘어야 한다(파일 순서 = 원장 갱신 순서).
 void test_journal_concurrent_writers_flush_in_order()
@@ -347,9 +353,11 @@ void test_strategy_sell_beyond_holding_attributes_only_held_part()
     const auto sell = ledger.on_fill_confirmed("ACC1", "005930", OrderSide::SELL, 13, 1100.0, kStrategy);
 
     // 전략 7 몫은 3주뿐이다 — 3 × (1100 − 1000)에서 비용의 3/13만 뺀다.
-    const double expected = 3 * 100.0 - (sell.commission + sell.tax) * 3.0 / 13.0;
+    //  비용 몫은 원 단위로 반올림한다 — 수수료 2원 + 세금 29원 = 31원의 3/13 = 7.15 → 7원.
+    const PositionLedger::Won expected = 3 * 100 - money::divide_round((sell.commission + sell.tax) * 3, 13);
     assert(!sell.strategy_basis_unknown);
-    assert(std::abs(sell.strategy_realized_pnl - expected) < 1e-6);
+    assert(sell.commission == 2 && sell.tax == 29);
+    assert(sell.strategy_realized_pnl == expected && expected == 293);
     PASS("strategy_sell_beyond_holding_attributes_only_held_part");
 }
 
@@ -364,7 +372,7 @@ void test_absorb_missed_buy_after_two_observations()
     assert(ledger.absorb_missed_buy(std::string(), "005930", 10, 1005.0) == 10);
     assert(ledger.position("005930") == 10);
     assert(ledger.reserved("005930") == 0);
-    assert(ledger.average_price("005930") == 1005.0);
+    assert(ledger.average_price("005930") == 1005);
 
     // 예약보다 큰 부족분(밖에서 산 것)은 놓친 체결로 보지 않는다.
     ledger.on_accept("000660", OrderSide::BUY, 3, 2000.0);
@@ -419,6 +427,81 @@ void test_journal_writes_account_number_for_single_account()
     PASS("journal_writes_account_number_for_single_account");
 }
 
+// ─── 원 단위 정수 셈과 옛 double 셈 대조 (W22) ─────────────────────────────
+//  매수 10번·매도 1번을 두 셈으로 같이 돌린다. 체결 한 건마다 수수료·평단 반올림은 0.5원 이하이고,
+//  평단은 직전 정수 평단에서 이어 가므로 옛 double 평단과 체결이 쌓일수록 조금씩 벌어진다(이 순서에서 0.71원).
+//  당일 손익 차이는 반올림 몫(체결당 0.5원)과 평단 차이 × 매도 수량을 넘지 않는다.
+//  기대 정수값(70177원, 27999원)은 같은 규칙을 파이썬 Fraction으로 따로 셈한 값이다.
+void test_integer_won_matches_double_within_one_won()
+{
+    PositionLedger ledger;
+
+    constexpr int    kBuyCount       = 10;
+    constexpr double kCommissionRate = 0.00015; // 옛 셈의 수수료율(0.015%)
+    constexpr double kSellTaxRate    = 0.0020;  // 옛 셈의 매도 거래세율(0.20%)
+    constexpr double kHalfWon        = 0.5 + 1e-9; // 반올림 한 번의 최대 차이(double 끝자리 여유 포함)
+
+    double double_average  = 0.0;
+    int    double_quantity = 0;
+    double double_pnl      = 0.0;
+
+    for (int index = 0; index < kBuyCount; ++index)
+    {
+        const int    quantity         = 1 + index % 7;
+        const double price            = 70000.0 + 37.0 * index;
+        const double previous_average = static_cast<double>(ledger.average_price("005930"));
+        const auto   fill             = ledger.on_fill_confirmed("005930", OrderSide::BUY, quantity, price);
+
+        // 한 건 안의 오차 — 직전 정수 평단에서 이어 간 double 평단과 0.5원 안, 수수료도 0.5원 안.
+        const double step_average =
+            (double_quantity * previous_average + quantity * price) / (double_quantity + quantity);
+        assert(std::abs(static_cast<double>(fill.average_price) - step_average) <= kHalfWon);
+        assert(std::abs(static_cast<double>(fill.commission) - quantity * price * kCommissionRate) <= kHalfWon);
+
+        double_average = (double_quantity * double_average + quantity * price) / (double_quantity + quantity);
+        double_quantity += quantity;
+        double_pnl -= quantity * price * kCommissionRate;
+    }
+
+    const PositionLedger::Won integer_average = ledger.average_price("005930");
+    assert(double_quantity == 34);
+    assert(integer_average == 70177);
+    assert(std::abs(static_cast<double>(integer_average) - double_average) <= 1.0);
+
+    constexpr int    kSellQuantity = 17;
+    constexpr double kSellPrice    = 72000.0;
+    const auto       sell          = ledger.on_fill_confirmed("005930", OrderSide::SELL, kSellQuantity, kSellPrice);
+    const double     sell_notional = kSellQuantity * kSellPrice;
+    assert(std::abs(static_cast<double>(sell.commission) - sell_notional * kCommissionRate) <= kHalfWon);
+    assert(std::abs(static_cast<double>(sell.tax) - sell_notional * kSellTaxRate) <= kHalfWon);
+    double_pnl += (kSellPrice - double_average) * kSellQuantity - sell_notional * (kCommissionRate + kSellTaxRate);
+
+    const PositionLedger::Won integer_pnl = ledger.daily_pnl();
+    assert(integer_pnl == 27999);
+
+    const double rounding_bound = kHalfWon * (kBuyCount + 2) +
+                                  kSellQuantity * std::abs(static_cast<double>(integer_average) - double_average);
+    assert(std::abs(static_cast<double>(integer_pnl) - double_pnl) <= rounding_bound);
+    PASS("integer_won_matches_double_within_one_won");
+}
+
+// 금액 × 수량의 경계 — 수량이 int32 끝(약 21억 주)이어도 단가 42억 9천만 원까지는 int64 안이다. 상수식 안의 넘침은
+//  컴파일 오류이므로 static_assert가 통과한 것 자체가 증거다. 실제 상한(1주문 10,000주 × 수백만 원)은 그 수백분의 일이다.
+void test_notional_stays_inside_int64()
+{
+    // (max)() — windows.h 의 max 매크로를 피한다.
+    constexpr int32_t    kQuantityMax  = (std::numeric_limits<int32_t>::max)();
+    constexpr money::Won kPriceCeiling = 4'290'000'000; // int64 끝(9.223e18) ÷ int32 끝(2.147e9) = 42.9억 원 바로 아래
+    constexpr money::Won kProduct      = money::notional(kPriceCeiling, kQuantityMax);
+    static_assert(kProduct > 0 && kProduct / kQuantityMax == kPriceCeiling, "단가 42.9억 × int32 끝 수량이 int64 안이어야 한다");
+    static_assert(kProduct <= (std::numeric_limits<money::Won>::max)() - kQuantityMax, "단가 한 원 더에도 자리가 남는다");
+
+    assert(money::notional(1'500'000, 10'000) == 15'000'000'000);
+    assert(money::notional(54700, 91) == 4'977'700);
+    assert(money::notional(0, kQuantityMax) == 0);
+    PASS("notional_stays_inside_int64");
+}
+
 int main()
 {
 #ifdef _WIN32
@@ -435,6 +518,8 @@ int main()
     test_journal_concurrent_writers_flush_in_order();
     test_strategy_sell_beyond_holding_attributes_only_held_part();
     test_absorb_missed_buy_after_two_observations();
+    test_integer_won_matches_double_within_one_won();
+    test_notional_stays_inside_int64();
     std::cout << "=== All tests passed ===\n";
     return 0;
 }

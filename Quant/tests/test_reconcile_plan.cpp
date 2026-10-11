@@ -1,9 +1,8 @@
 // 잔고 대조 차이 계산(core/ReconcilePlan.h) 단위 테스트. 원장≠잔고 네 갈래(수량 어긋남 REST/WS, 평단만 어긋남,
-// 원장에만 있는 종목의 PRUNE/KEEP)와 "일치는 행 없음"을 고정한다. 헤더 전용이라 라우터·KIS 링크 없이 돈다.
+// 원장에만 있는 종목의 PRUNE/KEEP)와 "일치는 행 없음"을 고정한다. 라우터·KIS 링크 없이 돈다.
 // 관련 결정: D-038.
 #include "core/ReconcilePlan.h"
 
-#include <cassert>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -93,9 +92,9 @@ int main()
         CHECK(rows[0].ticker == "068270" && rows[0].action == "OVERWRITE");
         CHECK(rows[0].ledger_quantity == 0 && rows[0].broker_quantity == 2 && rows[0].ledger_average == 0.0);
 
-        const Row* row_naver = find_row(rows, "035420");
-        CHECK(row_naver && row_naver->action == "PRUNE");
-        CHECK(row_naver->ledger_quantity == 5 && row_naver->broker_quantity == 0 && row_naver->broker_average == 0.0);
+        const Row* pruned_row = find_row(rows, "035420");
+        CHECK(pruned_row && pruned_row->action == "PRUNE");
+        CHECK(pruned_row->ledger_quantity == 5 && pruned_row->broker_quantity == 0 && pruned_row->broker_average == 0.0);
 
         const Row* kept_row = find_row(rows, "000660");
         CHECK(kept_row && kept_row->action == "KEEP");

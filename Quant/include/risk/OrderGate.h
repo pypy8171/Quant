@@ -74,7 +74,7 @@ struct GateVerdict
     int64_t          ceiling            = 0;
     double           ratio              = 0.0;
     double           bar                = 0.0;
-    double           money              = 0.0;
+    int64_t          money              = 0;   // 원
     symbol::SymbolId symbol             = symbol::kNone;
 
     [[nodiscard]] bool passed() const noexcept
@@ -90,7 +90,7 @@ public:
     {
         int max_quantity_per_ticker  = 100;          // 종목당 최대 보유 수량(BUY 누적) — fat-finger 백스톱
         // ── 명목 사이징 백스톱 — 전략이 자본%로 사이징할 때의 상한/집중 제어(0=미적용) ──
-        double max_notional_per_ticker  = 0.0;  // 종목당 최대 보유 명목(원). 지정가=price, 시장가=ref_price로 평가. 0=수량 한도만
+        int64_t max_notional_per_ticker = 0;    // 종목당 최대 보유 명목(원). 지정가=price, 시장가=ref_price로 평가. 0=수량 한도만
         int    max_concurrent_positions = 0;    // 동시 보유 종목 상한(새 종목 여는 BUY NEW에만). 0=미적용
         // ── 점수 우선순위 바 — 슬롯이 찰수록 요구 랭크가 올라간다. false면 선착순(기존 동작) ──
         //  [formula] eff_rank/pool ≤ 1 − (open/max_concurrent_positions) × session_remaining_ratio().
@@ -119,14 +119,14 @@ public:
         // ── 포트폴리오 총노출 상한 — 모든 종목 보유·예약 명목 합이 자본의 이 비율을 넘으면 신규 매수 차단(0=미적용).
         //    종목당 상한(15%)×동시보유(10)=150% 같은 과노출을 총합 단에서 막는다(청산은 통과).
         double max_gross_exposure_percent   = 0.0;  // 예: 0.95 = 자본의 95%. equity_ 미주입(0)이면 자동 비활성
-        double daily_loss_limit = -300'000.0;   // 일일 최대 손실 (-30만원)
+        int64_t daily_loss_limit = -300'000;    // 일일 최대 손실(원, -30만원)
         int max_orders_per_min  = 20;           // 분당 최대 주문 (KIS 권장)
         int max_orders_per_sec  = 5;            // 초당 최대 주문 (KIS 안전 한도)
         double deduplicate_window_sec = 1.0;          // 중복 신호 제거 윈도우(초)
         // ── 1주문 fat-finger 백스톱 (C-3) — NEW BUY/SELL 공통. 시장가 대량주문 슬리피지 방어.
         //    보유 전량 매도 등 정상 주문은 통과할 만큼 넉넉하게, 비정상 대량만 차단.
         int max_quantity_per_order        = 10'000;         // 1주문 최대 수량
-        double max_notional_per_order = 50'000'000.0;  // 1주문 최대 명목(원). price>0일 때만 검사
+        int64_t max_notional_per_order = 50'000'000;  // 1주문 최대 명목(원). price>0일 때만 검사
         // ── 매매 세션 창(KST, 자정부터의 분) — 이 밖의 NEW 주문은 막는다. KRX+NXT 통합 피드는 08:00~20:00
         //    틱을 주지만 매매는 정규장 09:00~15:30뿐이라, 전략이 그 밖에서 낸 신호를 여기서 잡는다.
         //    CANCEL/REPLACE는 통과(미체결 정리). 둘 다 0이면 검사 없음 — 테스트·리플레이 기본. [why D-096]
@@ -331,6 +331,7 @@ private:
     // 장부 파티션 키 — (계좌 번호, 종목 id). 만드는 규칙과 [why]는 Quant/include/risk/LedgerKeys.h.
     static constexpr uint32_t kUnknownAccount = LedgerKeys::kUnknownAccount;
     using PosKey = PositionLedger::PosKey;
+    using PositionRow = PositionLedger::PositionRow;
 
     Config config_;
     std::atomic<bool> kill_switch_{false};
@@ -376,24 +377,32 @@ private:
 
     // 총노출 분자 — 보유는 현재가(없으면 평단), 매수 선점은 선점가. 판정·클램프·여력 판정이 같은 셈을 쓴다.
     //  [inv] ledger(positions_mutex_)를 쥔 채 부른다.
-    static double gross_exposure(const PositionLedger::Reader& ledger);
+    static money::Won gross_exposure(const PositionLedger::Reader& ledger);
 
     // clamp_buy_quantity의 단계 — SELL NEW의 매도가능 클램프, BUY NEW의 장부 쪽 한도(종목당·총노출·현금).
     int clamp_sell_quantity(const OrderSignal& signal, int quantity) const;
-    int clamp_buy_to_ledger(const OrderSignal& signal, double evaluation_price, int quantity) const;
+    int clamp_buy_to_ledger(const OrderSignal& signal, money::Won evaluation_price, int quantity) const;
 
     // evaluate의 단계 — 거부면 verdict.code와 값 칸을 채우고 true. evaluate가 부르는 순서가 판정 순서다.
     bool reject_by_switches_and_session(const OrderSignal& signal, GateVerdict& verdict) const; // 1 → 2 → 1b → 1c
     bool reject_by_order_size(const OrderSignal& signal, GateVerdict& verdict) const;           // 2b
     bool reject_by_buy_limits(const OrderSignal& signal, const PosKey& key, GateVerdict& verdict); // 3 → 3b → 3c → 3d
     bool reject_by_concurrent_slots(const PosKey& key, const PositionLedger::Reader& ledger, GateVerdict& verdict); // 3c
-    bool reject_by_gross_exposure(const OrderSignal& signal, const PositionLedger::Reader& ledger, double evaluation_price,
+    bool reject_by_gross_exposure(const OrderSignal& signal, const PositionLedger::Reader& ledger, money::Won evaluation_price,
                                   GateVerdict& verdict) const; // 3d
     bool reject_by_loss_guards(const OrderSignal& signal, GateVerdict& verdict) const; // 4 → 4b
     bool reject_by_duplicate(const SignalKey& deduplicate_key, GateVerdict& verdict) const; // 5
     bool reject_by_rate(GateVerdict& verdict); // 6 — 통과하면 주문 시각을 남긴다
 
+    // describe의 단계 — 거부 사유 묶음마다 문장을 만든다. 문구는 로그·시험이 맞추므로 여기서 바꾸지 않는다.
+    std::string describe_session(const GateVerdict& verdict) const;    // 매매 창 밖
+    std::string describe_size_limit(const GateVerdict& verdict) const; // 1주문·종목당 수량·명목 한도
+    std::string describe_slot(const GateVerdict& verdict) const;       // 동시 보유·교체·슬롯 예약·우선순위
+    std::string describe_guard(const GateVerdict& verdict) const;      // 총노출·일일 손실·정체·중복·유량
+
     // 3c의 자리 세기 결과 — 열린 자리, 그중 실보유, 그중 나보다 랭크가 위인 종목 수.
+    //  게이트가 자리를 세는 곳은 count_open_slots 하나다(판정 3c·entry_snapshot). 장부 쪽 open_slot_count·publish도
+    //  같은 규칙(PositionRow::takes_slot, 슬롯 면제 제외)을 쓴다. [why D-109]
     struct SlotOccupancy
     {
         size_t open        = 0;

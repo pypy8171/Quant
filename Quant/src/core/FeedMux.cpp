@@ -33,11 +33,11 @@ void FeedMux::set_lane_callbacks(LaneOrderBookCb on_order_book, LaneTradeCb on_t
     for (size_t source_index = 0; source_index < sources_.size(); ++source_index)
     {
         const uint32_t lane = static_cast<uint32_t>(source_index);
-        sources_[source_index]->set_callbacks([this, lane](const OrderBook& order_book)
+        sources_[source_index]->set_callbacks([this, lane](OrderBook& order_book)
                                               {
                                                   lane_order_book_(lane, order_book);
                                               },
-                                              [this, lane](const TradeData& trade)
+                                              [this, lane](TradeData& trade)
                                               {
                                                   lane_trade_(lane, trade);
                                               });

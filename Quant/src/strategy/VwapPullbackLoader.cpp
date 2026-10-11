@@ -19,12 +19,15 @@
 #include "utils/Utf8.h"
 
 #include <algorithm>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <map>
 #include <memory>
 #include <set>
 #include <string>
+#include <system_error>
+#include <utility>
 #include <vector>
 
 using json = nlohmann::json;
@@ -95,17 +98,29 @@ Settings parse_settings(const LoadPass& context, const json& node)
 }
 
 // ETF·ETN·리츠·우선주·스팩은 선정에서 뺀다(SPEC 2.2). 우선주는 코드 끝자리가 0이 아닌 것으로 본다.
-bool excluded_stock(const std::string& code, const std::string& name)
+//  목록 파일은 슬리브를 만들 때 한 번 읽는다(ExclusionLists::load).
+struct ExclusionLists
 {
-    static const std::vector<std::string> kEtfPrefixes =
-        etf_filter::load_list("etf_prefixes.json", etf_filter::default_prefixes());
-    static const std::vector<std::string> kEtfTokens =
-        etf_filter::load_list("etf_name_tokens.json", etf_filter::default_tokens());
-    static const std::vector<std::string> kReitSuffixes =
-        etf_filter::load_list("reit_name_suffixes.json", etf_filter::default_reit_suffixes());
-    static const std::vector<std::string> kReitExacts =
-        etf_filter::load_list("reit_names.json", etf_filter::default_reit_exacts());
+    std::vector<std::string> etf_prefixes;
+    std::vector<std::string> etf_tokens;
+    std::vector<std::string> reit_suffixes;
+    std::vector<std::string> reit_exacts;
 
+    static ExclusionLists load();
+};
+
+ExclusionLists ExclusionLists::load()
+{
+    ExclusionLists lists;
+    lists.etf_prefixes  = etf_filter::load_list("etf_prefixes.json", etf_filter::default_prefixes());
+    lists.etf_tokens    = etf_filter::load_list("etf_name_tokens.json", etf_filter::default_tokens());
+    lists.reit_suffixes = etf_filter::load_list("reit_name_suffixes.json", etf_filter::default_reit_suffixes());
+    lists.reit_exacts   = etf_filter::load_list("reit_names.json", etf_filter::default_reit_exacts());
+    return lists;
+}
+
+bool excluded_stock(const std::string& code, const std::string& name, const ExclusionLists& lists)
+{
     if (code.empty() || code.back() != '0')
     {
         return true;
@@ -116,8 +131,8 @@ bool excluded_stock(const std::string& code, const std::string& name)
         return true;
     }
 
-    return etf_filter::is_etf_like(name, kEtfPrefixes, kEtfTokens) ||
-           etf_filter::is_reit_like(name, kReitSuffixes, kReitExacts);
+    return etf_filter::is_etf_like(name, lists.etf_prefixes, lists.etf_tokens) ||
+           etf_filter::is_reit_like(name, lists.reit_suffixes, lists.reit_exacts);
 }
 
 std::filesystem::path selection_path(const std::string& date)
@@ -144,6 +159,31 @@ bool write_file_atomically(const std::filesystem::path& path, const std::string&
     return !error;
 }
 
+// 전략에 넣는 시세판 거래량 가중 평균가(VWAP) 조회 — 판의 거래대금/거래량. 판이 없거나 종목이 없으면 0.
+//  [inv] board는 엔진 소유라 전략보다 오래 산다(Engine.h 멤버 선언 순서).
+VwapPullbackStrategy::BoardVwap board_vwap_lookup(const universe::MarketBoard& board)
+{
+    return [&board](const std::string& ticker)
+    {
+        const std::shared_ptr<const universe::BoardSnapshot> snapshot = board.snapshot();
+
+        if (!snapshot)
+        {
+            return 0.0;
+        }
+
+        for (const universe::BoardQuote& quote : snapshot->quotes)
+        {
+            if (quote.code == ticker)
+            {
+                return quote.volume > 0.0 ? quote.value / quote.volume : 0.0;
+            }
+        }
+
+        return 0.0;
+    };
+}
+
 // 선정 장부 — 데이터 스레드(재스캔)만 쓴다. 하루에 한 번 고르고, 그날은 같은 목록을 돌려준다.
 class Sleeve
 {
@@ -151,6 +191,7 @@ public:
     Sleeve(Engine& engine, Settings settings)
         : engine_(engine)
         , settings_(std::move(settings))
+        , exclusion_lists_(ExclusionLists::load())
     {
     }
 
@@ -169,6 +210,7 @@ private:
 
     Engine&                              engine_;
     Settings                             settings_;
+    const ExclusionLists                 exclusion_lists_;
     std::string                          date_;
     std::vector<vwap_pullback::Selected> selected_;
     std::string                          source_;
@@ -265,6 +307,7 @@ std::unique_ptr<StrategyBase> Sleeve::make(symbol::SymbolId symbol)
 
     auto    strategy = std::make_unique<VwapPullbackStrategy>(std::move(parameters));
     Engine& engine   = engine_;
+    strategy->set_board_vwap(board_vwap_lookup(engine.market_board()));
     strategy->set_owner_block([&engine](symbol::SymbolId owned_symbol)
     {
         if (engine.is_exit_managed(owned_symbol))
@@ -347,7 +390,7 @@ bool Sleeve::select_from_board(std::time_t now)
         }
     }
 
-    const std::shared_ptr<const universe::BoardSnapshot> board = universe::MarketBoard::instance().snapshot();
+    const std::shared_ptr<const universe::BoardSnapshot> board = engine_.market_board().snapshot();
 
     // 2순위: 지금 시세판 — 선정 시각 뒤 snapshot_stale_minutes 안에 받은 판일 때만.
     if (rows.empty() && board && kst::date_yyyymmdd(board->received_at) == date_)
@@ -389,7 +432,7 @@ bool Sleeve::select_from_board(std::time_t now)
         }
     }
 
-    if (const auto listing = universe::MarketBoard::instance().listing())
+    if (const auto listing = engine_.market_board().listing())
     {
         for (const universe::ListedStock& stock : *listing)
         {
@@ -405,7 +448,7 @@ bool Sleeve::select_from_board(std::time_t now)
             row.name         = found != names.end() ? found->second : std::string();
         }
 
-        row.excluded = excluded_stock(row.code, row.name);
+        row.excluded = excluded_stock(row.code, row.name, exclusion_lists_);
     }
 
     selected_    = vwap_pullback::select_candidates(rows, settings_.rules);
@@ -550,7 +593,7 @@ void load_vwap_pullback(LoadPass& context, const json& node)
     Settings settings = parse_settings(context, node);
     Engine&  engine   = context.engine;
 
-    if (!universe::MarketBoard::instance().running())
+    if (!engine.market_board().running())
     {
         LOG_WARN("[Main] VWAP_PULLBACK: 시세판이 꺼져 있다 — 1분 저장 파일이 있을 때만 고른다(DEVIATION_SCALE의 market_board를 켠다)");
     }
@@ -565,7 +608,9 @@ void load_vwap_pullback(LoadPass& context, const json& node)
         parameters.shadow           = settings.shadow;
         parameters.own_net_quantity = net;
         LOG_INFO("[Main] VWAPPB 재인수 " + ticker + " 순수량 " + std::to_string(net) + "주");
-        add_gated(context, std::make_unique<VwapPullbackStrategy>(std::move(parameters)));
+        auto strategy = std::make_unique<VwapPullbackStrategy>(std::move(parameters));
+        strategy->set_board_vwap(board_vwap_lookup(engine.market_board()));
+        add_gated(context, std::move(strategy));
     }
 
     const size_t top_n    = static_cast<size_t>(std::max(settings.rules.turnover_top_n, 0));

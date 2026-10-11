@@ -1,7 +1,15 @@
 #include "strategy/SeedPeakStore.h"
 
 #include <cstdint>
+#include <exception>
+#include <filesystem>
+#include <fstream>
+#include <functional>
 #include <map>
+#include <mutex>
+#include <string>
+#include <system_error>
+#include <utility>
 
 namespace
 {

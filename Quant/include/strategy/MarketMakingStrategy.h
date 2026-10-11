@@ -5,10 +5,11 @@
 #include <cmath>
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 // ─────────────────────────────────────────────────────────────────────────────
-// MarketMakingStrategy (MM-1) — 미니 시장조성기
+// MarketMakingStrategy — 미니 시장조성기
 //
 //  매 호가(H0STASP0) 틱에서 mid_price = (best_bid + best_ask)/2 를 계산하고,
 //  [wire] H0STASP0 = 국내주식 실시간호가(KRX), 공식 샘플 asking_price_krx(실시간-004), 2026-09-27 MCP 확인.
@@ -75,7 +76,7 @@ private:
 
     std::string next_order_id(const char* tag)
     {
-        return id() + ":" + tag + ":" + std::to_string(++sequence_);
+        return make_order_id(tag, ++sequence_);
     }
 
     OrderSignal make_new(const std::string& order_id, uint64_t order_number, OrderSide side, double price);

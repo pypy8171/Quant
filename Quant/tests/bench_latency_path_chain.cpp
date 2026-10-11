@@ -2,6 +2,16 @@
 //  공용 준비는 bench_latency_path_support.h, 실행 순서는 bench_latency_path.cpp의 main.
 #include "bench_latency_path_support.h"
 
+#include <atomic>
+#include <cstdint>
+#include <cstdio>
+#include <memory>
+#include <string>
+#include <string_view>
+#include <thread>
+#include <utility>
+#include <vector>
+
 namespace latency_path_bench
 {
 
@@ -11,7 +21,7 @@ void bench_chain_at(const std::vector<std::string>& tickers, double rate_per_s)
 {
     const int64_t gap = rate_per_s > 0 ? static_cast<int64_t>(1e9 / rate_per_s) : 0;
     const size_t kTicks  = gap > 0 ? 300'000 : 1'000'000;
-    constexpr size_t kStrats = 40;
+    constexpr size_t kStrategyCount = 40;
 
     std::vector<std::string> payloads;
     payloads.reserve(kSymbols);
@@ -25,7 +35,7 @@ void bench_chain_at(const std::vector<std::string>& tickers, double rate_per_s)
     std::vector<std::unique_ptr<OneSymStrategy>> owned;
     std::vector<StrategyBase*>                   pointers;
 
-    for (size_t index = 0; index < kStrats; ++index)
+    for (size_t index = 0; index < kStrategyCount; ++index)
     {
         owned.push_back(std::make_unique<OneSymStrategy>(tickers[index]));
         owned.back()->bind(table.intern(tickers[index]));

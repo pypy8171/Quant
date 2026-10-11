@@ -45,7 +45,7 @@
     {
       "from": "core",
       "to": "universe",
-      "weight": 2
+      "weight": 4
     },
     {
       "from": "core",
@@ -145,7 +145,7 @@
     {
       "from": "strategy",
       "to": "universe",
-      "weight": 7
+      "weight": 6
     },
     {
       "from": "strategy",
@@ -160,7 +160,7 @@
     {
       "from": "universe",
       "to": "core",
-      "weight": 16
+      "weight": 17
     },
     {
       "from": "universe",
@@ -269,6 +269,7 @@
     "risk/GateReasons.h": "risk",
     "risk/LedgerJournal.h": "risk",
     "risk/LedgerKeys.h": "risk",
+    "risk/Money.h": "risk",
     "risk/OrderGate.h": "risk",
     "risk/PositionLedger.h": "risk",
     "risk/PositionLedgerTypes.h": "risk",
@@ -609,6 +610,7 @@
       "core/KstTime.h",
       "core/LatencyTrace.h",
       "core/ReconcilePlan.h",
+      "universe/UniverseScanner.h",
       "utils/Logger.h",
       "utils/ThreadName.h",
       "utils/Utf8.h"
@@ -659,6 +661,7 @@
       "risk/OrderGate.h",
       "risk/ProtectiveOrders.h",
       "strategy/StrategyBase.h",
+      "universe/MarketBoard.h",
       "utils/GenerationCopy.h"
     ],
     "core/EngineConfigure.cpp": [
@@ -1265,6 +1268,7 @@
     ],
     "risk/DisplacementDesk.cpp": [
       "risk/DisplacementDesk.h",
+      "risk/EntryPriority.h",
       "utils/Logger.h"
     ],
     "risk/DisplacementDesk.h": [
@@ -1337,7 +1341,8 @@
     ],
     "risk/PositionLedgerTypes.h": [
       "core/SymbolTable.h",
-      "core/Types.h"
+      "core/Types.h",
+      "risk/Money.h"
     ],
     "risk/ProtectiveOrders.cpp": [
       "risk/ProtectiveOrders.h"
@@ -1543,7 +1548,6 @@
       "core/KstTime.h",
       "core/PrefetchPool.h",
       "strategy/VwapPullbackStrategy.h",
-      "universe/MarketBoard.h",
       "utils/Logger.h",
       "utils/Utf8.h"
     ],
@@ -1566,6 +1570,7 @@
       "utils/Utf8.h"
     ],
     "universe/MarketBoardParse.cpp": [
+      "core/SymbolTable.h",
       "universe/MarketBoard.h"
     ],
     "universe/ScoreWeight.cpp": [
@@ -2017,6 +2022,7 @@
       "risk/OrderGate.h",
       "risk/PositionLedger.h",
       "risk/PositionLedgerTypes.h",
+      "universe/MarketBoardParse.cpp",
       "universe/ScoreWeight.h",
       "universe/UniverseScanner.h"
     ],
@@ -2281,6 +2287,7 @@
       "risk/DisplacementDesk.cpp"
     ],
     "risk/EntryPriority.h": [
+      "risk/DisplacementDesk.cpp",
       "risk/EntryPriority.cpp",
       "risk/OrderGate.h"
     ],
@@ -2297,6 +2304,9 @@
       "risk/LedgerKeys.cpp",
       "risk/OrderGate.h",
       "risk/PositionLedger.h"
+    ],
+    "risk/Money.h": [
+      "risk/PositionLedgerTypes.h"
     ],
     "risk/OrderGate.h": [
       "core/AppConfig.h",
@@ -2436,11 +2446,11 @@
       "universe/UniverseScoring.cpp"
     ],
     "universe/MarketBoard.h": [
+      "core/Engine.h",
       "core/EngineDataThread.cpp",
       "core/EngineUniverse.cpp",
       "strategy/DevScaleLoader.cpp",
       "strategy/VwapPullbackLoader.cpp",
-      "strategy/VwapPullbackStrategy.cpp",
       "universe/MarketBoard.cpp",
       "universe/MarketBoardParse.cpp",
       "universe/UniverseCandidates.cpp",
@@ -2454,6 +2464,7 @@
       "universe/UniverseScanner.h"
     ],
     "universe/UniverseScanner.h": [
+      "core/Engine.cpp",
       "strategy/DevScaleLoader.cpp",
       "strategy/StrategyFactory.cpp",
       "universe/UniverseScanner.cpp",
@@ -2645,7 +2656,7 @@
     },
     {
       "header": "core/SymbolTable.h",
-      "in_degree": 26
+      "in_degree": 27
     },
     {
       "header": "core/Engine.h",

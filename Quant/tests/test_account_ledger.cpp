@@ -17,7 +17,7 @@
 #include <windows.h>
 #endif
 
-static OrderSignal signal(const std::string& account, const std::string& ticker, OrderSide side, int quantity)
+static OrderSignal make_signal(const std::string& account, const std::string& ticker, OrderSide side, int quantity)
 {
     OrderSignal signal;
     signal.account_id  = account;
@@ -67,7 +67,7 @@ void test_limit_isolation()
     for (int index = 0; index < 100; ++index)
     {
         std::string raw;
-        assert(gate.check(signal("ACC1", "005930", OrderSide::BUY, 1), raw));
+        assert(gate.check(make_signal("ACC1", "005930", OrderSide::BUY, 1), raw));
         gate.ledger().on_accept("ACC1", "005930", OrderSide::BUY, 1, 1000.0);
     }
 
@@ -75,12 +75,12 @@ void test_limit_isolation()
 
     // ACC1의 101번째 → 한도 초과 거부
     std::string row_a;
-    assert(!gate.check(signal("ACC1", "005930", OrderSide::BUY, 1), row_a));
+    assert(!gate.check(make_signal("ACC1", "005930", OrderSide::BUY, 1), row_a));
     assert(row_a.find("한도") != std::string::npos);
 
     // ACC2의 같은 종목 주문 → ACC1 한도와 무관하게 통과 (격리 증명)
     std::string row_b;
-    assert(gate.check(signal("ACC2", "005930", OrderSide::BUY, 1), row_b));
+    assert(gate.check(make_signal("ACC2", "005930", OrderSide::BUY, 1), row_b));
     assert(gate.ledger().reserved("ACC2", "005930") == 0); // ACC2는 아직 선점 0
     PASS("limit_isolation");
 }
@@ -121,11 +121,11 @@ void test_deduplicate_account_isolation()
     OrderGate gate(config);
 
     std::string raw;
-    assert(gate.check(signal("ACC1", "005930", OrderSide::BUY, 1), raw));   // ACC1 최초 → 통과
-    assert(!gate.check(signal("ACC1", "005930", OrderSide::BUY, 1), raw));  // ACC1 즉시 재신호 → 중복 거부
+    assert(gate.check(make_signal("ACC1", "005930", OrderSide::BUY, 1), raw));   // ACC1 최초 → 통과
+    assert(!gate.check(make_signal("ACC1", "005930", OrderSide::BUY, 1), raw));  // ACC1 즉시 재신호 → 중복 거부
     assert(raw.find("중복") != std::string::npos);
     // 동일 strategy+ticker라도 ACC2는 별개 → 통과 (계좌별 deduplicate 격리)
-    assert(gate.check(signal("ACC2", "005930", OrderSide::BUY, 1), raw));
+    assert(gate.check(make_signal("ACC2", "005930", OrderSide::BUY, 1), raw));
     PASS("dedup_account_isolation");
 }
 
@@ -170,9 +170,9 @@ void test_key_collision_safety()
 void test_sell_unknown_basis_no_fake_profit()
 {
     OrderGate gate(relaxed_config());
-    auto on_fill_confirmed = gate.ledger().on_fill_confirmed("ACC1", "047050", OrderSide::SELL, 91, 54700.0);
-    assert(on_fill_confirmed.basis_unknown);
-    assert(on_fill_confirmed.realized_pnl == 0.0);
+    auto sell_result = gate.ledger().on_fill_confirmed("ACC1", "047050", OrderSide::SELL, 91, 54700.0);
+    assert(sell_result.basis_unknown);
+    assert(sell_result.realized_pnl == 0.0);
     assert(gate.ledger().daily_pnl() == 0.0);             // 4,977,700원이 이익으로 적립되지 않음
     assert(gate.ledger().position("ACC1", "047050") == 0); // 보유 초과 매도는 0으로 클램프(기존 동작)
 
@@ -183,7 +183,7 @@ void test_sell_unknown_basis_no_fake_profit()
     assert(row_b.realized_pnl > 0.0 && row_b.realized_pnl < 47000.0); // 47,000원에서 수수료·세금 차감
 
     // 매수 수수료(10*50000*0.00015=75원)도 발생 즉시 daily_pnl_에서 빠진다.
-    const double buy_commission = 10 * 50000.0 * 0.00015;
+    const PositionLedger::Won buy_commission = money::apply_rate(10 * 50000, 15, 100000);
     assert(gate.ledger().daily_pnl() == row_b.realized_pnl - buy_commission);
     PASS("sell_unknown_basis_no_fake_profit");
 }

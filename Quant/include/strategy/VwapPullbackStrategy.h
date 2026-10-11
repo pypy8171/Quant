@@ -12,6 +12,7 @@
 #include "core/BarAggregator.h"
 #include "strategy/StrategyBase.h"
 #include "strategy/VwapPullbackRules.h"
+#include <atomic>
 #include <cstdint>
 #include <ctime>
 #include <filesystem>
@@ -121,7 +122,7 @@ private:
     mutable std::mutex                             fetch_mutex_;
     std::shared_ptr<const std::vector<MarketData>> bootstrap_bars_;
     std::shared_ptr<const std::vector<MarketData>> recheck_bars_;
-    bool                                           recheck_wanted_ = false;
+    std::atomic<bool>                              recheck_wanted_{false}; // 샤드 스레드가 쓰고 프리페치 풀이 읽는다
     uint64_t                                       prefetch_task_  = 0;
 
     // 샤드 스레드 전용

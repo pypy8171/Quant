@@ -4,10 +4,15 @@
 #include "strategy/StrategyBase.h"
 #include "utils/Logger.h"
 #include <chrono>
+#include <cstdint>
+#include <functional>
 #include <iterator>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 // 유니버스 종목마다 KIS REST를 연속 호출하므로 호출 사이에 짧게 쉰다

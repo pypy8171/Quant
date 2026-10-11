@@ -5,9 +5,11 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <iostream>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <string>
 #include <thread>
@@ -39,7 +41,7 @@ WatchSpec specification(const std::string& ticker)
 // 가짜 소스 — 구독 목록·상한·연결 상태를 흉내 내고, emit_*는 호출 스레드에서 콜백을 부른다.
 struct FakeSource final : feed::IFeedSource
 {
-    explicit FakeSource(int capture, bool connect_ok = true) : capacity_(capture), connect_ok_(connect_ok) {}
+    explicit FakeSource(int capacity, bool connect_ok = true) : capacity_(capacity), connect_ok_(connect_ok) {}
 
     void set_callbacks(OrderBookCb order_book, TradeCb trade) override
     {
@@ -132,11 +134,13 @@ struct FakeSource final : feed::IFeedSource
         on_trade_(trade);
     }
 
-    void emit_book(const std::string& ticker)
+    // 콜백이 찍은 종목 번호를 돌려준다 — 복사 없이 같은 구조체가 갔는지 시험이 본다.
+    symbol::SymbolId emit_book(const std::string& ticker)
     {
         OrderBook order_book;
         order_book.ticker = ticker;
         on_order_book_(order_book);
+        return order_book.symbol_id;
     }
 
     bool emit_fill(const std::string& kis_order_no)
@@ -465,12 +469,14 @@ int main()
         std::vector<std::string>          tickers;
         std::atomic<int>                  fills{0};
         std::thread::id                   fill_thread;
+        constexpr symbol::SymbolId kStampedSymbol = 7; // 콜백이 찍는 번호 — 소스의 구조체에 그대로 남아야 한다
         multiplexer.set_lane_callbacks(
-            [&](uint32_t lane, const OrderBook& order_book)
+            [&](uint32_t lane, OrderBook& order_book)
             {
                 std::lock_guard<std::mutex> lock(mutex);
                 seen.emplace_back(lane, std::this_thread::get_id());
                 tickers.push_back(order_book.ticker.string());
+                order_book.symbol_id = kStampedSymbol;
             },
             [&](uint32_t lane, const TradeData& trade)
             {
@@ -486,14 +492,15 @@ int main()
             });
         CHECK(multiplexer.connect({specification("A"), specification("B")}));
 
-        std::thread thread_a([source_a]
+        symbol::SymbolId stamped_symbol = symbol::kNone;
+        std::thread      thread_a([source_a, &stamped_symbol]
         {
             for (int index = 0; index < 300; ++index)
             {
                 source_a->emit_trade("A", 1 + index);
             }
 
-            source_a->emit_book("A");
+            stamped_symbol = source_a->emit_book("A");
         });
         std::thread thread_b([source_b]
         {
@@ -518,6 +525,7 @@ int main()
         }
 
         CHECK(lanes_ok);
+        CHECK(stamped_symbol == kStampedSymbol); // 직접 호출 모드는 소스의 구조체를 베끼지 않고 그대로 넘긴다
         CHECK(multiplexer.dropped() == 0 && multiplexer.high_water(0) == 0 && multiplexer.high_water(1) == 0);
 
         bool        fill_sent = false;
@@ -533,9 +541,10 @@ int main()
         FakeSource one(4);
         uint32_t   received_lane = 9;
         CHECK(one.lanes() == 1);
-        one.set_lane_callbacks([&](uint32_t lane, const OrderBook&)
+        one.set_lane_callbacks([&](uint32_t lane, OrderBook& order_book)
         {
-            received_lane = lane;
+            received_lane         = lane;
+            order_book.symbol_id = 5; // 기본 구현의 수신 스레드 0 포장도 구조체를 베끼지 않는다
         },
                                [&](uint32_t lane, const TradeData&)
                                {
@@ -543,6 +552,8 @@ int main()
                                });
         one.emit_trade("Z", 1.0);
         CHECK(received_lane == 0);
+        received_lane = 9;
+        CHECK(one.emit_book("Z") == 5 && received_lane == 0);
     }
 
     // 7. 체결통보는 자리(0번)가 아니라 맡은 소스로 간다 — 맡는 자리를 옮겨도 한 소스만 받는다(원장 이중 계상 방지).

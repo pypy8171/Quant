@@ -434,8 +434,8 @@ void KisWebSocket::subscribe_all()
 
     // 체결통보를 시세보다 먼저 구독한다. 세션 구독 상한(kMaxWsSubs)을 넘으면 뒤에 오는 채널이
     //  rt=1 MAX SUBSCRIBE OVER로 잘리는데, 시세가 잘리면 REST 폴링이 대신하지만 체결통보가
-    //  잘리면 OrderRouter가 체결을 못 받아 reserved_가 해제되지 않는다. 그러면 같은 체결이
-    //  positions_와 reserved_에 동시에 잡혀 총노출이 이중계상되고 신규 매수가 통째로 막힌다.
+    //  잘리면 OrderRouter가 체결을 못 받아 선점(PositionRow::reserved)이 해제되지 않는다. 그러면 같은 체결이
+    //  보유(PositionRow::position)와 선점에 동시에 잡혀 총노출이 이중계상되고 신규 매수가 통째로 막힌다.
     //  구독 종목이 하나도 없어도 건다 — 주문만 맡은 프로세스는 목록이 빈 채로 연결하고 종목은 뒤에
     //  요청으로 온다. 종목이 있을 때만 걸면 그 프로세스는 체결통보를 영영 못 듣는다. [why D-114]
     if (on_fill_ && !config_.hts_id.empty())

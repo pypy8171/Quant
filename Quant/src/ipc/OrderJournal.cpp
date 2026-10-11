@@ -58,6 +58,15 @@ void OrderJournal::append_order_reason(const ManagedOrder& managed_order)
         return;
     }
 
+    // 방향을 모르는 주문은 적지 않는다. 예전에는 매도로 적어 재기동 복원이 매도 주문으로 되살렸다.
+    //  브로커 미체결 보충(OrderRouterReconcile.cpp)과 같이 건너뛰고 경고만 남긴다.
+    if (managed_order.signal.side != OrderSide::BUY && managed_order.signal.side != OrderSide::SELL)
+    {
+        LOG_WARN("[OrderJournal] 방향을 모르는 접수 주문 — 사유 기록을 남기지 않는다 " + managed_order.signal.ticker +
+                 " ODNO=" + managed_order.kis_order_no);
+        return;
+    }
+
     // 구분자와 줄바꿈은 공백으로 바꾼다 — 사유 문구에 무엇이 들어와도 한 줄을 유지한다.
     auto safe = [](std::string text)
     {

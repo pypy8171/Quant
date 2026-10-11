@@ -5,7 +5,11 @@
 #include <algorithm>
 #include <charconv>
 #include <cmath>
+#include <set>
+#include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 namespace vwap_pullback
 {
@@ -31,8 +35,8 @@ int parse_clock(std::string_view text)
     std::from_chars(text.data(), text.data() + 2, hours);
     std::from_chars(text.data() + 3, text.data() + 5, minutes);
     std::from_chars(text.data() + 6, text.data() + 8, seconds);
-    constexpr int kShift = 100;
-    return (hours * kShift + minutes) * kShift + seconds;
+    constexpr int kHhmmShift = 100;
+    return (hours * kHhmmShift + minutes) * kHhmmShift + seconds;
 }
 
 double parse_number(std::string_view text)
@@ -116,9 +120,9 @@ std::vector<BoardRow> rows_at_selection(std::istream& board_csv, int select_hhmm
     constexpr size_t kValueColumn   = 4;
     constexpr size_t kChangeColumn  = 5;
     constexpr size_t kColumnsNeeded = kChangeColumn + 1;
-    constexpr int    kSecondsShift  = 100;
+    constexpr int    kHhmmShift  = 100;
 
-    const int target_clock = select_hhmm * kSecondsShift;
+    const int target_clock = select_hhmm * kHhmmShift;
     int       chosen_clock = -1;
     std::vector<BoardRow>         rows;
     std::string                   line;

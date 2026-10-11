@@ -103,5 +103,8 @@ struct AppConfig
 //  값이 틀리면(예: kis.exchange가 KRX/NXT/SOR 밖) std::runtime_error — 네트워크를 건드리기 전에 기동이 멈춘다.
 AppConfig parse_config(const nlohmann::json& document);
 
+// 같은 일을 하되, 넘겨받은 문서의 strategies 배열을 복사하지 않고 옮긴다(파일에서 막 읽은 문서를 넘길 때).
+AppConfig parse_config(nlohmann::json&& document);
+
 // 파일 경로 → json 문서. 없으면 std::runtime_error.
 nlohmann::json load_config_file(const std::string& path);

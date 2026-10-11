@@ -1,7 +1,14 @@
 #include "risk/EntryPriority.h"
 
 #include <algorithm>
+#include <chrono>
+#include <cstdint>
 #include <format>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <utility>
+#include <vector>
 
 // ─── 우선순위 표 ─────────────────────────────────────────────────────────────
 void EntryPriority::set(const std::vector<Entry>& entries, int total, size_t capacity)

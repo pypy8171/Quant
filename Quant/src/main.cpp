@@ -12,12 +12,9 @@
 #include <cstdio>
 #include <cstring>
 #include <exception>
-#include <cstdlib>
-#include <filesystem>
+#include <functional>
 #include <string>
-#include <string_view>
 #include <thread>
-#include <vector>
 
 #ifdef _WIN32
 // KisWebSocket.h가 windows.h를 끌어오던 때의 조건(LEAN_AND_MEAN·NOMINMAX·ERROR 해제)을 여기서 직접 맞춘다. [why D-049]

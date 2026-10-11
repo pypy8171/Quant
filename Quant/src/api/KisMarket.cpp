@@ -3,6 +3,21 @@
 #include "KisClientInternal.h"
 #include "api/KisRestDecode.h"
 
+#include <algorithm>
+#include <chrono>
+#include <mutex>
+#include <thread>
+#include <unordered_set>
+
+namespace
+{
+constexpr time_t kSecondsPerDay = 86400;
+// 분봉 페이지 사이에 쉬는 시간 — 초당 호출 한도에 여유를 둔다.
+constexpr std::chrono::milliseconds kPagePause{120};
+// 해외 응답 원문을 디버그 로그에 남길 길이.
+constexpr std::string::size_type kResponsePreviewChars = 300;
+} // namespace
+
 std::vector<MarketData> KisClient::get_daily_ohlcv(const std::string& ticker, int count, bool include_today)
 {
     return get_chart_ohlcv(ticker, count, include_today, 'D');
@@ -73,7 +88,7 @@ std::vector<MarketData> KisClient::get_chart_ohlcv(const std::string& ticker, in
     std::string week_start;
     {
         const int back = (kst::decompose(std::chrono::sys_seconds{std::chrono::seconds{end_t}}).tm_wday + 6) % 7; // 월=0 … 일=6
-        week_start = format_date(end_t - static_cast<time_t>(back) * 86400);
+        week_start = format_date(end_t - static_cast<time_t>(back) * kSecondsPerDay);
     }
 
     // 한 페이지에 담을 봉 수와 달력일 여유. 거래일→달력일 1.7배 + 헤드룸 10일(최소 30일), 주봉은 ×7.
@@ -96,7 +111,7 @@ std::vector<MarketData> KisClient::get_chart_ohlcv(const std::string& ticker, in
     for (int page = 0; page < max_pages && static_cast<int>(result.size()) < count; ++page)
     {
         const std::string to_date = format_date(page_end);
-        const std::string from_date = format_date(page_end - static_cast<time_t>(window_days) * 86400);
+        const std::string from_date = format_date(page_end - static_cast<time_t>(window_days) * kSecondsPerDay);
 
         std::string url = base_url() + "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice" +
                           "?FID_COND_MRKT_DIV_CODE=J" + "&FID_INPUT_ISCD=" + ticker + "&FID_INPUT_DATE_1=" + from_date +
@@ -176,7 +191,7 @@ std::vector<MarketData> KisClient::get_chart_ohlcv(const std::string& ticker, in
         }
 
         last_oldest = std::move(oldest);
-        page_end = oldest_t - 86400;
+        page_end = oldest_t - kSecondsPerDay;
     }
 
     {
@@ -316,7 +331,7 @@ std::vector<MarketData> KisClient::get_minute_ohlcv(const std::string& ticker, i
         }
 
         hour = std::move(previous);
-        std::this_thread::sleep_for(std::chrono::milliseconds(120)); // rate limit 여유
+        std::this_thread::sleep_for(kPagePause);
     }
 
     return kis_rest::aggregate_minutes(raw_minutes, ticker, interval_min, count);
@@ -430,7 +445,7 @@ std::vector<MarketData> KisClient::get_us_daily_ohlcv(const std::string& ticker,
         return {};
     }
 
-    LOG_DEBUG("[KIS-US] OHLCV 응답(" + ticker + "): " + response.substr(0, 300));
+    LOG_DEBUG("[KIS-US] OHLCV 응답(" + ticker + "): " + response.substr(0, kResponsePreviewChars));
 
     std::vector<MarketData> result;
 
@@ -532,7 +547,7 @@ Fundamentals KisClient::get_us_fundamentals(const std::string& ticker, const std
         return fundamentals;
     }
 
-    LOG_DEBUG("[KIS-US] Fundamentals 응답(" + ticker + "): " + response.substr(0, 300));
+    LOG_DEBUG("[KIS-US] Fundamentals 응답(" + ticker + "): " + response.substr(0, kResponsePreviewChars));
 
     try
     {

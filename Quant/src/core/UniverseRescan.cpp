@@ -9,6 +9,7 @@
 #include "utils/Logger.h"
 #include <algorithm>
 #include <exception>
+#include <string>
 
 UniverseRescan::UniverseRescan(const symbol::SymbolTable& table, RegisterStrategy register_strategy,
                                RetireStrategy retire_strategy)
@@ -56,7 +57,7 @@ void UniverseRescan::seed(const std::vector<std::pair<symbol::SymbolId, Strategy
 
 void UniverseRescan::reset_registered()
 {
-    registered_.assign(table_.capacity(), false);
+    registered_.assign(table_.capacity(), 0);
     registered_count_ = 0;
 }
 
@@ -69,15 +70,15 @@ void UniverseRescan::set_registered(symbol::SymbolId symbol, bool on)
 
     if (symbol >= registered_.size())
     {
-        registered_.resize(std::max<size_t>(table_.capacity(), symbol + 1), false);
+        registered_.resize(std::max<size_t>(table_.capacity(), symbol + 1), 0);
     }
 
-    if (registered_[symbol] == on)
+    if ((registered_[symbol] != 0) == on)
     {
         return;
     }
 
-    registered_[symbol] = on;
+    registered_[symbol] = on ? 1 : 0;
     registered_count_ += on ? 1 : (registered_count_ > 0 ? -1 : 0);
 }
 

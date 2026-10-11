@@ -16,6 +16,7 @@
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -56,6 +57,13 @@ public:
     using FillResult   = position_ledger::FillResult;
     using SellableView = position_ledger::SellableView;
     using HeldPos      = position_ledger::HeldPos;
+    using PositionRow  = position_ledger::PositionRow;
+    using Won          = money::Won;
+
+    // 총노출이 한도의 이 비율에 닿으면 예산이 찼다고 본다 — 게이트 capacity_full과 사본 발행이 같이 쓴다.
+    static constexpr double kBudgetFullRatio = 0.95;
+    // 잔고로 되살린 포지션은 하루 전에 연 것으로 둔다 — 유령 정리의 "방금 열림" 보호(min_age_sec)에 걸리지 않게.
+    static constexpr std::chrono::hours kSeededOpenAge{24};
 
     PositionLedger()                                 = default;
     PositionLedger(const PositionLedger&)            = delete;
@@ -73,39 +81,16 @@ public:
         {
         }
 
-        const PosMap<int>& positions() const noexcept
+        // 장부 줄 전부(보유·선점·평단·현재가·매도가능·열린 시각). 한 줄의 칸과 "없음" 값은 PositionRow.
+        const PosMap<PositionRow>& rows() const noexcept
         {
-            return ledger_.positions_;
+            return ledger_.rows_;
         }
 
-        const PosMap<Reservation>& reserved() const noexcept
+        // 한 줄. 장부에 없으면 빈 줄(kNoRow)을 돌려준다 — 읽는 쪽이 없음을 따로 가르지 않게.
+        const PositionRow& row(const PosKey& key) const
         {
-            return ledger_.reserved_;
-        }
-
-        const PosMap<double>& reserved_price() const noexcept
-        {
-            return ledger_.reserved_price_;
-        }
-
-        const PosMap<double>& average_prices() const noexcept
-        {
-            return ledger_.average_prices_;
-        }
-
-        const PosMap<double>& mark_prices() const noexcept
-        {
-            return ledger_.mark_prices_;
-        }
-
-        const PosMap<int>& sellable() const noexcept
-        {
-            return ledger_.sellable_;
-        }
-
-        const PosMap<TimePoint>& opened_at() const noexcept
-        {
-            return ledger_.opened_at_;
+            return ledger_.row_locked(key);
         }
 
         const std::unordered_set<symbol::SymbolId>& slot_exempt() const noexcept
@@ -231,15 +216,23 @@ public:
     // ── 상태 업데이트 ───────────────────────────────────────────────────────
     // 주문 생명주기는 증권사 원장 순서를 따른다: KIS 전송 직전 on_intent(선점 + INTENT 기록) → 응답에 따라
     //  on_accepted(ACCEPT) 또는 on_reject(선점 해제 + REJECT) → 체결통보 on_fill_confirmed(FILL) / 취소 on_cancel(CANCEL).
-    //  check()는 positions_ + reserved_ 합산으로 한도를 보므로 미체결 주문이 과잉 주문을 차단한다.
+    //  check()는 보유 + 선점 합산으로 한도를 보므로 미체결 주문이 과잉 주문을 차단한다.
     //  장부는 (account_id:ticker)로 파티셔닝 — 계좌별 독립. [why D-113]
-    // KIS 전송 직전 — 선점(reserved_)을 잡고 INTENT를 적는다. 거짓이면 저널에 적히지 않아 선점도 되돌린 것이다 —
+    // KIS 전송 직전 — 선점을 잡고 INTENT를 적는다. 거짓이면 저널에 적히지 않아 선점도 되돌린 것이다 —
     //  라우터는 그 주문을 보내지 않고 거부한다(적히지 않은 주문은 나가지 않는다).
+    //  금액 인자(price)는 double로 받아 장부 안에서 원으로 한 번 반올림한다(Quant/include/risk/Money.h round_won) —
+    //  부르는 쪽 시그니처를 그대로 두려고 경계에서 바꾼다. 종목을 id로 받는 갈래가 본체이고, 문자열 갈래는 id를 찾아
+    //  넘기는 얇은 래퍼다(hot path는 id 갈래를 쓴다). [why D-105]
+    [[nodiscard]] bool on_intent(const std::string& account, symbol::SymbolId symbol, OrderSide side, int quantity,
+                                 double price, const OrderRef& reference, strategy_table::StrategyId strategy = strategy_table::kNone);
     [[nodiscard]] bool on_intent(const std::string& account, const std::string& ticker, OrderSide side, int quantity,
                                  double price, const OrderRef& reference, strategy_table::StrategyId strategy = strategy_table::kNone);
     // KIS 접수(주문번호 확보). 장부 상태는 그대로, INTENT를 ACCEPT로 확정한다.
+    void on_accepted(const std::string& account, symbol::SymbolId symbol, OrderSide side, int quantity, const OrderRef& reference);
     void on_accepted(const std::string& account, const std::string& ticker, OrderSide side, int quantity, const OrderRef& reference);
     // KIS 거부·전송 예외 — INTENT가 잡은 선점을 풀고 REJECT를 적는다. reason은 KIS 메시지·예외 문구.
+    void on_reject(const std::string& account, symbol::SymbolId symbol, OrderSide side, int quantity, const OrderRef& reference,
+                   std::string_view reason);
     void on_reject(const std::string& account, const std::string& ticker, OrderSide side, int quantity, const OrderRef& reference,
                    std::string_view reason);
     // 접수 뒤 선점 — 라우터가 on_intent로 옮겨 가기 전 이름. 저널에는 INTENT(order_id 0)로 남는다. 테스트 전용으로 남긴다.
@@ -248,7 +241,7 @@ public:
     void on_accept(const std::string& ticker, OrderSide side, int quantity, double price);
 
     void add_realized_pnl(double pnl);  // SELL 체결 시 실현 손익 추가 (테스트에서도 사용)
-    // C-1: rest_price_feed 모드는 체결 콜백이 없어 daily_pnl_이 0에 고정되고, 그러면 §4의
+    // rest_price_feed 모드는 체결 콜백이 없어 daily_pnl_이 0에 고정되고, 그러면 §4의
     //  BUY 전용 손실컷이 동작하지 못한다.
     //  Engine이 잔고 재조회로 당일 기준선 대비 평가금 델타를 계산해 이 값으로 직접 덮어쓴다.
     //  (add_realized_pnl은 누적, 이건 절대치 세팅 — 잔고 대조 전용)
@@ -258,7 +251,7 @@ public:
     // 잔고 대조 스레드가 총평가금(tot_evlu_amt) 갱신 시 호출. check()가 락 없이 읽도록 atomic.
     // 0이면 §3d 게이트 비활성(자본 미상 시 폴백 안전 — 종목당·동시보유 백스톱이 커버).
     void set_equity(double equity);
-    double equity() const
+    Won equity() const
     {
         return equity_.load(std::memory_order_relaxed);
     }
@@ -268,7 +261,7 @@ public:
     //  현금을 묶으면 살 수 없다. 이 값이 없으면 게이트가 그걸 모른 채 계속 발주하고
     //  KIS가 40250000으로 전량 거부한다(2026-09-08 59건).
     void set_available_cash(double available_cash);
-    double available_cash() const
+    Won available_cash() const
     {
         return available_cash_.load(std::memory_order_relaxed);
     }
@@ -278,9 +271,9 @@ public:
     //  적지 않는다 — 재기동 뒤 첫 대조가 다시 채운다. 가격이 0 이하인 줄은 건너뛴다.
     void replace_mark_prices(const std::string& account, const std::vector<std::pair<std::string, double>>& marks);
 
-    // ── 장부 부트스트랩 (G5) — 기동 시 실계좌 보유분을 장부에 시드 ─────────────
-    // 체결이 아니므로 reserved_/daily_pnl_은 불변. 기동 때와 데이터 스레드의 재동기(LedgerReconciler) 때 부른다.
-    // positions_·average_prices_·sellable_·opened_at_을 설정한다.
+    // ── 장부 부트스트랩 — 기동 시 실계좌 보유분을 장부에 시드 ─────────────
+    // 체결이 아니므로 선점·당일 손익은 불변. 기동 때와 데이터 스레드의 재동기(LedgerReconciler) 때 부른다.
+    // 그 줄의 보유·평단·매도가능·열린 시각을 설정한다.
     // on_fill_confirmed 재사용 금지(수수료·실현손익 오적립) → 전용 API.
     // 계좌키는 신호가 쓰는 account_id와 반드시 동일해야 조회된다(단일계좌는 account="").
     // sellable < 0 이면 "모름"으로 보고 보유수량을 그대로 쓴다.
@@ -290,13 +283,15 @@ public:
 
     void seed_position(const std::string& ticker, int quantity, double average_price);
 
-    // ── 미체결 취소/정정 축소 시 선점 해제 (C5, MM-1) ─────────────────────
-    // quantity = 취소된 미체결 잔량(>0). reserved_만 감소 — positions_/average_price는 불변(취소는 체결 아님).
+    // ── 미체결 취소/정정 축소 시 선점 해제 ─────────────────────
+    // quantity = 취소된 미체결 잔량(>0). 선점만 감소 — 보유·평단은 불변(취소는 체결 아님).
     // side 쪽 선점만 줄인다(on_fill_confirmed의 선점 해제와 같은 규칙).
     // 호출 규약: 반드시 KIS 취소 성공(rt_cd=="0") 이후에만 호출 — 실패 시 호출하면 이중해제.
     // reference 기본값을 `= OrderRef{}`로 두지 않고 겹정의로 둔다 — OrderRef가 이 클래스 안의 중첩 구조체이던 때
     //  GCC가 기본 인자에서 멤버 기본값을 읽지 못해 컴파일을 거부했다(리눅스 빌드 09-22). 지금은 PositionLedgerTypes.h로
     //  나왔지만 호출처 시그니처를 그대로 두려고 겹정의를 남긴다. 아래 on_fill_confirmed도 같다.
+    void on_cancel(const std::string& account, symbol::SymbolId symbol, OrderSide side, int quantity,
+                   const OrderRef& reference);
     void on_cancel(const std::string& account, const std::string& ticker, OrderSide side, int quantity,
                    const OrderRef& reference);
     void on_cancel(const std::string& account, const std::string& ticker, OrderSide side, int quantity);
@@ -307,6 +302,9 @@ public:
     // H0STCNI0 체결통보 수신 후 호출. average_price 재계산 + 실현손익 적립. 결과 칸은 FillResult(PositionLedgerTypes.h).
     // strategy: OrderSignal.strategy_index(strategy_index_of로 받은 번호). kNone이면 서브장부 갱신을 건너뛴다.
     //  reference: 이 체결이 속한 주문(저널 FILL 레코드용). 라우터가 ODNO를 못 이은 체결은 비워 둔다.
+    FillResult on_fill_confirmed(const std::string& account, symbol::SymbolId symbol,
+                                 OrderSide side, int quantity, double price,
+                                 strategy_table::StrategyId strategy, const OrderRef& reference);
     FillResult on_fill_confirmed(const std::string& account, const std::string& ticker,
                                  OrderSide side, int quantity, double price,
                                  strategy_table::StrategyId strategy, const OrderRef& reference);
@@ -323,11 +321,11 @@ public:
         return on_fill_confirmed(std::string(), ticker, side, quantity, price, strategy_table::kNone);
     }
 
-    // ── 선점(reserved_) 전면 초기화 — REST 잔고 대조 전용 ────────────────────
+    // ── 선점 전면 초기화 — REST 잔고 대조 전용 ────────────────────
     // 체결피드(H0STCNI0)가 없는 rest_price_feed 모드는 on_fill_confirmed가 호출되지 않아
-    // reserved_(미체결 선점)가 영구 누적된다(H-1 드리프트) → check()가 positions_+reserved_로
+    // 미체결 선점이 영구 누적된다(드리프트) → check()가 보유+선점으로
     // 한도를 봐 정상 신호까지 과잉 차단. 잔고 대조는 서버 확정 스냅샷이므로, 재동기 시점에
-    // reserved_를 통째로 비우고 실보유(positions_)만 신뢰한다. 잔고조회 성공 사이클에만 호출.
+    // 선점을 통째로 비우고 실보유만 신뢰한다. 잔고조회 성공 사이클에만 호출.
     void reset_reserved();
 
     // ── 유령 슬롯 정리 ───────────────────────────────────────────────────────
@@ -358,13 +356,13 @@ public:
     //  KIS 값은 이 세션의 미체결 매도까지 뺀 수라 되더해 둔다 — clamp가 그만큼 다시 빼기 때문이다.
     void refresh_sellable(const std::string& account, const std::string& ticker, int ord_psbl_qty);
     // 체결통보(WS) 모드 잔고 대조에서 장부 수량 > 잔고 수량인 종목을 놓친 매도 체결로 보고 맞춘다.
-    //  조건: 차이가 미체결 매도(reserved_ 매도분) 이내이고, 같은 잔고 수량이 두 번 연속 관측될 때만
+    //  조건: 차이가 미체결 매도(선점 매도분) 이내이고, 같은 잔고 수량이 두 번 연속 관측될 때만
     //  (잔고 왕복이 통보보다 빠른 순간의 경합 회피). 맞춘 수량을 돌려주고 아니면 0.
     //  09-11 11:00 재연결 사이에 248170 매도 52주 통보가 빠져 18분간 유령 52주가 슬롯을 물었다.
     int absorb_missed_sell(const std::string& account, const std::string& ticker, int balance_quantity);
-    // absorb_missed_sell의 매수 쪽. 장부 수량 < 잔고 수량이고 차이가 미체결 매수(reserved_ 매수분) 이내이며 같은 잔고
+    // absorb_missed_sell의 매수 쪽. 장부 수량 < 잔고 수량이고 차이가 미체결 매수(선점 매수분) 이내이며 같은 잔고
     //  수량이 두 번 연속 보일 때만 맞춘다. 평단은 잔고 평단으로 둔다(놓친 체결가를 모른다). 맞춘 수량, 아니면 0.
-    //  체결통보 큐가 가득 차 버린 매수(D-056)는 이게 없으면 재기동 때까지 장부에 안 잡혔다. [why CODE_REVIEW W-1]
+    //  체결통보 큐가 가득 차 버린 매수(D-056)는 이게 없으면 재기동 때까지 장부에 안 잡혔다.
     int absorb_missed_buy(const std::string& account, const std::string& ticker, int balance_quantity,
                           double balance_average);
 
@@ -379,7 +377,7 @@ public:
     int    reserved(const std::string& account, const std::string& ticker) const;
     int    reserved(const std::string& account, symbol::SymbolId symbol) const;
     int    reserved_sell(const std::string& account, symbol::SymbolId symbol) const;
-    double average_price(const std::string& account, const std::string& ticker) const;
+    Won    average_price(const std::string& account, const std::string& ticker) const;
     int    position(const std::string& ticker) const
     {
         return position(std::string(), ticker);
@@ -390,14 +388,14 @@ public:
         return reserved(std::string(), ticker);
     }
 
-    double average_price(const std::string& ticker) const
+    Won average_price(const std::string& ticker) const
     {
         return average_price(std::string(), ticker);
     }
 
-    double daily_pnl() const;
+    Won daily_pnl() const;
 
-    // ── 보유 포지션 스냅샷 (G3 강제청산) — net>0 실보유분만 락 하 복사 반환 ──────
+    // ── 보유 포지션 스냅샷(강제청산) — net>0 실보유분만 락 하 복사 반환 ──────
     //  보호 주문 평가, LedgerReconciler 재동기, Engine::held_positions가 부른다.
     //  강제 청산은 LedgerSnapshot을 읽고 이 함수를 쓰지 않는다.
     std::vector<HeldPos> snapshot_positions() const;
@@ -428,7 +426,7 @@ public:
     [[nodiscard]] PosKey register_signal(const OrderSignal& signal);
 
     // 거래일 첫 회차(OrderGate::reset_daily) — 미체결 선점을 비운다. 보유·평단은 영속 장부라 둔다. 저널에 RESET_DAY로
-    //  그 거래일을 남겨, 같은 날 재기동한 프로세스가 리플레이로 "오늘 리셋은 끝났다"를 알게 한다. [why A-4]
+    //  그 거래일을 남겨, 같은 날 재기동한 프로세스가 리플레이로 "오늘 리셋은 끝났다"를 알게 한다.
     void expire_reservations(uint32_t trading_date_yyyymmdd);
 
     // 마지막으로 하루 리셋을 한 KST 거래일(yyyymmdd). 한 번도 없으면 0.
@@ -450,14 +448,22 @@ private:
     //  갈라져 있으면 한쪽만 고쳐지므로 여기 하나만 둔다. 호출 전에 positions_mutex_를 잡아야 한다(내부에서 잡지 않음).
     void release_reservation(const PosKey& key, OrderSide side, int quantity);
 
-    // on_intent의 reserved_/reserved_price_ 갱신 본체 — 저널 리플레이(apply_record)도 이걸 그대로 써서
+    // on_intent의 선점·선점가 갱신 본체 — 저널 리플레이(apply_record)도 이걸 그대로 써서
     //  기동 시 복구된 상태가 실시간 경로와 같은 규칙을 거친다. delta는 side 쪽 선점의 증감이다.
     //  [inv] positions_mutex_를 잡고 부른다.
-    void apply_reservation_delta(std::string_view account, std::string_view ticker, OrderSide side, int delta, double price);
+    void apply_reservation_delta(const PosKey& key, OrderSide side, int delta, Won price);
+
+    // 줄 읽기·지우기 — [inv] 셋 다 positions_mutex_를 쥐고 부른다. row_locked는 없으면 빈 줄(kNoRow)을 돌려준다.
+    const PositionRow& row_locked(const PosKey& key) const;
+    PositionRow*       find_row_locked(const PosKey& key);
+    // 칸을 비운 뒤 부른다 — 모든 칸이 없음이면 줄을 지운다(닫힌 종목 줄이 맵에 쌓이지 않게).
+    void erase_if_empty_locked(const PosKey& key);
+    // 쓰기 경로의 종목 id — 처음 보는 종목은 등록한다. 테이블이 가득 차면 던진다(LedgerKeys::make와 같은 규칙).
+    symbol::SymbolId intern_for_write(std::string_view ticker);
 
     // ── 저널 ────────────────────────────────────────────────────────────────
     // 레코드 하나를 저널 버퍼에 쌓고(계좌·종목을 채워서) seq를 돌려준다. 디스크는 건드리지 않는다 — 장부 잠금 안에서
-    //  불러 순서를 잡고, 쓰기는 잠금을 푼 뒤 journal_flush()가 한다. 리플레이 중이거나 저널이 없으면 0. [why CODE_REVIEW W-2]
+    //  불러 순서를 잡고, 쓰기는 잠금을 푼 뒤 journal_flush()가 한다. 리플레이 중이거나 저널이 없으면 0.
     uint64_t journal_append(ledger_journal::Record& record, std::string_view account, std::string_view ticker);
     // 저널의 계좌 칸 → 장부 키. journal_account_와 같으면 단일 계좌 키 ""로 되돌린다(journal_append의 반대).
     std::string ledger_account_of(const char* journal_account) const;
@@ -483,16 +489,18 @@ private:
     // 리플레이 중에만 미결 주문을 센다 — 실시간 경로는 라우터 history_가 같은 것을 안다(hot path에 더 얹지 않는다).
     void track_open_intent(const ledger_journal::Record& record);
 
-    std::atomic<double> available_cash_{0.0}; // 주문가능현금 스냅샷. 잔고 대조가 갱신, clamp_buy_quantity가 락 없이 읽음
-    std::atomic<double> equity_{0.0};      // 총평가금 스냅샷(§3d 총노출 게이트 분모). 잔고 대조가 갱신, check()가 락 없이 읽음
+    std::atomic<Won> available_cash_{0}; // 주문가능현금 스냅샷(원). 잔고 대조가 갱신, clamp_buy_quantity가 락 없이 읽음
+    std::atomic<Won> equity_{0};         // 총평가금 스냅샷(원, §3d 총노출 게이트 분모). 잔고 대조가 갱신, check()가 락 없이 읽음
     std::atomic<uint32_t> last_daily_reset_date_{0}; // 하루 리셋을 한 거래일(yyyymmdd). expire_reservations·RESET_DAY 리플레이가 쓴다
 
     // 장부 키 표 — 종목 테이블(자체 락)과 계좌 이름. 계좌 이름 쪽은 positions_mutex_를 잡고 쓴다.
     LedgerKeys keys_;
 
     mutable std::mutex positions_mutex_;
-    PosMap<Reservation> reserved_; // (account,ticker) → 미체결 선점 수량(매수·매도 따로). 재주문 차단용
-    PosMap<double> reserved_price_; // (account,ticker) → 매수 선점가(§3d 총노출 계산용). 매수 선점이 0이 되면 같이 지운다
+    // (account,ticker) → 장부 한 줄(보유·선점·선점가·평단·현재가·매도가능·잔고 관측·열린 시각). 칸 뜻은 PositionRow.
+    //  매도가능수량은 보유수량과 다르다: 기동 전 세션이 남긴 미체결 매도, 미결제분 때문에 KIS가 실제로 받아 주는
+    //  매도 수량은 보유보다 적을 수 있다. 이걸 모르면 전량 청산이 40240000(주문가능분 없음)으로 통째 거부된다.
+    PosMap<PositionRow> rows_;
     // 장부 저널 — set_journal() 이전엔 nullptr(저널 없이 동작, 테스트·벤치 기본). replaying_은 set_journal 안에서만
     //  참(스레드 시작 전)이라 락 없이 읽는다. [why D-113]
     std::unique_ptr<ledger_journal::LedgerJournal> journal_;
@@ -504,17 +512,6 @@ private:
     uint64_t                     highest_order_id_ = 0;  // 리플레이가 본 가장 큰 order_id. set_journal 안에서만 쓴다
     std::string                  journal_account_;       // 키 ""를 저널에 적을 때 쓰는 계좌 번호(set_journal_account)
     std::atomic<int32_t>         regime_code_{-1};       // Regime::Value, -1 = 아직 모름(set_regime)
-    PosMap<int>    positions_;  // (account,ticker) → 실체결 순보유 수량 (양수=롱)
-    PosMap<double> average_prices_;
-    PosMap<double> mark_prices_;    // (account,ticker) → 잔고 현재가(§3d 총노출 분자). 잔고 대조가 통째 갈아 끼운다
-    // account:ticker -> 매도가능수량. 보유수량과 다르다: 기동 전 세션이 남긴 미체결 매도,
-    //  미결제분 때문에 KIS가 실제로 받아주는 매도 수량은 보유보다 적을 수 있다. 이걸 모르면
-    //  전량 청산이 40240000(주문가능분 없음)으로 통째 거부돼 한 주도 못 빠져나온다.
-    //  기동 시드에서 잔고의 ord_psbl_qty로 채우고, 이후 체결로 증감시킨다.
-    PosMap<int>       sellable_;         // (account,ticker) → 매도가능수량(주)
-    PosMap<int>       missed_sell_seen_; // (account,ticker) → 직전 대조에서 본 잔고 수량(2회 연속 확인용)
-    PosMap<int>       missed_buy_seen_;  // 매수 쪽 같은 용도(absorb_missed_buy)
-    PosMap<TimePoint> opened_at_;        // (account,ticker) → 포지션이 0에서 열린 시각(교체 최소 보유 판정)
     std::unordered_set<symbol::SymbolId> slot_exempt_; // 슬롯 계산 밖 종목(아래 소유자별 목록의 합집합). positions_mutex_ 보호 [why D-109]
     std::unordered_map<strategy_table::StrategyId, std::unordered_set<symbol::SymbolId>> slot_exempt_by_owner_; // 소유자별 목록. positions_mutex_ 보호 [why D-157]
     // 발행끼리 줄 세우는 잠금 — 사본의 판 번호는 한 번에 한 스레드만 뒤집어야 한다.
@@ -522,7 +519,7 @@ private:
     // 사본에 못 실은 다른 계좌 줄의 누적 수. publish_ledger만 쓴다.
     mutable std::atomic<uint64_t> ledger_foreign_account_rows_{0};
 
-    // 전략별 서브장부(D-089, 손익 귀속 전용) — positions_/average_prices_와 같은 락(positions_mutex_)으로 보호.
+    // 전략별 서브장부(D-089, 손익 귀속 전용) — rows_와 같은 락(positions_mutex_)으로 보호.
     //  키는 (전략 번호, 종목 id). 전략 이름 문자열 하나가 키이던 때는 한 전략이 여러 종목을 사면 평단이 섞였다
     //  (DEVSCALE이 A·B를 같이 들면 A 매도의 손익이 B 매수가에 물렸다). 계좌 축은 종목 장부가 든다. [why D-112]
     struct StrategyKey
@@ -540,29 +537,29 @@ private:
 
     // on_fill_confirmed의 단계 — 셋 다 [inv] positions_mutex_를 쥐고 부른다. result.commission·tax는 부른 쪽이 먼저 채운다.
     //  전략별 서브장부 한 줄(손익 귀속 참고용), 매수 체결의 종목 장부, 매도 체결의 종목 장부.
-    void apply_strategy_fill(const StrategyKey& strategy_key, OrderSide side, int quantity, double price, FillResult& result);
-    void apply_buy_fill(const PosKey& key, int pre_quantity, double current_average, int quantity, double price,
-                        FillResult& result);
-    void apply_sell_fill(const PosKey& key, int pre_quantity, double current_average, int quantity, double price,
-                         FillResult& result);
+    void apply_strategy_fill(const StrategyKey& strategy_key, OrderSide side, int quantity, Won price, FillResult& result);
+    void apply_buy_fill(PositionRow& row, int quantity, Won price, FillResult& result);
+    void apply_sell_fill(PositionRow& row, int quantity, Won price, FillResult& result);
+    // 체결 본체 — 종목 id가 정해진 뒤. 문자열·id 갈래가 둘 다 이것을 부른다.
+    FillResult apply_fill(const std::string& account, symbol::SymbolId symbol, OrderSide side, int quantity, Won price,
+                          strategy_table::StrategyId strategy, const OrderRef& reference);
 
-    // publish의 단계 사이에 오가는 합계 — 열린 자리, 총노출 명목, 다른 계좌라 못 넣은 줄 수.
+    // publish의 단계 사이에 오가는 합계 — 열린 자리, 총노출 명목(원), 다른 계좌라 못 넣은 줄 수.
     struct PublishTally
     {
         size_t   open_slots   = 0;
-        double   gross        = 0.0;
+        Won      gross        = 0;
         uint64_t foreign_rows = 0;
     };
 
-    // publish의 단계 — 셋 다 [inv] positions_mutex_를 쥐고 부른다. 이번 판의 계좌 고르기, ① 미체결 선점 줄, ② 보유 줄.
+    // publish의 단계 — 둘 다 [inv] positions_mutex_를 쥐고 부른다. 이번 판의 계좌 고르기, 장부 줄 싣기(선점·보유).
     uint32_t publish_account_locked() const;
-    void     publish_reserved_rows_locked(ipc::LedgerSnapshot& snapshot, uint32_t account, PublishTally& tally) const;
-    void     publish_position_rows_locked(ipc::LedgerSnapshot& snapshot, uint32_t account, PublishTally& tally) const;
+    void     publish_rows_locked(ipc::LedgerSnapshot& snapshot, uint32_t account, PublishTally& tally) const;
 
     strategy_table::StrategyTable                            strategies_; // 전략 이름 → 번호. 자체 소유(엔진·디스패처·라우터가 이 표를 쓴다)
     std::unordered_map<StrategyKey, int, StrategyKeyHash>    strategy_positions_;
-    std::unordered_map<StrategyKey, double, StrategyKeyHash> strategy_average_prices_;
+    std::unordered_map<StrategyKey, Won, StrategyKeyHash>    strategy_average_prices_; // 전략 몫 평단(원)
 
     mutable std::mutex pnl_mutex_;
-    double daily_pnl_{0.0};
+    Won daily_pnl_ = 0; // 당일 손익(원)
 };

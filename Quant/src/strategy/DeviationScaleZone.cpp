@@ -2,6 +2,12 @@
 //  관련 결정: D-005(오늘 현재가 접기)·D-033(유지 축)·D-088(hold_zone)·D-111(하루 진입 필터).
 #include "strategy/DeviationScaleStrategy.h"
 
+#include <chrono>
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <vector>
+
 namespace
 {
 // 예열 안내 로그 사이 최소 간격 — 종목마다 나오므로 1분에 한 줄로 묶는다.
@@ -32,11 +38,11 @@ DeviationScaleStrategy::ZoneJudgement DeviationScaleStrategy::judge_zone(double 
     const bool aligned_hold =
         daily_averages_previous.average_20 > 0.0 &&
         quant::moving_average::aligned(daily_averages_previous, parameters_.align_moving_average_tolerance_percent);
-    const double d_s20 = daily_averages.average_20;
+    const double daily_sma20 = daily_averages.average_20;
     // 방향성 이격(부호 유지): +면 SMA20 위(확장추격), −면 아래(눌림). 절대값 금지.
     //  SMA20 미확보(≤0) 시 큰 양수 센티넬로 둬 존 상단 밖으로 밀어내 진입을 막는다.
-    constexpr double kNoDataDeviationPct = 999.0;
-    const double deviation20_percent = d_s20 > 0.0 ? (current_price - d_s20) / d_s20 * 100.0 : kNoDataDeviationPct;
+    constexpr double kNoDataDeviationPercent = 999.0;
+    const double deviation20_percent = daily_sma20 > 0.0 ? (current_price - daily_sma20) / daily_sma20 * 100.0 : kNoDataDeviationPercent;
     // 방향성 눌림 게이트: 진입은 "SMA20 이하(≤0%) ~ pullback_pct 아래"의 눌림 구간에서만.
     //   정배열 상승추세에서 SMA20 눌림(entry_upper_percent=0) 또는 SMA20 위 소폭(entry_upper_percent>0)까지 진입 허용.
     //   히스테리시스: 활성이거나 보유 중이면 양쪽에 zone_hysteresis를 더 둔다(경계 진동 방지·재기동 직후 오판 매도 방지).
@@ -45,7 +51,7 @@ DeviationScaleStrategy::ZoneJudgement DeviationScaleStrategy::judge_zone(double 
         trading_.in_zone || holding);
     const double up_threshold = zone_band.up_percent;
     const double low_threshold = zone_band.low_percent;
-    const bool band = d_s20 > 0.0 && deviation20_percent <= up_threshold && deviation20_percent >= low_threshold;
+    const bool band = daily_sma20 > 0.0 && deviation20_percent <= up_threshold && deviation20_percent >= low_threshold;
     const bool zone = aligned && band; // 진입 게이트
     // [inv] hold_zone은 zone보다 넓어야 한다(정배열 축이 느린 쪽) — 좁아지면 막 산 걸 다음
     //  틱에 바로 되판다. aligned_hold(전일 확정)만 쓰면 당일 막 정배열이 시작된 종목은 전일
@@ -61,7 +67,7 @@ DeviationScaleStrategy::ZoneJudgement DeviationScaleStrategy::judge_zone(double 
         now - trading_.zone_log_ts >= std::chrono::seconds(60))
     {
         LOG_INFO("[" + id() + "] " + display() + " 존 판정 " + (zone ? "활성" : "대기") +
-                 " | 정배열=" + (aligned ? "Y" : "N") + " 일봉SMA20=" + format_one_decimal(d_s20) +
+                 " | 정배열=" + (aligned ? "Y" : "N") + " 일봉SMA20=" + format_one_decimal(daily_sma20) +
                  " 현재가=" + format_one_decimal(current_price) + " 이격=" + format_one_decimal(deviation20_percent) +
                  "% (진입밴드 " + format_one_decimal(low_threshold) + "%~" + format_one_decimal(up_threshold) +
                  "%) 유지=" + (hold_zone ? "Y" : "N") + " 일봉수=" + std::to_string(daily_->size()));
@@ -71,7 +77,7 @@ DeviationScaleStrategy::ZoneJudgement DeviationScaleStrategy::judge_zone(double 
 
     ZoneJudgement zone_judgement;
     zone_judgement.previous_average_20 = daily_averages_previous.average_20;
-    zone_judgement.average_20 = d_s20;
+    zone_judgement.average_20 = daily_sma20;
     zone_judgement.deviation20_percent = deviation20_percent;
     zone_judgement.zone = zone;
     zone_judgement.hold_zone = hold_zone;
@@ -79,7 +85,7 @@ DeviationScaleStrategy::ZoneJudgement DeviationScaleStrategy::judge_zone(double 
 }
 
 std::optional<DeviationScaleStrategy::Baseline>
-DeviationScaleStrategy::resolve_baseline(const std::vector<MarketData>& bars, double d_s20, double current_price,
+DeviationScaleStrategy::resolve_baseline(const std::vector<MarketData>& bars, double daily_sma20, double current_price,
                                          std::vector<OrderSignal>& out, std::chrono::steady_clock::time_point now)
 {
     // ── 3분봉 기준선(스냅샷에서 이미 받음) ───────────────────────────────
@@ -107,7 +113,7 @@ DeviationScaleStrategy::resolve_baseline(const std::vector<MarketData>& bars, do
 
     // 워밍업 구간에는 일봉 SMA20(존 게이트가 이미 쓴 값)을 기준선으로 대신 쓴다.
     const double simple_moving_average =
-        warming ? d_s20 : simple_moving_average_close(bars, parameters_.simple_moving_average_period); // bars[0]=최신
+        warming ? daily_sma20 : simple_moving_average_close(bars, parameters_.simple_moving_average_period); // bars[0]=최신
 
     if (simple_moving_average <= 0.0)
     {
@@ -125,7 +131,7 @@ DeviationScaleStrategy::resolve_baseline(const std::vector<MarketData>& bars, do
             trading_.last_warm_log_ms = now_ms;
             LOG_INFO("[" + id() + "] 일봉 기준선 대체 — 3분봉 " + std::to_string(bars.size()) + "/" +
                      std::to_string(parameters_.simple_moving_average_period) +
-                     "봉, 일봉SMA20=" + format_one_decimal(d_s20) + " 현재가=" + format_one_decimal(current_price));
+                     "봉, 일봉SMA20=" + format_one_decimal(daily_sma20) + " 현재가=" + format_one_decimal(current_price));
         }
     }
 
@@ -138,19 +144,20 @@ std::string DeviationScaleStrategy::entry_context_text(const TradeData& trade, d
     //  배율·직전 250봉 고가 대비 거리. 나중에 "저항 아래서 샀나"를 장부에서 바로 대조한다.
     //  REST 폴링 틱은 strength/accumulated_volume이 0이라 그때는 찍지 않는다.
     std::string entry_context;
-    double volume20 = 0.0, hi250 = 0.0;
+    double average_volume_20 = 0.0;
+    double high_250          = 0.0;
     const size_t value_count = (std::min)(daily_->size(), static_cast<size_t>(20));
 
     for (size_t index = 0; index < value_count; ++index)
     {
-        volume20 += static_cast<double>((*daily_)[index].volume);
+        average_volume_20 += static_cast<double>((*daily_)[index].volume);
     }
 
-    volume20 = value_count > 0 ? volume20 / static_cast<double>(value_count) : 0.0;
+    average_volume_20 = value_count > 0 ? average_volume_20 / static_cast<double>(value_count) : 0.0;
 
     for (const auto& daily_bar : *daily_)
     {
-        hi250 = (std::max)(hi250, daily_bar.high);
+        high_250 = (std::max)(high_250, daily_bar.high);
     }
 
     if (trade.strength > 0.0)
@@ -158,15 +165,15 @@ std::string DeviationScaleStrategy::entry_context_text(const TradeData& trade, d
         entry_context += " 체결강도=" + format_one_decimal(trade.strength);
     }
 
-    if (trade.accumulated_volume > 0 && volume20 > 0.0)
+    if (trade.accumulated_volume > 0 && average_volume_20 > 0.0)
     {
         entry_context +=
-            " 누적거래량/20일평균=" + format_one_decimal(static_cast<double>(trade.accumulated_volume) / volume20);
+            " 누적거래량/20일평균=" + format_one_decimal(static_cast<double>(trade.accumulated_volume) / average_volume_20);
     }
 
-    if (hi250 > 0.0)
+    if (high_250 > 0.0)
     {
-        entry_context += " 250봉고가대비=" + format_one_decimal((current_price - hi250) / hi250 * 100.0) + "%";
+        entry_context += " 250봉고가대비=" + format_one_decimal((current_price - high_250) / high_250 * 100.0) + "%";
     }
 
     if (parameters_.stop_loss_percent > 0.0)
@@ -180,15 +187,15 @@ std::string DeviationScaleStrategy::entry_context_text(const TradeData& trade, d
 bool DeviationScaleStrategy::day_entry_allowed(double current_price, double previous_sma20, int hhmm)
 {
     const bool filter_off = parameters_.entry_atr_max_percent <= 0.0 &&
-                            parameters_.entry_open_deviation_min_percent <= -99.0 &&
-                            parameters_.entry_open_deviation_max_percent >= 99.0;
+                            parameters_.entry_open_deviation_min_percent <= Params::kOpenDeviationOff &&
+                            parameters_.entry_open_deviation_max_percent >= Params::kOpenDeviationMaxOff;
 
     if (filter_off)
     {
         return true;
     }
 
-    const std::string today = kst_ymd();
+    const std::string today = kst_date_yyyymmdd();
 
     if (trading_.entry_filter_date != today)
     {

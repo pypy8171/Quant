@@ -11,6 +11,9 @@
 
 #include "bench_latency_path_support.h"
 
+#include <cstdio>
+#include <thread>
+
 using namespace latency_path_bench;
 
 int main()

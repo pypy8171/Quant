@@ -13,6 +13,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "api/KisClient.h"
@@ -73,7 +74,7 @@ struct DevScaleScanBuffers
     std::vector<double>  multiplier; // scores 순서의 비중 배수
     std::vector<double>  sorted_raw; // score_to_mult 작업 버퍼
     std::vector<double>  krw;        // scores 순서의 종목당 명목(원)
-    std::vector<bool>    held;       // 재스캔 때 보유·바스켓 종목 표시(종목 id 인덱스)
+    std::vector<uint8_t> held;       // 재스캔 때 보유·바스켓 종목 표시(종목 id 인덱스)
 };
 
 // 점수를 얼마를 사는가(배수·원)로 바꾸는 설정.
@@ -107,7 +108,7 @@ struct RescanPolicy
 // 기동 때 잔고로 가린 스캔 제외 종목.
 struct HeldSnapshot
 {
-    std::vector<bool>             held;       // 스캔에서 뺄 종목(보유분·바스켓 소유, 종목 id 인덱스)
+    std::vector<uint8_t>          held;       // 스캔에서 뺄 종목(보유분·바스켓 소유, 종목 id 인덱스)
     std::vector<symbol::SymbolId> reinstated; // 보유 중인 최근 매수분 — 스캔에 없어도 등록하고 청산 관리는 안 붙인다
 };
 
@@ -185,7 +186,7 @@ void publish_entry_priority(Engine& engine, EntryPriorityMerger& merger, const s
     engine.set_entry_priority(merger.entries, static_cast<int>(merged.size()));
 }
 
-void drop_marked(std::vector<symbol::SymbolId>& scanned, const std::vector<bool>& marks)
+void drop_marked(std::vector<symbol::SymbolId>& scanned, const std::vector<uint8_t>& marks)
 {
     std::erase_if(scanned, [&marks](symbol::SymbolId symbol)
     {
@@ -200,7 +201,7 @@ void drop_marked(std::vector<symbol::SymbolId>& scanned, const std::vector<bool>
 class DevScaleSleeve
 {
 public:
-    DevScaleSleeve(Engine& engine, DevScaleParams parameters, universe::DevScanCfg scan_config, DevScaleSizing sizing,
+    DevScaleSleeve(Engine& engine, DevScaleParams parameters, universe::DeviationScaleScanConfig scan_config, DevScaleSizing sizing,
                    std::shared_ptr<EntryPriorityMerger> merger);
 
     const DevScaleParams&       parameters() const
@@ -208,7 +209,7 @@ public:
         return parameters_;
     }
 
-    const universe::DevScanCfg& scan_config() const
+    const universe::DeviationScaleScanConfig& scan_config() const
     {
         return scan_config_;
     }
@@ -231,7 +232,7 @@ private:
 
     Engine&                              engine_;
     const DevScaleParams                 parameters_;
-    const universe::DevScanCfg           scan_config_;
+    const universe::DeviationScaleScanConfig           scan_config_;
     const DevScaleSizing                 sizing_;
     std::shared_ptr<EntryPriorityMerger> merger_;
 
@@ -245,7 +246,7 @@ private:
     DevScaleScanBuffers buffers_;
 };
 
-DevScaleSleeve::DevScaleSleeve(Engine& engine, DevScaleParams parameters, universe::DevScanCfg scan_config,
+DevScaleSleeve::DevScaleSleeve(Engine& engine, DevScaleParams parameters, universe::DeviationScaleScanConfig scan_config,
                                DevScaleSizing sizing, std::shared_ptr<EntryPriorityMerger> merger)
     : engine_(engine),
       parameters_(std::move(parameters)),
@@ -271,7 +272,7 @@ std::unique_ptr<StrategyBase> DevScaleSleeve::make(symbol::SymbolId symbol) cons
 
         if (multiplier_by_symbol_[symbol] > 0.0)
         {
-            deviation_parameters.size_mult = multiplier_by_symbol_[symbol];
+            deviation_parameters.size_multiplier = multiplier_by_symbol_[symbol];
         }
 
         if (krw_by_symbol_[symbol] > 0.0)
@@ -286,7 +287,8 @@ std::unique_ptr<StrategyBase> DevScaleSleeve::make(symbol::SymbolId symbol) cons
 std::vector<symbol::SymbolId> DevScaleSleeve::scan(KisClient& kis)
 {
     // 스캐너가 응답의 문자열 티커를 종목 테이블에 한 번 넣고 id·이름·점수를 준다.
-    universe::ScanResult scan = universe::scan_devscale(kis, scan_config_, engine_.symbols(), buffers_.quotes);
+    universe::ScanResult scan =
+        universe::scan_devscale(kis, scan_config_, engine_.market_board(), engine_.symbols(), buffers_.quotes);
 
     for (size_t index = 0; index < scan.symbols.size(); ++index)
     {
@@ -356,8 +358,8 @@ std::vector<symbol::SymbolId> DevScaleSleeve::scan_initial(KisClient& kis, const
 std::vector<symbol::SymbolId> DevScaleSleeve::rescan(KisClient& kis)
 {
     std::vector<symbol::SymbolId> scanned = scan(kis);
-    std::vector<bool>&            current = buffers_.held;
-    current.assign(engine_.symbols().capacity(), false);
+    std::vector<uint8_t>&         current = buffers_.held;
+    current.assign(engine_.symbols().capacity(), 0);
 
     for (const auto& held_position : engine_.held_positions())
     {
@@ -374,7 +376,7 @@ std::vector<symbol::SymbolId> DevScaleSleeve::rescan(KisClient& kis)
 }
 
 // ─── 설정 읽기 ──────────────────────────────────────────────────────────────
-//  기본값은 DeviationScaleStrategy::Params·universe::DevScanCfg의 멤버 기본값 한 곳에 둔다(read_or_keep).
+//  기본값은 DeviationScaleStrategy::Params·universe::DeviationScaleScanConfig의 멤버 기본값 한 곳에 둔다(read_or_keep).
 
 // 공통 파라미터(티커 제외) — 스캔 유니버스/단일 종목이 함께 쓴다.
 DevScaleParams parse_devscale_parameters(const json& node)
@@ -427,9 +429,9 @@ DevScaleParams parse_devscale_parameters(const json& node)
 // 스캔 유니버스 설정. 1단(스캐너): 시세 표의 거래대금·거래증가율·등락률 상위 축의 합집합을
 //  최소·최대가 필터로 압축 + 정배열 프리필터. 시총 축은 D-146에서, KIS 순위·업종 축은 D-153에서 뺐다.
 //  2단(전략): 등록된 각 DeviationScale이 자기 일봉으로 정배열+눌림 존을 판정해 자격 종목만 실제로 매매한다.
-universe::DevScanCfg parse_scan_config(const json& node, const DevScaleParams& parameters)
+universe::DeviationScaleScanConfig parse_scan_config(const json& node, const DevScaleParams& parameters)
 {
-    universe::DevScanCfg config;
+    universe::DeviationScaleScanConfig config;
     // 거래증가율 상위 수. 시세판 거래량과 일봉 캐시의 전일 거래량으로 계산해 KIS 조회가 없다(D-153).
     read_or_keep(node, "value_top_n", config.value_top_n);
     read_or_keep(node, "turnover_top_n", config.turnover_top_n);
@@ -467,7 +469,7 @@ universe::DevScanCfg parse_scan_config(const json& node, const DevScaleParams& p
 }
 
 // 엔진 안 시세판과 장 전 일봉 데우기를 띄운다. 둘 다 슬리브가 여럿이어도 프로세스에 한 번만 뜬다. [why D-147]
-void start_scan_services(const LoadPass& context, const json& node, const universe::DevScanCfg& scan_config)
+void start_scan_services(const LoadPass& context, const json& node, const universe::DeviationScaleScanConfig& scan_config)
 {
     if (!scan_config.market_board)
     {
@@ -487,11 +489,12 @@ void start_scan_services(const LoadPass& context, const json& node, const univer
     read_or_keep(node, "market_board_minute_save", save_minute);
     read_or_keep(node, "market_board_minute_dir", minute_directory);
     board_config.minute_directory = save_minute ? minute_directory : std::string();
-    universe::MarketBoard::instance().start(board_config);
+    universe::MarketBoard& board = context.engine.market_board();
+    board.start(board_config);
 
     if (scan_config.daily_warm_until_hhmm > 0 && context.has_quote_kis)
     {
-        universe::start_daily_warm(context.quote_kis_config, scan_config);
+        universe::start_daily_warm(board, context.quote_kis_config, scan_config);
     }
 }
 
@@ -603,7 +606,7 @@ HeldSnapshot snapshot_holdings(const LoadPass& context, const DevScaleParams& pa
     const size_t symbol_capacity = engine.symbols().capacity();
     HeldSnapshot snapshot;
     snapshot.held = context.basket_owned;
-    snapshot.held.resize(std::max(snapshot.held.size(), symbol_capacity), false);
+    snapshot.held.resize(std::max(snapshot.held.size(), symbol_capacity), 0);
 
     KisClient held_kis(context.kis_config);
 
@@ -639,7 +642,8 @@ HeldSnapshot snapshot_holdings(const LoadPass& context, const DevScaleParams& pa
 
     if (parameters.buy_split_steps == 0)
     {
-        const int lookback_days = carry_over ? 20 : 0;
+        constexpr int kCarryOverLookbackDays = 20; // 이월 보유분을 찾아 되돌아보는 장부 일수
+        const int lookback_days = carry_over ? kCarryOverLookbackDays : 0;
 
         for (const auto& [ticker, net_quantity] : net_quantity_bought_recently(parameters.id_prefix, lookback_days))
         {
@@ -665,7 +669,7 @@ HeldSnapshot snapshot_holdings(const LoadPass& context, const DevScaleParams& pa
                 continue;
             }
 
-            snapshot.held[symbol] = false;
+            snapshot.held[symbol] = 0;
             --held_count;
             snapshot.reinstated.push_back(symbol);
         }
@@ -681,7 +685,7 @@ HeldSnapshot snapshot_holdings(const LoadPass& context, const DevScaleParams& pa
 //  data_thread가 rescan_sec마다 재스캔해 신규 티커를 런타임 add하고, drop_after_sec 이상 빠져 있는 티커는 뗀다.
 //  인증에 실패해도 재스캔은 엔진 내부 시세 클라이언트로 시도한다.
 void register_scan_universe(LoadPass& context, const std::shared_ptr<DevScaleSleeve>& sleeve,
-                            const HeldSnapshot& snapshot, const RescanPolicy& policy, std::vector<bool>& covered)
+                            const HeldSnapshot& snapshot, const RescanPolicy& policy, std::vector<uint8_t>& covered)
 {
     Engine&               engine    = context.engine;
     const DevScaleParams& parameters    = sleeve->parameters();
@@ -738,19 +742,19 @@ void register_scan_universe(LoadPass& context, const std::shared_ptr<DevScaleSle
 //  뒤에 로드되는 슬리브가 방금 산 종목이 "스캔 밖 보유분"으로 보여 청산 관리가
 //  겹쳐 붙고, 그 청산 관리의 seed-trail 매도가 슬리브의 잔여 매도와 같은 주식을 두고
 //  경합한다(09-11 09:26~ ITB_112610·267250·014530 매도가능수량 0 거부 반복).
-void hand_off_exit_managers(LoadPass& context, const json& node, const std::vector<bool>& covered,
+void hand_off_exit_managers(LoadPass& context, const json& node, const std::vector<uint8_t>& covered,
                             bool manage_holdings)
 {
     if (context.scan_covered.size() < covered.size())
     {
-        context.scan_covered.resize(covered.size(), false);
+        context.scan_covered.resize(covered.size(), 0);
     }
 
     for (size_t symbol = 0; symbol < covered.size(); ++symbol)
     {
         if (covered[symbol])
         {
-            context.scan_covered[symbol] = true;
+            context.scan_covered[symbol] = 1;
         }
     }
 
@@ -772,11 +776,11 @@ void load_deviation_scale(LoadPass& context, const json& node)
     const bool           manage_holdings = manage_holdings_enabled(node);
     const HeldSnapshot   snapshot        = snapshot_holdings(context, parameters, manage_holdings);
     // 스캔/단일로 실제 DeviationScale이 담당하는 종목(id 인덱스 비트) — 보유분 청산 관리 중복 부착 방지.
-    std::vector<bool> covered(engine.symbols().capacity(), false);
+    std::vector<uint8_t> covered(engine.symbols().capacity(), 0);
 
     if (node.value("universe_from_scan", false))
     {
-        universe::DevScanCfg scan_config = parse_scan_config(node, parameters);
+        universe::DeviationScaleScanConfig scan_config = parse_scan_config(node, parameters);
         start_scan_services(context, node, scan_config);
         const RescanPolicy   policy = parse_rescan_policy(node);
         const DevScaleSizing sizing = parse_sizing(node, parameters);
@@ -793,7 +797,7 @@ void load_deviation_scale(LoadPass& context, const json& node)
             return;
         }
 
-        const DevScaleSleeve   sleeve(engine, parameters, universe::DevScanCfg{}, DevScaleSizing{}, context.priority_merger);
+        const DevScaleSleeve   sleeve(engine, parameters, universe::DeviationScaleScanConfig{}, DevScaleSizing{}, context.priority_merger);
         const symbol::SymbolId symbol = engine.symbols().intern(ticker); // 설정의 문자열 티커는 여기서 id가 된다
         add_gated(context, sleeve.make(symbol));
         mark_symbol(covered, symbol, covered.size());

@@ -7,7 +7,6 @@
 #include <chrono>
 #include <cstdint>
 #include <cstring>
-#include <new>
 #include <thread>
 
 #ifdef _WIN32

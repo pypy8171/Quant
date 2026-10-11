@@ -5,6 +5,7 @@
 #include "exchange/ZmqOrderFeed.h"
 
 #include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <vector>
 

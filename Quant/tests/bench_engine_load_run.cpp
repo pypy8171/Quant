@@ -2,6 +2,23 @@
 //  공용 준비는 bench_engine_load_support.h, 구성 순회는 bench_engine_load.cpp의 main.
 #include "bench_engine_load_support.h"
 
+#include <atomic>
+#include <chrono>
+#include <cstdint>
+#include <ctime>
+#include <exception>
+#include <filesystem>
+#include <fstream>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <sstream>
+#include <string>
+#include <system_error>
+#include <thread>
+#include <utility>
+#include <vector>
+
 namespace engine_load_bench
 {
 
@@ -82,7 +99,7 @@ public:
     }
 
     // 바깥 피드가 이미 만든 체결을 그대로 넘긴다 — 값은 시장이 정하고 하네스는 어느 레인이 낸 것인지만 고른다.
-    void emit_trade_data(uint32_t lane, const TradeData& trade)
+    void emit_trade_data(uint32_t lane, TradeData& trade)
     {
         if (lane_trade_)
         {
@@ -342,13 +359,13 @@ RunResult run_once(const Options& options, const std::vector<std::string>& unive
     OrderGate::Config risk;
     risk.max_quantity_per_ticker  = 1'000'000'000;
     risk.max_quantity_per_order   = 1'000'000;
-    risk.max_notional_per_order   = 1e15; // 0은 "무제한"이 아니라 "0원 초과 금지"다 — 여기만 규칙이 반대다
-    risk.max_notional_per_ticker  = 0.0;  // 이쪽은 0이 무제한
+    risk.max_notional_per_order   = 1'000'000'000'000'000; // 0은 "무제한"이 아니라 "0원 초과 금지"다 — 여기만 규칙이 반대다
+    risk.max_notional_per_ticker  = 0;    // 이쪽은 0이 무제한
     risk.max_concurrent_positions = 0;
     risk.max_orders_per_sec       = 1'000'000;
     risk.max_orders_per_min       = 60'000'000;
     risk.deduplicate_window_sec   = 0.0;
-    risk.daily_loss_limit         = -1e15;
+    risk.daily_loss_limit         = -1'000'000'000'000'000;
     engine.set_risk_config(risk);
     engine.set_order_interval(0, 0); // 주문마다 자는 350ms를 없앤다 — 안 풀면 초당 세 건이 천장이다
     // 구독자 없는 발행 채널은 아예 열지 않는다 — 주문마다 나는 drop 로그의 파일 I/O가 측정 대상을 덮는다.

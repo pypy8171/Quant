@@ -2,6 +2,11 @@
 //  공용 준비는 test_order_router_support.h, 실행 순서는 test_order_router.cpp의 main.
 #include "test_order_router_support.h"
 
+#include <chrono>
+#include <filesystem>
+#include <fstream>
+#include <system_error>
+
 // 내부 주문번호 "ORD-000123"을 저널 정수로 — 통째로 읽으면 'O'에서 멈춰 늘 0이었다(09-28).
 void test_order_number_of_reads_digits_after_prefix()
 {
@@ -76,8 +81,42 @@ void test_transport_timeout_reconcile_retries_batch()
     PASS("transport_timeout_reconcile_retries_batch");
 }
 
+// ─── 기동 취소 보충: 방향을 모르는 브로커 미체결은 줄에 넣지 않는다 ───
+//  예전에는 매수·매도 구분 코드가 01·02 밖이면 "BUY"로 적어 취소했다. 사유 기록은 같은 경우를 "SELL"로 적어
+//  두 곳이 달랐다(4단계에서 둘 다 건너뛰기로 맞췄다). 부속 파일 줄 하나와 방향이 분명한 보충 한 건만 취소한다.
+void test_broker_open_order_unknown_side_skipped()
+{
+    OrderGate         gate(relaxed_config());
+    StubOrderExecutor stub(true);
+    OrderRouter       router(gate, stub);
+
+    stub.open_orders.push_back(make_open_order("000660", OrderSide::NONE, 4, 75000.0, "0000009102"));
+    stub.open_orders.push_back(make_open_order("035720", OrderSide::BUY, 2, 40000.0, "0000009103"));
+
+    const std::filesystem::path path = Logger::instance().path_for("open_orders.txt");
+    {
+        std::ofstream out(path, std::ios::trunc);
+        out << "0000009101|ORG000001|005930|BUY|3\n";
+    }
+
+    router.cancel_stale_orders_async();
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+
+    while (stub.cancel_calls.load() < 2 && std::chrono::steady_clock::now() < deadline)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    assert(stub.cancel_calls.load() == 2); // 파일 줄 0000009101과 보충 0000009103만. NONE인 0000009102는 빠진다
+    std::error_code error_code;
+    std::filesystem::remove(path, error_code);
+    PASS("broker_open_order_unknown_side_skipped");
+}
+
 void run_reconcile_tests()
 {
     test_order_number_of_reads_digits_after_prefix();
     test_transport_timeout_reconcile_retries_batch();
+    test_broker_open_order_unknown_side_skipped();
 }

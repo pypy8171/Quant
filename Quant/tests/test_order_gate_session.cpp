@@ -2,6 +2,10 @@
 //  공용 준비는 test_order_gate_support.h, 실행 순서는 test_order_gate.cpp의 main.
 #include "test_order_gate_support.h"
 
+#include <ctime>
+#include <iostream>
+#include <string>
+
 void test_session_window()
 {
     // 지금 KST 분 — 창을 "지금을 품는 구간"과 "지금을 피하는 구간"으로 만들어 시계에 기대지 않는다.

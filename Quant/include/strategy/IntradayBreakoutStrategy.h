@@ -6,13 +6,16 @@
 #include <chrono>
 #include <cmath>
 #include <deque>
+#include <optional>
 #include <string>
+#include <utility>
+#include <vector>
 
 // ─────────────────────────────────────────────────────────────────────────────
 // IntradayBreakoutStrategy (ITB v2)  —  장중 채널 돌파 + 물린분/신규분 분리 청산
 //
 //  협의체(전략·아키텍처·데이터·리스크) 확정 스펙(strategies/ITB/SPEC.md §2).
-//  입력은 오직 WS/REST 체결 틱(on_trade) — 깨진 REST 일봉 경로(G1/G2)를 우회한다.
+//  입력은 오직 WS/REST 체결 틱(on_trade) — 깨진 REST 일봉 경로를 우회한다.
 //
 //  [입력]  국내 실시간 체결 채널(H0STCNT0) 틱을 on_trade(TradeData)로 받는다. trade.price=현재가, trade.hhmmss=HHMMSS 정수.
 //          [wire] H0STCNT0 = 국내주식 실시간체결가(KRX), 공식 샘플 ccnl_krx(실시간-003), 2026-09-27 MCP 확인.
@@ -30,7 +33,7 @@
 //          — 마감 임박 진입은 트레일 발동 전 장 마감 강제청산되므로.
 //
 //  안전장치: 재진입 쿨다운으로 청산 직후 재매수 폭주 방지. account_id 기본 "" → OrderGate
-//           장부 시드 키 일치(C-1). 신규 진입 후 position_is_seed_=false로 성격 전환.
+//           장부 시드 키 일치. 신규 진입 후 position_is_seed_=false로 성격 전환.
 // ─────────────────────────────────────────────────────────────────────────────
 class IntradayBreakoutStrategy : public StrategyBase
 {
@@ -38,10 +41,10 @@ public:
     IntradayBreakoutStrategy(std::string ticker, int entry_quantity, int hold_quantity,
                              bool start_in_position, int channel_min = 10,
                              double breakout_epsilon = 0.002, double trail_percent = 0.010,
-                             double hard_percent = 0.015, int market_close_hhmm = 1515,
+                             double hard_percent = 0.015, int market_close_hhmm = kDefaultMarketCloseHhmm,
                              int reentry_cooldown_sec = 60,
                              double average_price = 0.0, double average_loss_percent = 0.0,
-                             // ── v2 추가 (뒤에 붙여 하위호환) ──
+                             // ── 뒤에 더한 인자 — 기본값이 있어 옛 호출이 그대로 된다 ──
                              double seed_trail_percent = 0.0,      // 물린분 고점 기준 트레일(0→trail_percent)
                              double exit_near_average_percent = 0.0,   // 물린분 본전탈출(평단 -x% 이내, 0=비활성)
                              int no_new_entry_hhmm = 0,        // 신규진입 금지 시각(0→market_close_hhmm)
@@ -56,7 +59,8 @@ public:
           no_new_entry_hhmm_(no_new_entry_hhmm), notional_per_position_(notional_per_position),
           day_open_price_(day_open_price)
     {
-        id_ = "ITB_" + ticker_;
+        id_  = "ITB_" + ticker_;
+        tag_ = ticker_;
     }
 
     const std::string& id() const override
@@ -68,6 +72,7 @@ public:
     void set_name(std::string name)
     {
         name_ = std::move(name);
+        tag_  = name_.empty() ? ticker_ : (ticker_ + " " + name_);
     }
 
     // 본전탈출 무장 임계 — 이 깊이만큼 실제로 물려 본 적이 있어야 본전탈출이 켜진다.
@@ -95,9 +100,10 @@ public:
         seed_hard_confirm_bars_ = confirm_bars;
     }
 
-    std::string tag() const
+    // 로그 머리의 "종목 표시명". 생성자와 set_name에서 한 번 만들어 둔다 — 틱 경로 로그가 부를 때마다 만들지 않게.
+    const std::string& tag() const
     {
-        return name_.empty() ? ticker_ : (ticker_ + " " + name_);
+        return tag_;
     }
 
     std::string describe() const override;
@@ -155,6 +161,7 @@ private:
     std::string id_; // 전략 이름, 생성자에서 한 번
     symbol::SymbolId symbol_id_ = symbol::kNone; // ticker_의 id — on_start에서 한 번(미주입=kNone, 문자열 비교로 폴백)
     std::string name_; // 표시명(로깅 전용)
+    std::string tag_;  // tag()가 돌려주는 "ticker_ name_"
     int entry_quantity_;   // 신규 돌파 진입 수량(명목 미지정 시 고정)
     int hold_quantity_;    // 현재 보유수량(시드분 또는 진입분) — 매도 전량 기준
     bool start_in_position_;
@@ -197,7 +204,8 @@ private:
     bool have_cooldown_ = false;
     std::chrono::system_clock::time_point cooldown_until_;
 
-    // ── 청산 대기(C-2): 확정 포지션 0 확인 전까지 보유 상태 유지 + 백오프 재발주 ──
+    // ── 청산 대기: 확정 포지션 0 확인 전까지 보유 상태 유지 + 백오프 재발주 ──
+    static constexpr int kDefaultMarketCloseHhmm = 1515; // 장 마감 청산 기본 시각(KST)
     static constexpr int kExitBackoffFirstSec = 2;
     static constexpr int kExitBackoffMaxSec = 60;
     static constexpr int kExitMaxRetries = 20;

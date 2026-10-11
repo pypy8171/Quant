@@ -73,7 +73,7 @@ OrderGate::Config open_config()
     config.max_orders_per_sec     = 1'000'000'000;
     config.deduplicate_window_sec = 0.0;
     config.max_quantity_per_ticker = 1'000'000;
-    config.daily_loss_limit       = -1e15;
+    config.daily_loss_limit       = -1'000'000'000'000'000;
     return config;
 }
 

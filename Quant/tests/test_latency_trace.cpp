@@ -3,7 +3,7 @@
 // 빌드: cmake --build <directory> --target test_latency_trace
 #include "core/LatencyTrace.h"
 
-#include <cstdlib>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iostream>

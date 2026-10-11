@@ -3,10 +3,10 @@
 #include "core/KstTime.h"
 #include "core/MarketSession.h"
 #include <cassert>
+#include <chrono>
 #include <cstdlib>
 #include <ctime>
 #include <iostream>
-#include <string>
 
 namespace
 {

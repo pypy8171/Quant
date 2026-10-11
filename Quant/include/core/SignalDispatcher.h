@@ -13,7 +13,7 @@
 #include <cstdint>
 #include <functional>
 #include <string>
-#include <string_view>
+#include <utility>
 #include <vector>
 
 namespace dispatch
@@ -125,7 +125,7 @@ private:
     symbol::SymbolId symbol_of(const OrderSignal& signal) const;
 
     // 종목당 한 번 로그 — id 인덱스 비트. 처음이면 true. 배열은 종목 테이블 용량으로 한 번 잡는다.
-    static bool mark_once(std::vector<bool>& flags, symbol::SymbolId symbol);
+    static bool mark_once(std::vector<uint8_t>& flags, symbol::SymbolId symbol);
 
     OrderGate&                 gate_;
     const ipc::LedgerSnapshot& ledger_;
@@ -140,9 +140,9 @@ private:
     // [inv] 단조 증가, strategy_thread 전용. 게이트 거부·큐 드롭·접수·체결 행이 전부 이 번호를 물고 간다. [why D-038]
     uint64_t sequence_ = 0;
 
-    std::vector<bool> guard_logged_;     // 청산 관리 차단 로그는 종목당 한 번(id 인덱스)
-    std::vector<bool> sell_halt_logged_; // 수동 매도 정지 차단 로그도 종목당 한 번, 정지가 풀리면 비운다 [why D-095]
-    bool              sell_halt_logged_any_ = false; // 위 배열에 켜진 비트가 있는가 — 정지 해제 때만 전부 끈다
+    std::vector<uint8_t> guard_logged_;     // 청산 관리 차단 로그는 종목당 한 번(id 인덱스, 값 0/1)
+    std::vector<uint8_t> sell_halt_logged_; // 수동 매도 정지 차단 로그도 종목당 한 번, 정지가 풀리면 비운다 [why D-095]
+    bool                 sell_halt_logged_any_ = false; // 위 배열에 켜진 비트가 있는가 — 정지 해제 때만 전부 끈다
 
     // 사본 한 판을 통째로 받아 오는 자리(강제청산·한도 정리). 이 스레드 전용이라 재사용해 매번 새로 잡지 않는다.
     mutable std::vector<symbol::SymbolId> snapshot_ids_;

@@ -175,7 +175,7 @@ void configure_risk(Engine& engine, const AppConfig& app)
              std::to_string(risk.max_orders_per_sec) + "/s·" +
              std::to_string(risk.max_orders_per_min) + "/min");
 
-    if (risk.max_notional_per_ticker > 0.0 || risk.max_concurrent_positions > 0)
+    if (risk.max_notional_per_ticker > 0 || risk.max_concurrent_positions > 0)
     {
         LOG_INFO("[Engine] 사이징 백스톱: 종목당 명목 " +
                  std::to_string(static_cast<long long>(risk.max_notional_per_ticker)) + "원, 동시보유 " +

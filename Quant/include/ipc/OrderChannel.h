@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <optional>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 #include "core/Types.h" // OrderSignal, symbol::SymbolId, strategy_table::StrategyId
@@ -79,6 +80,13 @@ struct OrderRequest
     char                       reason[kSignalReasonMax]                  = {};
 };
 
+// 통로·저널에 통째로 memcpy 되는 레코드라 크기를 고정한다. MSVC x64 계산: 8바이트 칸 6개 48 + double 2개 16
+//  + 번호 2개 8 + 수량 4 + 바이트 5 = 81, Ticker 16 + exchange 8 + account_id 16 + 주문 이름 48×2 + reason 192 = 409,
+//  8 정렬로 416.
+static_assert(sizeof(OrderRequest) == 416, "OrderRequest 크기가 바뀌었다 — 저널·통로 레코드 호환을 다시 본다");
+static_assert(std::is_trivially_copyable_v<OrderRequest> && std::is_standard_layout_v<OrderRequest>,
+              "OrderRequest 는 memcpy 로 옮긴다");
+
 // 주문 → 전략. 전략은 이걸 받아야 그 순번을 기다리는 것에서 지운다.
 struct OrderResponse
 {
@@ -91,6 +99,11 @@ struct OrderResponse
     uint32_t reserved2        = 0;
     char     reason[kOrderReasonMax] = {};
 };
+
+// MSVC x64 계산: 8바이트 칸 3개 24 + uint8 2개·uint16·uint32 8 = 32, reason 48 → 80.
+static_assert(sizeof(OrderResponse) == 80, "OrderResponse 크기가 바뀌었다 — 통로 레코드 호환을 다시 본다");
+static_assert(std::is_trivially_copyable_v<OrderResponse> && std::is_standard_layout_v<OrderResponse>,
+              "OrderResponse 는 memcpy 로 옮긴다");
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 꺼낸 칸은 믿지 않는다 — 값이 말이 되는지 보고 아니면 버린다

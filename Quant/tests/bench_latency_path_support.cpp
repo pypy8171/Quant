@@ -1,6 +1,11 @@
 // bench_latency_path 공용 준비의 몸통 — 분위수·표 출력·종목 코드·H0STCNT0 페이로드 생성.
 #include "bench_latency_path_support.h"
 
+#include <cstdint>
+#include <cstdio>
+#include <string>
+#include <vector>
+
 namespace latency_path_bench
 {
 

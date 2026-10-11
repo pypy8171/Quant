@@ -7,10 +7,12 @@
 //  한 사이클(기본 180초): 네이버 지수 1건 → Yahoo 차트 8건(나스닥·S&P는 현물 직전 세션 2건 더) → FRED 3건(30분에
 //   한 번) → 장초 기준점 → 점수·판정 → 파일 교체·이력 한 줄.
 //  모의·실계좌 엔진이 같은 출력 파일을 쓰도록 설정돼 있으면 먼저 쓴 쪽 하나만 쓰고 다른 쪽은 쉰다(파일 수정 시각으로 판정).
+#include <array>
 #include <atomic>
+#include <cstddef>
+#include <cstdint>
 #include <ctime>
 #include <filesystem>
-#include <map>
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <string>
@@ -37,6 +39,105 @@ struct FeedConfig
     Thresholds  thresholds;
 };
 
+// 지표 11개 — 표결 8개(코스피·코스닥·나스닥·S&P·10년 금리·VIX·원달러·WTI)와 참고 3개(30년 금리·2년 금리·하이일드).
+//  안에서는 enum으로 비교하고 색인으로 쓴다. 이름 문자열은 regime.json·장초 기준점 파일의 키에만 쓴다.
+enum class Indicator : std::uint8_t
+{
+    Kospi,
+    Kosdaq,
+    NqFutures,
+    EsFutures,
+    Tnx10,
+    Vix,
+    UsdKrw,
+    Wti,
+    Tyx30,
+    Dgs2,
+    HighYield,
+};
+
+constexpr std::size_t kIndicatorCount = 11;
+
+// [wire] regime.json components·장초 기준점 prices의 키. 순서는 Indicator와 같다(대시보드·알림이 이 이름을 읽는다).
+constexpr std::array<std::string_view, kIndicatorCount> kIndicatorNames{
+    "KOSPI", "KOSDAQ", "NQ_F", "ES_F", "TNX10", "VIX", "USDKRW", "WTI", "TYX30", "DGS2", "HY"};
+
+constexpr std::string_view indicator_name(Indicator indicator)
+{
+    return kIndicatorNames[static_cast<std::size_t>(indicator)];
+}
+
+// 파일 키 → 지표. 모르는 이름이면 비움.
+constexpr std::optional<Indicator> indicator_from_name(std::string_view name)
+{
+    for (std::size_t index = 0; index < kIndicatorNames.size(); ++index)
+    {
+        if (kIndicatorNames[index] == name)
+        {
+            return static_cast<Indicator>(index);
+        }
+    }
+
+    return std::nullopt;
+}
+
+// 지표별 값 표 — 지표 enum을 색인으로 쓰는 고정 배열이다. 칸마다 값이 있거나 비어 있다.
+template <typename T>
+class IndicatorTable
+{
+public:
+    // 칸이 비었으면 기본값으로 만들고 돌려준다(std::map의 [] 와 같다).
+    T& operator[](Indicator indicator)
+    {
+        std::optional<T>& slot = slots_[static_cast<std::size_t>(indicator)];
+
+        if (!slot)
+        {
+            slot.emplace();
+        }
+
+        return *slot;
+    }
+
+    // 값이 없으면 nullptr.
+    const T* find(Indicator indicator) const
+    {
+        const std::optional<T>& slot = slots_[static_cast<std::size_t>(indicator)];
+        return slot ? &*slot : nullptr;
+    }
+
+    // 값이 없으면 std::bad_optional_access를 던진다.
+    const T& at(Indicator indicator) const
+    {
+        return slots_[static_cast<std::size_t>(indicator)].value();
+    }
+
+    void erase(Indicator indicator)
+    {
+        slots_[static_cast<std::size_t>(indicator)].reset();
+    }
+
+    std::size_t size() const
+    {
+        std::size_t count = 0;
+
+        for (const std::optional<T>& slot : slots_)
+        {
+            count += slot ? 1 : 0;
+        }
+
+        return count;
+    }
+
+    bool empty() const
+    {
+        return size() == 0;
+    }
+
+private:
+    std::array<std::optional<T>, kIndicatorCount> slots_{};
+};
+
 // 지표 하나를 받아 온 결과. pct가 비면 그 지표는 표결에서 빠진다.
 struct Change
 {
@@ -52,21 +153,22 @@ struct Change
 // 그날 09:00 이후 첫 사이클의 가격. 장중 방향표의 기준이다.
 struct OpenReference
 {
-    std::string                   date; // YYYY-MM-DD
-    std::string                   timestamp;
-    std::map<std::string, double> prices;
+    std::string            date; // YYYY-MM-DD
+    std::string            timestamp;
+    IndicatorTable<double> prices;
 };
 
-using Changes = std::map<std::string, Change>;
+using Changes = IndicatorTable<Change>;
 
 // ── 순수 함수(네트워크·파일 없음, tests/test_regime_feed.cpp) ──
 
-// 네이버 실시간 지수 응답 → itemCode별 결과. 오늘 아직 안 열렸으면 percent 0·previous_pct에 표시 등락(어제 것).
+// 네이버 실시간 지수 응답 → 지표별 결과(itemCode를 표결 지표의 네이버 코드로 맞춘다. 표에 없는 코드는 뺀다).
+//  오늘 아직 안 열렸으면 percent 0·previous_pct에 표시 등락(어제 것).
 //  장이 열렸거나 오늘 마감했으면(마지막 거래 시각이 오늘 KST) 표시 등락이 오늘 것이다.
 // [wire] 근거: 2026-09-27·10-01 실측 응답(polling.finance.naver.com/api/realtime/domestic/index/KOSPI,KOSDAQ, 공식 문서 없음) —
 //  datas[]마다 itemCode·closePriceRaw "7080.92"·fluctuationsRatioRaw "0.90"·marketStatus "CLOSE"·
 //  localTradedAt "2026-10-01T20:15:00+09:00"(마감 뒤에도 오늘 날짜).
-std::map<std::string, Change> parse_naver_index(std::string_view body, std::time_t now_utc);
+Changes parse_naver_index(std::string_view body, std::time_t now_utc);
 
 // Yahoo 차트 응답의 현재가·전일 종가 → 등락. 오늘 정규장이 아직 안 열렸으면 percent 0·previous_pct에 받은 값.
 // [wire] 근거: 2026-09-27 실측 응답(query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?range=1d&interval=5m, 공식 문서 없음) —
@@ -80,8 +182,8 @@ std::optional<double> parse_last_session_percent(std::string_view body, std::tim
 // FRED 그래프 CSV(날짜,값) → 마지막 두 값의 등락. "."·빈 값은 휴일이라 건너뛴다.
 Change parse_fred_csv(std::string_view body);
 
-// 방향표. 위험선호 쪽이면 +, 강도는 warn 이상 1·strong 이상 2.
-int vote_for(std::string_view key, double percent);
+// 방향표. 위험선호 쪽이면 +, 강도는 warn 이상 1·strong 이상 2. 표결 지표가 아니면 0.
+int vote_for(Indicator indicator, double percent);
 
 // 점수 → 매수 명목 비율(0~1, 0.1 단위). 정지선 이하 0, on_score 이상 1, 사이는 네 점을 잇는 직선.
 double entry_scale(int score, const Thresholds& thresholds);

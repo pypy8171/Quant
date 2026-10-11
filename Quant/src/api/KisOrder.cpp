@@ -1,12 +1,16 @@
 // api/KisOrder.cpp — 국내·해외 주문 발주·정정·취소와 응답 파서. IOrderExecutor 구현부.
 //  실패는 예외가 아니라 OrderAck.error_code 값으로 돌려준다(D-039). [why D-048] 파일 분할 경위.
 #include "KisClientInternal.h"
-#include "utils/JsonNode.h"
+
+#include <mutex>
+
 #include "core/KstTime.h"
 #include "core/MarketSession.h"
 #include "core/TickSize.h"
+#include "utils/JsonNode.h"
 
-#include <cstring>
+// 주문 응답 원문을 오류 로그에 남길 길이.
+static constexpr std::string::size_type kResponsePreviewChars = 200;
 
 // 주문 응답 파서. 게이트웨이가 HTML 오류 페이지를 주거나 rt_cd가 없으면 예외 대신 false.
 //  호출부(OrderRouter)가 catch로 막고는 있지만 예외 경로에서는 msg_cd가 비어 EGW00201 적응
@@ -160,13 +164,13 @@ static bool kis_parse_order_response(const std::string& response, json& document
     }
     catch (const std::exception& exception)
     {
-        LOG_ERROR(std::string("[KIS] ") + what + " 응답 파싱 실패: " + exception.what() + " — " + response.substr(0, 200));
+        LOG_ERROR(std::string("[KIS] ") + what + " 응답 파싱 실패: " + exception.what() + " — " + response.substr(0, kResponsePreviewChars));
         return false;
     }
 
     if (!document.is_object() || !document.contains("rt_cd") || !document["rt_cd"].is_string())
     {
-        LOG_ERROR(std::string("[KIS] ") + what + " 응답에 rt_cd 없음 — " + response.substr(0, 200));
+        LOG_ERROR(std::string("[KIS] ") + what + " 응답에 rt_cd 없음 — " + response.substr(0, kResponsePreviewChars));
         return false;
     }
 

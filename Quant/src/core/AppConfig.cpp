@@ -2,8 +2,10 @@
 #include "utils/JsonNode.h"
 #include "utils/Logger.h"
 
+#include <algorithm>
 #include <fstream>
 #include <stdexcept>
+#include <utility>
 
 using json = nlohmann::json;
 
@@ -320,9 +322,33 @@ AppConfig parse_config(const json& document)
 
     parse_risk(document, app);
 
-    if (document.contains("strategies"))
+    // 문서는 빌려 읽으므로 전략 배열은 복사한다. 문서를 넘겨받는 판은 아래 parse_config(json&&).
+    if (const auto strategies = document.find("strategies"); strategies != document.end())
     {
-        app.strategies = document["strategies"];
+        app.strategies = *strategies;
+    }
+
+    return app;
+}
+
+AppConfig parse_config(json&& document)
+{
+    // 전략 배열을 먼저 떼어 내 옮긴다. 남은 문서는 위 판이 읽는다(strategies가 없으니 복사도 없다).
+    json       strategies;
+    const auto found = document.find("strategies");
+    const bool has_strategies = found != document.end();
+
+    if (has_strategies)
+    {
+        strategies = std::move(*found);
+        document.erase(found);
+    }
+
+    AppConfig app = parse_config(std::as_const(document));
+
+    if (has_strategies)
+    {
+        app.strategies = std::move(strategies);
     }
 
     return app;

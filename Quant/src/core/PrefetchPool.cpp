@@ -2,6 +2,8 @@
 #include "utils/ThreadGuard.h"
 #include "utils/ThreadName.h"
 
+#include <stop_token>
+
 namespace prefetch
 {
 

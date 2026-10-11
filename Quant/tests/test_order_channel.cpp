@@ -19,8 +19,8 @@
 
 #include "ipc/OrderChannel.h"
 
-#include <cassert>
 #include <chrono>
+#include <cstdint>
 #include <cstring>
 #include <iostream>
 #include <limits>

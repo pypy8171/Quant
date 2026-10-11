@@ -11,8 +11,13 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstdlib>
+#include <ctime>
 #include <format>
+#include <optional>
+#include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -39,24 +44,24 @@ struct Band
 
 struct LevelTable
 {
-    std::string_view  key;
+    Indicator         key;
     std::vector<Band> bands;
 };
 
 const std::vector<LevelTable>& level_tables()
 {
     static const std::vector<LevelTable> tables{
-        {"TYX30", {{5.0, "5% 위. 장기 할인율 부담이 큰 구간"}, {4.5, "4.5~5%. 고점권"}}},
-        {"TNX10", {{4.5, "4.5% 위. 고점권"}, {4.0, "4~4.5%"}}},
-        {"VIX", {{30.0, "30 위. 공포 구간"}, {20.0, "20~30. 경계 구간"}, {15.0, "15~20. 보통"}}},
-        {"USDKRW", {{1400.0, "1400 위. 원화 약세 경계"}, {1350.0, "1350~1400. 약세 구간"}}},
-        {"WTI", {{100.0, "100달러 위. 인플레 재점화 우려"}, {90.0, "90~100달러. 부담 구간"}}},
-        {"HY",
+        {Indicator::Tyx30, {{5.0, "5% 위. 장기 할인율 부담이 큰 구간"}, {4.5, "4.5~5%. 고점권"}}},
+        {Indicator::Tnx10, {{4.5, "4.5% 위. 고점권"}, {4.0, "4~4.5%"}}},
+        {Indicator::Vix, {{30.0, "30 위. 공포 구간"}, {20.0, "20~30. 경계 구간"}, {15.0, "15~20. 보통"}}},
+        {Indicator::UsdKrw, {{1400.0, "1400 위. 원화 약세 경계"}, {1350.0, "1350~1400. 약세 구간"}}},
+        {Indicator::Wti, {{100.0, "100달러 위. 인플레 재점화 우려"}, {90.0, "90~100달러. 부담 구간"}}},
+        {Indicator::HighYield,
          {{5.0, "5%p 위. 신용 스트레스 확대"},
           {4.0, "4~5%p. 확대 조짐"},
           {3.0, "3~4%p. 보통"},
           {0.0, "3%p 아래. 신용 시장 평온"}}},
-        {"DGS2", {{4.5, "4.5% 위. 긴축 기대 유지"}, {4.0, "4~4.5%"}}},
+        {Indicator::Dgs2, {{4.5, "4.5% 위. 긴축 기대 유지"}, {4.0, "4~4.5%"}}},
     };
     return tables;
 }
@@ -64,12 +69,16 @@ const std::vector<LevelTable>& level_tables()
 // 종합 경고에 세는 경계(지표당 1개). 개수만 세고 점수에는 더하지 않는다.
 struct WarnLevel
 {
-    std::string_view key;
-    double           level;
+    Indicator key;
+    double    level;
 };
 
-constexpr std::array<WarnLevel, 6> kWarnLevels{
-    {{"TYX30", 5.0}, {"TNX10", 4.5}, {"VIX", 20.0}, {"USDKRW", 1400.0}, {"WTI", 90.0}, {"HY", 4.0}}};
+constexpr std::array<WarnLevel, 6> kWarnLevels{{{Indicator::Tyx30, 5.0},
+                                                {Indicator::Tnx10, 4.5},
+                                                {Indicator::Vix, 20.0},
+                                                {Indicator::UsdKrw, 1400.0},
+                                                {Indicator::Wti, 90.0},
+                                                {Indicator::HighYield, 4.0}}};
 
 constexpr int kStaleAfterSec      = 600;  // 문서에 적는 값. 엔진은 자기 regime_stale_sec(파일 수정 시각)으로 본다
 constexpr int kOpenReferenceHour  = 9;
@@ -103,10 +112,16 @@ std::string iso_kst(std::time_t now_utc)
     return text + "+09:00";
 }
 
-// components[key]의 price. 없거나 숫자가 아니면 비움.
-std::optional<double> component_price(const nlohmann::ordered_json& components, std::string_view key)
+// regime.json components의 지표 칸. 없으면 만든다.
+nlohmann::ordered_json& component_of(nlohmann::ordered_json& components, Indicator indicator)
 {
-    const auto found = components.find(std::string(key));
+    return components[std::string(indicator_name(indicator))];
+}
+
+// components[지표 이름]의 price. 없거나 숫자가 아니면 비움.
+std::optional<double> component_price(const nlohmann::ordered_json& components, Indicator indicator)
+{
+    const auto found = components.find(std::string(indicator_name(indicator)));
 
     if (found == components.end())
     {
@@ -138,7 +153,7 @@ void note_level_bands(nlohmann::ordered_json& components, nlohmann::ordered_json
             continue;
         }
 
-        nlohmann::ordered_json& component = components[std::string(table.key)];
+        nlohmann::ordered_json& component = component_of(components, table.key);
         std::string             note;
 
         for (const Band& band : table.bands)
@@ -151,7 +166,8 @@ void note_level_bands(nlohmann::ordered_json& components, nlohmann::ordered_json
         }
 
         // 금리는 %등락보다 bp가 읽기 쉽다. pct와 price로 전일값을 되살려 bp를 붙인다.
-        const bool is_rate = table.key == "TYX30" || table.key == "TNX10" || table.key == "DGS2";
+        const bool is_rate = table.key == Indicator::Tyx30 || table.key == Indicator::Tnx10 ||
+                             table.key == Indicator::Dgs2;
         const auto percent     = component.find("pct");
 
         if (is_rate && percent != component.end() && percent->is_number())
@@ -183,9 +199,9 @@ void note_level_bands(nlohmann::ordered_json& components, nlohmann::ordered_json
 // 30Y-10Y·10Y-2Y 금리차를 TYX30·DGS2 note에 덧붙인다. 두 금리가 다 있을 때만.
 void note_rate_spreads(nlohmann::ordered_json& components)
 {
-    const std::optional<double> rate30 = component_price(components, "TYX30");
-    const std::optional<double> rate10 = component_price(components, "TNX10");
-    const std::optional<double> rate2  = component_price(components, "DGS2");
+    const std::optional<double> rate30 = component_price(components, Indicator::Tyx30);
+    const std::optional<double> rate10 = component_price(components, Indicator::Tnx10);
+    const std::optional<double> rate2  = component_price(components, Indicator::Dgs2);
 
     if (rate30 && rate10)
     {
@@ -201,13 +217,13 @@ void note_rate_spreads(nlohmann::ordered_json& components)
             addition += " (역전 근접)";
         }
 
-        append_note(components["TYX30"], addition);
+        append_note(component_of(components, Indicator::Tyx30), addition);
     }
 
     if (rate10 && rate2)
     {
         const double spread = *rate10 - *rate2;
-        append_note(components["DGS2"],
+        append_note(component_of(components, Indicator::Dgs2),
                     std::format("10Y-2Y {:+.0f}bp", spread * 100.0) + (spread < 0.0 ? " (역전)" : ""));
     }
 }
@@ -264,11 +280,11 @@ nlohmann::ordered_json assess_levels(nlohmann::ordered_json& components, int sco
 
 } // namespace
 
-int vote_for(std::string_view key, double percent)
+int vote_for(Indicator indicator, double percent)
 {
     for (const VotingSymbol& symbol : kVotingSymbols)
     {
-        if (symbol.key != key)
+        if (symbol.key != indicator)
         {
             continue;
         }
@@ -337,11 +353,14 @@ OpenReference choose_open_reference(std::string_view existing_text, const Change
         const nlohmann::json* stamp = child(doc, "ts");
         reference.timestamp   = (stamp != nullptr && stamp->is_string()) ? stamp->get<std::string>() : "";
 
+        // 지표 이름표에 없는 키는 버린다(장초 방향표는 표에 있는 지표만 본다).
         for (auto iterator = prices->begin(); iterator != prices->end(); ++iterator)
         {
-            if (iterator.value().is_number())
+            const std::optional<Indicator> indicator = indicator_from_name(iterator.key());
+
+            if (indicator && iterator.value().is_number())
             {
-                reference.prices[iterator.key()] = iterator.value().get<double>();
+                reference.prices[*indicator] = iterator.value().get<double>();
             }
         }
 
@@ -357,11 +376,11 @@ OpenReference choose_open_reference(std::string_view existing_text, const Change
 
     for (const IntraSymbol& symbol : kIntraSymbols)
     {
-        const auto found = changes.find(std::string(symbol.key));
+        const Change* found = changes.find(symbol.key);
 
-        if (found != changes.end() && found->second.price)
+        if (found != nullptr && found->price)
         {
-            reference.prices[std::string(symbol.key)] = *found->second.price;
+            reference.prices[symbol.key] = *found->price;
         }
     }
 
@@ -391,10 +410,10 @@ void add_voting_components(const Changes& changes, nlohmann::ordered_json& compo
 {
     for (const VotingSymbol& symbol : kVotingSymbols)
     {
-        const std::string key(symbol.key);
-        const auto        found = changes.find(key);
+        const std::string key(indicator_name(symbol.key));
+        const Change*     found = changes.find(symbol.key);
         const Change      empty;
-        const Change&     change = found == changes.end() ? empty : found->second;
+        const Change&     change = found == nullptr ? empty : *found;
         nlohmann::ordered_json component;
         component["label"] = symbol.label;
 
@@ -441,15 +460,14 @@ int add_intra_votes(const OpenReference& open_reference, nlohmann::ordered_json&
 
     for (const IntraSymbol& symbol : kIntraSymbols)
     {
-        const std::string key(symbol.key);
-        const auto        base = open_reference.prices.find(key);
+        const double* base = open_reference.prices.find(symbol.key);
 
-        if (base == open_reference.prices.end() || base->second == 0.0)
+        if (base == nullptr || *base == 0.0)
         {
             continue;
         }
 
-        nlohmann::ordered_json& component = components[key];
+        nlohmann::ordered_json& component = component_of(components, symbol.key);
         const auto              price     = component.find("price");
 
         if (price == component.end() || !price->is_number())
@@ -457,7 +475,7 @@ int add_intra_votes(const OpenReference& open_reference, nlohmann::ordered_json&
             continue;
         }
 
-        const double intra_percent  = (price->get<double>() - base->second) / base->second * 100.0;
+        const double intra_percent  = (price->get<double>() - *base) / *base * 100.0;
         int          intra_vote = 0;
 
         if (std::abs(intra_percent) >= symbol.warn)
@@ -469,7 +487,7 @@ int add_intra_votes(const OpenReference& open_reference, nlohmann::ordered_json&
         nlohmann::ordered_json intra;
         intra["pct"]       = round3(intra_percent);
         intra["vote"]      = intra_vote;
-        intra["base"]      = base->second;
+        intra["base"]      = *base;
         component["intra"] = intra;
     }
 
@@ -481,10 +499,10 @@ void add_info_components(const Changes& changes, nlohmann::ordered_json& compone
 {
     for (const InfoSymbol& symbol : kInfoSymbols)
     {
-        const std::string key(symbol.key);
-        const auto        found = changes.find(key);
+        const std::string key(indicator_name(symbol.key));
+        const Change*     found = changes.find(symbol.key);
         const Change      empty;
-        const Change&     change = found == changes.end() ? empty : found->second;
+        const Change&     change = found == nullptr ? empty : *found;
         nlohmann::ordered_json component;
         component["label"] = symbol.label;
 

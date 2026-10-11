@@ -5,7 +5,6 @@
 #include "OpsTerminalDlg.h"
 
 #include <cstdlib>
-#include <cwchar>
 
 namespace
 {

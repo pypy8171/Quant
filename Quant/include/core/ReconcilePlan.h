@@ -8,7 +8,6 @@
 #include <algorithm>
 #include <cmath>
 #include <string>
-#include <string_view>
 #include <vector>
 
 namespace reconcile

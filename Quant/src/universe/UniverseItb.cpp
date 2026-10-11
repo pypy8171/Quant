@@ -8,18 +8,10 @@
 #include "core/Types.h"
 #include "utils/EtfFilter.h"
 #include "utils/Logger.h"
-#include <algorithm>
-#include <functional>
-#include <chrono>
-#include <cmath>
-#include <ctime>
-#include <filesystem>
-#include <fstream>
 #include <mutex>
 #include <nlohmann/json.hpp>
 #include <string>
-#include <string_view>
-#include <thread>
+#include <utility>
 #include <vector>
 
 namespace universe
@@ -28,10 +20,10 @@ using namespace detail;
 
 namespace
 {
-IdxGateLatch g_itb_kospi_latch;   // ITB 슬리브 전용 — 임계가 DevScale과 달라 래치를 나눈다
+IndexGateLatch g_itb_kospi_latch;   // ITB 슬리브 전용 — 임계가 DevScale과 달라 래치를 나눈다
 } // namespace
 
-std::vector<ItbCandidate> scan_itb(KisClient& scan_kis, const ItbScanCfg& config)
+std::vector<ItbCandidate> scan_itb(KisClient& scan_kis, const ItbScanConfig& config)
 {
     std::vector<ItbCandidate> out;
 
@@ -39,7 +31,7 @@ std::vector<ItbCandidate> scan_itb(KisClient& scan_kis, const ItbScanCfg& config
     //  판정은 DevScale과 같은 래치(latch_risk_off)로 하되 래치 객체는 따로 둔다 — 임계가
     //  다른 슬리브가 한 래치를 나눠 쓰면 먼저 발화한 쪽 판정이 다른 쪽에 걸린다. 지금은 기동 시
     //  1회 호출이라 체류·재개가 작동할 일이 없고, 재스캔 잡이 붙는 날 그대로 살아난다. [why D-033]
-    auto kospi = scan_kis.get_index_price("0001");
+    auto kospi = scan_kis.get_index_price(kKospiIndexCode);
     double index_change = kospi.change_rate / 100.0; // KIS는 % 단위
     // 근거: 샘플 inquire_index_price는 등락률 필드를 "전일 대비율"로만 적어 단위를 밝히지 않는다. % 단위는 운영 로그 값으로 본 것이다
     //  (근거 기록을 따로 찾지 못했다, 2026-09-27).
@@ -95,7 +87,7 @@ std::vector<ItbCandidate> scan_itb(KisClient& scan_kis, const ItbScanCfg& config
         }
 
         // 필터③: 수급(option) — 외국인 T-1 확정 순매수 > 0 (후보 소수에만 조회)
-        if (config.standard_deviation_filter)
+        if (config.foreign_net_buy_filter)
         {
             auto true_range = scan_kis.get_investor_trend(ranked.ticker);
 
@@ -107,9 +99,9 @@ std::vector<ItbCandidate> scan_itb(KisClient& scan_kis, const ItbScanCfg& config
         }
 
         // 통과 → 신규 진입 유니버스로 등록(당일 시가 기준점 주입).
-        //  ⚠️ 기준점은 랭킹 스냅샷 현재가(r.price)가 아니라 실제 당일 시가여야 함.
+        //  기준점은 랭킹 스냅샷 현재가(ranked.price)가 아니라 실제 당일 시가여야 함.
         //  갭업일엔 스냅샷=장중 고점 근처라 기준점이 고점에 고정되어 돌파 진입이 영구 차단됨.
-        //  inquire-price(FHKST01010100)의 stck_oprc로 진짜 시가를 조회, 0이면 r.price 폴백.
+        //  inquire-price(FHKST01010100)의 stck_oprc로 진짜 시가를 조회, 0이면 ranked.price 폴백.
         //  [wire] 출처: KIS 공식 샘플 inquire_price(FHKST01010100, 실전·모의 공통), 2026-09-27 MCP 확인.
         double day_open = scan_kis.get_fundamentals(ranked.ticker).open;
 

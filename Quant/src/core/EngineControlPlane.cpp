@@ -10,6 +10,7 @@
 #include "core/KstTime.h"
 #include "utils/Logger.h"
 #include <string>
+#include <string_view>
 
 // ─── 주문 쪽 스위치 다섯 ──────────────────────────────────────────────────
 //  OrderGate·장부는 주문 프로세스 것이다. 고치는 일은 주문 스레드가 하고(D-071 원칙 4), 딴 스레드는

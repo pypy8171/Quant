@@ -20,6 +20,7 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <mutex>
 #include <thread>
 #include <nlohmann/json.hpp>
@@ -46,9 +47,9 @@ void Engine::data_thread_fn(std::stop_token stop_token)
     LOG_INFO("[DataThread] 시작");
 
     // 맡는 일감은 역할로 갈린다. [inv] 역할은 start() 전에 정해지고 도는 동안 바뀌지 않는다. [why D-114]
-    const bool strategy_side = runs_strategy_side();
-    const bool order_side    = runs_order_side();
-    const bool feed_side     = runs_feed_side();
+    DataThreadRoles roles;
+    roles.strategy_side = runs_strategy_side();
+    roles.order_side    = runs_order_side();
 
     bool        was_market_open = false;
     std::string last_trading_date;
@@ -57,23 +58,7 @@ void Engine::data_thread_fn(std::stop_token stop_token)
     {
         bool market_now = ::kst::any_market_open(std::time(nullptr));
 
-        // 하루치 새로 열기(선점 만료·당일 손익·주문 한도)는 KST 날짜가 바뀐 첫 회차에 한다 — 기동 직후 첫 회차가
-        //  그날 첫 주문보다 앞선다. 예전에는 장 개장 전이(KR 09:00)에 했는데, 엔진이 08:00 장전 거래(NXT)부터
-        //  주문을 내면서 그 사이 낸 오늘 주문의 매도 선점까지 지웠다. 10-06 실계좌 138930: 08:00 익절 매도 31주가
-        //  09:00에 선점을 잃어 전략이 "덮개 없음"으로 취소·재주문했고, 재주문은 취소가 처리되기 전이라 매도가능 0으로
-        //  1분 막혔다. 같은 날 두 번째 호출(장중 재기동·자정 넘김 없음)은 게이트가 거절한다. [why A-4]
-        //  하루치를 새로 여는 것은 주문 쪽 제 주기다 — 게이트·장부·라우터가 거기 있다. [why D-114]
-        if (order_side)
-        {
-            std::string trading_date = ::kst::date_yyyymmdd(std::time(nullptr));
-
-            if (trading_date != last_trading_date)
-            {
-                request_reset_daily();
-                LOG_INFO("[DataThread] 거래일 시작(" + trading_date + ") — OrderGate 일별 카운터 리셋");
-                last_trading_date = std::move(trading_date);
-            }
-        }
+        start_trading_day_if_new(roles, last_trading_date);
 
         // 장 시작 감지 → 국면 판정
         //  "어느 시장이든 닫힘→열림" 전이라 KR 09:00과 US 22:30(KST) 두 번 발화한다.
@@ -83,7 +68,7 @@ void Engine::data_thread_fn(std::stop_token stop_token)
         {
             // 기동 뒤 첫 개장이면 아직 라벨 전이가 없었을 수 있다. 마지막 선택을 강제 로그로 다시 적용해
             //  "오늘 무엇이 켜져 있나"가 하루 한 줄은 남게 한다.
-            if (strategy_side && strategy_.last_selected_regime != Regime::UNKNOWN)
+            if (roles.strategy_side && strategy_.last_selected_regime != Regime::UNKNOWN)
             {
                 apply_regime_selection(strategy_.last_selected_regime, /*force_log=*/true);
             }
@@ -107,75 +92,103 @@ void Engine::data_thread_fn(std::stop_token stop_token)
         //  본체 안에서 어느 단계가 먹는지(재스캔·잔고 대조·시세 보충) 같이 잰다.
         const auto       cycle_start = cycle_clock::now();
         DataCycleTimings timings;
-
-        try
-        {
-            // 매크로 레짐 게이트: 보조 프로세스가 쓴 regime.json → OrderGate entry_halt 토글.
-            //  재스캔/잔고 대조와 같은 "사이클 1회" 계층. rest·일봉 모드 공통 경로라 두 모드 다 커버.
-            //  국면을 읽는 것은 전략 쪽이다 — 게이트를 고치는 일은 제어 요청으로 주문 쪽에 넘어간다. [why D-114]
-            if (strategy_side)
-            {
-                poll_regime_file();
-            }
-
-            // 주기적 유니버스 재스캔(동적 등록) — 슬리브별 주기는 각 job이 자체 판단한다.
-            if (strategy_side && !universe_rescan_.empty())
-            {
-                timings.rescan_ms = rescan_universe_in_cycle();
-            }
-
-            const bool rest_now = feed_.rest_feed_active.load(std::memory_order_relaxed);
-
-            // 매 사이클 잔고 대조. 폴링 모드는 장부까지 덮어쓰고(체결콜백 부재 보완),
-            //  WS 모드는 총평가금·일손익만 갱신한다. WS 모드에서 이걸 건너뛰면 equity가 0에
-            //  머물러 총노출 게이트가 조용히 통과만 하고, 일간손실 한도의 기준값도 안 움직인다.
-            //  잔고 조회 자체는 대조기가 뒤 스레드에서 돌리고 여기서는 짧게만 기다리므로(기본 500ms) 서버가
-            //  늦어도 아래 재선점 정리·시세 보충은 제때 돈다. 늦은 응답은 다음 사이클이 집는다.
-            //  장부와 라우터는 주문 프로세스 것이라 대조·선점 정리도 그쪽 제 주기로 돈다. [why D-114]
-            if (order_side)
-            {
-                timings.reconcile_ms = reconcile_ledger_in_cycle(rest_now);
-            }
-
-            // 틱이 끊긴 보유 종목은 REST 현재가로 보충한다 — 운영단말 현재가가 비어 있던 원인(09-11)은
-            //  둘이었다: 유니버스 밖 보유(구독 자체가 없음)와 WS 구독 상한에 밀린 종목. 구독 여부를 따지지
-            //  않고 "최근 틱이 없다"로만 고르면 둘 다 잡힌다. 전략이 볼 일은 없으니 pipeline_.trade_matrix에는 넣지 않는다.
-            //  모의 도메인 초당 한도가 낮아 300ms 간격. 시세를 채우는 일이라 전략 쪽이 한다. [why D-114]
-            if (strategy_side)
-            {
-                timings.top_up_ms = top_up_held_prices();
-            }
-
-            // 일봉을 받아 흘리는 자리는 전략 쪽이다(현재가·넘침 폴링은 소켓을 쥔 시세 쪽, 아래). 수급·섹터·매크로
-            //  관측 적재는 흘리는 일이 아니라 REST로 떠서 로그로만 남기는 것인데, 이것도 전략 쪽에 둔다:
-            //  게이트로 승격하면(D-014·D-044) 읽는 쪽이 전략이라 경계를 한 번 더 넘지 않아도 되고,
-            //  주문 쪽에 두면 관측 REST가 주문 전송과 같은 프로세스에서 KIS 호출을 다툰다. 관측은 게이트가
-            //  아니라 로그라 전략이 내려간 동안 비어도 매매에는 영향이 없고, 감시견이 셋을 같이 다시
-            //  띄우므로 끊김은 재기동으로 메워진다. [why D-114]
-            if (rest_now && strategy_side)
-            {
-                log_estimated_investor_flow();
-                log_sector_strength();
-                log_macro_indicators();
-            }
-            else if (strategy_side)
-            {
-                feed_daily_bars(stop_token);
-            }
-
-            // REST 폴백·넘침 종목 조회는 이 사이클에서 떼어 폴러의 조회 스레드가 1초 목표로 돈다
-            //  (Engine::start_rest_poll_loop). [why D-138]
-        }
-        catch (const std::exception& exception)
-        {
-            LOG_ERROR("[DataThread] 예외: " + std::string(exception.what()));
-        }
-
+        run_data_cycle(stop_token, roles, timings);
         log_data_cycle_timing(cycle_start, timings);
-        wait_data_cycle_tail(stop_token, strategy_side);
+        wait_data_cycle_tail(stop_token, roles.strategy_side);
     }
 
     LOG_INFO("[DataThread] 종료");
+}
+
+// 데이터 스레드 단계 — 하루치 새로 열기(선점 만료·당일 손익·주문 한도)는 KST 날짜가 바뀐 첫 회차에 한다 — 기동 직후 첫 회차가
+//  그날 첫 주문보다 앞선다. 예전에는 장 개장 전이(KR 09:00)에 했는데, 엔진이 08:00 장전 거래(NXT)부터
+//  주문을 내면서 그 사이 낸 오늘 주문의 매도 선점까지 지웠다. 10-06 실계좌 138930: 08:00 익절 매도 31주가
+//  09:00에 선점을 잃어 전략이 "덮개 없음"으로 취소·재주문했고, 재주문은 취소가 처리되기 전이라 매도가능 0으로
+//  1분 막혔다. 같은 날 두 번째 호출(장중 재기동·자정 넘김 없음)은 게이트가 거절한다. [why A-4]
+//  하루치를 새로 여는 것은 주문 쪽 제 주기다 — 게이트·장부·라우터가 거기 있다. [why D-114]
+void Engine::start_trading_day_if_new(const DataThreadRoles& roles, std::string& last_trading_date)
+{
+    if (!roles.order_side)
+    {
+        return;
+    }
+
+    std::string trading_date = ::kst::date_yyyymmdd(std::time(nullptr));
+
+    if (trading_date != last_trading_date)
+    {
+        request_reset_daily();
+        LOG_INFO("[DataThread] 거래일 시작(" + trading_date + ") — OrderGate 일별 카운터 리셋");
+        last_trading_date = std::move(trading_date);
+    }
+}
+
+// 데이터 스레드 단계 — 장중 한 사이클의 본체(국면 파일·재스캔·잔고 대조·시세 보충·일봉/관측). 단계마다
+//  걸린 시간은 timings에 남긴다. 예외는 여기서 잡아 로그로 남기고 다음 사이클로 넘어간다.
+void Engine::run_data_cycle(const std::stop_token& stop_token, const DataThreadRoles& roles, DataCycleTimings& timings)
+{
+    try
+    {
+        // 매크로 레짐 게이트: 보조 프로세스가 쓴 regime.json → OrderGate entry_halt 토글.
+        //  재스캔/잔고 대조와 같은 "사이클 1회" 계층. rest·일봉 모드 공통 경로라 두 모드 다 커버.
+        //  국면을 읽는 것은 전략 쪽이다 — 게이트를 고치는 일은 제어 요청으로 주문 쪽에 넘어간다. [why D-114]
+        if (roles.strategy_side)
+        {
+            poll_regime_file();
+        }
+
+        // 주기적 유니버스 재스캔(동적 등록) — 슬리브별 주기는 각 job이 자체 판단한다.
+        if (roles.strategy_side && !universe_rescan_.empty())
+        {
+            timings.rescan_ms = rescan_universe_in_cycle();
+        }
+
+        const bool rest_now = feed_.rest_feed_active.load(std::memory_order_relaxed);
+
+        // 매 사이클 잔고 대조. 폴링 모드는 장부까지 덮어쓰고(체결콜백 부재 보완),
+        //  WS 모드는 총평가금·일손익만 갱신한다. WS 모드에서 이걸 건너뛰면 equity가 0에
+        //  머물러 총노출 게이트가 조용히 통과만 하고, 일간손실 한도의 기준값도 안 움직인다.
+        //  잔고 조회 자체는 대조기가 뒤 스레드에서 돌리고 여기서는 짧게만 기다리므로(기본 500ms) 서버가
+        //  늦어도 아래 재선점 정리·시세 보충은 제때 돈다. 늦은 응답은 다음 사이클이 집는다.
+        //  장부와 라우터는 주문 프로세스 것이라 대조·선점 정리도 그쪽 제 주기로 돈다. [why D-114]
+        if (roles.order_side)
+        {
+            timings.reconcile_ms = reconcile_ledger_in_cycle(rest_now);
+        }
+
+        // 틱이 끊긴 보유 종목은 REST 현재가로 보충한다 — 운영단말 현재가가 비어 있던 원인(09-11)은
+        //  둘이었다: 유니버스 밖 보유(구독 자체가 없음)와 WS 구독 상한에 밀린 종목. 구독 여부를 따지지
+        //  않고 "최근 틱이 없다"로만 고르면 둘 다 잡힌다. 전략이 볼 일은 없으니 pipeline_.trade_matrix에는 넣지 않는다.
+        //  모의 도메인 초당 한도가 낮아 300ms 간격. 시세를 채우는 일이라 전략 쪽이 한다. [why D-114]
+        if (roles.strategy_side)
+        {
+            timings.top_up_ms = top_up_held_prices();
+        }
+
+        // 일봉을 받아 흘리는 자리는 전략 쪽이다(현재가·넘침 폴링은 소켓을 쥔 시세 쪽, 아래). 수급·섹터·매크로
+        //  관측 적재는 흘리는 일이 아니라 REST로 떠서 로그로만 남기는 것인데, 이것도 전략 쪽에 둔다:
+        //  게이트로 승격하면(D-014·D-044) 읽는 쪽이 전략이라 경계를 한 번 더 넘지 않아도 되고,
+        //  주문 쪽에 두면 관측 REST가 주문 전송과 같은 프로세스에서 KIS 호출을 다툰다. 관측은 게이트가
+        //  아니라 로그라 전략이 내려간 동안 비어도 매매에는 영향이 없고, 감시견이 셋을 같이 다시
+        //  띄우므로 끊김은 재기동으로 메워진다. [why D-114]
+        if (rest_now && roles.strategy_side)
+        {
+            log_estimated_investor_flow();
+            log_sector_strength();
+            log_macro_indicators();
+        }
+        else if (roles.strategy_side)
+        {
+            feed_daily_bars(stop_token);
+        }
+
+        // REST 폴백·넘침 종목 조회는 이 사이클에서 떼어 폴러의 조회 스레드가 1초 목표로 돈다
+        //  (Engine::start_rest_poll_loop). [why D-138]
+    }
+    catch (const std::exception& exception)
+    {
+        LOG_ERROR("[DataThread] 예외: " + std::string(exception.what()));
+    }
 }
 
 // 데이터 스레드 단계 — HEALTH 한 줄을 만들어 ZMQ 발행기와 DB 적재기에 넘긴다. 받는 곳이 없으면 아무것도 안 한다.
@@ -728,7 +741,7 @@ void Engine::wait_data_cycle_tail(const std::stop_token& stop_token, bool strate
         slice = 1;
     }
 
-    auto& board = universe::MarketBoard::instance();
+    const universe::MarketBoard& board = market_board_;
     const auto cycle_end = std::chrono::steady_clock::now() + std::chrono::seconds(cycle);
 
     while (!stop_token.stop_requested())

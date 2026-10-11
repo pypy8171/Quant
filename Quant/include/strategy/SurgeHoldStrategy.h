@@ -17,6 +17,7 @@
 #include "strategy/StrategyBase.h"
 #include "strategy/SurgeHoldPlan.h"
 #include <chrono>
+#include <cstdint>
 #include <ctime>
 #include <filesystem>
 #include <functional>
@@ -63,7 +64,7 @@ public:
     struct Position
     {
         std::string ticker;
-        std::string d0;                    // YYYY-MM-DD 급등일 — 같은 신호 재매수를 막는 열쇠
+        std::string surge_date;                  // YYYY-MM-DD 급등일 — 같은 신호 재매수를 막는 열쇠
         std::string entry_date;            // YYYYMMDD — 매수 주문을 낸 날
         int         quantity        = 0;   // 체결된 주 수(장부에서 읽음)
         int         ordered         = 0;   // 낸 주 수
@@ -135,7 +136,7 @@ private:
     OrderSignal make_signal(const std::string& ticker, OrderSide side, int quantity, double reference_price,
                             const std::string& reason) const;
     std::optional<bool> regime_allows_buy() const;
-    bool        bought_same_signal(const std::string& ticker, const std::string& d0) const;
+    bool        bought_same_signal(const std::string& ticker, const std::string& surge_date) const;
     bool        save_state();
     void        publish_owned();
     void        rebuild_index();

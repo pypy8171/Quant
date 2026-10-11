@@ -1,7 +1,8 @@
 // 운영단말 프레이밍(ipc/OpsProtocol.h) 단위 테스트. 한 바이트씩 오는 부분 수신, 한 recv에 여러
-// 프레임, 빈 본문, 매직·버전·길이 상한 위반을 고정한다. 헤더 전용이라 소켓 없이 돈다. 관련 결정: D-043.
+// 프레임, 빈 본문, 매직·버전·길이 상한 위반을 고정한다. 소켓 없이 돈다. 관련 결정: D-043.
 #include "ipc/OpsProtocol.h"
 #include <cassert>
+#include <cstdint>
 #include <iostream>
 #include <string>
 #include <vector>

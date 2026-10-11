@@ -2,6 +2,9 @@
 //  공용 준비는 test_order_router_support.h, 실행 순서는 test_order_router.cpp의 main.
 #include "test_order_router_support.h"
 
+#include <cstdint>
+#include <string>
+
 // ─── 놓친 체결 되찾기 (D-149) ───────────────────────────────────────────────
 //  체결통보 소켓이 끊긴 사이 난 체결은 통보가 다시 오지 않을 수 있다. 재구독 뒤 당일 체결 조회의 누적 수량·금액과
 //  라우터가 받은 누적을 비교해 모자란 만큼을 체결로 넣는다. 단가는 누적 금액 차이 ÷ 모자란 수량이다.

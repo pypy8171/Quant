@@ -1,5 +1,10 @@
 #include "utils/EtfFilter.h"
 
+#include <cstdlib>
+#include <fstream>
+#include <string>
+#include <vector>
+
 namespace etf_filter
 {
 bool is_etf_like(const std::string& name, const std::vector<std::string>& prefixes,
@@ -18,9 +23,9 @@ bool is_etf_like(const std::string& name, const std::vector<std::string>& prefix
         }
     }
 
-    for (const auto& ticker : tokens)
+    for (const auto& token : tokens)
     {
-        if (!ticker.empty() && name.find(ticker) != std::string::npos) // 상품 토큰 부분일치(채권·액티브…)
+        if (!token.empty() && name.find(token) != std::string::npos) // 상품 토큰 부분일치(채권·액티브…)
         {
             return true;
         }

@@ -15,6 +15,7 @@
 #include "ipc/SharedStrategyDictionary.h"
 
 #include <atomic>
+#include <cstddef>
 #include <cstdlib>
 #include <iostream>
 #include <string>

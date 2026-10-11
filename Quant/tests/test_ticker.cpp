@@ -30,7 +30,7 @@ namespace
 constexpr size_t kTickerCount = 2700;       // 국내 상장 종목 수 수준
 constexpr size_t kIterations  = 10'000'000; // 무작위 순서 조회 횟수
 
-struct MarketData
+struct Quote
 {
     uint32_t price  = 0;
     uint32_t volume = 0;
@@ -93,7 +93,7 @@ int main()
 
     // [1] 정렬 맵 — 문자열 비교 log2(2700)≈12회
     {
-        std::map<std::string, MarketData> table;
+        std::map<std::string, Quote> table;
 
         for (size_t index = 0; index < kTickerCount; ++index)
         {
@@ -113,7 +113,7 @@ int main()
 
     // [2] 해시 맵 — 지금 콜드 패스(OrderGate·PaperExecutor 등)가 쓰는 방식
     {
-        std::unordered_map<std::string, MarketData> table;
+        std::unordered_map<std::string, Quote> table;
 
         for (size_t index = 0; index < kTickerCount; ++index)
         {
@@ -134,7 +134,7 @@ int main()
     // [3] 실제 입구 — 수신 스레드가 틱마다 한 번 부르는 SymbolTable::intern(공유 락 + string_view 해시)
     {
         symbol::SymbolTable     table;
-        std::vector<MarketData> by_id(kTickerCount + 1);
+        std::vector<Quote> by_id(kTickerCount + 1);
 
         for (size_t index = 0; index < kTickerCount; ++index)
         {
@@ -154,7 +154,7 @@ int main()
 
     // [4] 정수 id 배열 인덱스 — 샤드·전략·봉 집계가 쓰는 방식
     {
-        std::vector<MarketData> by_id(kTickerCount);
+        std::vector<Quote> by_id(kTickerCount);
 
         for (size_t index = 0; index < kTickerCount; ++index)
         {
@@ -174,7 +174,7 @@ int main()
 
     // [5] 문자열을 숫자로 파싱해 100만 칸 희소 배열 — 빠르지만 알파벳 섞인 코드를 못 담아 갈래가 둘이 된다
     {
-        std::vector<MarketData> sparse(1'000'000);
+        std::vector<Quote> sparse(1'000'000);
 
         for (size_t index = 0; index < kTickerCount; ++index)
         {
@@ -202,7 +202,7 @@ int main()
     // [6] 틱 하나의 실제 경로 모델 — 입구에서 intern 한 번, 소비자 4곳은 id 배열
     {
         symbol::SymbolTable     table;
-        std::vector<MarketData> consumer_a(kTickerCount + 1), consumer_b(kTickerCount + 1), consumer_c(kTickerCount + 1),
+        std::vector<Quote> consumer_a(kTickerCount + 1), consumer_b(kTickerCount + 1), consumer_c(kTickerCount + 1),
             consumer_d(kTickerCount + 1);
 
         for (size_t index = 0; index < kTickerCount; ++index)
@@ -225,7 +225,7 @@ int main()
 
     // [7] 비교 — 소비자 4곳이 각자 문자열 맵을 뒤지는 경우
     {
-        std::unordered_map<std::string, MarketData> consumer_a, consumer_b, consumer_c, consumer_d;
+        std::unordered_map<std::string, Quote> consumer_a, consumer_b, consumer_c, consumer_d;
 
         for (size_t index = 0; index < kTickerCount; ++index)
         {

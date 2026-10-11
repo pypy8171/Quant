@@ -5,6 +5,7 @@
 #include <atomic>
 #include <iostream>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -63,14 +64,14 @@ int main()
     std::vector<std::thread> threads;
     std::vector<std::vector<symbol::SymbolId>> seen(4, std::vector<symbol::SymbolId>(200));
 
-    for (int innermost_index = 0; innermost_index < 4; ++innermost_index)
+    for (int thread_index = 0; thread_index < 4; ++thread_index)
     {
         threads.emplace_back(
-            [&, innermost_index]
+            [&, thread_index]
             {
                 for (int index = 0; index < 200; ++index)
                 {
-                    seen[innermost_index][index] = shared.intern("T" + std::to_string((index * 7 + innermost_index * 13) % 200));
+                    seen[thread_index][index] = shared.intern("T" + std::to_string((index * 7 + thread_index * 13) % 200));
                 }
             });
     }
@@ -90,12 +91,12 @@ int main()
         CHECK(shared.name(id) == name);
     }
 
-    for (int innermost_index = 0; innermost_index < 4; ++innermost_index)
+    for (int thread_index = 0; thread_index < 4; ++thread_index)
     {
         for (int index = 0; index < 200; ++index)
         {
-            const std::string name = "T" + std::to_string((index * 7 + innermost_index * 13) % 200);
-            CHECK(seen[innermost_index][index] == shared.lookup(name));
+            const std::string name = "T" + std::to_string((index * 7 + thread_index * 13) % 200);
+            CHECK(seen[thread_index][index] == shared.lookup(name));
         }
     }
 

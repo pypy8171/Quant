@@ -2,8 +2,8 @@
 // UTC 초 → KST 분해 시각. 거래일(YYYYMMDD)·틱 시각(HHMMSS)·장 시간 판정·장부 날짜가 같은 변환을 쓴다. [why D-062]
 //  달력 산술은 <chrono>로만 한다 — gmtime·localtime 계열을 부르지 않으므로 머신 TZ와 무관하다. [why D-070]
 #include <chrono>
+#include <cstdint>
 #include <ctime>
-#include <format>
 #include <string>
 
 namespace kst

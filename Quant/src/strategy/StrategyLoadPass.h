@@ -3,6 +3,7 @@
 //  스레드: 전부 메인 스레드(load_strategies 안)에서 부른다.
 #pragma once
 
+#include <cstdint>
 #include <functional>
 #include <map>
 #include <memory>
@@ -35,14 +36,14 @@ struct LoadPass : StrategyLoadCtx
     // 보유분 청산 관리 부착은 슬리브 하나가 아니라 전 슬리브가 등록된 뒤에 한 번만 한다.
     //  scan_covered는 모든 DEVIATION_SCALE 슬리브가 담당하는 종목(id 인덱스 비트)의 합집합이고, 청산 관리 설정은
     //  마지막으로 manage_holdings.enabled를 켠 슬리브의 것을 쓴다(현재 구성은 하나만 켠다).
-    std::vector<bool>     scan_covered;
+    std::vector<uint8_t>  scan_covered;
     const nlohmann::json* pending_exit_managers = nullptr; // config 노드를 가리킨다 — load_strategies 안에서만 유효
     bool                  guard_gated = false;
     std::vector<Regime>   guard_regimes;
 
     // 바스켓 슬리브(TARGET_BASKET)가 소유한 종목(id 인덱스 비트) — DEVSCALE 초기 유니버스와 청산 관리 부착에서 뺀다.
     //  바스켓 로더가 먼저 돌아 채운다 [why D-109].
-    std::vector<bool> basket_owned;
+    std::vector<uint8_t> basket_owned;
 
     // VWAPPB가 재기동 때 다시 맡은 종목 → 장부 순수량(VWAPPB_ 매수 − 매도). 예약 단계가 채우고 등록 단계가 읽는다.
     std::map<std::string, long long> vwap_pullback_owned;
@@ -53,10 +54,11 @@ struct LoadPass : StrategyLoadCtx
 
 using StrategyMaker = std::function<std::unique_ptr<StrategyBase>(symbol::SymbolId)>;
 
-// 종목 id 인덱스 비트를 켠다 — 배열은 종목 테이블 용량만큼 한 번만 늘린다.
-void mark_symbol(std::vector<bool>& bits, symbol::SymbolId symbol, size_t capacity);
+// 종목 id 인덱스 표시(0/1 바이트)를 켠다 — 배열은 종목 테이블 용량만큼 한 번만 늘린다. std::vector<bool>은 참조를 못 돌려주고
+//  원소를 묶어 쓰니 uint8_t로 둔다.
+void mark_symbol(std::vector<uint8_t>& bits, symbol::SymbolId symbol, size_t capacity);
 
-bool has_symbol(const std::vector<bool>& bits, symbol::SymbolId symbol);
+bool has_symbol(const std::vector<uint8_t>& bits, symbol::SymbolId symbol);
 
 // 활성 국면을 붙여 엔진에 등록한다.
 void add_gated(const LoadPass& context, std::unique_ptr<StrategyBase> strategy);

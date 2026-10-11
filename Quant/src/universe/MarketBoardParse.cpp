@@ -2,12 +2,15 @@
 //  선언은 universe/MarketBoard.h. 스레드: 시세판 스레드(MarketBoard::refresh_listing·sweep)와 테스트가 부른다.
 //  상태 없음. [why D-147]
 #include "universe/MarketBoard.h"
+#include "core/SymbolTable.h"
 
 #include <cmath>
 #include <cstdlib>
 #include <nlohmann/json.hpp>
 #include <string>
+#include <string_view>
 #include <utility>
+#include <vector>
 
 namespace universe
 {
@@ -148,7 +151,7 @@ std::vector<ListedStock> parse_listing_page(std::string_view body, const std::st
 
         std::string code = text_field(row, "itemCode");
 
-        if (code.size() != 6)
+        if (code.size() != symbol::kKoreanTickerLength)
         {
             continue;
         }

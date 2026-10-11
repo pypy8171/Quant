@@ -70,8 +70,10 @@ struct RankedStock
 struct RankedUniverse
 {
     std::time_t              ranked_at = 0;
-    std::vector<RankedStock> stocks;  // 시장별로 시총순 먼저, 이어 거래대금순(중복 제거)
-    std::vector<ListedStock> listing; // 전 종목 목록 — 코드→시장·이름 사전으로 쓴다
+    std::vector<RankedStock> stocks; // 시장별로 시총순 먼저, 이어 거래대금순(중복 제거)
+    // 전 종목 목록 — 코드→시장·이름 사전으로 쓴다. 시세판이 낸 목록 객체를 그대로 나눠 쥔다(재랭킹마다 복사하지 않는다).
+    //  아직 목록이 없으면 nullptr.
+    std::shared_ptr<const std::vector<ListedStock>> listing;
 };
 
 // 순수 함수 — 테스트가 부를 수 있게 공개한다.
@@ -126,14 +128,10 @@ public:
         std::string minute_directory;        // 비어 있지 않으면 장중 1분마다 판 하나를 이 폴더의 board_YYYYMMDD.csv에 덧붙인다
     };
 
-    // 인스턴스로 만들어 쓸 수 있다. 소유자 하나(엔진)가 만들어 전략·스캐너에 참조로 넘기는 쪽으로 옮기는 중이다.
+    // 엔진이 하나 소유하고, 전략·스캐너에는 참조로 넘긴다. 슬리브 여럿이 켜도 같은 판을 본다.
     MarketBoard() = default;
     MarketBoard(const MarketBoard&)            = delete;
     MarketBoard& operator=(const MarketBoard&) = delete;
-
-    // 옮기는 동안 남기는 호환 접근자 — 프로세스에 하나. 슬리브 여럿이 켜도 같은 판을 본다.
-    //  호출처가 모두 소유자의 참조를 받게 되면 지운다(코드 규약 1.2).
-    static MarketBoard& instance();
 
     // 처음 부른 설정으로 한 번만 띄운다. 이미 돌고 있으면 아무것도 안 한다.
     void start(const Config& config);
@@ -174,15 +172,16 @@ private:
     Config                                config_;
     std::atomic<bool>                     running_{false};
     std::thread                           worker_;
-    std::vector<ListedStock>              listing_;      // 시세판 스레드 전용
+    // 오늘 받은 종목 목록. 바꾸는 쪽은 시세판 스레드뿐이고 mutex_ 안에서 포인터를 바꿔 끼운다.
+    //  시세판 스레드는 락 없이 읽고, 다른 스레드는 listing()으로 mutex_ 안에서 포인터를 받는다.
+    std::shared_ptr<const std::vector<ListedStock>> listing_;
     std::string                           listing_date_; // 목록을 받은 KST 날짜
     std::vector<std::string>              request_urls_; // 목록이 바뀔 때만 다시 만든다
     std::int64_t                          last_minute_saved_ = -1; // epoch 분, 시세판 스레드 전용
     std::int64_t                          last_before_open_logged_ = -1; // epoch 분, 시세판 스레드 전용
-    mutable std::mutex                              mutex_;        // 아래 세 포인터만 지킨다
+    mutable std::mutex                              mutex_;        // snapshot_·ranked_와 listing_ 포인터 교체를 지킨다
     std::shared_ptr<const BoardSnapshot>            snapshot_;
     std::shared_ptr<const RankedUniverse>           ranked_;
-    std::shared_ptr<const std::vector<ListedStock>> published_listing_;
     std::atomic<std::uint64_t>                      generation_{0};
     mutable std::condition_variable_any             board_arrived_; // 새 판을 낼 때 깨운다(mutex_와 짝)
 };

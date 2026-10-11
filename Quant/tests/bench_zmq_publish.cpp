@@ -16,11 +16,13 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <nlohmann/json.hpp>
 #include <random>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 #include <zmq.hpp>

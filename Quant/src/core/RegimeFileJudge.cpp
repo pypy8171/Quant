@@ -1,5 +1,7 @@
 #include "core/RegimeFileJudge.h"
 
+#include <cmath>
+
 namespace regime_file
 {
 Snapshot parse_snapshot(const nlohmann::json& document)

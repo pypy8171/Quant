@@ -16,6 +16,7 @@
 #include <random>
 #include <string>
 #include <thread>
+#include <type_traits>
 #include <vector>
 
 #ifdef _WIN32
@@ -81,7 +82,10 @@ struct WireMsg
 };
 #pragma pack(pop)
 static constexpr uint32_t kMagic = 0xC05C0F01u;
-static constexpr size_t   kRec = sizeof(WireMsg);
+static constexpr size_t   kRecordBytes = sizeof(WireMsg);
+// 4+1+7+8+8+5*8+5*8 = 108바이트(pack 1). 송신·수신이 같은 빌드라 정렬은 같지만, 필드를 더하면 이 값도 같이 고친다.
+static_assert(sizeof(WireMsg) == 108, "WireMsg는 108바이트여야 한다");
+static_assert(std::is_trivially_copyable_v<WireMsg>, "WireMsg는 memcpy로 옮긴다");
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 수신 후 내부 파이프라인 메시지 (recv_ts 부착 → 처리단 분해)
@@ -209,12 +213,12 @@ socket_t connect_to(const std::string& host, uint16_t port);
 void koscom_send_fn(socket_t socket_handle,
                     const std::vector<std::string>& tickers,
                     const ZipfPicker& zipf,
-                    Stats& stop_token,
+                    Stats& statistics,
                     std::atomic<bool>& stop,
                     int64_t total_rate,
                     double order_book_ratio,
                     int64_t duration_ns);
-void run_receiver_pipeline(socket_t connection, Stats& stop_token, std::atomic<bool>& stop,
+void run_receiver_pipeline(socket_t connection, Stats& statistics, std::atomic<bool>& stop,
                            std::atomic<bool>& measuring, size_t latency_cap,
                            size_t order_book_capacity, size_t trade_capacity, size_t order_capacity,
                            std::thread& receive_thread, std::thread& strategy_thread, std::thread& order_thread,

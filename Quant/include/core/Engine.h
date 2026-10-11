@@ -33,6 +33,7 @@
 #include "risk/OrderGate.h"
 #include "risk/ProtectiveOrders.h"
 #include "strategy/StrategyBase.h"
+#include "universe/MarketBoard.h"
 #ifdef HAS_ZMQ
 #include "ipc/ZmqBridge.h"
 #endif
@@ -50,20 +51,17 @@
 #include <atomic>
 #include <chrono>
 #include <cstddef>
-#include <deque>
-#include <filesystem>
+#include <cstdint>
 #include <functional>
 #include <stop_token>
 #include <map>
 #include <memory>
-#include <condition_variable>
 #include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <thread>
-#include <unordered_map>
-#include <unordered_set>
+#include <utility>
 #include <vector>
 
 struct AppConfig;
@@ -254,6 +252,12 @@ public:
     const std::string& capture_directory() const
     {
         return feed_.capture_directory;
+    }
+
+    // 엔진이 소유한 네이버 시세판. 로더가 띄우고, 스캐너·전략·재스캔은 이 참조로 판을 읽는다.
+    universe::MarketBoard& market_board()
+    {
+        return market_board_;
     }
 
     // 캡처에 담을 종목만 고른다(비면 전부). [why D-138]
@@ -609,6 +613,12 @@ private:
     // 받은 우선순위로 칸을 다시 나눈다 — 내줄 종목은 해제하고 REST 넘침으로, 받을 종목은 구독하고 넘침에서 뺀다.
     //  [inv] 감시 스레드만 부른다(apply_feed_control_requests·drain_pending_subscriptions와 같은 스레드). [why D-132]
     void rebalance_websocket_slots();
+    // 칸 재배정 단계 함수 (몸통은 EngineFeedSlots.cpp). 한 회차의 값 묶음은 cpp에서 정의한다.
+    struct WebSocketSlotRound;
+    void gather_websocket_slot_entries(WebSocketSlotRound& round);
+    void release_websocket_slots(WebSocketSlotRound& round);
+    void take_websocket_slots(WebSocketSlotRound& round);
+    void log_protected_off_socket(const WebSocketSlotRound& round);
     // 시세 쪽이 아는 종목의 칸 우선순위. 모르면 kUnranked. 재연결 때 우선순위 순으로 다시 걸려고 쓴다.
     int32_t websocket_slot_priority(const WatchSpec& specification) const;
 
@@ -655,6 +665,16 @@ private:
     void log_data_cycle_timing(std::chrono::steady_clock::time_point cycle_start, const DataCycleTimings& timings);
     void wait_data_cycle_tail(const std::stop_token& stop_token, bool strategy_side);
 
+    // 이 프로세스가 맡는 쪽. [inv] start() 전에 정해지고 도는 동안 바뀌지 않는다. [why D-114]
+    struct DataThreadRoles
+    {
+        bool strategy_side = false;
+        bool order_side    = false;
+    };
+
+    void start_trading_day_if_new(const DataThreadRoles& roles, std::string& last_trading_date);
+    void run_data_cycle(const std::stop_token& stop_token, const DataThreadRoles& roles, DataCycleTimings& timings);
+
     void strategy_thread_fn(std::stop_token stop_token);
     // 전략 스레드 단계 함수 (몸통은 EngineStrategyThread.cpp). 상태 묶음은 cpp에서 정의한다.
     struct StrategyLoopState;
@@ -666,6 +686,10 @@ private:
     void wait_strategy_idle(StrategyLoopState& state, const std::stop_token& stop_token);
     void shard_thread_fn(std::stop_token stop_token, uint32_t column); // 행렬 열 m을 비워 전략을 돌리고 신호를 shard_out에 넣는다 [why D-071]
     void rebuild_shard_routes(uint32_t row, std::vector<StrategyBase*>& snapshot, uint64_t version); // 샤드 스냅샷·라우팅 재구성
+    // 샤드 스레드 단계 함수 (몸통은 EngineStrategyThread.cpp). [inv] 그 샤드 스레드만 부른다.
+    void push_shard_envelope(uint32_t row, StrategyBase* strategy, const OrderSignal& signal, int64_t tick_ns);
+    void wait_shard_idle(strategy::Shard& shard, const std::stop_token& stop_token,
+                         std::chrono::steady_clock::time_point& idle_since);
 
     // 줄 하나(소켓 하나)의 시세를 통로에서 꺼내 행렬에 나눠 넣는다. 전략 역할에만 뜬다 — 그 프로세스에는
     //  소켓이 없어 이 스레드가 행렬 그 행의 생산자다. [why D-114]
@@ -720,6 +744,12 @@ private:
 
     void ledger_thread_fn(std::stop_token stop_token);   // 장부 사본 발행(읽는 쪽에 주는 복사본). 주문 스레드에서 뗀 것 [why D-114]
     void fill_thread_fn(std::stop_token stop_token);     // 체결통보 소비(fill_queue → OrderRouter::on_fill → ops 방송). WS 수신 스레드에서 뗀 것 [why D-056]
+    // 체결 스레드 단계 함수 (몸통은 EngineFillThread.cpp). 상태 묶음은 cpp에서 정의한다. [inv] fill 스레드만 부른다.
+    struct FillLoopState;
+    bool fill_sources_empty(const FillLoopState& state);
+    bool stop_drain_expired(FillLoopState& state);
+    std::optional<FillNotification> pop_fill_notification(FillLoopState& state);
+    void apply_fill_notification(const FillNotification& fill_notification);
     void control_thread_fn(std::stop_token stop_token); // WebSocket 시세단절 감지·재연결(연속 실패 시 kill switch). ZMQ REP 처리는 ZmqBridge 내부 스레드 담당
     // 제어 스레드 단계 함수 (몸통은 EngineControlThread.cpp)
     [[nodiscard]] bool peer_went_away();   // 건너편 재기동·종료를 보면 종료를 청하고 참
@@ -756,6 +786,7 @@ private:
     //  계좌 인자는 장부 사본을 읽게 된 뒤로 쓰지 않는다 — 한 판은 한 계좌만 담는다. 전략에 주는 함수 모양이라
     //  자리는 남겨 둔다(전략마다 고치지 않게). [why D-114]
     StrategyBase::SellableInfo ledger_sellable(const std::string& account, const std::string& ticker) const;
+    StrategyBase::SellableInfo ledger_sellable(symbol::SymbolId symbol) const; // 같은 판, 종목 정수 id로
 
     // 전략이 보는 보유 수량 — 문자열 티커로 묻는 자리. 사본 한 줄을 읽는다.
     int ledger_position(const std::string& ticker) const;
@@ -829,6 +860,10 @@ private:
     //  poll_*은 폴러 자기 스레드(start_rest_poll_loop), top_up은 data_thread가 부른다. [why D-062] [why D-138]
     std::unique_ptr<DataPoller> poller_;
     static constexpr int kRestPollRoundMs = 1000; // 넘침 종목 한 바퀴 목표. 30종목 묶음 호출이 초당 10건을 넘으면(300종목 초과) 그만큼 늘어난다
+
+    // 전 종목 시세판. 전략·재스캔보다 먼저 선언해 나중에 사라지게 둔다 — 전략이 판을 읽는 동안 살아 있어야 한다.
+    //  일봉 데우기 스레드는 ~Engine이 universe::stop_daily_warm()으로 먼저 멈춘다.
+    universe::MarketBoard market_board_;
 
     // 무거운 REST를 미리 당기는 공용 프리페치 풀. 전략보다 먼저 선언해 나중에 사라지게 둔다
     //  — 전략 소멸자가 자기 작업을 떼는 동안 풀이 살아 있어야 한다. [why D-071]

@@ -1,5 +1,7 @@
 #include "core/TickSize.h"
 
+#include <cmath>
+
 namespace krx
 {
 double round_to_tick(double price, OrderSide side)

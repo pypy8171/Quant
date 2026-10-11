@@ -44,7 +44,7 @@ int main()
 
     // 2×22 필드, count=2 → 22폭 레코드 둘. 순서와 경계가 보존된다.
     {
-        // 뷰는 원문 벡터가 살아 있는 동안만 유효하다 — recs를 쓰는 동안 f를 잡아 둔다.
+        // 뷰는 원문 벡터가 살아 있는 동안만 유효하다 — records를 쓰는 동안 fields를 잡아 둔다.
         const auto fields = make_fields(2, 22, "t");
         const FieldList value(fields);
         auto records = KisWebSocket::split_records(value, 2, 22);

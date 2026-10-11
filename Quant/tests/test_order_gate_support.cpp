@@ -1,6 +1,9 @@
 // test_order_gate 공용 준비의 몸통.
 #include "test_order_gate_support.h"
 
+#include <iostream>
+#include <string>
+
 OrderSignal make_signal(const std::string& ticker, OrderSide side, int quantity)
 {
     OrderSignal signal;

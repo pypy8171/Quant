@@ -1,6 +1,7 @@
 // 부하시험 주문 전문 읽기·적기 — 바이트 모양과 약속은 include/exchange/OrderWire.h.
 #include "exchange/OrderWire.h"
 
+#include <cstdint>
 #include <cstring>
 
 namespace exchange

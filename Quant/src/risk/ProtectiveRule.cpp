@@ -1,5 +1,7 @@
 #include "risk/ProtectiveRule.h"
 
+#include <string>
+
 namespace risk
 {
 ProtectiveMode protective_mode_from_string(const std::string& text)

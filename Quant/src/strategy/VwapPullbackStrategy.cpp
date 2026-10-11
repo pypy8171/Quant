@@ -3,15 +3,24 @@
 #include "api/KisClient.h"
 #include "core/KstTime.h"
 #include "core/PrefetchPool.h"
-#include "universe/MarketBoard.h"
 #include "utils/Logger.h"
 #include "utils/Utf8.h"
 
 #include <algorithm>
 #include <charconv>
+#include <chrono>
+#include <ctime>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <memory>
+#include <mutex>
 #include <sstream>
+#include <string>
+#include <string_view>
+#include <system_error>
+#include <utility>
+#include <vector>
 
 namespace
 {
@@ -19,6 +28,7 @@ constexpr int kHhmmShift        = 100;
 constexpr int kSessionOpenHhmm  = 900;
 constexpr int kSessionCloseHhmm = 1530;
 constexpr int kMaxMinuteBars    = 400; // 09:00~15:30은 391분 — 하루치를 다 담는다
+constexpr int kFirstBarFetch    = 4;   // 분이 바뀔 때 받는 봉 수의 시작값. 보통 새 봉은 하나라 진행 중 봉과 경계 봉까지 넉넉하다
 
 const char* const kShadowHeader =
     "kst_time,ticker,event,bar_hhmm,reason,price,vwap,board_vwap,retrace,entry,stop,quantity,blocked,ws_ticks,rest_ticks,"
@@ -276,7 +286,7 @@ void VwapPullbackStrategy::run_prefetch_once()
     {
         std::lock_guard<std::mutex> lock(fetch_mutex_);
         need_bootstrap = !bootstrap_bars_;
-        need_recheck   = recheck_wanted_ && !recheck_bars_;
+        need_recheck   = recheck_wanted_.load(std::memory_order_acquire) && !recheck_bars_;
     }
 
     const int hhmm = kst_hhmm(now());
@@ -387,8 +397,22 @@ void VwapPullbackStrategy::feed_closed_bars()
     fed_closed_count_ = closed_count;
     last_feed_hhmm_   = now_hhmm;
 
-    const std::vector<MarketData> bars = aggregator_.snapshot(symbol_id_, 0);
-    const size_t first_closed          = aggregator_.current_slot(symbol_id_).valid() ? 1 : 0;
+    // 하루치(최대 400봉)를 매분 통째로 복사하지 않고, 이미 넘긴 분(last_hhmm)에 닿을 때까지만 받는다.
+    //  snapshot은 최신부터 담으므로 가장 오래된 받은 봉이 last_hhmm 이하이면 새 봉은 모두 들어 있다.
+    //  모자라면 두 배로 다시 받는다(시드 직후처럼 새 봉이 많을 때).
+    std::vector<MarketData> bars;
+
+    for (int wanted = kFirstBarFetch;; wanted *= 2)
+    {
+        bars = aggregator_.snapshot(symbol_id_, wanted);
+
+        if (static_cast<int>(bars.size()) < wanted || bar_hhmm(bars.back()) <= machine_.last_hhmm())
+        {
+            break;
+        }
+    }
+
+    const size_t first_closed = aggregator_.current_slot(symbol_id_).valid() ? 1 : 0;
 
     // snapshot은 [0]=최신이라 뒤에서부터 넘긴다(오래된 분 → 새 분).
     for (size_t index = bars.size(); index > first_closed; --index)
@@ -528,8 +552,13 @@ void VwapPullbackStrategy::run_exit_checks(double last_price)
         write_row(row);
     }
 
-    std::lock_guard<std::mutex> lock(fetch_mutex_);
-    recheck_wanted_ = !recheck_written_;
+    // 청산 시각 뒤에는 매 호출 여기 온다 — 락 없이 값이 바뀔 때만 쓴다.
+    const bool wanted = !recheck_written_;
+
+    if (recheck_wanted_.load(std::memory_order_relaxed) != wanted)
+    {
+        recheck_wanted_.store(wanted, std::memory_order_release);
+    }
 }
 
 void VwapPullbackStrategy::run_recheck()
@@ -611,27 +640,8 @@ std::string VwapPullbackStrategy::entry_block() const
 
 double VwapPullbackStrategy::board_vwap() const
 {
-    if (board_vwap_)
-    {
-        return board_vwap_(parameters_.ticker);
-    }
-
-    const std::shared_ptr<const universe::BoardSnapshot> board = universe::MarketBoard::instance().snapshot();
-
-    if (!board)
-    {
-        return 0.0;
-    }
-
-    for (const universe::BoardQuote& quote : board->quotes)
-    {
-        if (quote.code == parameters_.ticker)
-        {
-            return quote.volume > 0.0 ? quote.value / quote.volume : 0.0;
-        }
-    }
-
-    return 0.0;
+    // 로더가 엔진 시세판 조회를 넣는다. 안 넣었으면(시험) 모른다는 뜻의 0이다.
+    return board_vwap_ ? board_vwap_(parameters_.ticker) : 0.0;
 }
 
 std::filesystem::path VwapPullbackStrategy::shadow_path() const

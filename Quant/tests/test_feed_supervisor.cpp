@@ -1,9 +1,10 @@
 // WS 피드 감독기(core/FeedSupervisor.h) 단위 테스트. 장 외 무시·정상 수신의 누적 초기화·첫 stale 즉시 재연결·
 // 실패 n회 백오프(step×n, 상한)·재시도 시각 전 대기·폴백 요구는 문턱에 닿는 한 번만·복귀 뒤 재무장을 고정한다.
-// 헤더 전용이라 소켓·시계 없이 돈다(시각은 인자로 넣는다). 관련 결정: D-071(Phase 3 감독기).
+// 소켓·시계 없이 돈다(시각은 인자로 넣는다). 관련 결정: D-071(Phase 3 감독기).
 // 빌드: cmake --build <directory> --target test_feed_supervisor
 #include "core/FeedSupervisor.h"
 
+#include <chrono>
 #include <iostream>
 
 using feed::Supervisor;

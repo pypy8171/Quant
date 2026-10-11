@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <functional>
@@ -121,7 +122,8 @@ private:
     mutable std::mutex        mutex_;
     std::vector<Entry>        entries_;
     ProtectiveMode            mode_ = ProtectiveMode::Off;
-    std::chrono::milliseconds retry_interval_{30000};
+    static constexpr std::chrono::milliseconds kDefaultRetryInterval{30000}; // 거부된 보호 주문을 다시 내는 간격 기본값
+    std::chrono::milliseconds retry_interval_{kDefaultRetryInterval};
     Stats                     statistics_;
 };
 } // namespace risk

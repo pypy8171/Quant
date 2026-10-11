@@ -113,6 +113,6 @@ private:
     RegisterStrategy           register_strategy_;
     RetireStrategy             retire_strategy_;
     std::vector<Job>           jobs_;
-    std::vector<bool>          registered_;           // 등록된 KR 종목(id 인덱스, 중복 방지, 슬리브 공유)
-    size_t                     registered_count_ = 0; // registered_의 true 수
+    std::vector<uint8_t>       registered_;           // 등록된 KR 종목(id 인덱스, 값 0/1, 중복 방지, 슬리브 공유)
+    size_t                     registered_count_ = 0; // registered_의 1 수
 };

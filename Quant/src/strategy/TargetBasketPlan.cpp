@@ -1,7 +1,14 @@
 #include "strategy/TargetBasketPlan.h"
 #include <algorithm>
+#include <cmath>
+#include <cstdlib>
 #include <format>
+#include <map>
+#include <optional>
 #include <set>
+#include <string>
+#include <utility>
+#include <vector>
 
 namespace basket
 {
@@ -124,9 +131,11 @@ std::optional<Targets> parse_targets(const nlohmann::json& document, std::string
 
     for (const auto& [sleeve, sum] : weight_sum)
     {
-        if (std::abs(sum - 1.0) > 0.005)
+        constexpr double kWeightTolerance = 0.005; // 비중 합이 1에서 이만큼 벗어나면 계획을 버린다
+
+        if (std::abs(sum - 1.0) > kWeightTolerance)
         {
-            error = std::format("{} weight 합 {:.4f} (1±0.005 밖)", sleeve, sum);
+            error = std::format("{} weight 합 {:.4f} (1±{} 밖)", sleeve, sum, kWeightTolerance);
             return std::nullopt;
         }
     }

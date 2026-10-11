@@ -6,10 +6,11 @@
 
 #include <cassert>
 #include <chrono>
+#include <cstdint>
 #include <cstdlib>
-#include <cstring>
 #include <iostream>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -130,7 +131,7 @@ struct Client
     }
 };
 
-struct Fake
+struct FakeHandlers
 {
     std::mutex               mutex;
     std::vector<OpsOrderReq> orders;
@@ -221,7 +222,7 @@ static void t_bad_token(OpsServer&)
     assert(client.recv(frame) == 0);
 }
 
-static void t_happy_path(OpsServer& ops_server, Fake& forward_key)
+static void t_happy_path(OpsServer& ops_server, FakeHandlers& fake_handlers)
 {
     Client client;
     assert(client.open());
@@ -248,10 +249,10 @@ static void t_happy_path(OpsServer& ops_server, Fake& forward_key)
     assert(has(frame.body, "\"accepted\":false") && has(frame.body, "qty<=0"));
 
     {
-        std::lock_guard<std::mutex> lock(forward_key.mutex);
-        assert(forward_key.orders.size() == 2);
-        assert(forward_key.orders[0].client_id == "c1" && forward_key.orders[0].ticker == "005930" && forward_key.orders[0].side == "SELL" &&
-               forward_key.orders[0].quantity == 2);
+        std::lock_guard<std::mutex> lock(fake_handlers.mutex);
+        assert(fake_handlers.orders.size() == 2);
+        assert(fake_handlers.orders[0].client_id == "c1" && fake_handlers.orders[0].ticker == "005930" && fake_handlers.orders[0].side == "SELL" &&
+               fake_handlers.orders[0].quantity == 2);
     }
 
     // 다른 스레드의 broadcast가 인증된 연결에 push된다
@@ -260,8 +261,8 @@ static void t_happy_path(OpsServer& ops_server, Fake& forward_key)
 
     // 포지션 문자열이 바뀌면 1초 주기로 push
     {
-        std::lock_guard<std::mutex> lock(forward_key.mutex);
-        forward_key.positions = "{\"positions\":[]}";
+        std::lock_guard<std::mutex> lock(fake_handlers.mutex);
+        fake_handlers.positions = "{\"positions\":[]}";
     }
 
     assert(client.expect(OpsMsg::POSITIONS_NTF, frame) && frame.body == "{\"positions\":[]}");
@@ -277,22 +278,22 @@ static void t_happy_path(OpsServer& ops_server, Fake& forward_key)
     assert(client.expect(OpsMsg::SHUTDOWN_ACK, frame) && has(frame.body, "\"ok\":true"));
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     {
-        std::lock_guard<std::mutex> lock(forward_key.mutex);
-        assert(forward_key.shutdowns == 1 && forward_key.shutdown_who == "deploy_trader");
+        std::lock_guard<std::mutex> lock(fake_handlers.mutex);
+        assert(fake_handlers.shutdowns == 1 && fake_handlers.shutdown_who == "deploy_trader");
     }
 
     client.send(OpsMsg::KILL_REQ, "{}");
     assert(client.expect(OpsMsg::KILL_ACK, frame) && has(frame.body, "\"ok\":true"));
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     {
-        std::lock_guard<std::mutex> lock(forward_key.mutex);
-        assert(forward_key.kills == 1);
+        std::lock_guard<std::mutex> lock(fake_handlers.mutex);
+        assert(fake_handlers.kills == 1);
     }
 }
 
 // side가 빠졌거나 BUY/SELL이 아니면 핸들러를 부르지 않고 거부한다 — 예전에는 그대로 넘겨, 뒤쪽이 매수로 읽을 수 있었다.
 //  대소문자는 가리지 않고, 핸들러에는 대문자로 넘긴다. client_count()는 서버 스레드가 연결을 쥔 동안에도 바로 답한다.
-static void t_order_side(OpsServer& ops_server, Fake& forward_key)
+static void t_order_side(OpsServer& ops_server, FakeHandlers& fake_handlers)
 {
     Client client;
     require(client.open(), "연결");
@@ -304,8 +305,8 @@ static void t_order_side(OpsServer& ops_server, Fake& forward_key)
     size_t orders_before = 0;
 
     {
-        std::lock_guard<std::mutex> lock(forward_key.mutex);
-        orders_before = forward_key.orders.size();
+        std::lock_guard<std::mutex> lock(fake_handlers.mutex);
+        orders_before = fake_handlers.orders.size();
     }
 
     const char* const bad_orders[] = {
@@ -322,17 +323,17 @@ static void t_order_side(OpsServer& ops_server, Fake& forward_key)
     }
 
     {
-        std::lock_guard<std::mutex> lock(forward_key.mutex);
-        require(forward_key.orders.size() == orders_before, "잘못된 side는 핸들러까지 안 간다");
+        std::lock_guard<std::mutex> lock(fake_handlers.mutex);
+        require(fake_handlers.orders.size() == orders_before, "잘못된 side는 핸들러까지 안 간다");
     }
 
     client.send(OpsMsg::ORDER_REQ, "{\"cid\":\"s4\",\"ticker\":\"005930\",\"side\":\"sell\",\"qty\":1}");
     require(client.expect(OpsMsg::ORDER_ACK, frame) && has(frame.body, "\"accepted\":true"), "소문자 sell은 받는다");
 
     {
-        std::lock_guard<std::mutex> lock(forward_key.mutex);
-        require(forward_key.orders.size() == orders_before + 1, "소문자 sell은 핸들러로 간다");
-        require(forward_key.orders.back().side == "SELL", "핸들러에는 대문자 SELL로 넘긴다");
+        std::lock_guard<std::mutex> lock(fake_handlers.mutex);
+        require(fake_handlers.orders.size() == orders_before + 1, "소문자 sell은 핸들러로 간다");
+        require(fake_handlers.orders.back().side == "SELL", "핸들러에는 대문자 SELL로 넘긴다");
     }
 }
 
@@ -397,8 +398,8 @@ static void t_readonly_without_token()
 {
     OpsServer ops_server;
     ops_server.set_bind("127.0.0.1", kPort);
-    Fake forward_key;
-    forward_key.wire(ops_server);
+    FakeHandlers fake_handlers;
+    fake_handlers.wire(ops_server);
     assert(ops_server.start());
 
     Client client;
@@ -419,8 +420,8 @@ static void t_readonly_without_token()
     client.send(OpsMsg::SHUTDOWN_REQ, "{\"who\":\"t\"}");
     assert(client.expect(OpsMsg::SHUTDOWN_ACK, frame) && has(frame.body, "\"ok\":false"));
     {
-        std::lock_guard<std::mutex> lock(forward_key.mutex);
-        assert(forward_key.orders.empty() && forward_key.kills == 0 && forward_key.shutdowns == 0);
+        std::lock_guard<std::mutex> lock(fake_handlers.mutex);
+        assert(fake_handlers.orders.empty() && fake_handlers.kills == 0 && fake_handlers.shutdowns == 0);
     }
 
     ops_server.stop();
@@ -458,15 +459,15 @@ int main()
         OpsServer ops_server;
         ops_server.set_bind("127.0.0.1", kPort);
         ops_server.set_token("secret");
-        Fake forward_key;
-        forward_key.wire(ops_server);
+        FakeHandlers fake_handlers;
+        fake_handlers.wire(ops_server);
         assert(ops_server.start());
         t_hello_first(ops_server);
         t_bad_token(ops_server);
         t_bad_json(ops_server);
         t_malformed_body(ops_server);
-        t_happy_path(ops_server, forward_key);
-        t_order_side(ops_server, forward_key);
+        t_happy_path(ops_server, fake_handlers);
+        t_order_side(ops_server, fake_handlers);
         ops_server.stop();
         assert(!ops_server.running());
     }

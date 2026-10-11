@@ -1,5 +1,5 @@
 // 전략 쪽 — 전략 등록(기동·장중), 전략 시작, 전략 처리 스레드와 샤드 스레드.
-//  같은 Engine 의 멤버 함수 본체다. Engine.cpp 가 3,700줄을 넘겨 열기 어려워 이 갈래만 따로 냈다.
+//  같은 Engine 의 멤버 함수 본체다. Engine.cpp 가 길어 열기 어려워 이 갈래만 따로 냈다.
 //  전략 스레드 한 바퀴는 단계 함수(sink_signal·observe_order_side 등)로 나눴다.
 //
 //  ── 부르는 자리 ──────────────────────────────────────────────────────────
@@ -16,6 +16,7 @@
 #include <chrono>
 #include <exception>
 #include <mutex>
+#include <string_view>
 #include <thread>
 
 using namespace std::chrono_literals;
@@ -117,6 +118,9 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
     strategy->set_sellable_provider([this](const std::string& account, const std::string& ticker) {
         return ledger_sellable(account, ticker);
     });
+    strategy->set_sellable_provider_by_id([this](const std::string&, symbol::SymbolId symbol) {
+        return ledger_sellable(symbol);
+    });
     strategy->set_symbol_resolver([this](std::string_view ticker)
     {
         return register_symbol(ticker);
@@ -206,6 +210,9 @@ void Engine::start_strategies()
         });
         strategy->set_sellable_provider([this](const std::string& account, const std::string& ticker) {
             return ledger_sellable(account, ticker);
+        });
+        strategy->set_sellable_provider_by_id([this](const std::string&, symbol::SymbolId symbol) {
+            return ledger_sellable(symbol);
         });
         strategy->set_symbol_resolver([this](std::string_view ticker)
         {
@@ -567,39 +574,10 @@ void Engine::shard_thread_fn(std::stop_token stop_token, uint32_t row)
         return lookup_symbol(ticker);
     };
 
-    // 신호 봉투 — 전략 상태(active·id)는 여기서 읽는다. 전략 스레드는 전략 객체를 보지 않는다.
-    //  tick_ns는 체결 경로만 0이 아니다 — 봉·호가는 CSV에서 -1(측정 불가)로 남는다.
+    // 신호 봉투 — 넣는 일은 push_shard_envelope가 한다.
     const auto emit = [this, row](StrategyBase* strategy, const OrderSignal& signal, int64_t tick_ns)
     {
-        strategy::Emitted emitted;
-        emitted.signal           = signal;
-        emitted.signal.tick_at_ns = tick_ns;
-
-        // 전략이 안 찍었으면 여기서 한 번. 신호 종목이 지금 틱과 다를 수 있어(테마·청산) 틱 id를 그대로 쓰지 않는다.
-        if (emitted.signal.symbol_id == symbol::kNone)
-        {
-            emitted.signal.symbol_id = lookup_symbol(emitted.signal.ticker);
-        }
-
-        emitted.signal.strategy_index = strategy->strategy_index();
-        emitted.active                = strategy->is_active();
-        emitted.exit_manager          = strategy->is_exit_manager();
-
-        // 전략 스레드가 정체돼 봉투 큐가 찬 상태 — 기다리면 이 샤드의 틱이 밀린다. 신호를 버리고 센다(D-073과 같은 규칙).
-        if (!pipeline_.shard_out.push(std::move(emitted)))
-        {
-            const auto count = pipeline_.shard_dropped.fetch_add(1, std::memory_order_relaxed) + 1;
-
-            if (count == 1 || count % ShardPipeline::kDropLogEvery == 0)
-            {
-                LOG_WARN("[Shard " + std::to_string(row) + "] 봉투 큐 가득 — 신호 버림 " + signal.ticker + " (누적 " +
-                         std::to_string(count) + ")");
-            }
-
-            return;
-        }
-
-        pipeline_.strategy_wake.notify();
+        push_shard_envelope(row, strategy, signal, tick_ns);
     };
     // 운영단말 현재가용 캐시 — id 배열에 relaxed store 둘. 종목은 샤드 하나만 지나므로 쓰는 스레드도 하나다.
     const auto on_price = [this](symbol::SymbolId id, double price)
@@ -607,8 +585,6 @@ void Engine::shard_thread_fn(std::stop_token stop_token, uint32_t row)
         set_last_price(id, price);
     };
 
-    // 유휴 전이: 전략 스레드와 같은 정책 — 200us yield 뒤 자기 게이트에서 잔다. [why D-071]
-    constexpr auto                        kSpinBudget = std::chrono::microseconds(200);
     std::chrono::steady_clock::time_point idle_since{};
     // 시각 호출 주기 — 잠들어도 10ms마다 깨므로 1초 해상도는 지켜진다. [why D-157]
     constexpr auto                        kClockInterval = std::chrono::seconds(1);
@@ -647,26 +623,71 @@ void Engine::shard_thread_fn(std::stop_token stop_token, uint32_t row)
             continue;
         }
 
-        const auto now_i = std::chrono::steady_clock::now();
-
-        if (idle_since == std::chrono::steady_clock::time_point{})
-        {
-            idle_since = now_i;
-        }
-
-        if (now_i - idle_since < kSpinBudget)
-        {
-            std::this_thread::yield();
-            continue;
-        }
-
-        shard.wake().wait_for(10ms, stop_token, [&shard]
-        {
-            return shard.empty();
-        });
+        wait_shard_idle(shard, stop_token, idle_since);
     }
 
     LOG_INFO("[Shard " + std::to_string(row) + "] 종료");
+}
+
+// 샤드 스레드 단계 — 전략이 낸 신호 하나를 봉투로 싸 전략 스레드 큐(shard_out)에 넣는다.
+//  전략 상태(active·id)는 여기서 읽는다. 전략 스레드는 전략 객체를 보지 않는다.
+//  tick_ns는 체결 경로만 0이 아니다 — 봉·호가는 CSV에서 -1(측정 불가)로 남는다.
+void Engine::push_shard_envelope(uint32_t row, StrategyBase* strategy, const OrderSignal& signal, int64_t tick_ns)
+{
+    strategy::Emitted emitted;
+    emitted.signal           = signal;
+    emitted.signal.tick_at_ns = tick_ns;
+
+    // 전략이 안 찍었으면 여기서 한 번. 신호 종목이 지금 틱과 다를 수 있어(테마·청산) 틱 id를 그대로 쓰지 않는다.
+    if (emitted.signal.symbol_id == symbol::kNone)
+    {
+        emitted.signal.symbol_id = lookup_symbol(emitted.signal.ticker);
+    }
+
+    emitted.signal.strategy_index = strategy->strategy_index();
+    emitted.active                = strategy->is_active();
+    emitted.exit_manager          = strategy->is_exit_manager();
+
+    // 전략 스레드가 정체돼 봉투 큐가 찬 상태 — 기다리면 이 샤드의 틱이 밀린다. 신호를 버리고 센다(D-073과 같은 규칙).
+    if (!pipeline_.shard_out.push(std::move(emitted)))
+    {
+        const auto count = pipeline_.shard_dropped.fetch_add(1, std::memory_order_relaxed) + 1;
+
+        if (count == 1 || count % ShardPipeline::kDropLogEvery == 0)
+        {
+            LOG_WARN("[Shard " + std::to_string(row) + "] 봉투 큐 가득 — 신호 버림 " + signal.ticker + " (누적 " +
+                     std::to_string(count) + ")");
+        }
+
+        return;
+    }
+
+    pipeline_.strategy_wake.notify();
+}
+
+// 샤드 스레드 단계 — 일이 없을 때. 전략 스레드와 같은 정책으로 200us는 yield로 돌고, 넘기면 자기 게이트에서
+//  최대 10ms 잔다. idle_since는 처음 일이 끊긴 시각이다(일을 하면 부르는 쪽이 비운다). [why D-071]
+void Engine::wait_shard_idle(strategy::Shard& shard, const std::stop_token& stop_token,
+                             std::chrono::steady_clock::time_point& idle_since)
+{
+    constexpr auto kSpinBudget = std::chrono::microseconds(200);
+    const auto     now         = std::chrono::steady_clock::now();
+
+    if (idle_since == std::chrono::steady_clock::time_point{})
+    {
+        idle_since = now;
+    }
+
+    if (now - idle_since < kSpinBudget)
+    {
+        std::this_thread::yield();
+        return;
+    }
+
+    shard.wake().wait_for(10ms, stop_token, [&shard]
+    {
+        return shard.empty();
+    });
 }
 
 // 샤드 스레드 단계 — 전략 목록이 바뀌었을 때 자기 샤드 몫의 스냅샷과 라우팅 표를 다시 짠다.

@@ -231,12 +231,36 @@ group = "KIS REST — 호출 속도·재시도·토큰"
 meaning = "GET 재시도 선형 백오프 기준(attempt 배)"
 
 [[code_value]]
-id = "kis_rest_http_timeouts"
+id = "kis_rest_http_resolve_timeout_ms"
 file = "Quant/src/api/KisTransport.cpp"
-regex = 'WinHttpSetTimeouts\([^,]+,\s*(\d+, \d+, \d+, \d+)\);'
+regex = 'constexpr int kResolveTimeoutMs\s*=\s*(\d+);'
 unit = "ms"
 group = "KIS REST — 호출 속도·재시도·토큰"
-meaning = "resolve / connect / send / receive 타임아웃"
+meaning = "WinHTTP 이름 풀이(resolve) 타임아웃"
+
+[[code_value]]
+id = "kis_rest_http_connect_timeout_ms"
+file = "Quant/src/api/KisTransport.cpp"
+regex = 'constexpr int kConnectTimeoutMs\s*=\s*(\d+);'
+unit = "ms"
+group = "KIS REST — 호출 속도·재시도·토큰"
+meaning = "WinHTTP 연결(connect) 타임아웃"
+
+[[code_value]]
+id = "kis_rest_http_send_timeout_ms"
+file = "Quant/src/api/KisTransport.cpp"
+regex = 'constexpr int kSendTimeoutMs\s*=\s*(\d+);'
+unit = "ms"
+group = "KIS REST — 호출 속도·재시도·토큰"
+meaning = "WinHTTP 송신(send) 타임아웃"
+
+[[code_value]]
+id = "kis_rest_http_receive_timeout_ms"
+file = "Quant/src/api/KisTransport.cpp"
+regex = 'constexpr int kReceiveTimeoutMs\s*=\s*(\d+);'
+unit = "ms"
+group = "KIS REST — 호출 속도·재시도·토큰"
+meaning = "WinHTTP 수신(receive) 타임아웃 — check_runtime_health 의 '15초 제한 시간 초과' 기준"
 
 [[code_value]]
 id = "kis_token_check_every"
@@ -274,7 +298,7 @@ meaning = "일봉 1콜에 받는 봉 수 — daily_lookback 250 이면 종목당
 [[code_value]]
 id = "kis_minute_page_sleep_ms"
 file = "Quant/src/api/KisMarket.cpp"
-regex = 'sleep_for\(std::chrono::milliseconds\((\d+)\)\); // rate limit 여유'
+regex = 'kPagePause\{(\d+)\};'
 unit = "ms"
 group = "KIS REST — 일봉·분봉·랭킹 조회"
 meaning = "분봉·일봉 페이지 사이 쉼"
@@ -673,7 +697,7 @@ meaning = "강제청산 재발주 간격(dedup 창 1초보다 길어야 통과)"
 [[code_value]]
 id = "devscale_exit_backoff_max_ms"
 file = "Quant/include/strategy/DeviationScaleStrategy.h"
-regex = 'long long max_backoff_ms = (\d+), bool clamp_sellable'
+regex = 'kMarketCloseBackoffMs = (\d+);'
 unit = "ms"
 group = "주문 — 발주 속도·재시도·청산 백오프"
 meaning = "DEVSCALE 청산 실패 백오프 상한(30초부터 ×2)"
@@ -705,16 +729,16 @@ meaning = "청산 관리 청산 재시도 상한"
 [[code_value]]
 id = "commission_rate"
 file = "Quant/src/risk/PositionLedger.cpp"
-regex = 'kCommissionRate = ([\d.]+);'
-unit = "비율"
+regex = 'kCommissionNumerator\s*=\s*(\d+);'
+unit = "분자(÷100000, 15 = 0.015%)"
 group = "주문 — 발주 속도·재시도·청산 백오프"
 meaning = "PositionLedger 가 가정하는 위탁수수료(매수·매도)"
 
 [[code_value]]
 id = "sell_tax_rate"
 file = "Quant/src/risk/PositionLedger.cpp"
-regex = 'kSellTaxRate\s*=\s*([\d.]+);'
-unit = "비율"
+regex = 'kSellTaxNumerator\s*=\s*(\d+);'
+unit = "분자(÷10000, 20 = 0.20%)"
 group = "주문 — 발주 속도·재시도·청산 백오프"
 meaning = "증권거래세(매도만)"
 

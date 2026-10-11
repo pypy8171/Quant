@@ -6,8 +6,6 @@
 #include <chrono>
 #include <format>
 #include <optional>
-#include <string_view>
-#include <vector>
 
 using order_router::capture_transport;
 using order_router::close_then_finish;

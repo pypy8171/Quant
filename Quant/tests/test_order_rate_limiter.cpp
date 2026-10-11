@@ -6,8 +6,10 @@
 #include "risk/GateReasons.h"
 #include "utils/Logger.h"
 
+#include <chrono>
 #include <cstdlib>
 #include <iostream>
+#include <string>
 
 namespace
 {
@@ -114,8 +116,8 @@ int test_retry_queue()
     CHECK(order_rate_limiter.on_rejected({signal("A", OrderSide::SELL, 10), 0}, OrderStatus::REJECTED, "APBK0013", start_time));
     CHECK(order_rate_limiter.retry_count() == 1);
     CHECK(!order_rate_limiter.take_due_retry(start_time + milliseconds(1199)));
-    auto take_due_retry = order_rate_limiter.take_due_retry(start_time + milliseconds(1200));
-    CHECK(take_due_retry && take_due_retry->signal.ticker == "A" && take_due_retry->attempts == 1);
+    auto retry = order_rate_limiter.take_due_retry(start_time + milliseconds(1200));
+    CHECK(retry && retry->signal.ticker == "A" && retry->attempts == 1);
     CHECK(order_rate_limiter.retry_count() == 0);
 
     // 접수·비대상 거부는 예약하지 않는다
@@ -128,32 +130,32 @@ int test_retry_queue()
     CHECK(order_rate_limiter.on_rejected({signal("B", OrderSide::BUY, 5), 0}, OrderStatus::REJECTED, "Rate limit 초과 (분당 40)", start_time));
     CHECK(order_rate_limiter.on_rejected({signal("C", OrderSide::SELL, 5), 0}, OrderStatus::REJECTED, "APBK0013", start_time));
     CHECK(!order_rate_limiter.take_due_retry(start_time + milliseconds(5000)));
-    take_due_retry = order_rate_limiter.take_due_retry(start_time + milliseconds(20000));
-    CHECK(take_due_retry && take_due_retry->signal.ticker == "B" && take_due_retry->attempts == 1);
-    take_due_retry = order_rate_limiter.take_due_retry(start_time + milliseconds(20000));
-    CHECK(take_due_retry && take_due_retry->signal.ticker == "C");
+    retry = order_rate_limiter.take_due_retry(start_time + milliseconds(20000));
+    CHECK(retry && retry->signal.ticker == "B" && retry->attempts == 1);
+    retry = order_rate_limiter.take_due_retry(start_time + milliseconds(20000));
+    CHECK(retry && retry->signal.ticker == "C");
     CHECK(!order_rate_limiter.take_due_retry(start_time + milliseconds(20000)));
 
     // 청산 완료(보유 0)면 만기된 SELL 재시도를 버리고 다음 것을 준다. BUY 재시도는 보유와 무관
     CHECK(order_rate_limiter.on_rejected({signal("D", OrderSide::SELL, 5), 0}, OrderStatus::REJECTED, "APBK0013", start_time));
     CHECK(order_rate_limiter.on_rejected({signal("E", OrderSide::BUY, 5), 0}, OrderStatus::REJECTED, "EGW00201", start_time));
     held = 0;
-    take_due_retry    = order_rate_limiter.take_due_retry(start_time + milliseconds(1200));
-    CHECK(take_due_retry && take_due_retry->signal.ticker == "E");
+    retry = order_rate_limiter.take_due_retry(start_time + milliseconds(1200));
+    CHECK(retry && retry->signal.ticker == "E");
     CHECK(order_rate_limiter.retry_count() == 0);
 
     // 횟수는 재시도마다 이어진다: 2회째 거부 → attempts 2, 3회째 거부는 예약 없음
     CHECK(order_rate_limiter.on_rejected({signal("F", OrderSide::SELL, 5), 0}, OrderStatus::REJECTED, "APBK0013", start_time));
     held = 5;
-    take_due_retry    = order_rate_limiter.take_due_retry(start_time + milliseconds(1200));
-    CHECK(take_due_retry && take_due_retry->attempts == 1);
-    CHECK(order_rate_limiter.on_rejected(*take_due_retry, OrderStatus::REJECTED, "APBK0013", start_time));
-    take_due_retry = order_rate_limiter.take_due_retry(start_time + milliseconds(1200));
-    CHECK(take_due_retry && take_due_retry->attempts == 2);
-    CHECK(order_rate_limiter.on_rejected(*take_due_retry, OrderStatus::REJECTED, "APBK0013", start_time));
-    take_due_retry = order_rate_limiter.take_due_retry(start_time + milliseconds(1200));
-    CHECK(take_due_retry && take_due_retry->attempts == 3);
-    CHECK(!order_rate_limiter.on_rejected(*take_due_retry, OrderStatus::REJECTED, "APBK0013", start_time));
+    retry = order_rate_limiter.take_due_retry(start_time + milliseconds(1200));
+    CHECK(retry && retry->attempts == 1);
+    CHECK(order_rate_limiter.on_rejected(*retry, OrderStatus::REJECTED, "APBK0013", start_time));
+    retry = order_rate_limiter.take_due_retry(start_time + milliseconds(1200));
+    CHECK(retry && retry->attempts == 2);
+    CHECK(order_rate_limiter.on_rejected(*retry, OrderStatus::REJECTED, "APBK0013", start_time));
+    retry = order_rate_limiter.take_due_retry(start_time + milliseconds(1200));
+    CHECK(retry && retry->attempts == 3);
+    CHECK(!order_rate_limiter.on_rejected(*retry, OrderStatus::REJECTED, "APBK0013", start_time));
     CHECK(order_rate_limiter.retry_count() == 0);
     return 0;
 }

@@ -45,7 +45,7 @@
 //   • 하루 단위 진입 필터(옵션): 전일 ATR14/SMA20이 entry_atr_max_percent를 넘거나 개장 봉 이격이
 //     entry_open_deviation_[min|max]_percent 밖이면 그날은 새로 사지 않는다(보유분 관리는 그대로).
 //   • 시장가가 아니라 지정가 예약을 미리 걸어 "기다리는" 매매. 3분봉이 갱신되거나 SMA가
-//     reprice_move_ticks 이상 이동하면 미체결 분할 매수를 CANCEL+NEW로 재호가(MM-1 패턴).
+//     reprice_move_ticks 이상 이동하면 미체결 분할 매수를 CANCEL+NEW로 재호가(시장조성 패턴).
 //
 //  구동: rest_price_feed 모드에서 DataThread가 매 사이클 현재가를 TradeData로 주입 →
 //        on_trade_batch가 하트비트로 호출된다(WS 불필요). 일봉은 kis_로 자가조회(프리페치 스레드).
@@ -78,8 +78,8 @@ public:
         //  베이스와 물타기 예산에 함께 곱해 종목당 명목 전체를 스케일한다. 1.0이면 균등(기본값)
         //  이라 배선 전 동작이 바뀌지 않는다. 등록 시점에 고정하고 재스캔이 갱신하지 않는다 —
         //  이미 포지션이 있는 종목의 분할 매수를 도중에 재산정하면 잔여 물타기 예산이 평단과 어긋난다.
-        double size_mult      = 1.0;
-        // 종목당 명목 총액(원). 0보다 크면 자본%·size_mult 대신 이 금액을 베이스+물타기로 나눈다
+        double size_multiplier      = 1.0;
+        // 종목당 명목 총액(원). 0보다 크면 자본%·size_multiplier 대신 이 금액을 베이스+물타기로 나눈다
         //  (비율은 base_percent:max_percent 그대로). 점수 z를 바닥~천장 원 구간에 대응시킨 값이 들어온다.
         //  [why D-036] 자본%×정규화 배수는 종목당 20만~60만원이 나와 자본이 아니라 슬롯이 먼저 마른다.
         double notional_krw   = 0.0;
@@ -150,8 +150,10 @@ public:
         //   판정해 그날 새 진입만 막는다. 1년 리플레이(09-21)에서 ATR≤5·이격≥−3이 비용 전 +0.10 → +0.26%/건,
         //   ATR 상한이 낮을수록 단조로 좋아졌다. 0/−99/99면 끔. [why D-111]
         double entry_atr_max_percent = 0.0;
-        double entry_open_deviation_min_percent = -99.0;
-        double entry_open_deviation_max_percent = 99.0;
+        static constexpr double kOpenDeviationOff    = -99.0; // 개장 이격 하한을 끈 값
+        static constexpr double kOpenDeviationMaxOff = 99.0;  // 개장 이격 상한을 끈 값
+        double entry_open_deviation_min_percent = kOpenDeviationOff;
+        double entry_open_deviation_max_percent = kOpenDeviationMaxOff;
         //  prefetch_jitter_percent: 봉 경계 직후 분봉 조회를 종목별로 흩는다(봉 길이의 0~이 비율,
         //   티커 해시로 고정). 50종목이 같은 초에 조회하면 초당 한도(20)에 걸려 뒤쪽이 HTTP 500이다.
         //   근거: 20은 D-138의 '공표 한도 20건'(저장소 기록, 공식 샘플에는 한도 값이 없다), HTTP 500은 D-004의
@@ -280,7 +282,7 @@ private:
     bool exit_on_protective_rules(double current_price, std::vector<OrderSignal>& out,
                                   std::chrono::steady_clock::time_point now);
     // 기준선을 못 정했거나(봉 부족·SMA 0) 기준선 이탈로 청산했으면 nullopt.
-    std::optional<Baseline> resolve_baseline(const std::vector<MarketData>& bars, double d_s20, double current_price,
+    std::optional<Baseline> resolve_baseline(const std::vector<MarketData>& bars, double daily_sma20, double current_price,
                                              std::vector<OrderSignal>& out, std::chrono::steady_clock::time_point now);
     // 발주 전 계획. trading_.peak_position·trading_.base_target_quantity·liquidation_.reentry_cooldown_until을 갱신한다.
     SplitPlan plan_split_steps(int position, double current_price, double simple_moving_average, bool warming,
@@ -323,7 +325,7 @@ private:
 
     // ── 프리페치: 무거운 REST(3분봉·일봉·잔고)를 샤드 스레드 밖에서 미리 당겨
     //    스냅샷에 적재한다. on_trade_batch는 스냅샷만 읽어(락 짧게) 발주를 판단 → 특정
-    //    종목의 느린 REST가 전 전략을 막던 head-output_file-line 블로킹을 없앤다. 발주·매도가능
+    //    종목의 느린 REST가 전 전략을 막던 head-of-line 블로킹을 없앤다. 발주·매도가능
     //    (sellable_quantity)은 장부 최신성을 위해 동기 유지. 여기서 부르는 KIS 메서드는 전부
     //    읽기전용(get_daily_ohlcv·get_minute_ohlcv·get_balance, 동시호출 감사 완료).
     //  주기(Engine::kPrefetchPeriodMs 3초)와 스레드는 공용 풀이 가진다 — 이 함수는 한 주기에 한 번 불린다. [why D-115]
@@ -334,7 +336,7 @@ private:
 
     // 사이징 기준 자본(총평가금) 조회. output2 tot_evlu_amt(없으면 nass_amt). 알 수 없으면 0.
     //  [wire] 출처: KIS 공식 샘플 inquire_balance output2의 tot_evlu_amt·nass_amt, 2026-09-27 MCP 확인.
-    //  프리페치 스레드에서 호출(읽기전용). 폴백(fallback_equity) 적용은 호출측(on_trade_batch, line equity).
+    //  프리페치 스레드에서 호출(읽기전용). 폴백(fallback_equity) 적용은 호출측(on_trade_batch).
     // 총평가금은 계좌 하나의 값이라 종목마다 다시 부를 이유가 없다. 전략 스레드가 종목 수만큼
     //  있어 기동 직후 같은 잔고 조회가 40건 동시에 나갔고, 모의 키 2건/초 한도를 주문까지
     //  끌어내렸다(09-11 09:18 EGW00201). 계좌(parameters_.account)마다 하루 한 번만 부르고, 같은 계좌의
@@ -356,8 +358,8 @@ private:
 
     std::string next_order_id(const char* tag);
 
-    void place(std::vector<OrderSignal>& out, OrderSide side, double price, int quantity,
-               const std::string& reason = "");
+    // reason은 신호로 옮겨 넣는다(sink) — 임시 문자열을 넘기면 복사가 없다.
+    void place(std::vector<OrderSignal>& out, OrderSide side, double price, int quantity, std::string reason = {});
 
     // 미체결 전량 취소. 발주가 있었으면 true. 취소한 매도 수량을 cancelled_sell_quantity_에 더한다.
     bool cancel_all(std::vector<OrderSignal>& out);
@@ -368,7 +370,7 @@ private:
     // 이번 처리에서 새 매도에 쓸 수 있는 수량 — 장부 매도가능에 이번 처리에서 취소한 자기 매도를 더한다. [why D-156]
     int sell_room(int position);
 
-    OrderSignal make_market_sell(int quantity, const std::string& reason = "");
+    OrderSignal make_market_sell(int quantity, std::string reason = {});
 
     // 시장가 청산 신호의 명목 평가 기준가. 직전 체결가 > 잔고 평단 > 최근 3분봉 종가 순.
     double liquidation_reference_price();
@@ -386,7 +388,11 @@ private:
     //  clamp_sellable=false 면 잔고 조회 없이 position 전량을 낸다 — 라우터의 게이트 클램프·자가정리에 맡긴다(장 마감).
     bool emit_liquidation(std::vector<OrderSignal>& out, int position,
                           std::chrono::steady_clock::time_point now, const std::string& tag,
-                          long long max_backoff_ms = 300000, bool clamp_sellable = true);
+                          long long max_backoff_ms = kMarketCloseBackoffMs, bool clamp_sellable = true);
+
+    // emit_liquidation이 지금 시장가 매도를 낼 차례인가 — 보유가 있고 백오프 창 밖이면 참. 부르는 쪽은 이것이 참일 때만
+    //  사유 문자열을 만든다. 장 마감 뒤에는 체결마다 이 판정을 지나므로, 거짓이면 문자열을 만들지 않는다.
+    bool liquidation_due(int position, std::chrono::steady_clock::time_point now) const;
 
     // 해당 종목의 매도가능수량. 장부 사본의 매도가능분으로 클램프한다(접근자가 없으면 계좌 클라이언트
     //  account_kis() 잔고 조회로 대체, 그것도 없으면 0). 안전 우선: 확실히 알 수 없으면 0(보류)을 반환해
@@ -403,7 +409,7 @@ private:
     // 현재 봉이 시작한 뒤 흐른 초(KST). 프리페치 지터 판정용.
     static int kst_sec_into_bucket(int interval_min);
 
-    static std::string kst_ymd();
+    static std::string kst_date_yyyymmdd();
 
     static std::string format_one_decimal(double value);
 
@@ -444,7 +450,7 @@ private:
 
     // ── 프리페치(무거운 REST를 샤드 스레드 밖으로) ──────────────────────
     prefetch::Pool::TaskId  prefetch_task_ = 0;   // 풀 등록 번호(0=없음). 해제는 stop_prefetch()가 명시(멤버 소멸 순서 앞)
-    std::mutex              snap_mutex_;               // 아래 snapshot_ 보호
+    std::mutex              snapshot_mutex_;               // 아래 snapshot_ 보호
     using BarSnapshot = deviation_scale::BarSnapshot;
     deviation_scale::PrefetchSnapshot snapshot_;      // 프리페치가 채운 일봉·분봉·자본
 

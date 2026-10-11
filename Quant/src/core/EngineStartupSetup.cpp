@@ -1,5 +1,5 @@
 // 기동 준비 — 브로커 인증, 모의 체결기, 주문 라우터, 잔고 대조기, REST 폴러, 장부 저널·잔고 시드.
-//  Engine 클래스는 그대로다. Engine.cpp가 1,000줄을 넘어 start()가 부르는 준비 단계만 따로 낸 것이다(몸통은 옮기기만 했다).
+//  Engine 클래스는 그대로다. Engine.cpp 가 길어 start()가 부르는 준비 단계만 따로 낸 것이다(몸통은 옮기기만 했다).
 //  관련 결정: D-061·D-062·D-113·D-114.
 
 #include "core/Engine.h"
@@ -9,17 +9,10 @@
 #include "utils/Logger.h"
 #include "utils/ThreadName.h"
 #include "utils/Utf8.h"
-#include <algorithm>
-#include <functional>
 #include <chrono>
 #include <ctime>
-#include <filesystem>
-#include <fstream>
-#include <iomanip>
 #include <memory>
-#include <sstream>
 #include <thread>
-#include <unordered_set>
 #include <nlohmann/json.hpp>
 
 using namespace std::chrono_literals;

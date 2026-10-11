@@ -4,6 +4,8 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <string>
+#include <system_error>
 
 namespace file_io
 {

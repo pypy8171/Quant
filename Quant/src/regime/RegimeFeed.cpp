@@ -12,11 +12,17 @@
 #include "utils/ThreadName.h"
 
 #include <chrono>
+#include <cstddef>
+#include <ctime>
+#include <exception>
 #include <filesystem>
 #include <fstream>
-#include <map>
+#include <optional>
 #include <sstream>
 #include <string>
+#include <string_view>
+#include <system_error>
+#include <thread>
 #include <vector>
 
 namespace regime_feed
@@ -236,22 +242,21 @@ bool RegimeFeed::another_writer_owns_file()
 
 Changes RegimeFeed::fetch_changes()
 {
-    Changes                             changes;
-    const std::time_t                   now     = std::time(nullptr);
-    const std::map<std::string, Change> indexes =
-        parse_naver_index(http::get(std::string(kNaverIndexUrl), naver_headers()), now);
+    Changes           changes;
+    const std::time_t now     = std::time(nullptr);
+    const Changes     indexes = parse_naver_index(http::get(std::string(kNaverIndexUrl), naver_headers()), now);
 
     for (const VotingSymbol& symbol : kVotingSymbols)
     {
-        const std::string key(symbol.key);
+        const std::string key(indicator_name(symbol.key)); // 로그 문구용
 
         if (!symbol.naver_code.empty())
         {
-            const auto found = indexes.find(std::string(symbol.naver_code));
+            const Change* found = indexes.find(symbol.key);
 
-            if (found != indexes.end())
+            if (found != nullptr)
             {
-                changes[key] = found->second;
+                changes[symbol.key] = *found;
                 continue;
             }
 
@@ -318,7 +323,7 @@ Changes RegimeFeed::fetch_changes()
             LOG_WARN("[국면] " + key + " 받기 실패(" + change.error + ") — 이번 사이클 표결에서 빠진다");
         }
 
-        changes[key] = change;
+        changes[symbol.key] = change;
     }
 
     return changes;
@@ -347,7 +352,7 @@ void RegimeFeed::fetch_info_changes(Changes& changes)
             }
 
             all_ok = all_ok && change.percent.has_value();
-            info_cache_[std::string(symbol.key)] = change;
+            info_cache_[symbol.key] = change;
         }
 
         if (all_ok)
@@ -356,9 +361,14 @@ void RegimeFeed::fetch_info_changes(Changes& changes)
         }
     }
 
-    for (const auto& [key, change] : info_cache_)
+    for (const InfoSymbol& symbol : kInfoSymbols)
     {
-        changes[key] = change;
+        const Change* cached = info_cache_.find(symbol.key);
+
+        if (cached != nullptr)
+        {
+            changes[symbol.key] = *cached;
+        }
     }
 }
 
@@ -377,7 +387,21 @@ void RegimeFeed::cycle()
         nlohmann::ordered_json document;
         document["date"]   = open_reference.date;
         document["ts"]     = open_reference.timestamp;
-        document["prices"] = open_reference.prices;
+        // 지표 순서대로 적는다.
+        nlohmann::ordered_json prices = nlohmann::ordered_json::object();
+
+        for (std::size_t index = 0; index < kIndicatorCount; ++index)
+        {
+            const Indicator indicator = static_cast<Indicator>(index);
+            const double*   price     = open_reference.prices.find(indicator);
+
+            if (price != nullptr)
+            {
+                prices[std::string(indicator_name(indicator))] = *price;
+            }
+        }
+
+        document["prices"] = prices;
 
         if (!write_with_parent(config_.open_reference_path, document.dump(1)))
         {

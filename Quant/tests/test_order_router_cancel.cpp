@@ -2,7 +2,9 @@
 //  공용 준비는 test_order_router_support.h, 실행 순서는 test_order_router.cpp의 main.
 #include "test_order_router_support.h"
 
-// ─── 테스트 9: CANCEL 경로 — reserved 해제 + orgno 캡처 (MM-1) ────────────────
+#include <string>
+
+// ─── 테스트 9: CANCEL 경로 — reserved 해제 + orgno 캡처 ────────────────
 void test_cancel_releases_reserved()
 {
     OrderGate         gate(relaxed_config());

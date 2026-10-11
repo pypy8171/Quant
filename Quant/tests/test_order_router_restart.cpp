@@ -2,6 +2,11 @@
 //  공용 준비는 test_order_router_support.h, 실행 순서는 test_order_router.cpp의 main.
 #include "test_order_router_support.h"
 
+#include <chrono>
+#include <filesystem>
+#include <fstream>
+#include <system_error>
+
 // ─── 재기동 미결 주문 대조 (D-113) ─────────────────────────────────────────────
 //   전송 뒤 접수 응답 전에 죽으면 저널에는 주문번호 없는 INTENT만 남는다. 예전에는 이를 무조건 풀어,
 //   KIS에 살아 있는 주문을 잊고 같은 수량을 또 낼 수 있었다.

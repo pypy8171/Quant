@@ -8,8 +8,11 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <utility>
 #ifdef _WIN32
 #include <windows.h>
 #include <psapi.h>
@@ -48,7 +51,7 @@ struct Options
 
 // 한 작업이 돌 때마다 직전 실행과의 간격을 남긴다. 표본은 미리 잡아 두고 덮어쓴다
 //  — 측정 스레드가 힙을 만지면 재려는 값이 흔들린다. [inv] 한 칸은 한 작업만 쓴다
-struct TaskProbe
+struct TaskSampler
 {
     Clock::time_point     last;
     std::vector<double>   intervals_ms;
@@ -189,14 +192,14 @@ int run_one(const Options& options, bool print_header)
     const std::size_t samples_per_task =
         static_cast<std::size_t>(options.seconds) * 1000u / static_cast<std::size_t>(options.period_ms < 1 ? 1 : options.period_ms) + 8u;
 
-    std::vector<std::unique_ptr<TaskProbe>> probes;
-    probes.reserve(options.tasks);
+    std::vector<std::unique_ptr<TaskSampler>> samplers;
+    samplers.reserve(options.tasks);
 
     for (std::size_t index = 0; index < options.tasks; ++index)
     {
-        auto probe = std::make_unique<TaskProbe>();
-        probe->intervals_ms.resize(samples_per_task, 0.0);
-        probes.push_back(std::move(probe));
+        auto sampler = std::make_unique<TaskSampler>();
+        sampler->intervals_ms.resize(samples_per_task, 0.0);
+        samplers.push_back(std::move(sampler));
     }
 
     // 스레드가 뜨기 전에 기준선을 잡는다 — 증가분이 곧 스레드 N개가 실제로 쓴 물리 메모리다.
@@ -206,21 +209,21 @@ int run_one(const Options& options, bool print_header)
 
     for (std::size_t index = 0; index < options.tasks; ++index)
     {
-        TaskProbe* probe = probes[index].get();
+        TaskSampler* sampler = samplers[index].get();
         const int  work_us   = options.work_us;
         const bool wait_kind = options.work_kind == WorkKind::Wait;
 
-        pool.add([probe, work_us, wait_kind] {
+        pool.add([sampler, work_us, wait_kind] {
             const auto now = Clock::now();
 
-            if (probe->runs.load(std::memory_order_relaxed) > 0 && probe->written < probe->intervals_ms.size())
+            if (sampler->runs.load(std::memory_order_relaxed) > 0 && sampler->written < sampler->intervals_ms.size())
             {
-                probe->intervals_ms[probe->written++] =
-                    std::chrono::duration<double, std::milli>(now - probe->last).count();
+                sampler->intervals_ms[sampler->written++] =
+                    std::chrono::duration<double, std::milli>(now - sampler->last).count();
             }
 
-            probe->last = now;
-            probe->runs.fetch_add(1, std::memory_order_relaxed);
+            sampler->last = now;
+            sampler->runs.fetch_add(1, std::memory_order_relaxed);
 
             if (wait_kind)
             {
@@ -263,13 +266,13 @@ int run_one(const Options& options, bool print_header)
     all_intervals.reserve(options.tasks * 4u);
     uint64_t total_runs = 0;
 
-    for (const auto& probe : probes)
+    for (const auto& sampler : samplers)
     {
-        total_runs += probe->runs.load(std::memory_order_relaxed);
+        total_runs += sampler->runs.load(std::memory_order_relaxed);
 
-        for (std::size_t index = 0; index < probe->written; ++index)
+        for (std::size_t index = 0; index < sampler->written; ++index)
         {
-            all_intervals.push_back(probe->intervals_ms[index]);
+            all_intervals.push_back(sampler->intervals_ms[index]);
         }
     }
 
@@ -318,11 +321,11 @@ int run_one(const Options& options, bool print_header)
     if (!options.out_path.empty())
     {
         const bool exists = [&options] {
-            std::FILE* probe_file = std::fopen(options.out_path.c_str(), "r");
+            std::FILE* existing_file = std::fopen(options.out_path.c_str(), "r");
 
-            if (probe_file != nullptr)
+            if (existing_file != nullptr)
             {
-                std::fclose(probe_file);
+                std::fclose(existing_file);
                 return true;
             }
 

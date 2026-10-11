@@ -7,10 +7,15 @@
 #include "utils/ThreadName.h"
 
 #include <chrono>
+#include <cstdint>
 #include <ctime>
 #include <fstream>
+#include <memory>
+#include <optional>
+#include <string>
 #include <thread>
 #include <utility>
+#include <vector>
 
 #ifdef HAS_ZMQ
 #include <zmq.hpp>
@@ -94,14 +99,14 @@ ZmqOrderFeed::~ZmqOrderFeed()
 
 void ZmqOrderFeed::set_callbacks(OrderBookCb on_order_book, TradeCb on_trade)
 {
-    set_lane_callbacks([callback = std::move(on_order_book)](uint32_t, const OrderBook& book)
+    set_lane_callbacks([callback = std::move(on_order_book)](uint32_t, OrderBook& book)
                        {
                            if (callback)
                            {
                                callback(book);
                            }
                        },
-                       [callback = std::move(on_trade)](uint32_t, const TradeData& trade)
+                       [callback = std::move(on_trade)](uint32_t, TradeData& trade)
                        {
                            if (callback)
                            {
@@ -436,14 +441,13 @@ void ZmqOrderFeed::process_record(uint32_t lane, const OrderWireRecord& record, 
 
     if (command == WireCommand::RUN_AUCTION)
     {
-        own.engine.set_execution_callback(
-            [&](const Execution& execution)
-            {
-                own.executions.fetch_add(1, std::memory_order_relaxed);
-                publish_execution(lane, execution, 1, hhmmss_now);
-            });
-        own.engine.run_auction(symbol_id);
-        own.engine.set_execution_callback(nullptr);
+        // 콜백은 호출 동안만 빌려준다 — 주문마다 std::function을 만들고 지우지 않는다.
+        const auto publish = [&](const Execution& execution)
+        {
+            own.executions.fetch_add(1, std::memory_order_relaxed);
+            publish_execution(lane, execution, 1, hhmmss_now);
+        };
+        own.engine.run_auction(symbol_id, publish);
 
         if (options_.publish_order_book)
         {
@@ -466,15 +470,13 @@ void ZmqOrderFeed::process_record(uint32_t lane, const OrderWireRecord& record, 
     }
 
     const int direction = order.side == OrderSide::SELL ? 5 : 1;
-    own.engine.set_execution_callback(
-        [&](const Execution& execution)
-        {
-            own.executions.fetch_add(1, std::memory_order_relaxed);
-            publish_execution(lane, execution, direction, hhmmss_now);
-        });
+    const auto publish = [&](const Execution& execution)
+    {
+        own.executions.fetch_add(1, std::memory_order_relaxed);
+        publish_execution(lane, execution, direction, hhmmss_now);
+    };
 
-    const int64_t matched = own.engine.match(order);
-    own.engine.set_execution_callback(nullptr);
+    const int64_t matched = own.engine.match(order, publish);
 
     if (matched > 0 && options_.publish_order_book)
     {
@@ -511,15 +513,13 @@ void ZmqOrderFeed::drain_submit_queue(uint32_t lane, int32_t hhmmss_now)
         }
 
         const int direction = order->side == OrderSide::SELL ? 5 : 1;
-        own.engine.set_execution_callback(
-            [&](const Execution& execution)
-            {
-                own.executions.fetch_add(1, std::memory_order_relaxed);
-                publish_execution(lane, execution, direction, hhmmss_now);
-            });
+        const auto publish = [&](const Execution& execution)
+        {
+            own.executions.fetch_add(1, std::memory_order_relaxed);
+            publish_execution(lane, execution, direction, hhmmss_now);
+        };
 
-        const int64_t matched = own.engine.match(*order);
-        own.engine.set_execution_callback(nullptr);
+        const int64_t matched = own.engine.match(*order, publish);
 
         if (matched > 0 && options_.publish_order_book)
         {

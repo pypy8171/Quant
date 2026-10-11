@@ -1,6 +1,7 @@
 #pragma once
 #include "api/KisResult.h"
 #include "core/Types.h"
+#include <cstdint>
 #include <string>
 #include <vector>
 

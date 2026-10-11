@@ -2,6 +2,11 @@
 //  공용 준비는 test_engine_support.h, 실행 순서는 test_engine.cpp의 main.
 #include "test_engine_support.h"
 
+#include <cmath>
+#include <cstdlib>
+#include <ctime>
+#include <vector>
+
 namespace engine_test
 {
 

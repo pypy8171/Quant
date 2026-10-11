@@ -242,7 +242,7 @@ static void producer_fn(RingBuffer<MockOrderBook>& order_book_queue,
                         RingBuffer<MockTradeData>& trade_queue,
                         const std::vector<std::string>& tickers,
                         const ZipfPicker& zipf,
-                        Stats& stop_token,
+                        Stats& statistics,
                         std::atomic<bool>& stop,
                         int64_t total_rate,
                         double order_book_ratio,
@@ -296,12 +296,12 @@ static void producer_fn(RingBuffer<MockOrderBook>& order_book_queue,
 
             if (order_book_queue.push(order_book))
             {
-                stop_token.order_book_produced.fetch_add(1, std::memory_order_relaxed);
-                bump_high_water_mark(stop_token.order_book_high_water_mark, order_book_queue.size());
+                statistics.order_book_produced.fetch_add(1, std::memory_order_relaxed);
+                bump_high_water_mark(statistics.order_book_high_water_mark, order_book_queue.size());
             }
             else
             {
-                stop_token.order_book_drops.fetch_add(1, std::memory_order_relaxed);
+                statistics.order_book_drops.fetch_add(1, std::memory_order_relaxed);
             }
         }
         else
@@ -316,12 +316,12 @@ static void producer_fn(RingBuffer<MockOrderBook>& order_book_queue,
 
             if (trade_queue.push(trade))
             {
-                stop_token.trade_produced.fetch_add(1, std::memory_order_relaxed);
-                bump_high_water_mark(stop_token.trade_high_water_mark, trade_queue.size());
+                statistics.trade_produced.fetch_add(1, std::memory_order_relaxed);
+                bump_high_water_mark(statistics.trade_high_water_mark, trade_queue.size());
             }
             else
             {
-                stop_token.trade_drops.fetch_add(1, std::memory_order_relaxed);
+                statistics.trade_drops.fetch_add(1, std::memory_order_relaxed);
             }
         }
     }
@@ -334,11 +334,11 @@ static void producer_fn(RingBuffer<MockOrderBook>& order_book_queue,
 static void strategy_fn(RingBuffer<MockOrderBook>& order_book_queue,
                         RingBuffer<MockTradeData>& trade_queue,
                         RingBuffer<MockOrderSignal>& order_queue,
-                        Stats& stop_token,
+                        Stats& statistics,
                         std::atomic<bool>& stop,
                         size_t latency_cap)
 {
-    stop_token.intake_to_strategy_ns.reserve(latency_cap);
+    statistics.intake_to_strategy_ns.reserve(latency_cap);
     uint64_t order_book_count = 0, trade_count = 0;
 
     while (!stop.load(std::memory_order_relaxed) || !order_book_queue.empty() || !trade_queue.empty())
@@ -347,12 +347,12 @@ static void strategy_fn(RingBuffer<MockOrderBook>& order_book_queue,
         {
             const int64_t time_value = now_ns();
 
-            if (stop_token.intake_to_strategy_ns.size() < latency_cap)
+            if (statistics.intake_to_strategy_ns.size() < latency_cap)
             {
-                stop_token.intake_to_strategy_ns.push_back(time_value - option->send_ts_ns);
+                statistics.intake_to_strategy_ns.push_back(time_value - option->send_ts_ns);
             }
 
-            stop_token.order_book_consumed.fetch_add(1, std::memory_order_relaxed);
+            statistics.order_book_consumed.fetch_add(1, std::memory_order_relaxed);
             volatile double sink = 0.0;
 
             for (int index = 0; index < 5; ++index)
@@ -374,12 +374,12 @@ static void strategy_fn(RingBuffer<MockOrderBook>& order_book_queue,
 
                 if (order_queue.push(signal))
                 {
-                    stop_token.signals.fetch_add(1, std::memory_order_relaxed);
-                    bump_high_water_mark(stop_token.order_high_water_mark, order_queue.size());
+                    statistics.signals.fetch_add(1, std::memory_order_relaxed);
+                    bump_high_water_mark(statistics.order_high_water_mark, order_queue.size());
                 }
                 else
                 {
-                    stop_token.order_drops.fetch_add(1, std::memory_order_relaxed);
+                    statistics.order_drops.fetch_add(1, std::memory_order_relaxed);
                 }
             }
         }
@@ -388,12 +388,12 @@ static void strategy_fn(RingBuffer<MockOrderBook>& order_book_queue,
         {
             const int64_t time_value = now_ns();
 
-            if (stop_token.intake_to_strategy_ns.size() < latency_cap)
+            if (statistics.intake_to_strategy_ns.size() < latency_cap)
             {
-                stop_token.intake_to_strategy_ns.push_back(time_value - option->send_ts_ns);
+                statistics.intake_to_strategy_ns.push_back(time_value - option->send_ts_ns);
             }
 
-            stop_token.trade_consumed.fetch_add(1, std::memory_order_relaxed);
+            statistics.trade_consumed.fetch_add(1, std::memory_order_relaxed);
             volatile double sink = option->price * option->quantity;
             (void)sink;
 
@@ -409,12 +409,12 @@ static void strategy_fn(RingBuffer<MockOrderBook>& order_book_queue,
 
                 if (order_queue.push(signal))
                 {
-                    stop_token.signals.fetch_add(1, std::memory_order_relaxed);
-                    bump_high_water_mark(stop_token.order_high_water_mark, order_queue.size());
+                    statistics.signals.fetch_add(1, std::memory_order_relaxed);
+                    bump_high_water_mark(statistics.order_high_water_mark, order_queue.size());
                 }
                 else
                 {
-                    stop_token.order_drops.fetch_add(1, std::memory_order_relaxed);
+                    statistics.order_drops.fetch_add(1, std::memory_order_relaxed);
                 }
             }
         }
@@ -426,13 +426,13 @@ static void strategy_fn(RingBuffer<MockOrderBook>& order_book_queue,
 //   외부 REST 지연 시뮬레이션 없음 — 내부 파이프라인만.
 // ─────────────────────────────────────────────────────────────────────────────
 static void order_fn(RingBuffer<MockOrderSignal>& order_queue,
-                     Stats& stop_token,
+                     Stats& statistics,
                      std::atomic<bool>& stop,
                      size_t latency_cap,
                      std::atomic<bool>& measuring)
 {
-    stop_token.strategy_to_order_ns.reserve(latency_cap);
-    stop_token.e2e_ns.reserve(latency_cap);
+    statistics.strategy_to_order_ns.reserve(latency_cap);
+    statistics.e2e_ns.reserve(latency_cap);
 
     while (!stop.load(std::memory_order_relaxed) || !order_queue.empty())
     {
@@ -448,18 +448,18 @@ static void order_fn(RingBuffer<MockOrderSignal>& order_queue,
         // 측정창이 닫힌 뒤(드레인) 항목은 percentile 오염원 → 카운트만.
         if (measuring.load(std::memory_order_relaxed))
         {
-            if (stop_token.strategy_to_order_ns.size() < latency_cap)
+            if (statistics.strategy_to_order_ns.size() < latency_cap)
             {
-                stop_token.strategy_to_order_ns.push_back(time_value - option->strategy_ts_ns);
+                statistics.strategy_to_order_ns.push_back(time_value - option->strategy_ts_ns);
             }
 
-            if (stop_token.e2e_ns.size() < latency_cap)
+            if (statistics.e2e_ns.size() < latency_cap)
             {
-                stop_token.e2e_ns.push_back(time_value - option->send_ts_ns);
+                statistics.e2e_ns.push_back(time_value - option->send_ts_ns);
             }
         }
 
-        stop_token.orders.fetch_add(1, std::memory_order_relaxed);
+        statistics.orders.fetch_add(1, std::memory_order_relaxed);
     }
 }
 
@@ -468,7 +468,7 @@ static void order_fn(RingBuffer<MockOrderSignal>& order_queue,
 // ─────────────────────────────────────────────────────────────────────────────
 struct RunResult
 {
-    PercentileSummary e2e, i2s, s2o;
+    PercentileSummary e2e, intake_to_strategy, strategy_to_order;
     uint64_t order_book_produced = 0, trade_produced = 0, order_book_consumed = 0, trade_consumed = 0;
     uint64_t signals = 0, orders = 0;
     uint64_t drops = 0;
@@ -491,16 +491,16 @@ static RunResult run_once(const std::vector<std::string>& tickers,
     RingBuffer<MockTradeData>   trade_queue(trade_capacity);
     RingBuffer<MockOrderSignal> order_queue(order_capacity);
 
-    Stats stop_token;
+    Stats statistics;
     std::atomic<bool> stop{false};
     std::atomic<bool> measuring{true};
 
     const int64_t start_time = now_ns();
-    std::thread order_thread(order_fn, std::ref(order_queue), std::ref(stop_token), std::ref(stop), latency_cap, std::ref(measuring));
-    std::thread strategy_thread(strategy_fn, std::ref(order_book_queue), std::ref(trade_queue), std::ref(order_queue), std::ref(stop_token),
+    std::thread order_thread(order_fn, std::ref(order_queue), std::ref(statistics), std::ref(stop), latency_cap, std::ref(measuring));
+    std::thread strategy_thread(strategy_fn, std::ref(order_book_queue), std::ref(trade_queue), std::ref(order_queue), std::ref(statistics),
                       std::ref(stop), latency_cap);
     std::thread websocket_thread(producer_fn, std::ref(order_book_queue), std::ref(trade_queue), std::cref(tickers), std::cref(zipf),
-                     std::ref(stop_token), std::ref(stop), total_rate, order_book_ratio,
+                     std::ref(statistics), std::ref(stop), total_rate, order_book_ratio,
                      static_cast<int64_t>(duration_sec) * 1'000'000'000LL);
 
     websocket_thread.join();                                    // 방출 종료
@@ -511,19 +511,19 @@ static RunResult run_once(const std::vector<std::string>& tickers,
 
     RunResult result;
     result.elapsed_sec = (now_ns() - start_time) / 1e9;
-    result.e2e = percentiles(stop_token.e2e_ns);
-    result.i2s = percentiles(stop_token.intake_to_strategy_ns);
-    result.s2o = percentiles(stop_token.strategy_to_order_ns);
-    result.order_book_produced = stop_token.order_book_produced.load();
-    result.trade_produced = stop_token.trade_produced.load();
-    result.order_book_consumed = stop_token.order_book_consumed.load();
-    result.trade_consumed = stop_token.trade_consumed.load();
-    result.signals = stop_token.signals.load();
-    result.orders = stop_token.orders.load();
-    result.drops = stop_token.order_book_drops.load() + stop_token.trade_drops.load() + stop_token.order_drops.load();
-    result.order_book_high_water_mark = stop_token.order_book_high_water_mark.load();
-    result.trade_high_water_mark = stop_token.trade_high_water_mark.load();
-    result.order_high_water_mark = stop_token.order_high_water_mark.load();
+    result.e2e = percentiles(statistics.e2e_ns);
+    result.intake_to_strategy = percentiles(statistics.intake_to_strategy_ns);
+    result.strategy_to_order = percentiles(statistics.strategy_to_order_ns);
+    result.order_book_produced = statistics.order_book_produced.load();
+    result.trade_produced = statistics.trade_produced.load();
+    result.order_book_consumed = statistics.order_book_consumed.load();
+    result.trade_consumed = statistics.trade_consumed.load();
+    result.signals = statistics.signals.load();
+    result.orders = statistics.orders.load();
+    result.drops = statistics.order_book_drops.load() + statistics.trade_drops.load() + statistics.order_drops.load();
+    result.order_book_high_water_mark = statistics.order_book_high_water_mark.load();
+    result.trade_high_water_mark = statistics.trade_high_water_mark.load();
+    result.order_high_water_mark = statistics.order_high_water_mark.load();
     result.lossless = (result.drops == 0) && (result.order_book_produced == result.order_book_consumed) && (result.trade_produced == result.trade_consumed) &&
                  (result.signals == result.orders);
     return result;
@@ -557,10 +557,10 @@ int main(int argc, char** argv)
     ZipfPicker zipf(tickers.size(), zipf_s);
 
     // 큐 용량: 스로틀 없는 순간 버스트를 흡수하되, 백로그가 tail을 지배하지 않게.
-    const size_t OB_CAP = 1u << 16;    // 65,536
-    const size_t TD_CAP = 1u << 16;
-    const size_t ORDER_CAP = 1u << 12; // 4,096
-    const size_t LAT_CAP = 1u << 23;   // 8.4M 샘플 상한
+    constexpr size_t kOrderBookCapacity = 1u << 16;    // 65,536
+    constexpr size_t kTradeCapacity = 1u << 16;
+    constexpr size_t kOrderCapacity = 1u << 12; // 4,096
+    constexpr size_t kLatencyCapacity = 1u << 23;   // 8.4M 샘플 상한
 
     if (mode == "sweep")
     {
@@ -580,7 +580,7 @@ int main(int argc, char** argv)
 
         for (int64_t rate = start; rate <= max_records; rate += step)
         {
-            RunResult result = run_once(tickers, zipf, rate, order_book_ratio, dwell, OB_CAP, TD_CAP, ORDER_CAP, LAT_CAP);
+            RunResult result = run_once(tickers, zipf, rate, order_book_ratio, dwell, kOrderBookCapacity, kTradeCapacity, kOrderCapacity, kLatencyCapacity);
             std::printf("%-12lld %-10s %-10s %-10s %-10s %-8llu %-9s\n",
                         static_cast<long long>(rate), format_ns(result.e2e.p50).c_str(), format_ns(result.e2e.p99).c_str(),
                         format_ns(result.e2e.p999).c_str(), format_ns(result.e2e.max_value).c_str(),
@@ -614,7 +614,7 @@ int main(int argc, char** argv)
     std::printf("offered rate    : %lld msg/sec (총)\n", static_cast<long long>(rate));
     std::printf("duration        : %d sec\n\n", duration);
 
-    RunResult result = run_once(tickers, zipf, rate, order_book_ratio, duration, OB_CAP, TD_CAP, ORDER_CAP, LAT_CAP);
+    RunResult result = run_once(tickers, zipf, rate, order_book_ratio, duration, kOrderBookCapacity, kTradeCapacity, kOrderCapacity, kLatencyCapacity);
 
     std::printf("=== Throughput ===\n");
     std::printf("elapsed         : %.2f sec\n", result.elapsed_sec);
@@ -637,8 +637,8 @@ int main(int argc, char** argv)
                     format_ns(percentiles.p50).c_str(), format_ns(percentiles.p99).c_str(), format_ns(percentiles.p999).c_str(),
                     format_ns(percentiles.max_value).c_str());
     };
-    line("intake -> strategy", result.i2s);
-    line("strategy -> order", result.s2o);
+    line("intake -> strategy", result.intake_to_strategy);
+    line("strategy -> order", result.strategy_to_order);
     line("E2E (intake -> order)", result.e2e);
 
     std::printf("\n[%s] no drops, no backlog (전종목 규모 무손실 판정)\n",

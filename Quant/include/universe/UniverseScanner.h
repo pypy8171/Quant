@@ -17,15 +17,15 @@ namespace universe
 {
 
 // ── ITB(장중 돌파) 스캔 ────────────────────────────────────────────────────
-struct ItbScanCfg
+struct ItbScanConfig
 {
     int    scan_top_n   = 30;
     double change_min      = 0.02;
     double change_max      = 0.12;
     double min_price    = 3000.0;
-    bool   standard_deviation_filter    = true;
+    bool   foreign_net_buy_filter = true; // 외국인 전일 확정 순매수 > 0 필터. config 키는 "sd_filter"(옛 이름 그대로 둔다)
     double risk_off_index = -0.01;
-    // 재개 임계·체류는 DevScale 쪽(ScanCfg)과 같은 뜻이다. 기본값은 차단 임계와 같고 체류 0이라
+    // 재개 임계·체류는 DevScale 쪽(DeviationScaleScanConfig)과 같은 뜻이다. 기본값은 차단 임계와 같고 체류 0이라
     //  옛 단일 임계 동작과 같다 — 값을 가르는 것은 config 몫이다. [inv] resume >= risk_off_index
     double risk_off_index_resume = -0.01;
     int    risk_off_dwell_sec  = 0;
@@ -41,10 +41,10 @@ struct ItbCandidate
 
 // 레짐 위험회피면 빈 목록을 돌려준다(신규 미등록). 실패도 예외가 아니라 빈 목록이다.
 //  kis는 인증된 실전 시세 클라이언트여야 한다.
-std::vector<ItbCandidate> scan_itb(KisClient& kis, const ItbScanCfg& config);
+std::vector<ItbCandidate> scan_itb(KisClient& kis, const ItbScanConfig& config);
 
 // ── DeviationScale 스캔 ─────────────────────────────────────────────────────
-struct DevScanCfg
+struct DeviationScaleScanConfig
 {
     int    value_top_n     = 30;     // 거래증가율(당일 누적 거래량 ÷ 전일 거래량) 상위 N을 후보로. 0=끄기 [why D-153]
     int    turnover_top_n  = 0;      // 시세 표 당일 거래대금 상위 N을 후보로. 0=끄기 [why D-146]
@@ -117,6 +117,7 @@ using QuoteTable = std::vector<MarketQuote>;
 void clear_quote_table(QuoteTable& quotes, const symbol::SymbolTable& symbols);
 
 struct BoardSnapshot;
+class MarketBoard;
 
 // 시세판(universe/MarketBoard.h)의 판으로 quotes의 칸을 다시 채운다. 이번 판에 없는 종목의 가격·거래대금·거래량은
 //  0으로 비우고, 이름은 바뀐 때만 다시 복사한다.
@@ -124,13 +125,18 @@ void load_quote_table(const BoardSnapshot& board, QuoteTable& quotes, symbol::Sy
 
 // 장 전 일봉 캐시 데우기 스레드를 띄운다. 프로세스에 한 번만 뜨고, 마감 시각이 이미 지났으면 띄우지 않는다.
 //  kis_config는 시세 키(실전 도메인)다. 받은 요약은 다음 스캔이 캐시로 옮긴다.
-void start_daily_warm(const KisConfig& kis_config, const DevScanCfg& config);
+//  board는 대상 종목 목록을 줄 시세판이다. [inv] board는 stop_daily_warm()이 돌아올 때까지 살아 있어야 한다.
+void start_daily_warm(const MarketBoard& board, const KisConfig& kis_config, const DeviationScaleScanConfig& config);
+
+// 데우기 스레드를 멈추고 기다린다. 안 떴으면 아무것도 안 한다. 시세판 소유자(엔진)가 시세판을 접기 전에 부른다.
+void stop_daily_warm();
 
 // 초기 등록·주기적 재스캔이 공용으로 호출한다(config는 값 복사 캡처라 std::function 저장이 안전).
 //  레짐 위험회피면 빈 결과를 돌려준다. 실패도 예외가 아니라 빈 결과다.
 //  등록 순서가 곧 진입 우선순위다. 점수 → 비중 배수 변환은 `ScoreWeight.h`가 한다. [why D-018]
 //  quotes는 시세 파일을 담아 두는 표로, 같은 슬리브의 스캔끼리 이어 쓴다(스캔은 한 번에 하나씩 돈다).
-ScanResult scan_devscale(KisClient& kis, const DevScanCfg& config, symbol::SymbolTable& symbols,
-                         QuoteTable& quotes);
+//  board는 엔진이 소유한 시세판이다. config.market_board가 꺼져 있으면 보지 않는다.
+ScanResult scan_devscale(KisClient& kis, const DeviationScaleScanConfig& config, const MarketBoard& board,
+                         symbol::SymbolTable& symbols, QuoteTable& quotes);
 
 } // namespace universe

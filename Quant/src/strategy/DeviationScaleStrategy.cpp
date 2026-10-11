@@ -3,6 +3,15 @@
 //  봉·프리페치는 DeviationScaleBars.cpp에 있다. 관련 결정: D-033·D-069·D-072·D-081·D-114·D-156.
 #include "strategy/DeviationScaleStrategy.h"
 #include <atomic>
+#include <chrono>
+#include <cstdio>
+#include <ctime>
+#include <functional>
+#include <mutex>
+#include <optional>
+#include <string>
+#include <utility>
+#include <vector>
 
 DeviationScaleStrategy::DeviationScaleStrategy(Params parameters)
     : parameters_(std::move(parameters)), aggregator_(aggregator_config(parameters_))
@@ -84,7 +93,7 @@ std::string DeviationScaleStrategy::describe() const
            (parameters_.entry_atr_max_percent > 0.0
                 ? " atr<=" + format_one_decimal(parameters_.entry_atr_max_percent) + "%"
                 : "") +
-           (parameters_.entry_open_deviation_min_percent > -99.0
+           (parameters_.entry_open_deviation_min_percent > Params::kOpenDeviationOff
                 ? " open_dev>=" + format_one_decimal(parameters_.entry_open_deviation_min_percent) + "%"
                 : "") +
            (parameters_.no_new_entry_hhmm > 0 ? " no_entry>=" + std::to_string(parameters_.no_new_entry_hhmm) : "") +
@@ -132,7 +141,7 @@ void DeviationScaleStrategy::on_start()
     reseed_pending_ = true;
     seed_wanted_.store(true, std::memory_order_relaxed);
     {
-        std::lock_guard<std::mutex> lock(snap_mutex_);
+        std::lock_guard<std::mutex> lock(snapshot_mutex_);
         snapshot_.daily.reset();
         snapshot_.daily_date.clear();
         snapshot_.equity = 0.0;
@@ -355,7 +364,7 @@ void DeviationScaleStrategy::rebuild_split_steps(const TradeData& trade, const Z
     const int position = state.position;
     const double simple_moving_average = state.simple_moving_average;
 
-    // G1 국면 게이트: 비활성 국면(regime→전략 자동선택에서 미선택)에선 매수(진입·물타기)
+    // 국면 게이트: 비활성 국면(regime→전략 자동선택에서 미선택)에선 매수(진입·물타기)
     //  분할 단계를 깔지 않는다. 익절 매도·청산은 국면과 무관하게 유지(is_active 계약: 진입만 차단).
     //  신규매수 차단(entry_halt)도 같은 축이다. 스탑·트레일 뒤 쿨다운과 전량 청산 뒤 재진입 대기도
     //  같은 축이다 — 존이 열려 있어도 분할 매수를 걷는다. 시그니처에 붙는 이유는 plan_signature. [why D-033]
@@ -392,7 +401,7 @@ void DeviationScaleStrategy::rebuild_split_steps(const TradeData& trade, const Z
     //  것을 차단. 청산 경로(emit_liquidation)와 동일 원칙. 잔고조회는 재구성 시 1회만
     //  (지연에 민감한 경로 부하 억제 — 매수는 캡을 OrderGate가 처리하므로 클램프 불필요).
     cancel_all(out);
-    // G4: 이 분할 매수를 깐 판단 근거 — 존 판정 지표를 신호에 실어 영속(로그 재구성 불필요).
+    // 이 분할 매수를 깐 판단 근거 — 존 판정 지표를 신호에 실어 영속(로그 재구성 불필요).
     const std::string buy_context = std::string("정배열눌림진입 이격=") + format_one_decimal(zone_judgement.deviation20_percent) +
                                     "% 일봉SMA20=" + format_one_decimal(zone_judgement.average_20) +
                                     " 현재가=" + format_one_decimal(current_price) +
@@ -401,7 +410,7 @@ void DeviationScaleStrategy::rebuild_split_steps(const TradeData& trade, const Z
 
     if (position <= 0 && entry_on)
     {
-        trading_.entry_date = kst_ymd(); // 오늘 무포지션에서 낸 베이스 — 체결되면 먼지 정리가 분할 진행 중으로 본다
+        trading_.entry_date = kst_date_yyyymmdd(); // 오늘 무포지션에서 낸 베이스 — 체결되면 먼지 정리가 분할 진행 중으로 본다
     }
 
     trading_.last_split_buy_reference = simple_moving_average;
@@ -420,7 +429,7 @@ struct tm DeviationScaleStrategy::kst_tm()
     return kst::to_tm(std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()));
 }
 
-std::string DeviationScaleStrategy::kst_ymd()
+std::string DeviationScaleStrategy::kst_date_yyyymmdd()
 {
     return kst::date_yyyymmdd(std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()));
 }

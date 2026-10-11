@@ -1,5 +1,5 @@
 // 제어 쪽 — 제어 스레드(감시·피드 끊김 폴백·마감 자기 종료)와 통계 모으기.
-//  같은 Engine 의 멤버 함수 본체다. Engine.cpp 가 2,700줄을 넘겨 열기 어려워 이 갈래만 따로 냈다.
+//  같은 Engine 의 멤버 함수 본체다. Engine.cpp 가 길어 열기 어려워 이 갈래만 따로 냈다.
 //  제어 스레드 한 바퀴는 단계 함수(peer_went_away·log_queue_high_water 등)로 나눴다.
 //
 //  ── 부르는 자리 ──────────────────────────────────────────────────────────
@@ -21,6 +21,7 @@
 #include <filesystem>
 #include <fstream>
 #include <mutex>
+#include <string_view>
 
 using namespace std::chrono_literals;
 
