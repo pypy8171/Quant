@@ -1,0 +1,10 @@
+{
+ "trades_all": 25597,
+ "problem_trades": 16376,
+ "problem_symbols": 1612,
+ "chart_files": 169,
+ "chart_bytes": 152995715,
+ "largest_file": 2999657,
+ "units": "ret_net·excess·mae·mfe 는 % (소수 2자리), 가격은 정제 수정가",
+ "seconds": 27.9
+}

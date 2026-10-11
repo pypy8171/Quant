@@ -1,0 +1,4 @@
+py -I -X utf8 research/studies/41_universe_basket/build_inputs.py
+py -I -X utf8 research/studies/41_universe_basket/run_stage_a.py
+py -I -X utf8 research/studies/41_universe_basket/run_stage_b.py
+py -I -X utf8 research/studies/41_universe_basket/problem_trades.py
