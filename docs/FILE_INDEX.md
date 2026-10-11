@@ -12,7 +12,7 @@
 - [Quant](#quant) — 459개
 - [docs](#docs) — 148개
 - [linux_practice](#linux_practice) — 2개
-- [research](#research) — 526개
+- [research](#research) — 529개
 - [scripts](#scripts) — 54개
 - [strategies](#strategies) — 42개
 - [tools](#tools) — 3개
@@ -1659,12 +1659,18 @@
 - [build_dashboard_tabs.py](../research/studies/43_devscale_real_rules/build_dashboard_tabs.py) — 스터디 43 결과를 스터디 38 대시보드의 '43' 탭 데이터(study43.txt)로 쓴다
 - [harness.py](../research/studies/43_devscale_real_rules/harness.py) — DevScale 매수·매도 규칙을 일봉으로 재현해 슬롯 계좌로 굴리는 시험 틀(38 daily_stop_grid 읽기 전용 사용)
 - [reproduce.py](../research/studies/43_devscale_real_rules/reproduce.py) — 38 시험과 같은 조건에서 매수·매도 건이 맞는지 대조하는 재현 점검
+- [round_d.py](../research/studies/43_devscale_real_rules/round_d.py) — 스터디 43-D 엔진 실제 설정(스캔·사이징·노출 한도) 재현과 장중 익절×손절 격자 505조합, MAE/MFE 집계
 - [run_stages.py](../research/studies/43_devscale_real_rules/run_stages.py) — 스터디 43 1단계(매도 규칙×슬롯×자금)·2단계(VALUE/QUAL/HIGH250 결합) 전체 실행과 판정
 
 ### research/studies/43_devscale_real_rules/results/
 
 - [run_command.txt](../research/studies/43_devscale_real_rules/results/run_command.txt) — 스터디 43 실행 명령
 - [run_info.json](../research/studies/43_devscale_real_rules/results/run_info.json) — 스터디 43 실행 정보(기간·조합 수·통과선·소요 시간)
+
+### research/studies/43_devscale_real_rules/results/round_d/
+
+- [run_command.txt](../research/studies/43_devscale_real_rules/results/round_d/run_command.txt) — 스터디 43-D 실행 명령
+- [run_info.json](../research/studies/43_devscale_real_rules/results/round_d/run_info.json) — 스터디 43-D 실행 정보(조합 수·통과선·걸린 시간)
 
 ### research/studies/test_replay/
 

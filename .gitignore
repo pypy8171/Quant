@@ -153,3 +153,7 @@ research/studies/41_universe_basket/results/chart_data/
 # 스터디 42 고점·저점 추세 산출(시험 결과·후보표는 스크립트로 다시 만든다, live/plan.json은 매일 17:10 예약작업이 다시 쓴다)
 research/studies/42_swing_trend/data/
 research/studies/42_swing_trend/live/
+# 스터디 43 건별 매매·계좌 곡선(53MB — run_stages.py 로 다시 만든다)
+research/studies/43_devscale_real_rules/results/trades/
+research/studies/43_devscale_real_rules/results/curves.parquet
+research/studies/43_devscale_real_rules/results/round_d/trades/

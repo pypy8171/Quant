@@ -1,0 +1,62 @@
+{
+ "commit": "d1caecc2704e5fe1a110770b94f61225e72c38ec",
+ "inputs_sha256": "010503c53e9bd89e37f19d3d283e055f207e188db91f1e8592d55c57070dac67",
+ "panel_sha256": "cbe6ef39bf25484bd4eb41a5de5b9a68c0f2f85a8b09c8ccddf658a6cde450be",
+ "harness_sha256": "2d4d567ced4633e84883db10bdbcdf1328a125ed57bb3f90153223756797feab",
+ "period": [
+  "2010-01-04",
+  "2026-10-08"
+ ],
+ "stock_count": 3190,
+ "candidate_count": 184274,
+ "engine_scan": {
+  "pool_mean": 265.68113482056253,
+  "passed_mean": 28.71168768186227,
+  "candidates": 184274,
+  "candidates_in_scan": 15282,
+  "notional_mean": 3593615.754665749,
+  "notional_floor_share": 0.04528203114775553,
+  "notional_cap_share": 0.30742049469964666
+ },
+ "combinations": 505,
+ "series_43d": 1010,
+ "series_merged": 1826,
+ "control_seeds": [
+  20261111,
+  20261112,
+  20261113,
+  20261114,
+  20261115,
+  20261116,
+  20261117,
+  20261118,
+  20261119,
+  20261120,
+  20261121,
+  20261122,
+  20261123,
+  20261124,
+  20261125,
+  20261126,
+  20261127,
+  20261128,
+  20261129,
+  20261130
+ ],
+ "flip_seed": 20261010,
+ "flips": 1000,
+ "family_bar_43d": 4.227196094537192,
+ "family_bar_merged": 4.416132708456822,
+ "control_win_need": 19,
+ "stage12_regression_max_gap_krw": 5.960464477539063e-08,
+ "stage12_regression_buys_gap": 0,
+ "stage12_lowest_t_gap": 1.7763568394002505e-15,
+ "stage1_duplicate_max_gap_krw": 0.0,
+ "seconds": {
+  "build": 6.365080118179321,
+  "stage12": 0.6336860656738281,
+  "grid": 1.9396562576293945,
+  "controls": 22.404200077056885,
+  "total": 34.52143096923828
+ }
+}
