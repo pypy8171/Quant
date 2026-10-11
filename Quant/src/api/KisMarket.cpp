@@ -168,6 +168,7 @@ std::vector<MarketData> KisClient::get_chart_ohlcv(const std::string& ticker, in
                 market_data.low = std::stod(item["stck_lwpr"].get_ref<const std::string&>());
                 market_data.volume = std::stoll(item["acml_vol"].get_ref<const std::string&>());
                 market_data.timestamp = std::chrono::system_clock::now();
+                market_data.session_date = static_cast<int32_t>(std::stol(date_yyyymmdd));
                 result.push_back(std::move(market_data));
             }
         }

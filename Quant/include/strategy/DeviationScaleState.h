@@ -50,6 +50,16 @@ struct LiquidationState
     int    average_position_seen = 0;                               // last_average_price를 읽었을 때의 보유 수량(바뀌면 다시 읽음)
 };
 
+// 일봉 SMA 추세 이탈 청산(trend_exit_sma)이 기억하는 값. 소유 샤드 스레드만 만진다.
+//  [inv] entry_date는 on_start가 지우지 않는다 — 생성자가 로더의 장부 매수일(holding_entry_date)로 채운다.
+struct TrendExitState
+{
+    int  entry_date = 0;         // 이번 보유를 시작한 날(YYYYMMDD). 0이면 모름 — 보유가 보이면 오늘로 둔다
+    int  judged_session = 0;     // 마지막으로 판정한 일봉의 전일 영업일
+    int  judged_entry_date = 0;  // 그 판정에 쓴 매수일 — 같은 날 다 팔고 다시 사면 다시 판정한다
+    bool sell_due = false;       // 판정 결과 — 장 시작부터 판다
+};
+
 // 프리페치 스레드가 채우고 샤드 스레드가 읽는 REST 스냅샷. [inv] 전략의 snap_mutex_를 쥐고만 읽고 쓴다.
 struct PrefetchSnapshot
 {

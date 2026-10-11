@@ -126,6 +126,12 @@ public:
         //  stop_loss_percent: >0이면 잔고 평단 대비 이만큼(%) 아래에서 미체결 취소+시장가 청산.
         //   [inv] 기준은 진입봉 저가가 아니라 평단이다 — 재기동해도 잔고 조회로 되살아나는 값이다.
         double stop_loss_percent = 0.0;
+        //  trend_exit_period: >0이면 청산을 일봉 SMA(이 기간) 추세 이탈 하나로 바꾼다 — 매수 뒤 종가가 SMA 위에 한 번
+        //   선 뒤 전일 종가가 SMA 아래면 장 시작부터 시장가로 판다(devscale_rules::judge_trend_exit). 익절 매도와
+        //   존 이탈 청산은 깔지 않는다. 손절·트레일은 stop_loss_pct·trail_arm_pct로 따로 끈다. 0이면 끔. [why D-158]
+        int    trend_exit_period = 0;
+        //  holding_entry_date: 기동 때 이어받은 보유의 매수일(YYYYMMDD, 장부에서 다시 계산). 로더가 종목마다 넣는다.
+        int    holding_entry_date = 0;
         //  stop_cooldown_sec: 스탑·트레일 청산 뒤 이 시간 동안 분할 매수를 깔지 않는다. 존이
         //   그대로 열려 있으면 다음 하트비트에 베이스 매수가 도로 나가 같은 자리를 되산다.
         int    stop_cooldown_sec = 900;
@@ -279,6 +285,8 @@ private:
     std::optional<DecisionBars> load_decision_bars(const TradeData& trade, double current_price);
     ZoneJudgement judge_zone(double current_price, bool holding, std::chrono::steady_clock::time_point now);
     bool exit_on_zone_loss(std::vector<OrderSignal>& out, std::chrono::steady_clock::time_point now);
+    // 추세 청산 모드(trend_exit_period > 0)에서 전일 일봉이 SMA 이탈이면 장 시작부터 보유를 시장가로 판다. 팔았으면 true.
+    bool exit_on_trend_loss(int hhmm, std::vector<OrderSignal>& out, std::chrono::steady_clock::time_point now);
     bool exit_on_protective_rules(double current_price, std::vector<OrderSignal>& out,
                                   std::chrono::steady_clock::time_point now);
     // 기준선을 못 정했거나(봉 부족·SMA 0) 기준선 이탈로 청산했으면 nullopt.
@@ -436,6 +444,7 @@ private:
     double equity_ = 0.0;                   // 사이징 기준 자본(총평가금) 스냅샷 — 일별 갱신
     deviation_scale::TradingState     trading_;     // 분할 주문 재구성·존 판정 상태(소유 샤드 스레드)
     deviation_scale::LiquidationState liquidation_; // 청산·쿨다운·평단 상태(소유 샤드 스레드)
+    deviation_scale::TrendExitState   trend_exit_;  // 추세 이탈 청산 상태(소유 샤드 스레드)
     static constexpr int kOpenDeviationSampleHhmm = 903;   // 개장 봉(3분) 종가 시각 — 이 뒤 첫 평가에서 개장 이격을 잰다
     static constexpr int kPrefetchWindowOpenHhmm  = 850;   // 프리페치 REST를 부르는 창(KST). 장 마감 청산(15:15)까지 덮는다
     static constexpr int kPrefetchWindowCloseHhmm = 1535;

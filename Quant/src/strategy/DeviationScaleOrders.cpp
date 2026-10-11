@@ -134,6 +134,12 @@ void DeviationScaleStrategy::plan_base_step(int position, double current_price, 
 void DeviationScaleStrategy::plan_sell_steps(int position, double current_price, double sell_base_line,
                                              std::vector<SplitStep>& plan) const
 {
+    // 추세 청산 모드는 익절 매도를 깔지 않는다 — 청산은 exit_on_trend_loss 하나다. [why D-158]
+    if (parameters_.trend_exit_period > 0)
+    {
+        return;
+    }
+
     // 매도 밴드: 이격 +deviation_sell%*i. 보유분을 split_step_count로 균등 분할(숏 방지).
     //  sell_base_average면 기준점이 평단이다. 목표가가 현재가 아래면(이미 목표 초과) 현재가에
     //  낸다 — 지정가로 남되 다음 체결에 붙는다.

@@ -119,6 +119,12 @@ MAX_STOP_PER_BUY = 0.25
 # D-111 넘김·진입 필터(09-21 리플레이): 장 마감 청산을 끄고(market_close_exit_hhmm 2400) 전일 ATR·개장 이격으로 그날 진입을
 #  거른다. 두 행은 새 바이너리 표식(진입 필터 판정 줄)이 있는 날만 판정한다 — 배포 전 로그에서는 건너뛴다.
 DEVSCALE_CLOSE_EXIT_RE = re.compile(r"신호: \[DEVSCALE_(\d{6})\] \d{6}.* SELL \d+ \| 근거: 청산:장 마감\(")
+# D-158 추세 청산(trend_exit_sma): 종목마다 하루 한 번 판정 줄을 남기고, 매도 판정이면 장 시작부터 "청산:추세 이탈"로 판다.
+#  판정 줄이 있는 로그는 추세 모드다 — 익절 매도·존 이탈·손절 매도가 나오면 설정이나 코드가 어긋난 것이다.
+#  판정: "[DEVSCALE_005930] 005930(삼성전자) 추세 판정 SMA60 전일=20261008 종가=… 평균=… 매수일=… 위에선적=있음 → 매도"
+TREND_JUDGE_RE = re.compile(r"\[DEVSCALE_(\d{6})\] .*추세 판정 SMA\d+ .*→ (매도|보유)")
+TREND_SELL_RE = re.compile(r"신호: \[DEVSCALE_(\d{6})\] \d{6}.* SELL \d+ \| 근거: 청산:추세 이탈\(")
+TREND_FORBIDDEN_SELL_RE = re.compile(r"신호: \[DEVSCALE_(\d{6})\] \d{6}.* SELL \d+ \| 근거: (익절밴드|청산:존 이탈|청산:손절)")
 DEVSCALE_ENTRY_FILTER_RE = re.compile(r"\[DEVSCALE_(\d{6})\] 진입 필터 (통과|차단)\(")
 # 보호 주문 표(D-114 단계 1)는 기본이 shadow 다 — 표는 판정만 남기고 발주는 전략이 하던 대로 한다.
 #  owner 로 올리려면 표의 판정과 전략의 실제 청산이 같은 자리에서 나는지를 며칠 봐야 한다(D-114 "남은 것").
@@ -1257,7 +1263,12 @@ def sell_cover_row(date: str) -> tuple:
     gaps: list[str] = []
 
     for directory in health_targets():
-        for gap in sell_cover_gaps(date_log_lines(date, directory)):
+        lines = list(date_log_lines(date, directory))
+
+        if any(TREND_JUDGE_RE.search(line) for line in lines):
+            continue # 추세 청산 모드는 익절 매도를 깔지 않는다(D-158)
+
+        for gap in sell_cover_gaps(lines):
             gaps.append(f"[{directory.name}] {gap}")
 
     if gaps:
@@ -1266,6 +1277,64 @@ def sell_cover_row(date: str) -> tuple:
                 " (재구성 뒤 다음 재구성까지 접수된 매도가 보유보다 적은 채 5분 넘게 감, D-156)")
 
     return (name, True, "FAIL", "0구간(기준 0)")
+
+
+def trend_exit_row(date: str) -> tuple:
+    """DevScale 추세 청산(D-158)이 판정대로 팔았는지, 꺼야 할 매도(익절·존 이탈·손절)가 나오지 않았는지.
+
+    매도 판정이 난 종목은 그날 '청산:추세 이탈' 매도 신호가 하나 이상 있어야 한다. 판정 줄이 있는 로그에서
+    익절밴드·존 이탈·손절 매도가 나오면 설정(trend_exit_sma·stop_loss_pct)이나 코드가 어긋난 것이다 — 둘 다 FAIL.
+    """
+    name = "DevScale 추세 청산"
+    texts: list[str] = []
+    failed = False
+    judged_any = False
+
+    for directory in health_targets():
+        judged: dict[str, str] = {}
+        sold: set[str] = set()
+        forbidden: list[str] = []
+
+        for line in date_log_lines(date, directory):
+            judge = TREND_JUDGE_RE.search(line)
+
+            if judge:
+                judged[judge.group(1)] = judge.group(2) if judged.get(judge.group(1)) != "매도" else "매도"
+                continue
+
+            sell = TREND_SELL_RE.search(line)
+
+            if sell:
+                sold.add(sell.group(1))
+                continue
+
+            bad = TREND_FORBIDDEN_SELL_RE.search(line)
+
+            if bad:
+                forbidden.append(f"{bad.group(1)} {bad.group(2)}")
+
+        if not judged:
+            continue
+
+        judged_any = True
+        due = sorted(ticker for ticker, verdict in judged.items() if verdict == "매도")
+        unsold = [ticker for ticker in due if ticker not in sold]
+        text = f"{directory.name} 판정 {len(judged)}종목 · 매도 판정 {len(due)} · 추세 이탈 매도 {len(sold)}종목"
+
+        if unsold:
+            text += f" — 매도 판정인데 주문 없음 {', '.join(unsold[:5])}"
+            failed = True
+
+        if forbidden:
+            text += f" — 꺼야 할 매도 {len(forbidden)}건({'; '.join(forbidden[:4])})"
+            failed = True
+
+        texts.append(text)
+
+    if not judged_any:
+        return (name, False, "INFO", "판정 불가 — 추세 판정 줄이 없다(추세 청산 배포 전이거나 DevScale 보유 없음)")
+
+    return (name, not failed, "FAIL", "; ".join(texts))
 
 
 def entry_cutoff_buy_row(date: str) -> tuple:
@@ -3387,6 +3456,7 @@ def global_rows(date: str) -> list:
         slot_reject_row(date),
         guard_relaunch_row(date),
         sell_cover_row(date),
+        trend_exit_row(date),
         devscale_adverse_selection_row(date),
         devscale_exit_reason_row(date),
         restart_verify_row(date),

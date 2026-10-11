@@ -23,8 +23,17 @@ bool peak_trail_triggered(double peak, double average, double current, double ar
     return armed && current <= peak * (1.0 - trail_percent / 100.0);
 }
 
-void add_net_quantity_from_ledger(std::istream& ledger, const std::string& id_prefix,
-                                  std::map<std::string, long long>& net_quantity)
+namespace
+{
+struct LedgerFill
+{
+    std::string_view ticker;
+    long long        signed_quantity = 0; // 매수 +, 매도 −
+};
+
+// 장부 한 행이 이 슬리브의 체결 행이면 fill을 채우고 true.
+bool parse_ledger_fill(std::string_view line, const std::string& strategy_prefix, std::vector<std::string_view>& fields,
+                       LedgerFill& fill)
 {
     // 열 위치 — Quant/src/ipc/OrderJournal.cpp kTradeHeader. 열은 끝에만 붙이므로 앞 11칸은 움직이지 않는다.
     constexpr size_t kEventColumn        = 1;
@@ -34,48 +43,129 @@ void add_net_quantity_from_ledger(std::istream& ledger, const std::string& id_pr
     constexpr size_t kFillQuantityColumn = 10;
     constexpr size_t kColumnsNeeded      = kFillQuantityColumn + 1;
 
+    fields.clear();
+    std::string_view rest = line;
+
+    while (fields.size() < kColumnsNeeded)
+    {
+        const size_t comma = rest.find(',');
+        fields.push_back(rest.substr(0, comma));
+
+        if (comma == std::string_view::npos)
+        {
+            break;
+        }
+
+        rest.remove_prefix(comma + 1);
+    }
+
+    if (fields.size() < kColumnsNeeded || fields[kEventColumn] != "FILL" ||
+        !fields[kStrategyColumn].starts_with(strategy_prefix))
+    {
+        return false;
+    }
+
+    const std::string_view side = fields[kSideColumn];
+    const std::string_view quantity_text = fields[kFillQuantityColumn];
+    long long quantity = 0;
+    const auto [end, error] = std::from_chars(quantity_text.data(), quantity_text.data() + quantity_text.size(), quantity);
+
+    if (error != std::errc{} || end != quantity_text.data() + quantity_text.size() || quantity <= 0 ||
+        (side != "BUY" && side != "SELL"))
+    {
+        return false;
+    }
+
+    fill.ticker = fields[kTickerColumn];
+    fill.signed_quantity = side == "BUY" ? quantity : -quantity;
+    return true;
+}
+
+double close_average(const std::vector<MarketData>& daily, size_t first, int period)
+{
+    double sum = 0.0;
+
+    for (size_t index = first; index < first + static_cast<size_t>(period); ++index)
+    {
+        sum += daily[index].close;
+    }
+
+    return sum / period;
+}
+} // namespace
+
+void add_net_quantity_from_ledger(std::istream& ledger, const std::string& id_prefix,
+                                  std::map<std::string, long long>& net_quantity)
+{
     const std::string strategy_prefix = id_prefix + "_";
     std::string       line;
     std::vector<std::string_view> fields;
+    LedgerFill        fill;
 
     while (std::getline(ledger, line))
     {
-        fields.clear();
-        std::string_view rest = line;
-
-        while (fields.size() < kColumnsNeeded)
+        if (parse_ledger_fill(line, strategy_prefix, fields, fill))
         {
-            const size_t comma = rest.find(',');
-            fields.push_back(rest.substr(0, comma));
-
-            if (comma == std::string_view::npos)
-            {
-                break;
-            }
-
-            rest.remove_prefix(comma + 1);
+            net_quantity[std::string(fill.ticker)] += fill.signed_quantity;
         }
-
-        if (fields.size() < kColumnsNeeded || fields[kEventColumn] != "FILL" ||
-            !fields[kStrategyColumn].starts_with(strategy_prefix))
-        {
-            continue;
-        }
-
-        const std::string_view side = fields[kSideColumn];
-        const std::string_view quantity_text = fields[kFillQuantityColumn];
-        long long quantity = 0;
-        const auto [end, error] = std::from_chars(quantity_text.data(), quantity_text.data() + quantity_text.size(), quantity);
-
-        if (error != std::errc{} || end != quantity_text.data() + quantity_text.size() || quantity <= 0 ||
-            (side != "BUY" && side != "SELL"))
-        {
-            continue;
-        }
-
-        long long& net = net_quantity[std::string(fields[kTickerColumn])];
-        net += side == "BUY" ? quantity : -quantity;
     }
+}
+
+void add_holding_from_ledger(std::istream& ledger, const std::string& id_prefix, int session_date,
+                             std::map<std::string, LedgerHolding>& holdings)
+{
+    const std::string strategy_prefix = id_prefix + "_";
+    std::string       line;
+    std::vector<std::string_view> fields;
+    LedgerFill        fill;
+
+    while (std::getline(ledger, line))
+    {
+        if (!parse_ledger_fill(line, strategy_prefix, fields, fill))
+        {
+            continue;
+        }
+
+        LedgerHolding& holding = holdings[std::string(fill.ticker)];
+        const bool was_flat = holding.net_quantity <= 0;
+        holding.net_quantity += fill.signed_quantity;
+
+        if (was_flat && holding.net_quantity > 0)
+        {
+            holding.entry_date = session_date;
+        }
+    }
+}
+
+TrendExitJudgement judge_trend_exit(const std::vector<MarketData>& daily, int period, int entry_date)
+{
+    TrendExitJudgement judgement;
+
+    if (period <= 0 || daily.size() < static_cast<size_t>(period) + 1 || daily[0].session_date == 0 ||
+        daily[0].session_date <= entry_date)
+    {
+        return judgement;
+    }
+
+    judgement.close = daily[0].close;
+    judgement.average = close_average(daily, 0, period);
+
+    for (size_t index = 1; index + static_cast<size_t>(period) <= daily.size(); ++index)
+    {
+        if (daily[index].session_date < entry_date)
+        {
+            break; // 최신→과거 순이라 이 뒤는 전부 매수 전이다
+        }
+
+        if (daily[index].close > close_average(daily, index, period))
+        {
+            judgement.armed = true;
+            break;
+        }
+    }
+
+    judgement.sell = judgement.armed && judgement.average > 0.0 && judgement.close < judgement.average;
+    return judgement;
 }
 
 bool devscale_owns_holding(long long net_quantity, int held_quantity)

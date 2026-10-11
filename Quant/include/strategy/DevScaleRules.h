@@ -3,6 +3,8 @@
 //  단위 테스트가 안 되므로, 값만 받아 답하는 부분을 여기로 뺀다. 모두 상태 없음.
 //   • peak_trail_triggered: 무장 후 고가 트레일 청산 조건.
 //   • add_net_quantity_from_ledger: 체결 장부(logs/trades_YYYYMMDD.csv)에서 이 슬리브의 종목별 순수량(매수 − 매도).
+//   • add_holding_from_ledger: 같은 장부를 날짜 순으로 읽어 종목별 순수량과 이번 보유를 시작한 날(매수일).
+//   • judge_trend_exit: 일봉 SMA 추세 이탈 청산 — 매수 뒤 종가가 SMA 위에 한 번 선 뒤, 전일 종가가 SMA 아래면 매도.
 //   • devscale_owns_holding: 재기동 때 그 순수량으로 잔고를 DevScale이 다시 맡을지.
 //   • average_true_range: 전일까지 확정 일봉의 ATR(참범위 단순평균).
 //   • entry_day_allowed: 하루 단위 진입 필터 — 전일 ATR 비율·개장 이격이 허용 범위 안인가.
@@ -43,6 +45,32 @@ void add_net_quantity_from_ledger(std::istream& ledger, const std::string& id_pr
 //  순수량이 잔고보다 적으면 나머지는 수동·다른 전략 몫이다. 포지션 장부가 (계좌, 종목) 한 칸이라 DevScale과
 //  청산 관리(ITB)가 수량을 나눠 들 수 없으므로, 그때는 잔고 전부를 청산 관리에 둔다.
 bool devscale_owns_holding(long long net_quantity, int held_quantity);
+
+struct LedgerHolding
+{
+    long long net_quantity = 0; // 지금까지 읽은 장부의 순수량(매수 − 매도)
+    int       entry_date   = 0; // 순수량이 0 이하에서 양수로 바뀐 날(YYYYMMDD) — 이번 보유를 시작한 날
+};
+
+// add_net_quantity_from_ledger와 같은 행을 읽되 매수일도 남긴다. session_date는 이 장부 파일의 날짜(YYYYMMDD)다.
+//  여러 날을 오래된 날부터 차례로 넣어야 매수일이 맞다. 다 판 뒤 다시 사면 매수일이 새 날로 바뀐다.
+void add_holding_from_ledger(std::istream& ledger, const std::string& id_prefix, int session_date,
+                             std::map<std::string, LedgerHolding>& holdings);
+
+struct TrendExitJudgement
+{
+    bool   sell    = false; // 오늘 장 시작부터 판다
+    bool   armed   = false; // 매수 뒤(전일 이전) 종가가 SMA 위에 한 번이라도 섰다
+    double close   = 0.0;   // 전일 종가
+    double average = 0.0;   // 전일 기준 SMA(period)
+};
+
+// 최신이 앞(daily[0]=전일)인 일봉으로 추세 이탈 청산을 판정한다. 전일 종가 < 전일 SMA이고, 매수일부터 그 전날까지
+//  종가가 그날 SMA 위에 선 날이 하루라도 있으면 sell이다. 매수일 당일(entry_date)도 센다. 매수 당일 장중이면
+//  (daily[0]이 매수일 이전) 판정하지 않는다. 일봉에 날짜가 없거나(0) period+1개가 안 되면 sell=false.
+//  2010–2026 전 종목 시험(스터디 38, 매수 130,649건)에서 SMA60이 SMA20보다 건당 +0.58%p, 칸 25개 계좌 씨앗 20개 중
+//  19개에서 앞섰다. 위에 선 적 없이 바로 깨지는 것까지 팔면(arm 없음) 씨앗 17/20에서 뒤졌다. [why D-158]
+TrendExitJudgement judge_trend_exit(const std::vector<MarketData>& daily, int period, int entry_date);
 
 // 최신이 앞(daily[0]=전일)인 일봉으로 period일 ATR — 참범위 = max(고-저, |고-전일종가|, |저-전일종가|)의 단순평균.
 //  전일 종가가 필요해 period+1개가 없으면 0(호출자가 0을 "판정 불가"로 다룬다).

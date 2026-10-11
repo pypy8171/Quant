@@ -7535,3 +7535,43 @@ KIS가 계속 거부하는 매도도 60초마다 다시 나간다. 덮개 점검
 - 종가 매수(15:10 잠정 신호): 17:00 일봉 작업으로는 신호를 낼 수 없어 장중 신호 코드가 따로 필요하고, 백테스트와 다른 코드가 생긴다.
 
 **연결**: D-071 · D-109 · D-127 · D-155 · `Quant/src/strategy/SurgeHoldStrategy.cpp` · `Quant/src/strategy/SurgeHoldPlan.cpp` · `Quant/src/strategy/StrategyFactory.cpp` · `Quant/src/risk/PositionLedger.cpp` · `Quant/src/risk/OrderGate.cpp` · `Quant/include/core/StrategyShard.h` · `research/studies/35_surge_box_breakout/daily_watch.py`
+
+### D-158 DevScale 청산을 일봉 SMA60 추세 이탈 하나로 바꾸고, 손절·익절·존 이탈 청산을 끈다 (2026-10-11)
+
+**문제**: DevScale은 평단 −6.5% 손절, 평단 +3%(모의)·+5%(실계좌) 익절, 존 이탈 시장가 청산으로 판다. 스터디 38
+(`research/studies/38_trend_stop_intraday/`)에서 2010-01-04–2026-10-08 전 종목 일봉에 지금 매수 규칙의 매수 130,649건을 그대로 두고
+청산만 바꿔 보니, 지금 청산은 칸 25개 계좌(씨앗 20개 중앙)로 16.8년 0.052배(연 −16.2%, 최대 낙폭 −96%), 건당 −0.25%, 보유 3.3일이었다.
+추세가 살아 있는 동안 들고 가지 못하고 잦은 손절·익절 비용에 깎였다.
+
+**결정**:
+1. 청산 조건은 하나다 — 매수한 뒤 종가가 그날의 일봉 SMA60 위에 한 번이라도 섰고(매수일 포함), 그 뒤 전일 종가가 전일 SMA60 아래면
+   다음 장 시작(09:00)부터 보유 전부를 시장가로 판다(`devscale_rules::judge_trend_exit`, `DeviationScaleStrategy::exit_on_trend_loss`).
+   같은 시험에서 칸 25개 계좌 2.524배(연 5.7%, 최대 낙폭 −46%, 건당 +1.01%, 보유 평균 31.6일)였다.
+2. config 키 `trend_exit_sma`(기본 0 = 끔). 켜면 익절 매도(`plan_sell_steps`)와 존 이탈 청산을 깔지 않는다. 손절은 `stop_loss_pct: 0`으로 끈다.
+   모의는 `dust_krw: 0`도 둔다(먼지 정리가 추세 보유를 팔지 않게).
+3. 일봉에 영업일을 싣는다 — `MarketData::session_date`(일봉·주봉만, YYYYMMDD). 판정이 "매수일 이후"를 세려면 날짜가 필요하다.
+4. 매수일은 체결 장부(`trades_YYYYMMDD.csv`)를 오래된 날부터 읽어 순수량이 0 이하에서 양수로 바뀐 날로 다시 계산한다
+   (`devscale_rules::add_holding_from_ledger`). 추세 모드의 재인수는 장부를 500일 본다 — 계좌 시험 3,177건의 보유가
+   중앙 19거래일, 99% 161거래일, 최장 333거래일이라 20일 창으로는 오래 든 보유가 매도 조건 없이 남는다.
+   이 프로세스에서 산 보유는 산 날을 매수일로 둔다.
+
+**SMA60을 고른 근거**(모두 같은 매수 건, 수수료·세금·1호가 슬리피지 양쪽 포함):
+- 칸 25개 계좌, 씨앗 20개: SMA60(한 번 위에 선 뒤) 2.524배 > SMA20(같은 조건) 1.478배 — 씨앗 19개에서 앞섬. 지금 청산 대비 20/20.
+- 칸 4개(실계좌 보유 상한)·10개·20개: SMA60 2.653·2.701·2.721배, SMA20 1.127·1.510·1.416배, 지금 청산 0.041·0.060·0.057배.
+  SMA60이 SMA20보다 나은 씨앗 19·17·18개. 칸 4개는 씨앗 범위가 0.87–10.36배로 넓다.
+- 매수 건 전부(130,649건) 건당: SMA60 +0.614%, SMA20 +0.032%. 연도별로는 17해 중 9해만 SMA60이 앞서(평균 +3.0%p) 해마다 이기지는 않는다.
+
+**알려진 한계**: 국면 강제청산(regime_feed liquidate_score)과 종목당 명목 상한 trim은 남아 시험에 없는 매도가 난다. 시험의 장중 매수가는
+일봉 근사이고 거래대금 대비 주문 크기는 보지 않았다. 다른 전략(ITB) 이름으로 판 몫은 DevScale 순수량에서 빠지지 않아, 그런 종목은
+매수일이 옛 날로 남아 바로 "위에 선 적 있음"으로 판정될 수 있다.
+
+**확인**: `scripts/check_runtime_health.py` "DevScale 추세 청산" 행 — 매도 판정이 난 종목에 '청산:추세 이탈' 매도가 있어야 하고,
+추세 판정 줄이 있는 로그에서 익절밴드·존 이탈·손절 매도가 나오면 FAIL. 추세 모드 로그는 "익절 매도 빈 보유" 판정에서 뺀다.
+
+**버린 대안**:
+- SMA20 이탈: 위 근거대로 계좌·건당 모두 뒤진다. 하위 1% 손실은 SMA20이 작다(−22.5% 대 −31.1%).
+- 위에 선 적 없이 SMA60 아래면 바로 팔기: 1.949배, SMA60(위에 선 뒤)에 씨앗 17개에서 뒤진다 — 눌림에서 산 직후 바로 판다.
+- 역배열(SMA5<10<20) 다음 날 시가: 1.735배. 정배열이 풀리면 팔기: 0.450배.
+- 지금 청산 유지: 위 수치.
+
+**연결**: D-111 · D-114 · D-156 · `Quant/src/strategy/DevScaleRules.cpp` · `Quant/src/strategy/DeviationScaleExit.cpp` · `Quant/src/strategy/DevScaleLoader.cpp` · `Quant/src/api/KisMarket.cpp` · `research/studies/38_trend_stop_intraday/slot_test.py`

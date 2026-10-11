@@ -17,6 +17,7 @@ DeviationScaleStrategy::DeviationScaleStrategy(Params parameters)
     : parameters_(std::move(parameters)), aggregator_(aggregator_config(parameters_))
 {
     id_ = parameters_.id_prefix + "_" + parameters_.ticker;
+    trend_exit_.entry_date = parameters_.holding_entry_date;
     websocket_bars_ = (parameters_.bar_source == "ws");
 
     // 닫힌 1분봉 한 줄 — 분마다 종목마다 나오므로 DEBUG. 비교표(compare_ws_bars.py)가 이 줄을 REST 1분봉과
@@ -89,6 +90,7 @@ std::string DeviationScaleStrategy::describe() const
            (parameters_.stop_loss_percent > 0.0 ? " stop=-" + format_one_decimal(parameters_.stop_loss_percent) + "%"
                                                 : "") +
            (parameters_.sell_base_average ? " sell@avg" : "") +
+           (parameters_.trend_exit_period > 0 ? " trend_exit=SMA" + std::to_string(parameters_.trend_exit_period) : "") +
            (parameters_.trail_arm_percent > 0.0 ? " peak-trail" : "") +
            (parameters_.entry_atr_max_percent > 0.0
                 ? " atr<=" + format_one_decimal(parameters_.entry_atr_max_percent) + "%"
@@ -134,6 +136,9 @@ void DeviationScaleStrategy::on_start()
     liquidation_.hold_peak_price = 0.0;
     trading_.entry_filter_date.clear();
     trading_.day_entry_allowed = true;
+    trend_exit_.judged_session = 0;
+    trend_exit_.judged_entry_date = 0;
+    trend_exit_.sell_due = false;
     // 집계기 이력은 지우지 않는다(재등록 경로에서 같은 날이면 그대로 쓸 수 있다). 날짜가 바뀌었으면
     //  on_trade_batch의 날짜 검사가 비운다. 시드는 다시 받는다.
     seeded_version_ = 0;
@@ -232,10 +237,16 @@ void DeviationScaleStrategy::on_trade_batch(const TradeData& trade, std::vector<
         return; // 일봉 미준비 — 프리페치 대기
     }
 
+    if (parameters_.trend_exit_period > 0 && exit_on_trend_loss(hhmm, out, now))
+    {
+        return;
+    }
+
     const bool holding = confirmed_position(parameters_.account, symbol_id_, parameters_.ticker) > 0;
     const ZoneJudgement zone_judgement = judge_zone(current_price, holding, now);
 
-    if (!zone_judgement.hold_zone && exit_on_zone_loss(out, now))
+    // 추세 청산 모드에서는 존을 벗어나도 팔지 않는다 — 아래 !zone 경로가 미체결 매수만 거둔다.
+    if (parameters_.trend_exit_period <= 0 && !zone_judgement.hold_zone && exit_on_zone_loss(out, now))
     {
         return;
     }

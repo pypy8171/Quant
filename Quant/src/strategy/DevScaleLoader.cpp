@@ -110,6 +110,7 @@ struct HeldSnapshot
 {
     std::vector<uint8_t>          held;       // 스캔에서 뺄 종목(보유분·바스켓 소유, 종목 id 인덱스)
     std::vector<symbol::SymbolId> reinstated; // 보유 중인 최근 매수분 — 스캔에 없어도 등록하고 청산 관리는 안 붙인다
+    std::map<std::string, int>    entry_date; // 재인수한 종목의 매수일(티커 → YYYYMMDD, 장부에서 다시 계산) — 추세 청산 판정용
 };
 
 // 점수 z → 종목당 명목(원). z≤0은 바닥, z≥cap_z는 천장, 사이는 직선. 결과는 scores와 같은 순서.
@@ -202,7 +203,7 @@ class DevScaleSleeve
 {
 public:
     DevScaleSleeve(Engine& engine, DevScaleParams parameters, universe::DeviationScaleScanConfig scan_config, DevScaleSizing sizing,
-                   std::shared_ptr<EntryPriorityMerger> merger);
+                   std::shared_ptr<EntryPriorityMerger> merger, std::map<std::string, int> entry_date);
 
     const DevScaleParams&       parameters() const
     {
@@ -235,6 +236,7 @@ private:
     const universe::DeviationScaleScanConfig           scan_config_;
     const DevScaleSizing                 sizing_;
     std::shared_ptr<EntryPriorityMerger> merger_;
+    const std::map<std::string, int>     entry_date_; // 기동 때 재인수한 보유의 매수일(HeldSnapshot::entry_date)
 
     // 스캔 점수로 정한 종목별 비중 배수·명목(원). 전략을 만들 때 한 번만 읽는다 — 분할 매수 도중에 예산이
     //  바뀌면 남은 층 예산과 평단이 어긋나서, 이미 등록된 전략의 배수는 갱신하지 않는다. 재스캔으로 새로 붙는
@@ -247,12 +249,14 @@ private:
 };
 
 DevScaleSleeve::DevScaleSleeve(Engine& engine, DevScaleParams parameters, universe::DeviationScaleScanConfig scan_config,
-                               DevScaleSizing sizing, std::shared_ptr<EntryPriorityMerger> merger)
+                               DevScaleSizing sizing, std::shared_ptr<EntryPriorityMerger> merger,
+                               std::map<std::string, int> entry_date)
     : engine_(engine),
       parameters_(std::move(parameters)),
       scan_config_(std::move(scan_config)),
       sizing_(sizing),
       merger_(std::move(merger)),
+      entry_date_(std::move(entry_date)),
       multiplier_by_symbol_(engine.symbols().capacity(), 0.0),
       krw_by_symbol_(engine.symbols().capacity(), 0.0)
 {
@@ -265,6 +269,11 @@ std::unique_ptr<StrategyBase> DevScaleSleeve::make(symbol::SymbolId symbol) cons
     DevScaleParams deviation_parameters = parameters_;
     deviation_parameters.ticker = engine_.symbols().name(symbol).string(); // 전략 파라미터·id()는 아직 문자열
     deviation_parameters.name   = engine_.ticker_name(symbol);
+
+    if (const auto entry = entry_date_.find(deviation_parameters.ticker); entry != entry_date_.end())
+    {
+        deviation_parameters.holding_entry_date = entry->second;
+    }
 
     if (symbol < multiplier_by_symbol_.size())
     {
@@ -406,6 +415,7 @@ DevScaleParams parse_devscale_parameters(const json& node)
     read_or_keep(node, "startup_check_max_price", parameters.startup_check_max_price);
     read_or_keep(node, "buy_split_steps", parameters.buy_split_steps);
     read_or_keep(node, "stop_loss_pct", parameters.stop_loss_percent);
+    read_or_keep(node, "trend_exit_sma", parameters.trend_exit_period);
     read_or_keep(node, "stop_cooldown_sec", parameters.stop_cooldown_sec);
     read_or_keep(node, "reentry_cooldown_sec", parameters.reentry_cooldown_sec);
     read_or_keep(node, "dust_krw", parameters.dust_krw);
@@ -558,32 +568,36 @@ DevScaleSizing parse_sizing(const json& node, const DevScaleParams& parameters)
     return sizing;
 }
 
-// 이 슬리브(id_prefix)의 종목별 순수량 — 오늘부터 lookback_days일 전(달력일)까지 체결 장부 logs/trades_YYYYMMDD.csv
-//  (OrderRouter가 쓴다)의 FILL 행을 매수 +, 매도 −로 더한다. 0 이하(샀다가 다 판 종목)는 뺀다.
+// 이 슬리브(id_prefix)의 종목별 순수량과 매수일 — lookback_days일 전(달력일)부터 오늘까지 체결 장부 logs/trades_YYYYMMDD.csv
+//  (OrderRouter가 쓴다)의 FILL 행을 오래된 날부터 매수 +, 매도 −로 더한다. 0 이하(샀다가 다 판 종목)는 뺀다.
 //  lookback_days 0이면 오늘 장부 하나만 본다.
 //  재기동 때 보유분을 전부 청산 관리(ITB)로 넘기면 당일 매수분도 익절선 없이 트레일에만 걸린다(09-04~18 승계 매도
 //  725체결 −190만). 분할 매수가 없으면(buy_split_steps 0) 명목 상한 초과 위험이 없어 DevScale이 그대로 맡는다.
 //  파일이 없거나(첫 기동) 못 읽으면 빈 map — 그때는 기존대로 청산 관리가 맡는다.
-//  넘김 모드(market_close_exit_hhmm 2400)는 전날 산 것도 DevScale 보유라 호출자가 lookback_days 20을 준다.
-std::map<std::string, long long> net_quantity_bought_recently(const std::string& id_prefix, int lookback_days)
+//  넘김 모드(market_close_exit_hhmm 2400)는 전날 산 것도 DevScale 보유라 호출자가 lookback_days를 넓혀 준다.
+std::map<std::string, devscale_rules::LedgerHolding> holdings_bought_recently(const std::string& id_prefix, int lookback_days)
 {
-    std::map<std::string, long long> net_quantity;
+    std::map<std::string, devscale_rules::LedgerHolding> holdings;
     const std::time_t now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
 
     constexpr std::time_t kSecondsPerDay = 86400;
 
-    for (int day_offset = 0; day_offset <= lookback_days; ++day_offset)
+    for (int day_offset = lookback_days; day_offset >= 0; --day_offset)
     {
         const std::string date = kst::date_yyyymmdd(now - static_cast<std::time_t>(day_offset) * kSecondsPerDay);
         std::ifstream ledger(Logger::instance().path_for("trades_" + date + ".csv"));
-        devscale_rules::add_net_quantity_from_ledger(ledger, id_prefix, net_quantity);
+
+        if (ledger)
+        {
+            devscale_rules::add_holding_from_ledger(ledger, id_prefix, std::stoi(date), holdings);
+        }
     }
 
-    std::erase_if(net_quantity, [](const auto& entry)
+    std::erase_if(holdings, [](const auto& entry)
     {
-        return entry.second <= 0;
+        return entry.second.net_quantity <= 0;
     });
-    return net_quantity;
+    return holdings;
 }
 
 bool manage_holdings_enabled(const json& node)
@@ -642,11 +656,17 @@ HeldSnapshot snapshot_holdings(const LoadPass& context, const DevScaleParams& pa
 
     if (parameters.buy_split_steps == 0)
     {
-        constexpr int kCarryOverLookbackDays = 20; // 이월 보유분을 찾아 되돌아보는 장부 일수
-        const int lookback_days = carry_over ? kCarryOverLookbackDays : 0;
+        constexpr int kCarryOverLookbackDays = 20;  // 이월 보유분을 찾아 되돌아보는 장부 일수
+        // 추세 청산은 보유가 길다(스터디 38 SMA60 계좌 시험 3,177건: 중앙 19거래일, 99% 161거래일, 최장 333거래일).
+        //  20일 창이면 그보다 오래 든 보유를 못 찾아 매도 조건 없이 남으므로 최장 보유를 덮게 본다. 없는 날은 건너뛴다.
+        constexpr int kTrendExitLookbackDays = 500;
+        const int lookback_days = !carry_over ? 0
+                                : parameters.trend_exit_period > 0 ? kTrendExitLookbackDays
+                                                                   : kCarryOverLookbackDays;
 
-        for (const auto& [ticker, net_quantity] : net_quantity_bought_recently(parameters.id_prefix, lookback_days))
+        for (const auto& [ticker, holding] : holdings_bought_recently(parameters.id_prefix, lookback_days))
         {
+            const long long net_quantity = holding.net_quantity;
             const auto held_iterator = held_quantity.find(ticker);
 
             if (held_iterator == held_quantity.end())
@@ -672,6 +692,7 @@ HeldSnapshot snapshot_holdings(const LoadPass& context, const DevScaleParams& pa
             snapshot.held[symbol] = 0;
             --held_count;
             snapshot.reinstated.push_back(symbol);
+            snapshot.entry_date[ticker] = holding.entry_date;
         }
     }
 
@@ -785,7 +806,7 @@ void load_deviation_scale(LoadPass& context, const json& node)
         const RescanPolicy   policy = parse_rescan_policy(node);
         const DevScaleSizing sizing = parse_sizing(node, parameters);
         auto sleeve = std::make_shared<DevScaleSleeve>(engine, parameters, std::move(scan_config), sizing,
-                                                       context.priority_merger);
+                                                       context.priority_merger, snapshot.entry_date);
         register_scan_universe(context, sleeve, snapshot, policy, covered);
     }
     else
@@ -797,7 +818,8 @@ void load_deviation_scale(LoadPass& context, const json& node)
             return;
         }
 
-        const DevScaleSleeve   sleeve(engine, parameters, universe::DeviationScaleScanConfig{}, DevScaleSizing{}, context.priority_merger);
+        const DevScaleSleeve   sleeve(engine, parameters, universe::DeviationScaleScanConfig{}, DevScaleSizing{}, context.priority_merger,
+                                      snapshot.entry_date);
         const symbol::SymbolId symbol = engine.symbols().intern(ticker); // 설정의 문자열 티커는 여기서 id가 된다
         add_gated(context, sleeve.make(symbol));
         mark_symbol(covered, symbol, covered.size());

@@ -1,5 +1,5 @@
-// strategy/DeviationScaleExit.cpp — 이격 분할 전략의 청산: 장 마감·존 이탈·손절·트레일과 매도가능 클램프·백오프.
-//  관련 결정: D-046·D-055(매도가능 클램프)·D-082(장 마감 순서)·D-111(트레일)·D-114(보호 주문 표)·D-156.
+// strategy/DeviationScaleExit.cpp — 이격 분할 전략의 청산: 장 마감·추세 이탈·존 이탈·손절·트레일과 매도가능 클램프·백오프.
+//  관련 결정: D-046·D-055(매도가능 클램프)·D-082(장 마감 순서)·D-111(트레일)·D-114(보호 주문 표)·D-156·D-158(추세 이탈).
 #include "strategy/DeviationScaleStrategy.h"
 
 #include <chrono>
@@ -68,6 +68,57 @@ bool DeviationScaleStrategy::exit_on_zone_loss(std::vector<OrderSignal>& out, st
     }
 
     return false;
+}
+
+bool DeviationScaleStrategy::exit_on_trend_loss(int hhmm, std::vector<OrderSignal>& out,
+                                                std::chrono::steady_clock::time_point now)
+{
+    const int position = confirmed_position(parameters_.account, symbol_id_, parameters_.ticker);
+
+    if (position <= 0)
+    {
+        trend_exit_.entry_date = 0; // 다음 보유는 새 매수일로 판정한다
+        trend_exit_.sell_due = false;
+        return false;
+    }
+
+    if (trend_exit_.entry_date == 0)
+    {
+        trend_exit_.entry_date = std::stoi(kst_date_yyyymmdd()); // 이 프로세스에서 산 보유 — 오늘 매수
+    }
+
+    const std::vector<MarketData>& daily = *daily_;
+    const int session = daily.empty() ? 0 : daily[0].session_date;
+
+    if (session != trend_exit_.judged_session || trend_exit_.entry_date != trend_exit_.judged_entry_date)
+    {
+        const devscale_rules::TrendExitJudgement judgement =
+            devscale_rules::judge_trend_exit(daily, parameters_.trend_exit_period, trend_exit_.entry_date);
+        trend_exit_.judged_session = session;
+        trend_exit_.judged_entry_date = trend_exit_.entry_date;
+        trend_exit_.sell_due = judgement.sell;
+        LOG_INFO("[" + id() + "] " + display() + " 추세 판정 SMA" + std::to_string(parameters_.trend_exit_period) +
+                 " 전일=" + std::to_string(session) + " 종가=" + format_one_decimal(judgement.close) +
+                 " 평균=" + format_one_decimal(judgement.average) + " 매수일=" + std::to_string(trend_exit_.entry_date) +
+                 " 위에선적=" + (judgement.armed ? "있음" : "없음") + (judgement.sell ? " → 매도" : " → 보유"));
+    }
+
+    constexpr int kRegularOpenHhmm = 900; // 장 시작 전(장전 시간외)에는 시장가가 거부된다
+
+    if (!trend_exit_.sell_due || hhmm < kRegularOpenHhmm)
+    {
+        return false;
+    }
+
+    cancel_all(out);
+
+    if (liquidation_due(position, now))
+    {
+        emit_liquidation(out, position, now, "추세 이탈(SMA" + std::to_string(parameters_.trend_exit_period) + " 종가)",
+                         kLiquidationBackoffMs);
+    }
+
+    return true;
 }
 
 bool DeviationScaleStrategy::exit_on_protective_rules(double current_price, std::vector<OrderSignal>& out,

@@ -10,6 +10,7 @@
 #include <map>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace devscale_rules;
@@ -176,6 +177,85 @@ int test_zone_band()
     CHECK(6.3 <= hold.up_percent && 6.3 > entry.up_percent);
     return 0;
 }
+
+int test_holding_entry_date()
+{
+    // 날짜 순으로 넣는다. 005930은 1일에 사서 2일에 다 팔고 3일에 다시 샀다 → 매수일 3일.
+    //  000660은 1일에 사서 2일에 일부만 팔았다 → 매수일 1일 그대로.
+    const char* header = "ts_kst,event,order_id,odno,strategy,ticker,side,type,order_qty,order_price,fill_qty,fill_price,status\n";
+    std::istringstream day1(std::string(header) +
+        "09:00:02,FILL,1,A1,DEVSCALE_005930,005930,BUY,LIMIT,10,70000,10,70000,FILLED\n"
+        "09:00:03,FILL,2,A2,DEVSCALE_000660,000660,BUY,LIMIT,8,120000,8,120000,FILLED\n");
+    std::istringstream day2(std::string(header) +
+        "10:00:00,FILL,3,A3,DEVSCALE_005930,005930,SELL,MARKET,10,0,10,71000,FILLED\n"
+        "10:00:01,FILL,4,A4,DEVSCALE_000660,000660,SELL,MARKET,3,0,3,121000,FILLED\n"
+        "10:00:02,FILL,5,A5,ITB_035420,035420,BUY,LIMIT,3,200000,3,200000,FILLED\n");
+    std::istringstream day3(std::string(header) +
+        "09:30:00,FILL,6,A6,DEVSCALE_005930,005930,BUY,LIMIT,4,69000,4,69000,FILLED\n");
+    std::map<std::string, LedgerHolding> holdings;
+    add_holding_from_ledger(day1, "DEVSCALE", 20261001, holdings);
+    add_holding_from_ledger(day2, "DEVSCALE", 20261002, holdings);
+    add_holding_from_ledger(day3, "DEVSCALE", 20261005, holdings);
+    CHECK(holdings.size() == 2);
+    CHECK(holdings["005930"].net_quantity == 4);
+    CHECK(holdings["005930"].entry_date == 20261005);
+    CHECK(holdings["000660"].net_quantity == 5);
+    CHECK(holdings["000660"].entry_date == 20261001);
+    return 0;
+}
+
+// 최신이 앞인 일봉 — 날짜와 종가만 쓴다.
+std::vector<MarketData> daily_bars(const std::vector<std::pair<int, double>>& date_close)
+{
+    std::vector<MarketData> daily;
+
+    for (const auto& [date, close] : date_close)
+    {
+        MarketData bar;
+        bar.session_date = date;
+        bar.close = close;
+        daily.push_back(bar);
+    }
+
+    return daily;
+}
+
+int test_judge_trend_exit()
+{
+    // SMA2로 셈을 쉽게 한다. 전일(10-08) 종가 90 < SMA2 100, 10-07 종가 110 > SMA2 105.
+    const std::vector<MarketData> armed_then_broken =
+        daily_bars({{20261008, 90.0}, {20261007, 110.0}, {20261006, 100.0}, {20261005, 100.0}});
+    TrendExitJudgement judgement = judge_trend_exit(armed_then_broken, 2, 20261007);
+    CHECK(judgement.sell && judgement.armed);
+    CHECK(std::abs(judgement.average - 100.0) < 1e-9);
+    CHECK(judge_trend_exit(armed_then_broken, 2, 20261006).sell);
+    CHECK(!judge_trend_exit(armed_then_broken, 2, 20261008).sell);   // 전일이 매수일 — 아직 판정하지 않는다
+    CHECK(!judge_trend_exit(armed_then_broken, 2, 20261009).sell);   // 오늘 산 보유
+
+    // 매수 뒤 SMA 위에 선 적이 없다 — 깨져도 팔지 않는다.
+    const std::vector<MarketData> never_above =
+        daily_bars({{20261008, 90.0}, {20261007, 100.0}, {20261006, 100.0}, {20261005, 100.0}});
+    judgement = judge_trend_exit(never_above, 2, 20261005);
+    CHECK(!judgement.sell && !judgement.armed);
+
+    // SMA 위에 선 날(10-06)이 매수일(10-07)보다 앞이면 세지 않는다.
+    const std::vector<MarketData> above_before_entry =
+        daily_bars({{20261008, 90.0}, {20261007, 100.0}, {20261006, 120.0}, {20261005, 100.0}, {20261002, 100.0}});
+    CHECK(!judge_trend_exit(above_before_entry, 2, 20261007).sell);
+    CHECK(judge_trend_exit(above_before_entry, 2, 20261006).sell);
+
+    // 위에 섰지만 전일 종가가 SMA 위 — 보유.
+    const std::vector<MarketData> still_above =
+        daily_bars({{20261008, 115.0}, {20261007, 110.0}, {20261006, 100.0}, {20261005, 100.0}});
+    judgement = judge_trend_exit(still_above, 2, 20261005);
+    CHECK(judgement.armed && !judgement.sell);
+
+    // 날짜 없는 일봉·봉 부족·기간 0은 판정하지 않는다.
+    CHECK(!judge_trend_exit(daily_bars({{0, 90.0}, {0, 110.0}, {0, 100.0}}), 2, 0).sell);
+    CHECK(!judge_trend_exit(daily_bars({{20261008, 90.0}, {20261007, 110.0}}), 2, 20261001).sell);
+    CHECK(!judge_trend_exit(armed_then_broken, 0, 20261007).sell);
+    return 0;
+}
 } // namespace
 
 // 같은 처리에서 자기 매도를 취소하고 다시 낼 때의 수량 — 장부 매도가능에 취소한 몫을 더하고 보유로 자른다.
@@ -260,6 +340,16 @@ int main()
     }
 
     if (test_sell_cover_missing() != 0)
+    {
+        return 1;
+    }
+
+    if (test_holding_entry_date() != 0)
+    {
+        return 1;
+    }
+
+    if (test_judge_trend_exit() != 0)
     {
         return 1;
     }
