@@ -12,7 +12,7 @@
 - [Quant](#quant) — 459개
 - [docs](#docs) — 148개
 - [linux_practice](#linux_practice) — 2개
-- [research](#research) — 529개
+- [research](#research) — 542개
 - [scripts](#scripts) — 54개
 - [strategies](#strategies) — 42개
 - [tools](#tools) — 3개
@@ -1647,11 +1647,27 @@
 
 ### research/studies/42_swing_trend/
 
+- [README.md](../research/studies/42_swing_trend/README.md) — 스터디 42 고점·저점 추세 매수: 건별 결과 요약과 42-5 계좌 시험(지수·무작위 대조, 기각)
+- [account_test.py](../research/studies/42_swing_trend/account_test.py) — 스터디 42-5 실매매 규칙을 슬롯 계좌로 굴려 코스피·코스닥·무작위 대조와 비교하는 시험
 - [build_dashboard42.py](../research/studies/42_swing_trend/build_dashboard42.py) — 스터디 42 매매 건 전부·다섯 묶음·거름 단계를 스터디 38 대시보드 데이터(swing42.txt·swing42/·bars42/)로 펼친다
 - [candidates.py](../research/studies/42_swing_trend/candidates.py) — 스터디 42-4 — 다음 거래일 매수 후보(2026-10-11).
 - [feature_buckets.py](../research/studies/42_swing_trend/feature_buckets.py) — 스터디 42-2 — 조건 값마다 매매 건을 크기 순 다섯 묶음으로 나눠 어느 묶음에 좋은 건이 몰리는지 본다.
 - [filter_rule.py](../research/studies/42_swing_trend/filter_rule.py) — 스터디 42-3 — 42-2에서 나쁜 건이 몰린 묶음을 빼는 매수 거름을 하나씩 더해 본다.
 - [swing_trend.py](../research/studies/42_swing_trend/swing_trend.py) — 스터디 42-1 — 고점·저점 추세 매매 건 전부와 매수 시점 조건 값(2026-10-11).
+
+### research/studies/42_swing_trend/results/
+
+- [controls.csv](../research/studies/42_swing_trend/results/controls.csv) — 스터디 42-5 조합마다 무작위 종목 대조 20회 결과와 이긴 횟수
+- [family_bars.csv](../research/studies/42_swing_trend/results/family_bars.csv) — 스터디 42-5 묶음 통과선(t) 계산값 — 전체 계열·순서 (i) 계열
+- [index_reference.csv](../research/studies/42_swing_trend/results/index_reference.csv) — 스터디 42-5 같은 기간 코스피·코스닥 연 수익·최대 낙폭·샤프
+- [judge.csv](../research/studies/42_swing_trend/results/judge.csv) — 스터디 42-5 조합별 월 t·연 t와 통과 판정
+- [main_table.csv](../research/studies/42_swing_trend/results/main_table.csv) — 스터디 42-5 48조합 계좌 결과 표(연 수익·최대 낙폭·지수 대비·매수 수·건당 수익)
+- [neighbors.csv](../research/studies/42_swing_trend/results/neighbors.csv) — 스터디 42-5 거름 문턱 이웃 243가지 결과와 딱 닿은 날 체결 뺀 점검
+- [order_random.csv](../research/studies/42_swing_trend/results/order_random.csv) — 스터디 42-5 무작위 매수 순서 20회 결과
+- [reproduction.csv](../research/studies/42_swing_trend/results/reproduction.csv) — 스터디 42-5 42-1 건별 매매 재현 대조(매수일·가격·매도일 일치율)
+- [run_info.json](../research/studies/42_swing_trend/results/run_info.json) — 스터디 42-5 실행 정보(커밋·입력 sha256·시드)
+- [top1_removed.csv](../research/studies/42_swing_trend/results/top1_removed.csv) — 스터디 42-5 상위 1% 매매를 뺀 계좌 결과
+- [years.csv](../research/studies/42_swing_trend/results/years.csv) — 스터디 42-5 조합별 연도 수익과 지수 대비
 
 ### research/studies/43_devscale_real_rules/
 

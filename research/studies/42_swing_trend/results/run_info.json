@@ -1,0 +1,177 @@
+{
+ "commit": "6aff6693e630b55dc2d6fa15bfe7c56950f2d230",
+ "inputs_info": {
+  "inputs_sha256": "010503c53e9bd89e37f19d3d283e055f207e188db91f1e8592d55c57070dac67",
+  "days": 4126,
+  "stocks": 3190,
+  "decision_days": 976,
+  "first_date": 20100104,
+  "last_date": 20261008,
+  "jump_fixes": 405,
+  "delisted_stocks": 770,
+  "market_transfers_applied": 50,
+  "kospi_missing_days": 0,
+  "kosdaq_missing_days": 0,
+  "flow_coverage": 0.9531795783405071,
+  "correction": {
+   "rows": 8594740,
+   "rows_by_status_signal_period": {
+    "datagokr": 124085,
+    "daum": 7543206,
+    "proxy_adjusted_close_times_volume": 667918
+   },
+   "turnover20_changed_over_2x_signal_rows": 1721030
+  },
+  "fin": {
+   "fin_rows_after_dedupe": 96869,
+   "annual_rows": 25008
+  },
+  "mean_candidates_per_decision": {
+   "ZONE": 225.00922131147541,
+   "HIGH250": 1899.1659836065573,
+   "LOWVOL": 2014.2879098360656,
+   "FLOW5": 926.3616803278688,
+   "FLOW20": 907.2151639344262,
+   "MOM": 1896.4651639344263,
+   "REV": 2014.2879098360656,
+   "VALUE": 1285.1803278688524,
+   "QUAL": 1277.4477459016393,
+   "VQ": 1269.9774590163934
+  },
+  "mean_universe_size": {
+   "T50": 50.0,
+   "T100": 100.0,
+   "T200": 200.0,
+   "T500": 500.0,
+   "T500OUT": 1488.5092213114754,
+   "CAP1": 260.47233606557376,
+   "CAP2": 260.19979508196724,
+   "CAP3": 260.2141393442623,
+   "CAP4": 260.19979508196724,
+   "CAP5": 259.9405737704918,
+   "KOSPI": 747.1690573770492,
+   "KOSDAQ": 1248.0,
+   "PRICE1": 398.84118852459017,
+   "PRICE2": 398.4344262295082,
+   "PRICE3": 398.4293032786885,
+   "PRICE4": 398.4344262295082,
+   "PRICE5": 398.04405737704917,
+   "VOL1": 397.48872950819674,
+   "VOL2": 397.07377049180326,
+   "VOL3": 397.0461065573771,
+   "VOL4": 397.07377049180326,
+   "VOL5": 396.65368852459017,
+   "ALL": 1992.1834016393443
+  },
+  "seconds": 96.5,
+  "reproduction": {
+   "commit": "072e305",
+   "bars_path": "PYQuant/data/bars_all_pit_v2.parquet",
+   "bars_size": 259760404,
+   "bars_rows_loaded": 8877874,
+   "common_codes": 3192,
+   "stocks": 3190,
+   "rows": 8594740,
+   "last_market_date": 20261008,
+   "signal_from": 20100101,
+   "cost_ratio": 0.9977003449482578,
+   "seed": 20261010,
+   "numba_threads": 12
+  }
+ },
+ "panel_sha256": "cbe6ef39bf25484bd4eb41a5de5b9a68c0f2f85a8b09c8ccddf658a6cde450be",
+ "period": [
+  "2010-01-04",
+  "2026-10-08"
+ ],
+ "stock_count": 3190,
+ "window": 20,
+ "center": {
+  "year_high_min": 0.809,
+  "above240_min": 0.0169,
+  "above240_max": 0.32,
+  "run20_max": 0.264,
+  "atr_percent_max": 5.9
+ },
+ "neighbors": {
+  "year_high_min": [
+   0.7,
+   0.809,
+   0.897
+  ],
+  "above240_min": [
+   null,
+   0.0169,
+   0.0873
+  ],
+  "above240_max": [
+   0.173,
+   0.32,
+   null
+  ],
+  "run20_max": [
+   0.175,
+   0.264,
+   null
+  ],
+  "atr_percent_max": [
+   4.45,
+   5.9,
+   null
+  ]
+ },
+ "order_seeds": [
+  20261011,
+  20261012,
+  20261013,
+  20261014,
+  20261015,
+  20261016,
+  20261017,
+  20261018,
+  20261019,
+  20261020,
+  20261021,
+  20261022,
+  20261023,
+  20261024,
+  20261025,
+  20261026,
+  20261027,
+  20261028,
+  20261029,
+  20261030
+ ],
+ "control_seeds": [
+  20261111,
+  20261112,
+  20261113,
+  20261114,
+  20261115,
+  20261116,
+  20261117,
+  20261118,
+  20261119,
+  20261120,
+  20261121,
+  20261122,
+  20261123,
+  20261124,
+  20261125,
+  20261126,
+  20261127,
+  20261128,
+  20261129,
+  20261130
+ ],
+ "flip_seed": 20261010,
+ "flips": 1000,
+ "family_bar_all": 3.495443995434851,
+ "family_bar_main": 3.055533474880734,
+ "control_win_need": 19,
+ "log_overflow": 0,
+ "seconds": {
+  "build": 6.420285224914551,
+  "total": 115.08789777755737
+ }
+}
