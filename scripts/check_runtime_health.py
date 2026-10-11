@@ -900,6 +900,50 @@ def surge_signal_repeats(log: Path) -> tuple[list[str], str]:
     return sorted(f"{ticker} {d0}" for (ticker, d0), count in seen.items() if count > 1), state_file
 
 
+SWING_PLAN_RE = re.compile(r"\[SWING_\w+\] 계획 읽음 as_of=(\S+) generated_at=.*? 후보 (\d+)")
+SWING_EVENT_RE = re.compile(r"\[SWING_\w+\] (?:\[dry-run\] )?(매수 주문|매수 체결|매수 미체결 취소|손절선 올림|손절 매도|청산 완료|보유 복원) (\d{6})")
+SWING_PROBLEM_RE = re.compile(r"\[SWING_\w+\] (계획 파일 없음|계획 오래됨|계획 파일 파싱 실패|계획 파일 검증 실패|손절 판단 못 함|상태 파일 읽기 실패|"
+                              r"상태 파일 쓰기 실패|상태 파일을 못 읽어)")
+
+
+def swing_trend_row(log: Path, swing_lines: list) -> tuple:
+    """SWING_TREND(스윙 추세 슬리브, D-160) 판정 한 줄 — 계획 읽음·후보 수와 매수 주문·체결·손절 매도 건수.
+
+    설정에 없고 로그 줄도 없으면 배포 전으로 보고 판정하지 않는다. 설정에 있는데 줄이 없으면 미로드로 실패.
+    계획 파일 없음·오래됨·검증 실패, 매도 창에서 현재가를 못 받음, 상태 파일 읽기·쓰기 실패가 하나라도 있으면 실패.
+    """
+    name = "SWING_TREND 계획·매수·손절"
+
+    if not swing_lines:
+        if basket_configured(log, "SWING_TREND"):
+            return (name, False, "FAIL", "설정에 SWING_TREND 가 있는데 로그 줄 없음(미로드)")
+        return (name, True, "INFO", "설정·로그에 SWING_TREND 없음(배포 전) — 판정 안 함")
+
+    plan = None
+    counts: dict[str, int] = {}
+    problems: list[str] = []
+
+    for _, line in swing_lines:
+        if found := SWING_PLAN_RE.search(line):
+            plan = (found.group(1), int(found.group(2)))
+        if found := SWING_EVENT_RE.search(line):
+            counts[found.group(1)] = counts.get(found.group(1), 0) + 1
+        if found := SWING_PROBLEM_RE.search(line):
+            problems.append(found.group(1))
+
+    if plan is None:
+        problems.append("계획 읽음 줄 없음")
+
+    detail = (f"계획 as_of={plan[0]} 후보 {plan[1]}" if plan else "계획 없음") + ", " + ", ".join(
+        f"{what} {counts.get(what, 0)}" for what in ("보유 복원", "매수 주문", "매수 체결", "매수 미체결 취소", "손절선 올림", "손절 매도", "청산 완료"))
+
+    if problems:
+        unique = sorted(set(problems))
+        return (name, False, "FAIL", detail + " — 문제: " + ", ".join(f"{what} {problems.count(what)}회" for what in unique))
+
+    return (name, True, "WARN", detail)
+
+
 def surge_hold_rows(date: str, log: Path, surge_lines: list, signals: list, itb_attached: list, fills: list) -> list:
     """SURGE_HOLD(급등 뒤 되돌림 보유, D-157) 판정 아홉 줄. 줄은 collect() 가 모은 그날의 SURGE·면제 로그 줄이다.
 
@@ -3600,6 +3644,7 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
     basket_window_closed = 0
     basket_lines = 0
     surge_lines: list[tuple[int, str]] = []     # SURGE_HOLD·슬롯 면제 줄(초, 줄) — surge_hold_rows 가 푼다(D-157)
+    swing_lines: list[tuple[int, str]] = []     # SWING_TREND 줄(초, 줄) — swing_trend_row 가 푼다(D-160)
     last_zone_judge: dict[str, tuple[float, float]] = {}  # 전략 id → (이격, 밴드 상단)
     narrow_band_exits: list[tuple[int, str]] = []            # 보유 중인데 좁은 폭으로 판정돼 팔린 건
     signals: list[tuple[int, str, str, str]] = []  # (초, 전략 id, 종목, BUY|SELL)
@@ -3904,6 +3949,8 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
                 basket_lines += 1
             if "[SURGE_" in line or "슬롯 면제" in line:
                 surge_lines.append((second, line))
+            if "[SWING_" in line or "SWING_TREND" in line:
+                swing_lines.append((second, line))
             if found := BASKET_LOADED_RE.search(line):
                 basket_as_of.append(found.group(1))
             if found := BASKET_ORDER_RE.search(line):
@@ -4452,6 +4499,7 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
     ]
 
     rows.extend(surge_hold_rows(date, log, surge_lines, signals, itb_attached, fills))
+    rows.append(swing_trend_row(log, swing_lines))
 
     if include_global:
         rows.extend(global_rows(date))

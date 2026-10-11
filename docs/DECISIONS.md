@@ -7575,3 +7575,57 @@ KIS가 계속 거부하는 매도도 60초마다 다시 나간다. 덮개 점검
 - 지금 청산 유지: 위 수치.
 
 **연결**: D-111 · D-114 · D-156 · `Quant/src/strategy/DevScaleRules.cpp` · `Quant/src/strategy/DeviationScaleExit.cpp` · `Quant/src/strategy/DevScaleLoader.cpp` · `Quant/src/api/KisMarket.cpp` · `research/studies/38_trend_stop_intraday/slot_test.py`
+
+### D-160 고점·저점 추세 매수(스터디 42)를 새 유형 SWING_TREND로 모의·실계좌 둘 다 집행하고, 국면 진입 중단을 받지 않는다 (2026-10-11)
+
+**문제**: D-158 이전 DevScale 청산은 16.8년 0.052배였고, 매수 규칙 자체도 손실 건을 거르지 못했다. 손실이 적고 이익이 큰 건만
+골라 사는 매수 규칙이 필요했다. 스터디 42(`research/studies/42_swing_trend/`)에서 좌우 20일 극값으로 확정한 고점·저점으로
+추세를 판정하는 규칙을 2010-01-04–2026-10-08 전 종목 일봉에 시험했다.
+
+**결정**:
+1. 매수 규칙(w20_retest): 확정 저점 L2 > L1이고 종가가 직전 확정 고점 H2를 처음 넘은 날이 신호다. 다음 거래일부터 시가가 H2 위에 있다가
+   저가가 H2에 닿으면 H2(호가 내림)에 산다. 그 전에 종가가 L2 아래면 취소한다.
+2. 거름 4개(신호일 기준, 매매 건을 다섯 묶음으로 나눠 고름 — `feature_buckets.py`·`filter_rule.py`): 1년 고점 대비 0.809 이상,
+   240일선 위 0.0169–0.32, 20일 상승 0.264 이하, ATR 비율 5.9% 이하. 매수가 2,000원 이상.
+3. 청산: 손절선은 L2에서 시작해 매수 뒤 더 높은 저점이 확정되면 그 값으로 올린다. 15:20–15:29 현재가가 손절선 아래면 시장가로 판다.
+4. 집행은 파이썬 계획 + 엔진 상태로 나눈다. 평일 17:10(실계좌 시간표 21:25) 예약작업 `Quant Study42 Plan`이
+   `candidates.py --nightly`로 `research/studies/42_swing_trend/live/plan.json`을 쓰고, 엔진 `SwingTrendStrategy`가 그 계획으로 매수하고
+   보유·손절선은 `_private/state/swing_trend_{live,paper}.json`에 둔다. 계획이 7일 넘게 묵으면 매수하지 않는다. 시세는 REST만 쓴다.
+5. 금액: 실계좌 종목당 50만 원, 모의 종목당 500만 원, 전략 총액 상한 없음(예수금까지). 보유 종목 수 상한(max_concurrent_positions)은
+   실계좌 4 → 100, 모의 20 → 100으로 올려 사실상 없앤다. 실계좌 일손실 한도 −10만 원은 그대로 둔다(사용자 결정 2026-10-11).
+6. 국면 진입 중단(regime.json entry_halt)을 받지 않는다. 모든 국면 목록에 `SWING_*`를 넣고, 신호에 `regime_halt_exempt`를 찍어
+   게이트의 국면 차단만 건너뛴다(`StrategyBase::ignores_regime_halt`). 수동 매수 정지·전략 사망·시세 사망 정지·일손실 한도는 그대로 받는다
+   — 전략 쪽은 장부 사본의 `entry_halted_except_regime`(국면을 뺀 세 원천)을 본다.
+
+**근거**(수수료·세금 포함, 자료 오류 건 제외):
+
+| 규칙 | 건수 | 건당 | 이익 합 ÷ 손실 합 | 플러스인 해 |
+|---|---|---|---|---|
+| w20_retest 거름 없음 | 14,938 | +1.78% | 1.15 | 9/17 |
+| w20_retest + 거름 4개 | 4,777 | +7.07% | 1.85 | 14/17 |
+| w20_breakout + 거름 4개 | 5,158 | +7.67% | 1.85 | 13/17 |
+
+국면 예외 근거 — 같은 건을 신호일 시장지수의 60일선 대비 위치로 나눴다:
+
+| 시장지수 / 60일선 | 건수 | 건당 | 이익 합 ÷ 손실 합 |
+|---|---|---|---|
+| −5% 아래 | 81 | +20.33% | 3.54 |
+| −5–0% | 920 | +9.49% | 2.19 |
+| 0–+5% | 2,757 | +5.05% | 1.58 |
+| +5% 위 | 1,019 | +9.30% | 2.18 |
+
+약세 구간에서 오히려 건당이 컸다. 10-08 국면은 RISK_OFF(점수 −9, entry_halt)라 국면을 받으면 첫날 매수가 0건이 된다.
+
+**알려진 한계**: 시험의 매수·매도는 일봉 근사(15:20 현재가는 그날 종가와 다를 수 있다)이고 거래대금 대비 주문 크기는 보지 않았다.
+−5% 아래 구간은 81건이라 표본이 작다. 거름 문턱은 같은 기간 자료에서 골라 기간 밖 확인이 없다. 실계좌 자본 약 200만 원이라
+종목당 50만 원이면 예수금 안에서 4종목 안팎만 체결된다.
+
+**확인**: `scripts/check_runtime_health.py` "SwingTrend" 행 — 계획 로드·매수·손절 매도 줄을 판정한다.
+
+**버린 대안**:
+- breakout(신호 다음 날 시가 매수): 같은 거름에서 건당은 +7.67%로 retest(+7.07%)보다 높지만, 손실 건 평균이 −13.56%로
+  retest(−12.25%)보다 크고 플러스인 해가 13/17로 하나 적다. 손실이 작은 쪽을 골랐다(`research/studies/42_swing_trend/data/filter_steps.csv`).
+- 국면을 그대로 받기: 위 표대로 약세 구간 성과를 버리고, 지금 국면에서는 매수가 나지 않는다.
+- 계좌당 종목 수 상한 유지(실계좌 4): 계획 종목이 하루 11개까지 나와 대부분을 못 산다.
+
+**연결**: D-157 · D-158 · `Quant/src/strategy/SwingTrendStrategy.cpp` · `Quant/src/strategy/SwingTrendOrders.cpp` · `Quant/src/strategy/SwingTrendRules.cpp` · `Quant/src/risk/OrderGate.cpp` · `research/studies/42_swing_trend/candidates.py`

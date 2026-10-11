@@ -366,7 +366,9 @@ bool OrderGate::reject_by_switches_and_session(const OrderSignal& signal, GateVe
     // 1b. Entry halt — 신규 진입(BUY NEW)만 차단. SELL 청산·취소(CANCEL/REPLACE)는 통과시켜
     //     지수 급락 시 "신규정지 + 보유분 청산"이 게이트에서 미완료로 남지 않게 한다.
     //     kill_switch_(전방향)와 분리된 국면 리스크 플래그.
-    if (entry_halt_.load() && signal.side == OrderSide::BUY && signal.action == OrderAction::NEW)
+    //     국면을 받지 않는 전략(regime_halt_exempt, 스터디 42 SwingTrend)은 통과시킨다. [why D-160]
+    if (entry_halt_.load() && signal.side == OrderSide::BUY && signal.action == OrderAction::NEW &&
+        !signal.regime_halt_exempt)
     {
         verdict.code = GateReject::EntryHalt;
         return true;
@@ -756,6 +758,8 @@ void OrderGate::publish_ledger(ipc::LedgerSnapshot& snapshot) const
         //  다른 원천을 지우면 안 되므로 원천 자체는 가르지 않는다. [why D-091][why D-137]
         globals.entry_halted             = (entry_halt_.load() || manual_buy_halt_.load() ||
                                             strategy_down_halt_.load() || feed_down_halt_.load()) ? 1 : 0;
+        globals.entry_halted_except_regime = (manual_buy_halt_.load() || strategy_down_halt_.load() ||
+                                              feed_down_halt_.load()) ? 1 : 0;
         globals.manual_sell_halted       = manual_sell_halt_.load() ? 1 : 0;
     };
 

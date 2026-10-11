@@ -8,11 +8,11 @@
 
 - [(루트)](#루트) — 11개
 - [.vscode](#vscode) — 4개
-- [PYQuant](#pyquant) — 106개
-- [Quant](#quant) — 451개
+- [PYQuant](#pyquant) — 105개
+- [Quant](#quant) — 459개
 - [docs](#docs) — 148개
 - [linux_practice](#linux_practice) — 2개
-- [research](#research) — 520개
+- [research](#research) — 450개
 - [scripts](#scripts) — 54개
 - [strategies](#strategies) — 42개
 - [tools](#tools) — 3개
@@ -198,7 +198,6 @@
 - [macro_ingest.py](../PYQuant/tools/macro_ingest.py) — FRED(ALFRED 판본, A)·ECOS(B)·관세청 10일 잠정치(B) 거시 시계열을 시점 고정 스키마로 PYQuant/data/macro/<source>_<series>.parquet에 append-only 적재
 - [minute_backfill.py](../PYQuant/tools/minute_backfill.py) — 거래일별 1분봉 백필 도구
 - [minute_backfill_pairs.py](../PYQuant/tools/minute_backfill_pairs.py) — 리플레이용 1분봉 백필 — (종목, 날짜) 짝 목록(json)을 받아 없는 날만 KIS에서 받아 parquet에 붙인다
-- [minute_fullmarket_backfill.py](../PYQuant/tools/minute_fullmarket_backfill.py) — 1분봉 백필(매매 목록 또는 전 시장 보통주) → PYQuant/data/minute/<종목코드>/<YYYYMMDD>.parquet
 - [minute_strong_open_fetch.py](../PYQuant/tools/minute_strong_open_fetch.py) — 스터디 30-A용 1분봉 2단계 적재(09:30 1콜 → 상위 40만 하루치, 모의 앱키 전용)
 - [naver_bars_backfill.py](../PYQuant/tools/naver_bars_backfill.py) — 네이버 siseJson 일봉 1990~ 전량 백필 → bars_all_pit_v2.parquet(v1 스키마 + 외인보유율), 끝에 005930 종가 v1 일치 검사
 - [naver_flow_backfill.py](../PYQuant/tools/naver_flow_backfill.py) — 네이버 모바일 trend API 수급 이력(외인·기관·개인 순매수 주식수·외인보유율) 백필 → investor_flow_pit.parquet, 종목별 캐시로 재실행 안전
@@ -360,6 +359,8 @@
 - [StrategyFactory.h](../Quant/include/strategy/StrategyFactory.h) — config strategies 배열 파싱·등록 로더
 - [SurgeHoldPlan.h](../Quant/include/strategy/SurgeHoldPlan.h) — 급등 보유 계획 파일 계약(BUY_OPEN·HOLD·EXIT_CLOSE)과 손절·익절·건너뜀 판정 선언 (D-157)
 - [SurgeHoldStrategy.h](../Quant/include/strategy/SurgeHoldStrategy.h) — 급등 보유 슬리브 전략 — 동시호가 매수·손절·익절·만기 청산·상태 파일 선언 (D-157)
+- [SwingTrendRules.h](../Quant/include/strategy/SwingTrendRules.h) — 스윙 추세(스터디 42) 순수 판정 선언 — 계획 검증·매수 조건·확정 저점 손절선·매도 창·계획 날짜 확인 (D-160)
+- [SwingTrendStrategy.h](../Quant/include/strategy/SwingTrendStrategy.h) — SWING_TREND 전략 선언 — 계획 파일로 지정가 매수, 상태 파일로 보유·손절선 관리, 국면 진입 중단 예외 (D-160)
 - [TargetBasketPlan.h](../Quant/include/strategy/TargetBasketPlan.h) — 목표 비중표 파일 계약(schema·슬리브·행)과 "목표 − 보유 = 주문" 계획 구조체 (D-109)
 - [TargetBasketStrategy.h](../Quant/include/strategy/TargetBasketStrategy.h) — 바스켓 슬리브 전략 — 집행 창·두 레그·상태 파일·소유 종목 sink 선언 (D-109)
 - [ValueContraryStrategy.h](../Quant/include/strategy/ValueContraryStrategy.h) — 저PBR 3일 연속 하락 반전 매수 전략
@@ -548,6 +549,11 @@
 - [SurgeHoldPlan.cpp](../Quant/src/strategy/SurgeHoldPlan.cpp) — 계획 파일 검증(행 하나 틀리면 전체 버림, 거래대금 비중순 정렬)·계획 날짜 확인·손절가 저가×0.97·건너뜀 순서·평일 수
 - [SurgeHoldState.cpp](../Quant/src/strategy/SurgeHoldState.cpp) — 급등 보유 슬리브의 계획 파일 읽기, 상태 파일 복원·저장, 장부 체결 반영과 익절 재계산(track_fills)
 - [SurgeHoldStrategy.cpp](../Quant/src/strategy/SurgeHoldStrategy.cpp) — 급등 보유 슬리브 본체 — 생성·매수 후보와 감시 목록·소유 종목 게시·하루 넘김·분 단위 순서(on_clock)
+- [SwingTrendLoader.cpp](../Quant/src/strategy/SwingTrendLoader.cpp) — config의 SWING_TREND 항목을 읽어 전략을 등록하고 상태 파일을 잔고와 맞춘다
+- [SwingTrendOrders.cpp](../Quant/src/strategy/SwingTrendOrders.cpp) — SWING_TREND 주문 — 09:00 뒤 매수, 15:19 미체결 취소, 손절선 올림, 15:20–15:29 손절 매도와 재시도
+- [SwingTrendRules.cpp](../Quant/src/strategy/SwingTrendRules.cpp) — 스윙 추세 순수 판정 구현 — 확정 저점 탐색과 손절선 올리기
+- [SwingTrendState.cpp](../Quant/src/strategy/SwingTrendState.cpp) — SWING_TREND 계획·상태 파일 읽고 쓰기, 잔고 대조, 체결 반영
+- [SwingTrendStrategy.cpp](../Quant/src/strategy/SwingTrendStrategy.cpp) — SWING_TREND 본체 — REST 일봉·현재가 미리 받기, 시계 처리
 - [TargetBasketPlan.cpp](../Quant/src/strategy/TargetBasketPlan.cpp) — 목표 비중표 파싱·검증과 밴드·DROP·liquidate_all 규칙으로 매도/매수 계획을 만든다
 - [TargetBasketStrategy.cpp](../Quant/src/strategy/TargetBasketStrategy.cpp) — 파일 재읽기, 14:40~15:00 매도→매수 레그, 종목:방향 하루 한 번(상태 파일 먼저 쓰기), 남의 틱을 심장박동으로
 - [ValueContraryStrategy.cpp](../Quant/src/strategy/ValueContraryStrategy.cpp) — ValueContraryStrategy.h 구현 — 저PBR 3일 연속 하락 반전 매수 전략
@@ -698,6 +704,7 @@
 - [test_strategy_router.cpp](../Quant/tests/test_strategy_router.cpp) — 종목 id 전략 라우터 단위 테스트, 틱당 시간 측정
 - [test_strategy_shard.cpp](../Quant/tests/test_strategy_shard.cpp) — 전략 샤드 단위 테스트(열 소비 순서·다건 발주)
 - [test_surge_hold.cpp](../Quant/tests/test_surge_hold.cpp) — 계획 파싱·계획 날짜·손절·익절·건너뜀(약세장·겹침·같은 신호·보유 4·하루 3)·체결 재계산·재기동·만기·백스톱·dry_run·같은 계획 재매수·창 밖 손절·매도 재개·갭 하락·미체결 취소·상태 파일 깨짐 고정
+- [test_swing_trend_rules.cpp](../Quant/tests/test_swing_trend_rules.cpp) — 스윙 추세 판정 단위 시험 — 계획 검증·매수 조건·손절선·매도 창·계획 날짜 경계
 - [test_symbol_table.cpp](../Quant/tests/test_symbol_table.cpp) — 종목 id 테이블 단위 테스트(부여 순서·동시성)
 - [test_target_basket_plan.cpp](../Quant/tests/test_target_basket_plan.cpp) — 비중표 파싱 실패 6종·밴드·채우기·DROP·두 슬리브 합산·liquidate_all·순자산 계산 고정
 - [test_target_basket_strategy.cpp](../Quant/tests/test_target_basket_strategy.cpp) — 원장·시각 주입으로 집행 창·두 레그·예산·재기동 중복 방지·창 끝·dry_run 고정
@@ -1514,111 +1521,6 @@
 - [standalone_swing_metrics.json](../research/studies/37_swing_trend/standalone_swing_metrics.json) — 쌍바닥·추세 14칸 요약 수치
 - [swing_definitions.py](../research/studies/37_swing_trend/swing_definitions.py) — 확정 저점·고점(앞뒤 k일), 추세 판정, 쌍바닥, 이평선 지지 모양 정의 — 스터디 37 시험들이 공유
 
-### research/studies/38_trend_stop_intraday/
-
-- [build_dashboard.py](../research/studies/38_trend_stop_intraday/build_dashboard.py) — 스터디 38 대시보드 데이터 — daily_stop_grid.py 산출물을 dashboard/data/ 아래 JSON·gzip 으로 펼친다.
-- [build_minute_pairs.py](../research/studies/38_trend_stop_intraday/build_minute_pairs.py) — 스터디 38 분봉 백필 대상(날짜 → 종목) — `PYQuant/tools/minute_backfill.py --pairs` 입력을 만든다.
-- [control_test.py](../research/studies/38_trend_stop_intraday/control_test.py) — 스터디 38 손절 시험 — 매매마다 '같은 날·같은 보유 기간·같은 거래대금 구간 전 종목 균등 매수' 대조를 빼고, 보유 기간별로 나눈다.
-- [daily_panel.py](../research/studies/38_trend_stop_intraday/daily_panel.py) — 스터디 38 일봉 패널 — 2009-01부터 보통주 일봉을 (종목 × 날짜) 배열로 펴고, 날짜마다 구간 순위를 붙인다.
-- [daily_stop_grid.py](../research/studies/38_trend_stop_intraday/daily_stop_grid.py) — 스터디 38 일봉 손절 시험 — 2010-01-04 – 2026-10-08 전체를 한 번에, 보통주 전 종목(daily_panel.py).
-- [ma_exit.py](../research/studies/38_trend_stop_intraday/ma_exit.py) — 스터디 38 — 이평선으로 추세가 깨진 자리를 판정해 파는 청산(사용자 정의, 2026-10-11).
-- [slot_test.py](../research/studies/38_trend_stop_intraday/slot_test.py) — 스터디 38 — 슬롯 제한 계좌 시험: 같은 매수 신호에 청산만 바꿔 2010–2026 계좌 곡선을 낸다(2026-10-11).
-- [verify_sample.py](../research/studies/38_trend_stop_intraday/verify_sample.py) — 스터디 38 대조 — daily_stop_grid.py(numba)의 매매 목록을 원 일봉 파일에서 순수 파이썬으로 따로 계산한 것과 맞춘다.
-
-### research/studies/38_trend_support_realtime/
-
-- [build_dashboard.py](../research/studies/38_trend_support_realtime/build_dashboard.py) — 스터디 38 대시보드 — 회차별 남는 칸·참고 칸 매매 전부와 회차별 결과 표를 한 페이지로 본다(사용자 지시 2026-10-11).
-- [common.py](../research/studies/38_trend_support_realtime/common.py) — 스터디 38 공용 코드 — 자료 읽기, 지표, 비교 평균표, 크기 분위, 매매 계산 커널(numba).
-- [dashboard_app.js](../research/studies/38_trend_support_realtime/dashboard_app.js) — 스터디 38 대시보드. 데이터 형식은 build_dashboard.py 머리말에 있다.
-- [fetch_datagokr_delisted.py](../research/studies/38_trend_support_realtime/fetch_datagokr_delisted.py) — 스터디 38 3회차 — 상장폐지 종목의 무수정 일봉(2020-01 이후)을 data.go.kr 주식시세정보에서 종목별로 받는다.
-- [fetch_daum_unadjusted.py](../research/studies/38_trend_support_realtime/fetch_daum_unadjusted.py) — 스터디 38 3회차 — 상장 중인 종목의 무수정 일봉(종가·거래량·거래대금)을 다음(Daum) 금융 차트에서 받아 종목별로 저장한다.
-- [fetch_kospi_daily.py](../research/studies/38_trend_support_realtime/fetch_kospi_daily.py) — 스터디 38 2회차 — 코스피 지수 일봉을 받아 저장하고, 저장소에 있던 yfinance 캐시와 겹치는 날을 대조한다.
-- [intraday_test.py](../research/studies/38_trend_support_realtime/intraday_test.py) — 스터디 38 분봉 시험 — 이미 받아 둔 분봉만 쓴다(PYQuant/data/minute/<종목>/<YYYYMMDD>.parquet, 2025-09-01 이후). 새로 받지 않는다.
-- [measure_structure.py](../research/studies/38_trend_support_realtime/measure_structure.py) — 스터디 38 k 구조 표 — k 마다 확정 지연, 종목·해당 저점 수, 손절선(마지막 확정 저점) 거리.
-- [random_approx.py](../research/studies/38_trend_support_realtime/random_approx.py) — 스터디 38 무작위 진입 — 정규 근사판(시뮬레이션이 아님, random_test.py 1,000 회차가 46 시간 걸려 대신 내는 잠정 값).
-- [random_test.py](../research/studies/38_trend_support_realtime/random_test.py) — 스터디 38 무작위 진입 시험 — 조합마다 같은 매도 규칙·해마다 같은 매매 수로 종목·날짜만 무작위로 뽑는다.
-- [rebaseline.py](../research/studies/38_trend_support_realtime/rebaseline.py) — 기준선 다시 내기 2단계: 3–11회차에 판정한 칸 전부를 한 묶음으로 같은 부호 뒤집기에 넣는다.
-- [rebaseline_capture.py](../research/studies/38_trend_support_realtime/rebaseline_capture.py) — 기준선 다시 내기 1단계: 3–11회차 시험을 그대로 다시 돌리며 부호 뒤집기 분포만 받아 둔다.
-- [round10_test.py](../research/studies/38_trend_support_realtime/round10_test.py) — 스터디 38 10회차 — 2–5억·5–10억 균등 바구니가 소형주 효과인지, 겹침 유지로 비용을 줄이면 어떤지.
-- [round11_test.py](../research/studies/38_trend_support_realtime/round11_test.py) — 스터디 38 11회차 — 편향 감사(9회차 보류) 지적을 반영해 2–5억·5–10억 균등 바구니를 크기 맞춤 대조로 다시 본다.
-- [round2_test.py](../research/studies/38_trend_support_realtime/round2_test.py) — 스터디 38 2회차 — 매수 모양 축 대신 종목 구간(거래대금·시가총액 10분위)과 시장 국면(코스피 추세) 축으로 다시 돈다.
-- [round2_turnover_check.py](../research/studies/38_trend_support_realtime/round2_turnover_check.py) — 스터디 38 2회차 — 20일 평균 거래대금 상위 값 점검(분위 칸에 자료 오류가 섞였는지 본다).
-- [round3_factor_fix.py](../research/studies/38_trend_support_realtime/round3_factor_fix.py) — 스터디 38 3회차 — 무수정 종가·거래대금 보정표를 만든다(공용 PYQuant/data/bars_all_pit_v2.parquet 은 고치지 않는다).
-- [round3_test.py](../research/studies/38_trend_support_realtime/round3_test.py) — 스터디 38 3회차 — 보정한 거래대금으로 분위를 다시 매기고, 체결 제약(주문 금액 × 주문 비율 상한)을 축으로 넣고,
-- [round4_test.py](../research/studies/38_trend_support_realtime/round4_test.py) — 스터디 38 4회차 — 문턱·분위를 매수 전에 아는 값으로 바꾸고, 동시호가 충격 비용을 칸으로 넣고, 종가 되튐을 진단한다.
-- [round5_test.py](../research/studies/38_trend_support_realtime/round5_test.py) — 스터디 38 5회차 — 같은 매매를 여러 번 세는 것을 걷어내고 판정을 다시 한다. 판정 판은 4회차 판 4 그대로다.
-- [round6_test.py](../research/studies/38_trend_support_realtime/round6_test.py) — 스터디 38 6회차 — 지지 저점 결함 수정, k 묶음을 한 규칙으로 고정, 절대 거래대금 구간, 시기 효과 분리, 청산 진단.
-- [round7_test.py](../research/studies/38_trend_support_realtime/round7_test.py) — 스터디 38 7회차 — 1분위 효과가 순위에서 오는지 시기에서 오는지 교차표로 가르고, 같은 달·같은 절대 구간 대조, 추세 청산 격자.
-- [round8_test.py](../research/studies/38_trend_support_realtime/round8_test.py) — 스터디 38 8회차 — 판정 값을 '같은 날·같은 보유 기간·같은 절대 구간 전 종목 균등 매수' 대조를 뺀 초과수익으로 바꾸고,
-- [round9_test.py](../research/studies/38_trend_support_realtime/round9_test.py) — 스터디 38 9회차 — 거래대금 구간 균등 바구니(신호 없음) 시험.
-- [trade_test.py](../research/studies/38_trend_support_realtime/trade_test.py) — 스터디 38 매매 시험 — 승인안(2026-10-10)의 모든 조합을 한 번에 돈다. 자동 선택 없음.
-
-### research/studies/38_trend_support_realtime/data/
-
-- [datagokr_unadjusted_meta.json](../research/studies/38_trend_support_realtime/data/datagokr_unadjusted_meta.json) — data.go.kr 상장폐지 종목 무수정 일봉 받기 기록(건수·기간)
-- [daum_unadjusted_meta.json](../research/studies/38_trend_support_realtime/data/daum_unadjusted_meta.json) — 다음 금융 무수정 일봉 받기 기록(건수·기간)
-- [kospi_daily_check.json](../research/studies/38_trend_support_realtime/data/kospi_daily_check.json) — 코스피 지수 일봉과 옛 캐시 겹치는 날 대조 결과
-
-### research/studies/39_devscale_exit_vs_trend/
-
-- [ENTRY_CANDIDATES.md](../research/studies/39_devscale_exit_vs_trend/ENTRY_CANDIDATES.md) — 스터디 39 — 실계좌 DeviationScale 진입 재설계 후보 (2026-10-11)
-- [build_dashboard_tabs.py](../research/studies/39_devscale_exit_vs_trend/build_dashboard_tabs.py) — 스터디 39 회차별 결과를 스터디 38 대시보드의 '39' 스터디 탭 데이터(dashboard/data/study39.txt)로 쓴다.
-- [check_candidates.py](../research/studies/39_devscale_exit_vs_trend/check_candidates.py) — 후보 마스크 점검: 신호 수·라이브 재현·진단 3 개(성과 판정 아님).
-- [entry_candidates.py](../research/studies/39_devscale_exit_vs_trend/entry_candidates.py) — 스터디 39 진입 후보 C1–C5 마스크(ENTRY_CANDIDATES.md 부록 A 와 같은 코드).
-- [fetch_kosdaq_daily.py](../research/studies/39_devscale_exit_vs_trend/fetch_kosdaq_daily.py) — 스터디 39 round4 — 코스닥 지수 일봉을 받아 저장하고, 저장소에 있던 사본과 겹치는 날을 대조한다.
-- [pair_net_check.py](../research/studies/39_devscale_exit_vs_trend/pair_net_check.py) — 스터디 39 사후 진단(사전 등록 밖) — 같은 진입마다 (칸 순수익 − (a) 순수익)을 대조 없이 잰다.
-- [run_exit_test.py](../research/studies/39_devscale_exit_vs_trend/run_exit_test.py) — 스터디 39 — 실계좌 DeviationScale 진입을 일봉으로 근사하고, 같은 진입에 청산 63 칸(고정 % 격자·존 이탈·E3·E4j·보유 일수)을 붙여 비교한다.
-- [run_round2.py](../research/studies/39_devscale_exit_vs_trend/run_round2.py) — 스터디 39 round2 — 엔진 정배열 정의로 진입 근사를 고치고, 판정 값을 (a) 대비 짝 차이로 바꾸고, 슬롯 4 개 자본 곡선을 낸다.
-- [run_round3.py](../research/studies/39_devscale_exit_vs_trend/run_round3.py) — 스터디 39 round3 — 2회차 편향 감사(ⓐ–ⓔ)를 반영해 다시 판정한다.
-- [run_round4.py](../research/studies/39_devscale_exit_vs_trend/run_round4.py) — 스터디 39 round4 — 추세 청산(E3·E4j)을 진입 다음 날부터 판정하고, 코스닥 종목은 코스닥 지수와 비교한다.
-- [run_round5.py](../research/studies/39_devscale_exit_vs_trend/run_round5.py) — 스터디 39 round5 — 진입 후보 C1–C5(격자 19칸)를 4회차 하네스로 시험한다. 명세: ENTRY_CANDIDATES.md.
-- [run_round6.py](../research/studies/39_devscale_exit_vs_trend/run_round6.py) — 스터디 39 round6 — C5(250일 고가 근접) 재판정(2016칸 가족)과 밤 보유(종가 매수 → 다음 날 시가 매도).
-
-### research/studies/39_devscale_exit_vs_trend/data/
-
-- [kosdaq_daily_check.json](../research/studies/39_devscale_exit_vs_trend/data/kosdaq_daily_check.json) — 코스닥 지수 일봉과 옛 사본 겹치는 날 대조 결과
-
-### research/studies/39_devscale_exit_vs_trend/results/
-
-- [metrics.json](../research/studies/39_devscale_exit_vs_trend/results/metrics.json) — 스터디 39 1회차 청산 63개 조합 판정 지표
-- [multiple_comparison.json](../research/studies/39_devscale_exit_vs_trend/results/multiple_comparison.json) — 스터디 39 1회차 여러 조합 동시 비교 보정(부호 뒤집기 통과선)
-- [run_command.txt](../research/studies/39_devscale_exit_vs_trend/results/run_command.txt) — 스터디 39 1회차 실행 명령
-
-### research/studies/39_devscale_exit_vs_trend/results/round2/
-
-- [metrics.json](../research/studies/39_devscale_exit_vs_trend/results/round2/metrics.json) — 스터디 39 2회차 판정 지표
-- [run_command.txt](../research/studies/39_devscale_exit_vs_trend/results/round2/run_command.txt) — 스터디 39 2회차 실행 명령
-
-### research/studies/39_devscale_exit_vs_trend/results/round3/
-
-- [metrics.json](../research/studies/39_devscale_exit_vs_trend/results/round3/metrics.json) — 스터디 39 3회차 판정 지표
-- [run_command.txt](../research/studies/39_devscale_exit_vs_trend/results/round3/run_command.txt) — 스터디 39 3회차 실행 명령
-
-### research/studies/39_devscale_exit_vs_trend/results/round4/
-
-- [metrics.json](../research/studies/39_devscale_exit_vs_trend/results/round4/metrics.json) — 스터디 39 4회차 판정 지표
-- [run_command.txt](../research/studies/39_devscale_exit_vs_trend/results/round4/run_command.txt) — 스터디 39 4회차 실행 명령
-
-### research/studies/39_devscale_exit_vs_trend/results/round5/
-
-- [metrics.json](../research/studies/39_devscale_exit_vs_trend/results/round5/metrics.json) — 스터디 39 5회차 판정 지표
-- [run_command.txt](../research/studies/39_devscale_exit_vs_trend/results/round5/run_command.txt) — 스터디 39 5회차 실행 명령
-
-### research/studies/39_devscale_exit_vs_trend/results/round6/
-
-- [metrics.json](../research/studies/39_devscale_exit_vs_trend/results/round6/metrics.json) — 스터디 39 6회차 판정 지표
-- [run_command.txt](../research/studies/39_devscale_exit_vs_trend/results/round6/run_command.txt) — 스터디 39 6회차 실행 명령
-
-### research/studies/40_devscale_entry_touch/
-
-- [build_dashboard.py](../research/studies/40_devscale_entry_touch/build_dashboard.py) — 스터디 40 결과를 스터디 38 대시보드의 '매수 시험' 탭 데이터(dashboard/data/entry40.txt)로 쓴다.
-- [build_problem_dashboard.py](../research/studies/40_devscale_entry_touch/build_problem_dashboard.py) — 스터디 40-4 체결 건에 손실 원인 후보를 붙여 대시보드 '문제 종목' 탭 데이터로 쓴다.
-- [build_split_dashboard.py](../research/studies/40_devscale_entry_touch/build_split_dashboard.py) — 스터디 40-4(turn_split.py) 결과를 스터디 38 대시보드의 '전환·분할 매도' 탭 데이터로 쓴다.
-- [entry_touch.py](../research/studies/40_devscale_entry_touch/entry_touch.py) — 스터디 40 — DevScale 매수 자리: 정배열 종목이 장중 이평선에 닿을 때 사는 규칙을 계좌 시험으로 비교한다(2026-10-11).
-- [trend_filter.py](../research/studies/40_devscale_entry_touch/trend_filter.py) — 스터디 40-2 — 장기 추세가 돌아선 종목만 눌림에서 사는 거름과 추세 매도를 엮어 계좌 시험으로 비교한다(2026-10-11).
-- [turn_points.py](../research/studies/40_devscale_entry_touch/turn_points.py) — 스터디 40-3 — 하락 추세가 상승 추세로 돌아서는 자리를 먼저 찾는다(2026-10-11).
-- [turn_split.py](../research/studies/40_devscale_entry_touch/turn_split.py) — 스터디 40-4 — 추세 전환 자리 매수 vs 전환 뒤 눌림 매수, 5·10·20일선 분할 매도(2026-10-11, 사용자 정의).
-
 ### research/studies/41_universe_basket/
 
 - [README.md](../research/studies/41_universe_basket/README.md) — 백테스트 41 · 종목군 × 신호 바구니 (연구군: 종목레벨)
@@ -1644,10 +1546,6 @@
 - [feature_buckets.py](../research/studies/42_swing_trend/feature_buckets.py) — 스터디 42-2 — 조건 값마다 매매 건을 크기 순 다섯 묶음으로 나눠 어느 묶음에 좋은 건이 몰리는지 본다.
 - [filter_rule.py](../research/studies/42_swing_trend/filter_rule.py) — 스터디 42-3 — 42-2에서 나쁜 건이 몰린 묶음을 빼는 매수 거름을 하나씩 더해 본다.
 - [swing_trend.py](../research/studies/42_swing_trend/swing_trend.py) — 스터디 42-1 — 고점·저점 추세 매매 건 전부와 매수 시점 조건 값(2026-10-11).
-
-### research/studies/42_swing_trend/live/
-
-- [plan.json](../research/studies/42_swing_trend/live/plan.json) — 스터디 42 다음 거래일 매수 계획(종목·진입가·취소 가격)
 
 ### research/studies/test_replay/
 

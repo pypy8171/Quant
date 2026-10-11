@@ -156,9 +156,30 @@ void test_halt_sources_are_independent()
     std::cout << "[PASS] 진입 정지 원천 셋이 서로를 안 지운다\n";
 }
 
+// 국면 진입 중단은 국면을 받지 않는 전략(regime_halt_exempt) 신호만 통과시킨다 — 다른 전략의 신규 매수와
+//  SwingTrend 쪽 매도·취소 규칙은 그대로다. [why D-160]
+void test_regime_halt_exempt()
+{
+    OrderGate   gate;
+    std::string reason;
+    gate.set_entry_halt(true);
+
+    auto blocked = make_signal("005930", OrderSide::BUY);
+    assert(!gate.check(blocked, reason));
+    assert(reason.find("진입") != std::string::npos);
+
+    auto exempt               = make_signal("000660", OrderSide::BUY);
+    exempt.regime_halt_exempt = true;
+    reason.clear();
+    assert(gate.check(exempt, reason));
+
+    std::cout << "[PASS] 국면 진입 중단은 예외 전략 신호만 통과\n";
+}
+
 void run_session_tests()
 {
     test_session_window();
     test_opening_auction_window();
     test_halt_sources_are_independent();
+    test_regime_halt_exempt();
 }

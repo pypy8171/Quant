@@ -60,6 +60,13 @@ public:
         return false;
     }
 
+    // 국면 진입 중단(entry_halt)을 받지 않는 전략인가. 기본 false. true면 게이트가 국면 차단만 건너뛰고,
+    //  수동 매수 정지·전략 사망·시세 사망 정지·일손실 한도는 그대로 받는다. [why D-160]
+    virtual bool ignores_regime_halt() const
+    {
+        return false;
+    }
+
     // 호가 이벤트 (국내 전용 — H0STASP0, 통합 구독이면 H0UNASP0)
     // [wire] 출처: KIS 공식 샘플 asking_price_krx·asking_price_total, 2026-09-27 MCP 확인(2026-09-27 샘플 대조로 H0UNASP0 보탬).
     virtual std::optional<OrderSignal> on_order_book(const OrderBook&)

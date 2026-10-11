@@ -577,8 +577,8 @@ static void load_surge_hold(LoadPass& context, const json& node)
 // ─── 디스패치 ───────────────────────────────────────────────────────────────
 void load_strategies(StrategyLoadCtx& context, const json& strategies)
 {
-    // 운영 설정 현황(2026-10-06 확인): Quant/config/config_live.json은 DEVIATION_SCALE 하나, Quant/config/config_dev_paper.json은
-    //  DEVIATION_SCALE·TARGET_BASKET(D-109)·SURGE_HOLD(D-157)를 등록한다.
+    // 운영 설정 현황(2026-10-11 확인): Quant/config/config_live.json은 DEVIATION_SCALE·SWING_TREND(D-160), Quant/config/config_dev_paper.json은
+    //  DEVIATION_SCALE·TARGET_BASKET(D-109)·SURGE_HOLD·SWING_TREND(D-160)를 등록한다.
     // INTRADAY_BREAKOUT은 운영에서는 이 표가 아니라 attach_holding_exit_managers()가 승계 보유분에만 붙이는 청산 전용이다.
     // 나머지 유형은 시험용 모의 설정(config_mm_paper.json의 MARKET_MAKING 등)에서만 쓴다.
     static const std::map<StrategyType, void (*)(LoadPass&, const json&)> LOADERS = {
@@ -590,6 +590,7 @@ void load_strategies(StrategyLoadCtx& context, const json& strategies)
         {StrategyType::DEVIATION_SCALE, load_deviation_scale},
         {StrategyType::TARGET_BASKET, load_target_basket},
         {StrategyType::SURGE_HOLD, load_surge_hold},
+        {StrategyType::SWING_TREND, load_swing_trend},
         {StrategyType::VWAP_PULLBACK, load_vwap_pullback},
     };
 
@@ -597,7 +598,7 @@ void load_strategies(StrategyLoadCtx& context, const json& strategies)
     pass.priority_merger = make_entry_priority_merger();
 
     // 바스켓 슬리브를 먼저 — 그 소유 종목을 DEVSCALE 유니버스·청산 관리 부착에서 빼야 하므로 config 순서와 무관하게 앞에 둔다 [why D-109].
-    //  SURGE_HOLD는 그다음 — 바스켓 종목을 매수 후보에서 빼고, 자기 종목을 DEVSCALE 유니버스에서 뺀다 [why D-157].
+    //  SURGE_HOLD·SWING_TREND는 그다음 — 앞 슬리브 종목을 매수 후보에서 빼고, 자기 종목을 DEVSCALE 유니버스에서 뺀다 [why D-157][why D-160].
     //  VWAPPB는 두 번 돈다: 재인수 예약은 맨 앞(바스켓과 같은 이유), 재스캔 등록은 맨 뒤(DEVSCALE이 종목을 먼저 가져간다).
     std::vector<const json*> ordered;
     std::vector<const json*> ordered_last;
@@ -615,7 +616,7 @@ void load_strategies(StrategyLoadCtx& context, const json& strategies)
         }
     }
 
-    for (const StrategyType::Value first : {StrategyType::TARGET_BASKET, StrategyType::SURGE_HOLD})
+    for (const StrategyType::Value first : {StrategyType::TARGET_BASKET, StrategyType::SURGE_HOLD, StrategyType::SWING_TREND})
     {
         for (const auto& strategy : strategies)
         {
@@ -631,7 +632,7 @@ void load_strategies(StrategyLoadCtx& context, const json& strategies)
         const StrategyType strategy_type = type_of(strategy);
 
         if (strategy_type != StrategyType::TARGET_BASKET && strategy_type != StrategyType::SURGE_HOLD &&
-            strategy_type != StrategyType::VWAP_PULLBACK)
+            strategy_type != StrategyType::SWING_TREND && strategy_type != StrategyType::VWAP_PULLBACK)
         {
             ordered.push_back(&strategy);
         }

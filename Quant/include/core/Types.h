@@ -167,6 +167,9 @@ struct OrderSignal
     //  찾는다 — 신호마다 "계좌:전략:종목:방향" 문자열을 만들어 해시하던 것을 정수 키로 바꿨다
     //  (중복 신호 키는 계좌·전략·종목·방향·지정가 다섯 개). [why D-112]
     strategy_table::StrategyId strategy_index = strategy_table::kNone;
+    // 국면 진입 중단(entry_halt)을 받지 않는 전략의 신호. 엔진이 emit에서 전략의 ignores_regime_halt()로 찍는다.
+    //  수동 매수 정지·일손실 한도는 그대로 받는다. [why D-160]
+    bool regime_halt_exempt = false;
     Market market = Market::KR;
     std::string exchange; // US only: "NAS", "NYS"
     std::chrono::system_clock::time_point timestamp;
@@ -412,6 +415,7 @@ public:
         DEVIATION_SCALE,
         TARGET_BASKET, // 목표 비중표(파일)를 장부와 맞추는 바스켓 슬리브 [why D-109]
         SURGE_HOLD,    // 급등 뒤 되돌림 종목 계획(파일)을 동시호가로 사고 손절·익절·만기로 파는 슬리브 [why D-157]
+        SWING_TREND,   // 일봉 추세 되돌림 계획(파일)을 지정가로 사고 확정 저점 손절선으로 파는 슬리브 [why D-160]
         VWAP_PULLBACK  // 강한 종목 첫 VWAP 눌림(그림자 모드) [why D-109]
     };
 

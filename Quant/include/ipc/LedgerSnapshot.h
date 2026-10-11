@@ -66,7 +66,8 @@ struct LedgerGlobals
     //  계좌를 적으려면 이것이 있어야 한다 — 없으면 주문 쪽 계좌 표를 다시 들여다보게 된다.
     //  [inv] 채우는 쪽이 끝에 0을 넣어 끊는다. 32칸이면 계좌번호 문자열의 세 배다.
     char    account[32]              = {};
-    uint8_t padding_[4]              = {};  // 72바이트(8의 배수)로 맞춘다 — 공개 칸을 8바이트 단어로 옮기기 때문이다
+    uint8_t entry_halted_except_regime = 0; // 국면을 뺀 세 원천의 OR — 국면을 받지 않는 전략이 본다 [why D-160]
+    uint8_t padding_[3]              = {};  // 72바이트(8의 배수)로 맞춘다 — 공개 칸을 8바이트 단어로 옮기기 때문이다
 };
 
 // 진입 판단에 필요한 셋을 한 판에서 함께 본 것. OrderGate::EntrySnapshot과 같은 뜻이고,

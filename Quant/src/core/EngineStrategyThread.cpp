@@ -107,9 +107,10 @@ void Engine::register_strategy_runtime(std::unique_ptr<StrategyBase> strategy)
     strategy->set_position_provider_by_id([this](const std::string&, symbol::SymbolId symbol) {
         return ledger_snapshot_->row(symbol).position;
     });
-    strategy->set_entry_halt_provider([this]
+    strategy->set_entry_halt_provider([this, exempt = strategy->ignores_regime_halt()]
     {
-        return ledger_snapshot_->globals().entry_halted != 0;
+        const ipc::LedgerGlobals globals = ledger_snapshot_->globals();
+        return (exempt ? globals.entry_halted_except_regime : globals.entry_halted) != 0;
     });
     strategy->set_entry_scale_provider([this]
     {
@@ -200,9 +201,10 @@ void Engine::start_strategies()
         strategy->set_position_provider_by_id([this](const std::string&, symbol::SymbolId symbol) {
             return ledger_snapshot_->row(symbol).position;
         });
-        strategy->set_entry_halt_provider([this]
+        strategy->set_entry_halt_provider([this, exempt = strategy->ignores_regime_halt()]
         {
-            return ledger_snapshot_->globals().entry_halted != 0;
+            const ipc::LedgerGlobals globals = ledger_snapshot_->globals();
+            return (exempt ? globals.entry_halted_except_regime : globals.entry_halted) != 0;
         });
         strategy->set_entry_scale_provider([this]
         {
@@ -645,6 +647,7 @@ void Engine::push_shard_envelope(uint32_t row, StrategyBase* strategy, const Ord
     }
 
     emitted.signal.strategy_index = strategy->strategy_index();
+    emitted.signal.regime_halt_exempt = strategy->ignores_regime_halt();
     emitted.active                = strategy->is_active();
     emitted.exit_manager          = strategy->is_exit_manager();
 

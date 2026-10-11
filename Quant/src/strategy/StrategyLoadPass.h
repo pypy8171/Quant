@@ -1,5 +1,6 @@
 // strategy/StrategyLoadPass.h — 전략 로더 파일들이 함께 쓰는 로드 상태와 도우미. 공개 헤더가 아니다.
-//  구현은 StrategyFactory.cpp(디스패치·공용 도우미·다른 전략 로더)·DevScaleLoader.cpp(DEVIATION_SCALE)·VwapPullbackLoader.cpp(VWAP_PULLBACK)로 나뉜다.
+//  구현은 StrategyFactory.cpp(디스패치·공용 도우미·다른 전략 로더)·DevScaleLoader.cpp(DEVIATION_SCALE)·VwapPullbackLoader.cpp(VWAP_PULLBACK)·
+//  SwingTrendLoader.cpp(SWING_TREND)로 나뉜다.
 //  스레드: 전부 메인 스레드(load_strategies 안)에서 부른다.
 #pragma once
 
@@ -88,6 +89,9 @@ void apply_vwap_pullback_holdings(LoadPass& context, const std::map<std::string,
 //  종목에만 붙는다(그림자 모드가 운영 슬리브의 자리를 뺏지 않는다).
 void load_vwap_pullback(LoadPass& context, const nlohmann::json& node);
 
+// SWING_TREND 항목 하나를 읽어 등록한다(SwingTrendLoader.cpp). 바스켓·SURGE_HOLD 다음, 다른 유형 앞에 돈다. [why D-160]
+void load_swing_trend(LoadPass& context, const nlohmann::json& node);
+
 // 키가 있으면 field에 읽고, 없으면 field의 현재 값(구조체 멤버 기본값)을 그대로 둔다.
 //  기본값을 로더와 구조체 두 곳에 적지 않으려고 쓴다.
 template <typename T>
@@ -96,7 +100,7 @@ void read_or_keep(const nlohmann::json& node, const char* key, T& field)
     field = node.value(key, field);
 }
 
-// 슬리브형 전략(TARGET_BASKET·SURGE_HOLD)이 같이 읽는 키 — label·account·state_file·reload_sec·dry_run.
+// 슬리브형 전략(TARGET_BASKET·SURGE_HOLD·SWING_TREND)이 같이 읽는 키 — label·account·state_file·reload_sec·dry_run.
 //  기본값은 각 Params 멤버 기본값이다(label "MAIN", account 빈값, reload_sec 60, dry_run false).
 template <typename SleeveParams>
 void read_sleeve_common(const nlohmann::json& node, SleeveParams& parameters)

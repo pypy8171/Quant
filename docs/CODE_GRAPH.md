@@ -42,11 +42,11 @@ graph LR
   risk -->|14| core
   risk -->|2| ipc
   risk -->|6| utils
-  strategy -->|6| api
-  strategy -->|33| core
+  strategy -->|8| api
+  strategy -->|36| core
   strategy --> risk
   strategy -->|6| universe
-  strategy -->|18| utils
+  strategy -->|23| utils
   universe -->|2| api
   universe -->|17| core
   universe -->|26| utils
@@ -60,14 +60,14 @@ graph LR
 
 | 헤더 | 유입 수 |
 |---|---|
-| `utils/Logger.h` | 76 |
+| `utils/Logger.h` | 80 |
 | `core/Types.h` | 60 |
-| `core/KstTime.h` | 43 |
+| `core/KstTime.h` | 44 |
 | `utils/ThreadName.h` | 32 |
 | `core/SymbolTable.h` | 27 |
-| `core/Engine.h` | 23 |
-| `strategy/StrategyBase.h` | 16 |
-| `core/WakeGate.h` | 15 |
+| `core/Engine.h` | 24 |
+| `strategy/StrategyBase.h` | 17 |
+| `api/KisClient.h` | 15 |
 
 ## 파일 단위 상세
 
@@ -302,6 +302,12 @@ graph LR
     n_strategy_SurgeHoldState_cpp["strategy/SurgeHoldState.cpp"]
     n_strategy_SurgeHoldStrategy_cpp["strategy/SurgeHoldStrategy.cpp"]
     n_strategy_SurgeHoldStrategy_h["strategy/SurgeHoldStrategy.h"]
+    n_strategy_SwingTrendLoader_cpp["strategy/SwingTrendLoader.cpp"]
+    n_strategy_SwingTrendOrders_cpp["strategy/SwingTrendOrders.cpp"]
+    n_strategy_SwingTrendRules_cpp["strategy/SwingTrendRules.cpp"]
+    n_strategy_SwingTrendState_cpp["strategy/SwingTrendState.cpp"]
+    n_strategy_SwingTrendStrategy_cpp["strategy/SwingTrendStrategy.cpp"]
+    n_strategy_SwingTrendStrategy_h["strategy/SwingTrendStrategy.h"]
     n_strategy_TargetBasketPlan_cpp["strategy/TargetBasketPlan.cpp"]
     n_strategy_TargetBasketPlan_h["strategy/TargetBasketPlan.h"]
     n_strategy_TargetBasketStrategy_cpp["strategy/TargetBasketStrategy.cpp"]
@@ -947,6 +953,25 @@ graph LR
   n_strategy_SurgeHoldStrategy_cpp --> n_utils_Logger_h
   n_strategy_SurgeHoldStrategy_h --> n_strategy_StrategyBase_h
   n_strategy_SurgeHoldStrategy_h --> n_strategy_SurgeHoldPlan_h
+  n_strategy_SwingTrendLoader_cpp --> n_api_KisClient_h
+  n_strategy_SwingTrendLoader_cpp --> n_core_Engine_h
+  n_strategy_SwingTrendLoader_cpp --> n_strategy_SwingTrendStrategy_h
+  n_strategy_SwingTrendLoader_cpp --> n_utils_Logger_h
+  n_strategy_SwingTrendOrders_cpp --> n_strategy_SurgeHoldPlan_h
+  n_strategy_SwingTrendOrders_cpp --> n_strategy_SwingTrendStrategy_h
+  n_strategy_SwingTrendOrders_cpp --> n_utils_Logger_h
+  n_strategy_SwingTrendRules_cpp --> n_strategy_SurgeHoldPlan_h
+  n_strategy_SwingTrendRules_cpp --> n_strategy_SwingTrendRules_h
+  n_strategy_SwingTrendState_cpp --> n_strategy_SwingTrendStrategy_h
+  n_strategy_SwingTrendState_cpp --> n_utils_AtomicFile_h
+  n_strategy_SwingTrendState_cpp --> n_utils_Logger_h
+  n_strategy_SwingTrendStrategy_cpp --> n_api_KisClient_h
+  n_strategy_SwingTrendStrategy_cpp --> n_core_KstTime_h
+  n_strategy_SwingTrendStrategy_cpp --> n_strategy_SwingTrendStrategy_h
+  n_strategy_SwingTrendStrategy_cpp --> n_utils_Logger_h
+  n_strategy_SwingTrendStrategy_h --> n_core_PrefetchPool_h
+  n_strategy_SwingTrendStrategy_h --> n_strategy_StrategyBase_h
+  n_strategy_SwingTrendStrategy_h --> n_strategy_SwingTrendRules_h
   n_strategy_TargetBasketPlan_cpp --> n_strategy_TargetBasketPlan_h
   n_strategy_TargetBasketPlan_h --> n_core_Types_h
   n_strategy_TargetBasketStrategy_cpp --> n_core_KstTime_h

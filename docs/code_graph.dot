@@ -34,11 +34,11 @@ digraph code_graph {
   "risk" -> "core" [label="14"];
   "risk" -> "ipc" [label="2"];
   "risk" -> "utils" [label="6"];
-  "strategy" -> "api" [label="6"];
-  "strategy" -> "core" [label="33"];
+  "strategy" -> "api" [label="8"];
+  "strategy" -> "core" [label="36"];
   "strategy" -> "risk" [label="1"];
   "strategy" -> "universe" [label="6"];
-  "strategy" -> "utils" [label="18"];
+  "strategy" -> "utils" [label="23"];
   "universe" -> "api" [label="2"];
   "universe" -> "core" [label="17"];
   "universe" -> "utils" [label="26"];

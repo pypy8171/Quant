@@ -221,6 +221,7 @@ set(ENGINE_SOURCES
   src/strategy/StrategyFactory.cpp
   src/strategy/DevScaleLoader.cpp
   src/strategy/VwapPullbackLoader.cpp
+  src/strategy/SwingTrendLoader.cpp
   src/core/AppConfig.cpp
   src/core/CommandLine.cpp
   src/core/Engine.cpp
@@ -258,6 +259,10 @@ set(ENGINE_SOURCES
   src/strategy/SurgeHoldState.cpp
   src/strategy/SurgeHoldBuys.cpp
   src/strategy/SurgeHoldExits.cpp
+  src/strategy/SwingTrendRules.cpp
+  src/strategy/SwingTrendStrategy.cpp
+  src/strategy/SwingTrendState.cpp
+  src/strategy/SwingTrendOrders.cpp
   src/risk/OrderGate.cpp
   src/risk/OrderGateDisplace.cpp
   src/risk/OrderGateState.cpp
@@ -607,6 +612,19 @@ target_include_directories(test_surge_hold PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/i
 target_link_libraries(test_surge_hold PRIVATE nlohmann_json::nlohmann_json)
 if(UNIX)
     target_link_libraries(test_surge_hold PRIVATE pthread)
+endif()
+
+# 스윙 추세 슬리브(strategy/SwingTrendRules) — 계획 검증·매수·확정 저점 손절선·매도 창·신선도 판정(순수) (D-160)
+add_executable(test_swing_trend_rules
+    tests/test_swing_trend_rules.cpp
+    src/strategy/SwingTrendRules.cpp
+    src/strategy/SurgeHoldPlan.cpp
+    src/utils/Logger.cpp
+)
+target_include_directories(test_swing_trend_rules PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(test_swing_trend_rules PRIVATE nlohmann_json::nlohmann_json)
+if(UNIX)
+    target_link_libraries(test_swing_trend_rules PRIVATE pthread)
 endif()
 
 # ─── 테스트 타겟: SPSC RingBuffer 검증 ───────────────────────────────────
@@ -1056,6 +1074,7 @@ set(QUANT_ASSERT_TARGETS
     test_target_basket_plan
     test_target_basket_strategy
     test_surge_hold
+    test_swing_trend_rules
     test_ringbuffer
     test_ringbuffer_stress
     test_pipeline_stress
