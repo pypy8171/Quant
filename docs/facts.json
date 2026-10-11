@@ -47,6 +47,11 @@
         "run": "py research\\studies\\35_surge_box_breakout\\daily_watch.py --wait-minutes 45 --emit-plan (일봉 갱신을 기다림, 다음 거래일 SURGE_HOLD 계획을 씀)"
       },
       {
+        "name": "Quant Daily Trade Report",
+        "at": "20:10",
+        "run": "pythonw scripts\\daily_trade_report.py (모의·실계좌 하루 매매 리포트 → _private\\daily_reports, 애프터마켓 20:00 뒤)"
+      },
+      {
         "name": "claude_stock_study",
         "at": "20:30",
         "run": "/stock-study"
@@ -87,6 +92,11 @@
         "name": "Quant Market Close AutoDoc",
         "at": "20:30",
         "run": "py scripts\\market_close_autodoc.py"
+      },
+      {
+        "name": "Quant Daily Trade Report",
+        "at": "20:35",
+        "run": "pythonw scripts\\daily_trade_report.py (모의·실계좌 하루 매매 리포트 → _private\\daily_reports, 애프터마켓 20:00 뒤)"
       },
       {
         "name": "Quant Maintain Daily",
@@ -284,6 +294,7 @@
       "ops_client",
       "ops_terminal",
       "feed_latency_measure",
+      "order_path_check",
       "future_quote_check",
       "ranking_check",
       "bench_rest_pool"
@@ -599,14 +610,14 @@
     {
       "file": "scripts/check_runtime_health.py",
       "symbol": "collect",
-      "lines": 882,
-      "start": 3338
+      "lines": 894,
+      "start": 3345
     },
     {
       "file": "Quant/src/core/EngineDataThread.cpp",
       "symbol": "Engine::data_thread_fn",
-      "lines": 646,
-      "start": 29
+      "lines": 670,
+      "start": 30
     },
     {
       "file": "Quant/src/risk/OrderGate.cpp",
@@ -623,7 +634,7 @@
     {
       "file": "Quant/src/core/EngineControlThread.cpp",
       "symbol": "Engine::control_thread_fn",
-      "lines": 244,
+      "lines": 253,
       "start": 108
     },
     {
@@ -651,16 +662,16 @@
       "start": 391
     },
     {
+      "file": "Quant/src/strategy/DeviationScaleStrategy.cpp",
+      "symbol": "DeviationScaleStrategy::on_trade_batch",
+      "lines": 202,
+      "start": 164
+    },
+    {
       "file": "PYQuant/main.py",
       "symbol": "main",
       "lines": 188,
-      "start": 608
-    },
-    {
-      "file": "Quant/src/strategy/DeviationScaleStrategy.cpp",
-      "symbol": "DeviationScaleStrategy::on_trade_batch",
-      "lines": 185,
-      "start": 163
+      "start": 612
     },
     {
       "file": "Quant/src/risk/OrderGate.cpp",
@@ -702,7 +713,7 @@
       "file": "scripts/check_runtime_health.py",
       "symbol": "surge_hold_rows",
       "lines": 166,
-      "start": 888
+      "start": 895
     },
     {
       "file": "Quant/src/ipc/SharedLayout.cpp",
@@ -743,7 +754,7 @@
     {
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::start",
-      "lines": 145,
+      "lines": 150,
       "start": 561
     },
     {
@@ -771,6 +782,12 @@
       "start": 273
     },
     {
+      "file": "Quant/src/ipc/DbManager.cpp",
+      "symbol": "event_loop",
+      "lines": 139,
+      "start": 1237
+    },
+    {
       "file": "Quant/src/api/WsSocketPosix.cpp",
       "symbol": "websocket_recv_frame_linux",
       "lines": 137,
@@ -783,28 +800,22 @@
       "start": 222
     },
     {
-      "file": "Quant/src/ipc/DbManager.cpp",
-      "symbol": "tick_loop",
-      "lines": 134,
-      "start": 700
-    },
-    {
       "file": "Quant/src/core/LedgerReconciler.cpp",
       "symbol": "LedgerReconciler::reconcile",
       "lines": 133,
       "start": 317
     },
     {
+      "file": "Quant/src/core/AppConfig.cpp",
+      "symbol": "parse_config",
+      "lines": 131,
+      "start": 199
+    },
+    {
       "file": "scripts/summarize_trading_day.py",
       "symbol": "summarize",
       "lines": 131,
       "start": 73
-    },
-    {
-      "file": "Quant/src/core/AppConfig.cpp",
-      "symbol": "parse_config",
-      "lines": 129,
-      "start": 199
     },
     {
       "file": "Quant/src/core/LedgerReconciler.cpp",
@@ -829,12 +840,6 @@
       "symbol": "KisClient::submit_order_acknowledgement",
       "lines": 126,
       "start": 182
-    },
-    {
-      "file": "Quant/src/ipc/OrderRouterReconcile.cpp",
-      "symbol": "OrderRouter::reconcile_unknown_order_async",
-      "lines": 125,
-      "start": 279
     },
     {
       "file": "Quant/src/universe/UniverseFeatures.cpp",
@@ -864,7 +869,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::stop",
       "lines": 116,
-      "start": 795
+      "start": 800
     },
     {
       "file": "Quant/src/api/KisIndex.cpp",
@@ -894,13 +899,13 @@
       "file": "Quant/src/strategy/DeviationScaleStrategy.cpp",
       "symbol": "DeviationScaleStrategy::load_decision_bars",
       "lines": 109,
-      "start": 400
+      "start": 418
     },
     {
       "file": "scripts/check_runtime_health.py",
       "symbol": "journal_mirror_row",
       "lines": 109,
-      "start": 2817
+      "start": 2824
     },
     {
       "file": "Quant/src/api/KisMarket.cpp",
@@ -912,7 +917,7 @@
       "file": "scripts/check_runtime_health.py",
       "symbol": "feed_ledger_rows",
       "lines": 108,
-      "start": 387
+      "start": 394
     },
     {
       "file": "PYQuant/tools/walkforward.py",
@@ -930,7 +935,7 @@
       "file": "Quant/src/ipc/OrderRouterReconcile.cpp",
       "symbol": "OrderRouter::cancel_stale_rows",
       "lines": 106,
-      "start": 554
+      "start": 633
     },
     {
       "file": "Quant/src/api/WsSocketPosix.cpp",
@@ -1005,6 +1010,12 @@
       "start": 55
     },
     {
+      "file": "Quant/src/ipc/DbManager.cpp",
+      "symbol": "tick_loop",
+      "lines": 94,
+      "start": 1103
+    },
+    {
       "file": "Quant/src/strategy/SurgeHoldPlan.cpp",
       "symbol": "parse_plan",
       "lines": 94,
@@ -1020,7 +1031,7 @@
       "file": "Quant/src/core/Engine.cpp",
       "symbol": "Engine::set_entry_priority",
       "lines": 93,
-      "start": 916
+      "start": 921
     },
     {
       "file": "Quant/src/strategy/SurgeHoldStrategy.cpp",
@@ -1038,7 +1049,7 @@
       "file": "Quant/src/strategy/DeviationScaleStrategy.cpp",
       "symbol": "DeviationScaleStrategy::prefetch_once",
       "lines": 92,
-      "start": 1188
+      "start": 1206
     },
     {
       "file": "Quant/src/core/BarAggregator.cpp",
@@ -1062,7 +1073,7 @@
       "file": "scripts/check_runtime_health.py",
       "symbol": "shared_region_exit_row",
       "lines": 89,
-      "start": 1736
+      "start": 1743
     },
     {
       "file": "Quant/src/strategy/ValueContraryStrategy.cpp",
@@ -1125,6 +1136,18 @@
       "start": 520
     },
     {
+      "file": "Quant/src/ipc/DbManager.cpp",
+      "symbol": "DbManager::stop",
+      "lines": 83,
+      "start": 864
+    },
+    {
+      "file": "Quant/src/ipc/OrderRouterReconcile.cpp",
+      "symbol": "OrderRouter::reconcile_unknown_orders_loop",
+      "lines": 83,
+      "start": 314
+    },
+    {
       "file": "scripts/stresstest_flow_profile.py",
       "symbol": "main",
       "lines": 83,
@@ -1152,13 +1175,13 @@
       "file": "scripts/check_runtime_health.py",
       "symbol": "order_answer_row",
       "lines": 82,
-      "start": 1830
+      "start": 1837
     },
     {
       "file": "Quant/src/strategy/StrategyFactory.cpp",
       "symbol": "load_strategies",
       "lines": 81,
-      "start": 580
+      "start": 582
     },
     {
       "file": "Quant/src/strategy/SurgeHoldStrategy.cpp",

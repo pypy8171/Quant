@@ -1,0 +1,111 @@
+{
+ "date": "2026-10-08",
+ "snapshot_time": "2026-10-08T08:57:00",
+ "market_median_change": -0.56,
+ "candidates": [
+  {
+   "code": "006400",
+   "name": "삼성SDI",
+   "nxt_change": 3.2,
+   "nxt_value_eok": 684.2,
+   "via": "2차전지(나트륨이온)",
+   "krx_change": 1.25,
+   "value_rank": 7,
+   "change_rank": 415,
+   "leader": false
+  },
+  {
+   "code": "373220",
+   "name": "LG에너지솔루션",
+   "nxt_change": 2.69,
+   "nxt_value_eok": 359.3,
+   "via": "2차전지(나트륨이온)",
+   "krx_change": 2.56,
+   "value_rank": 8,
+   "change_rank": 264,
+   "leader": true
+  },
+  {
+   "code": "247540",
+   "name": "에코프로비엠",
+   "nxt_change": 3.69,
+   "nxt_value_eok": 179.0,
+   "via": "2차전지(나트륨이온)",
+   "krx_change": 3.45,
+   "value_rank": 67,
+   "change_rank": 189,
+   "leader": true
+  },
+  {
+   "code": "066970",
+   "name": "엘앤에프",
+   "nxt_change": 2.3,
+   "nxt_value_eok": 98.0,
+   "via": "전기제품",
+   "krx_change": -1.19,
+   "value_rank": 106,
+   "change_rank": 1661,
+   "leader": false
+  },
+  {
+   "code": "348370",
+   "name": "엔켐",
+   "nxt_change": 2.16,
+   "nxt_value_eok": 7.8,
+   "via": "전기제품",
+   "krx_change": -5.17,
+   "value_rank": 328,
+   "change_rank": 2472,
+   "leader": false
+  },
+  {
+   "code": "036830",
+   "name": "솔브레인홀딩스",
+   "nxt_change": 2.23,
+   "nxt_value_eok": 4.0,
+   "via": "전기제품",
+   "krx_change": 5.2,
+   "value_rank": 344,
+   "change_rank": 111,
+   "leader": false
+  },
+  {
+   "code": "101360",
+   "name": "에코앤드림",
+   "nxt_change": 10.93,
+   "nxt_value_eok": 116.0,
+   "via": "2차전지(소재/부품)",
+   "krx_change": 2.79,
+   "value_rank": 492,
+   "change_rank": 239,
+   "leader": false
+  },
+  {
+   "code": "020150",
+   "name": "롯데에너지머티리얼즈",
+   "nxt_change": 3.35,
+   "nxt_value_eok": 51.0,
+   "via": "2차전지(소재/부품)",
+   "krx_change": 2.79,
+   "value_rank": 139,
+   "change_rank": 238,
+   "leader": false
+  }
+ ],
+ "hit_rate": 0.25,
+ "premarket_leading_industries": [
+  "전기제품"
+ ],
+ "day_top10_industries_by_median": [
+  "반도체와반도체장비",
+  "건축제품",
+  "디스플레이장비및부품",
+  "도로와철도운송",
+  "컴퓨터와주변기기",
+  "전기제품",
+  "항공화물운송과물류",
+  "운송인프라",
+  "섬유,의류,신발,호화품",
+  "음료"
+ ]
+}

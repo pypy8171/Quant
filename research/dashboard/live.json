@@ -1,7 +1,15 @@
 {
   "schema": "quant.live/v1",
-  "generated": "2026-10-07 18:29",
+  "generated": "2026-10-09 21:10",
   "journals": [
+    {
+      "date": "2026-10-08",
+      "strategy": "DeviationScale",
+      "path": "strategies/DeviationScale/live/2026-10-08.md",
+      "title": "라이브 모의 매매 일지 — 2026-10-08 (목)",
+      "strat_line": "DeviationScale (DEVSCALE) 정배열눌림 지정가 분할 매수 + ITB 청산 관리(전일 보유분).",
+      "summary": ""
+    },
     {
       "date": "2026-10-07",
       "strategy": "DeviationScale",
@@ -2327,6 +2335,54 @@
       "realized_pnl": -17997,
       "buy_notional": 18931560,
       "sell_notional": 8207675
+    },
+    {
+      "date": "2026-10-08",
+      "path": "Quant/build_win/logs/trades_20261008.csv",
+      "total": 131,
+      "by_status": {
+        "ACCEPTED": 57,
+        "CANCELLED": 43,
+        "REJECTED": 19,
+        "FILLED": 7,
+        "KEEP": 5
+      },
+      "by_strategy": {
+        "DEVSCALE_454910": 17,
+        "DEVSCALE_277810": 17,
+        "DEVSCALE_0126Z0": 13,
+        "DEVSCALE_307950": 13,
+        "DEVSCALE_010120": 8,
+        "DEVSCALE_068270": 8,
+        "DEVSCALE_066570": 6,
+        "DEVSCALE_170790": 5,
+        "DEVSCALE_373220": 5,
+        "DEVSCALE_033780": 5,
+        "DEVSCALE_060720": 5,
+        "": 5,
+        "DEVSCALE_278470": 5,
+        "DEVSCALE_030520": 5,
+        "DEVSCALE_009070": 3,
+        "DEVSCALE_011200": 3,
+        "DEVSCALE_120110": 3,
+        "DEVSCALE_016360": 2,
+        "DEVSCALE_071320": 2,
+        "DEVSCALE_021240": 1
+      },
+      "by_side": {
+        "SELL": 101,
+        "BUY": 25,
+        "NONE": 5
+      },
+      "n_tickers": 19,
+      "accepted": 57,
+      "rejected": 19,
+      "cancelled": 43,
+      "filled": 7,
+      "fill_events": 16,
+      "realized_pnl": -226232,
+      "buy_notional": 6881000,
+      "sell_notional": 5224000
     }
   ],
   "order_log_live_account": [
@@ -2553,35 +2609,70 @@
     {
       "date": "2026-10-07",
       "path": "Quant/build_win/logs_live/trades_20261007.csv",
-      "total": 52,
+      "total": 57,
       "by_status": {
-        "ACCEPTED": 19,
-        "CANCELLED": 19,
-        "REJECTED": 11,
+        "CANCELLED": 21,
+        "ACCEPTED": 20,
+        "REJECTED": 13,
         "FILLED": 3
       },
       "by_strategy": {
-        "DEVSCALE_005940": 13,
+        "DEVSCALE_005940": 16,
+        "DEVSCALE_030190": 10,
         "DEVSCALE_237690": 8,
         "DEVSCALE_016360": 8,
         "DEVSCALE_011200": 8,
-        "DEVSCALE_030190": 8,
         "DEVSCALE_033100": 5,
         "MANUAL": 2
       },
       "by_side": {
-        "SELL": 26,
-        "BUY": 26
+        "SELL": 29,
+        "BUY": 28
       },
       "n_tickers": 7,
-      "accepted": 19,
-      "rejected": 11,
-      "cancelled": 19,
+      "accepted": 20,
+      "rejected": 13,
+      "cancelled": 21,
       "filled": 3,
       "fill_events": 4,
       "realized_pnl": -3836,
       "buy_notional": 691450,
       "sell_notional": 486390
+    },
+    {
+      "date": "2026-10-08",
+      "path": "Quant/build_win/logs_live/trades_20261008.csv",
+      "total": 29,
+      "by_status": {
+        "ACCEPTED": 11,
+        "CANCELLED": 9,
+        "REJECTED": 7,
+        "FILLED": 2
+      },
+      "by_strategy": {
+        "DEVSCALE_237690": 7,
+        "DEVSCALE_030520": 6,
+        "DEVSCALE_005940": 4,
+        "DEVSCALE_011200": 3,
+        "DEVSCALE_120110": 3,
+        "DEVSCALE_016360": 2,
+        "DEVSCALE_000240": 2,
+        "DEVSCALE_031430": 1,
+        "UNLINKED": 1
+      },
+      "by_side": {
+        "SELL": 17,
+        "BUY": 12
+      },
+      "n_tickers": 8,
+      "accepted": 11,
+      "rejected": 7,
+      "cancelled": 9,
+      "filled": 2,
+      "fill_events": 2,
+      "realized_pnl": -27350,
+      "buy_notional": 0,
+      "sell_notional": 418700
     }
   ]
 }

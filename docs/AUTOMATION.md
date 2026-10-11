@@ -25,6 +25,7 @@
 | `Quant Minute Backfill` | 16:40 | 21:00 | `py scripts\market_close_minute_backfill.py` |
 | `Quant Daily Bars` | 16:50 | 21:05 | `py PYQuant\tools\naver_bars_backfill.py --refresh` |
 | `Quant Study35 Watch` | 17:00 | 21:15 | `py research\studies\35_surge_box_breakout\daily_watch.py --wait-minutes 45 --emit-plan (일봉 갱신을 기다림, 다음 거래일 SURGE_HOLD 계획을 씀)` |
+| `Quant Daily Trade Report` | 20:10 | 20:35 | `pythonw scripts\daily_trade_report.py (모의·실계좌 하루 매매 리포트 → _private\daily_reports, 애프터마켓 20:00 뒤)` |
 | `claude_stock_study` | 20:30 | 21:10 | `/stock-study` |
 | `claude_dashboard_sync` | 21:10 | 21:40 | `/dashboard-sync` |
 | `Quant Maintain Weekly` | 21:20 | 21:50 | `py ..\quant-devtools\maintain.py --weekly` |
