@@ -119,6 +119,29 @@ private:
     //  체결 뒤 남은 재발주는 게이트가 안 잡고 브로커가 거부하므로 횟수 상한으로 스팸을 끊는다.
     std::optional<OrderSignal> exit_pending_tick(double price, std::chrono::system_clock::time_point timestamp);
 
+    // on_trade의 단계 함수들. on_trade는 기준점 → 청산 판정 → 버킷 마감·진입 순서만 남긴다.
+    // 당일 첫 유효 틱에서 기준점을 잡고, 보유분이면 트레일 기준(고점)을 현재가나 저장 고점으로 맞춘다.
+    void set_day_base(double price);
+    // 보유 중 고점·저점 갱신. 시드분 고점은 0.1% 이상 오를 때만 파일에 남긴다.
+    void update_peak_and_trough(double price);
+    // 이 틱에서 걸린 청산 사유(로그·reason에 붙는 문자열 상수). 안 걸렸으면 nullptr.
+    //  시드분은 부착 유예(guard_warmup_sec_)가 지나야 판정한다.
+    const char* stop_reason(double price, int hhmm);
+    // (A) 물린 시드분: 고점 트레일 → 평단 하드스톱 → 본전탈출 순.
+    const char* seed_stop_reason(double price, int hhmm);
+    // 평단 하드스톱 판정. 부착 뒤 첫 호출에서 구형 보유 제외 여부를 한 번 정한다(seed_hard_checked_). [why D-082]
+    bool seed_hard_stop_hit(double price, int hhmm);
+    // (B) 신규 진입분: 진입 뒤 고점 트레일 → 진입가 하드손절 순.
+    const char* entry_stop_reason(double price) const;
+    // 청산 신호를 낸다. 장부가 이미 0이면(인정 이력이 있을 때) 신호 없이 보유 상태만 푼다.
+    std::optional<OrderSignal> submit_exit(const char* why, double price,
+                                           std::chrono::system_clock::time_point timestamp);
+    // 1분 버킷 집계. 버킷이 바뀐 틱에서만 진입을 평가하고 채널(closes_)을 갱신한다.
+    std::optional<OrderSignal> roll_bucket(double price, int hhmm, std::chrono::system_clock::time_point timestamp);
+    // 직전 버킷 종가가 채널 고점과 당일 기준점 위로 돌파했으면 매수 신호를 내고 보유 상태로 바꾼다.
+    std::optional<OrderSignal> breakout_entry(double bucket_close, int hhmm,
+                                              std::chrono::system_clock::time_point timestamp);
+
     OrderSignal make_signal(OrderSide side, int quantity, double price,
                             std::chrono::system_clock::time_point timestamp,
                             const std::string& reason = "");

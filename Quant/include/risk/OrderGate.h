@@ -373,4 +373,47 @@ private:
 
     mutable std::mutex deduplicate_mutex_;
     std::unordered_map<SignalKey, TimePoint, SignalKeyHash> last_signal_; // 신호 키 → 마지막 신호 시각
+
+    // 총노출 분자 — 보유는 현재가(없으면 평단), 매수 선점은 선점가. 판정·클램프·여력 판정이 같은 셈을 쓴다.
+    //  [inv] ledger(positions_mutex_)를 쥔 채 부른다.
+    static double gross_exposure(const PositionLedger::Reader& ledger);
+
+    // clamp_buy_quantity의 단계 — SELL NEW의 매도가능 클램프, BUY NEW의 장부 쪽 한도(종목당·총노출·현금).
+    int clamp_sell_quantity(const OrderSignal& signal, int quantity) const;
+    int clamp_buy_to_ledger(const OrderSignal& signal, double evaluation_price, int quantity) const;
+
+    // evaluate의 단계 — 거부면 verdict.code와 값 칸을 채우고 true. evaluate가 부르는 순서가 판정 순서다.
+    bool reject_by_switches_and_session(const OrderSignal& signal, GateVerdict& verdict) const; // 1 → 2 → 1b → 1c
+    bool reject_by_order_size(const OrderSignal& signal, GateVerdict& verdict) const;           // 2b
+    bool reject_by_buy_limits(const OrderSignal& signal, const PosKey& key, GateVerdict& verdict); // 3 → 3b → 3c → 3d
+    bool reject_by_concurrent_slots(const PosKey& key, const PositionLedger::Reader& ledger, GateVerdict& verdict); // 3c
+    bool reject_by_gross_exposure(const OrderSignal& signal, const PositionLedger::Reader& ledger, double evaluation_price,
+                                  GateVerdict& verdict) const; // 3d
+    bool reject_by_loss_guards(const OrderSignal& signal, GateVerdict& verdict) const; // 4 → 4b
+    bool reject_by_duplicate(const SignalKey& deduplicate_key, GateVerdict& verdict) const; // 5
+    bool reject_by_rate(GateVerdict& verdict); // 6 — 통과하면 주문 시각을 남긴다
+
+    // 3c의 자리 세기 결과 — 열린 자리, 그중 실보유, 그중 나보다 랭크가 위인 종목 수.
+    struct SlotOccupancy
+    {
+        size_t open        = 0;
+        size_t held        = 0;
+        int    taken_ahead = 0;
+    };
+
+    SlotOccupancy count_open_slots(const PosKey& key, const PositionLedger::Reader& ledger, const PriorityTable* table,
+                                   int rank) const;
+    bool reject_by_priority_bar(const PosKey& key, const PriorityTable& table, int rank, const SlotOccupancy& occupancy,
+                                GateVerdict& verdict) const; // 3c-2
+
+    // plan_displacement의 단계 — (3) 최약체 고르기(못 찾으면 key.symbol이 kNone), (4) 내보낼 종목 값 채우기.
+    struct WeakestHolding
+    {
+        PosKey key;
+        double z_score = 0.0;
+    };
+
+    WeakestHolding find_weakest_holding(const PositionLedger::Reader& ledger, const PriorityTable& table,
+                                        symbol::SymbolId new_symbol, TimePoint now) const;
+    void fill_victim(const PosKey& victim, DisplacePlan& plan) const;
 };

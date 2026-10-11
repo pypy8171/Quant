@@ -226,17 +226,18 @@ std::string make_client_id()
 // 한 요청의 답을 기다리는 상한. 서버는 받은 자리에서 답하므로 여유를 넣은 값이다.
 constexpr int kAckWaitMilliseconds = 3000;
 
-} // namespace
-
-int main(int argc, char** argv)
+// 명령행 인자. 플래그를 걷어낸 나머지(rest)의 첫 칸이 명령이다.
+struct ClientArguments
 {
-#ifdef _WIN32
-    SetConsoleOutputCP(CP_UTF8);
-#endif
-    std::string host = "127.0.0.1";
-    int         port = 7100;
-    std::string token;
+    std::string              host = "127.0.0.1";
+    int                      port = 7100;
+    std::string              token;
     std::vector<std::string> rest;
+};
+
+ClientArguments read_arguments(int argc, char** argv)
+{
+    ClientArguments arguments;
 
     for (int index = 1; index < argc; ++index)
     {
@@ -244,21 +245,257 @@ int main(int argc, char** argv)
 
         if (argument == "--host" && index + 1 < argc)
         {
-            host = argv[++index];
+            arguments.host = argv[++index];
         }
         else if (argument == "--port" && index + 1 < argc)
         {
-            port = std::atoi(argv[++index]);
+            arguments.port = std::atoi(argv[++index]);
         }
         else if (argument == "--token" && index + 1 < argc)
         {
-            token = argv[++index];
+            arguments.token = argv[++index];
         }
         else
         {
-            rest.push_back(argument);
+            arguments.rest.push_back(argument);
         }
     }
+
+    return arguments;
+}
+
+// HELLO 왕복. 실패하면 이유를 찍고 false. 성공하면 서버가 토큰을 인정했는지를 authentication에 넣는다.
+bool handshake(Conn& connection, const std::string& token, bool& authentication)
+{
+    connection.send_frame(ops::OpsMsg::HELLO_REQ, json{{"token", token}, {"client", "ops_client/0.1"}}.dump());
+    ops::Frame frame;
+
+    if (connection.recv_frame(frame, kAckWaitMilliseconds) != 1 || frame.type != static_cast<uint8_t>(ops::OpsMsg::HELLO_ACK))
+    {
+        std::cerr << "HELLO_ACK 없음: " << (frame.body.empty() ? "(응답 없음)" : frame.body) << "\n";
+        return false;
+    }
+
+    const json welcome = parse_object(frame.body);
+    authentication     = welcome.value("auth", false);
+    std::cout << "연결됨 paper=" << welcome.value("paper", true) << " auth=" << authentication << "\n";
+    return true;
+}
+
+// HELLO_ACK 직후 서버가 POSITIONS_NTF 스냅샷을 먼저 보낸다 — 명령 응답을 기다릴 때 섞여 들어오므로
+//  타입으로 걸러 받는다. 1 = 받음, 0 = 끊김·서버 오류, 그 밖 = 시간 초과·수신 오류.
+int wait_type(Conn& connection, ops::OpsMsg wanted_type, int timeout_ms, ops::Frame& out)
+{
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+
+    while (true)
+    {
+        auto left = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
+
+        if (left.count() <= 0)
+        {
+            return -1;
+        }
+
+        const int result_code = connection.recv_frame(out, static_cast<int>(left.count()));
+
+        if (result_code != 1)
+        {
+            return result_code;
+        }
+
+        if (out.type == static_cast<uint8_t>(wanted_type))
+        {
+            return 1;
+        }
+
+        if (out.type == static_cast<uint8_t>(ops::OpsMsg::ERROR_NTF))
+        {
+            std::cerr << "서버 오류: " << out.body << "\n";
+            return 0;
+        }
+    }
+}
+
+int run_status(Conn& connection)
+{
+    ops::Frame frame;
+    connection.send_frame(ops::OpsMsg::STATUS_REQ, "{}");
+
+    if (wait_type(connection, ops::OpsMsg::STATUS_ACK, kAckWaitMilliseconds, frame) != 1)
+    {
+        return 1;
+    }
+
+    std::cout << parse_object(frame.body).dump(2) << "\n";
+    return 0;
+}
+
+int run_positions(Conn& connection)
+{
+    ops::Frame frame;
+    connection.send_frame(ops::OpsMsg::POSITIONS_REQ, "{}");
+
+    if (wait_type(connection, ops::OpsMsg::POSITIONS_ACK, kAckWaitMilliseconds, frame) != 1)
+    {
+        return 1;
+    }
+
+    print_positions(parse_object(frame.body));
+    return 0;
+}
+
+// 같은 cid의 ORDER_RESULT만 기다린다(전략 주문 결과도 같은 채널로 온다). 브로커 왕복이
+//  3~5초라 15초까지 본다. 돌려주는 값은 종료코드.
+int wait_order_result(Conn& connection, const std::string& client_id)
+{
+    ops::Frame frame;
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
+
+    while (true)
+    {
+        auto left = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
+
+        if (left.count() <= 0)
+        {
+            std::cerr << "ORDER_RESULT 대기 시간 초과 — 로그(quant_trader.log)에서 cid로 확인\n";
+            return 3;
+        }
+
+        const int result_code = connection.recv_frame(frame, static_cast<int>(left.count()));
+
+        if (result_code == 0)
+        {
+            return 1;
+        }
+
+        if (result_code != 1)
+        {
+            continue;
+        }
+
+        if (frame.type == static_cast<uint8_t>(ops::OpsMsg::ORDER_RESULT_NTF))
+        {
+            json node = parse_object(frame.body);
+
+            if (node.value("cid", std::string()) == client_id)
+            {
+                const bool ok = node.value("ok", false);
+                std::cout << (ok ? "접수 " : "거부 ") << node.value("order_id", std::string()) << " odno="
+                          << node.value("odno", std::string()) << (ok ? "" : " — " + node.value("msg", std::string()))
+                          << "\n";
+                return ok ? 0 : 2;
+            }
+        }
+
+        print_push(frame);
+    }
+}
+
+// sell·buy. 인테이크 ACK를 받은 뒤 결과(ORDER_RESULT)까지 기다린다.
+int run_order(Conn& connection, const std::string& command, const std::vector<std::string>& rest, bool authentication)
+{
+    if (rest.size() < 3)
+    {
+        std::cerr << "사용법: " << command << " <ticker> <qty> [price]\n";
+        return 1;
+    }
+
+    if (!authentication)
+    {
+        std::cerr << "주문에는 --token이 필요하다(서버 ops_token과 일치)\n";
+        return 2;
+    }
+
+    const std::string client_id = make_client_id();
+    json request{{"cid", client_id},
+             {"ticker", rest[1]},
+             {"side", command == "sell" ? "SELL" : "BUY"},
+             {"qty", std::atoi(rest[2].c_str())},
+             {"price", rest.size() > 3 ? std::atof(rest[3].c_str()) : 0.0}};
+    connection.send_frame(ops::OpsMsg::ORDER_REQ, request.dump());
+
+    ops::Frame frame;
+
+    if (wait_type(connection, ops::OpsMsg::ORDER_ACK, kAckWaitMilliseconds, frame) != 1)
+    {
+        std::cerr << "ORDER_ACK 없음\n";
+        return 1;
+    }
+
+    json acknowledgement = parse_object(frame.body);
+
+    if (!acknowledgement.value("accepted", false))
+    {
+        std::cerr << "인테이크 거부: " << acknowledgement.value("msg", std::string()) << "\n";
+        return 2;
+    }
+
+    std::cout << "인테이크 적재 cid=" << client_id << " — 게이트·브로커 결과 대기…\n";
+    return wait_order_result(connection, client_id);
+}
+
+// 접속을 유지하며 push를 찍는다. 10초마다 PING을 보낸다. 끊기면 1.
+int run_watch(Conn& connection)
+{
+    std::cout << "push 대기 (Ctrl+C로 종료)\n";
+    ops::Frame frame;
+    auto last_ping = std::chrono::steady_clock::now();
+
+    while (true)
+    {
+        const int result_code = connection.recv_frame(frame, 1000);
+
+        if (result_code == 0)
+        {
+            std::cerr << "연결 끊김\n";
+            return 1;
+        }
+
+        if (result_code == 1)
+        {
+            if (frame.type == static_cast<uint8_t>(ops::OpsMsg::POSITIONS_ACK) || frame.type == static_cast<uint8_t>(ops::OpsMsg::POSITIONS_NTF))
+            {
+                print_positions(parse_object(frame.body));
+            }
+            else
+            {
+                print_push(frame);
+            }
+        }
+
+        if (std::chrono::steady_clock::now() - last_ping >= std::chrono::seconds(10))
+        {
+            last_ping = std::chrono::steady_clock::now();
+            connection.send_frame(ops::OpsMsg::PING_REQ, "{}");
+        }
+    }
+}
+
+// kill·shutdown 공통: 요청 하나를 보내고 ACK 본문을 찍는다. ok=true면 0, 아니면 2, 답이 없으면 1.
+int run_simple_request(Conn& connection, ops::OpsMsg request_type, const std::string& body, ops::OpsMsg acknowledgement_type)
+{
+    ops::Frame frame;
+    connection.send_frame(request_type, body);
+
+    if (wait_type(connection, acknowledgement_type, kAckWaitMilliseconds, frame) != 1)
+    {
+        return 1;
+    }
+
+    std::cout << frame.body << "\n";
+    return parse_object(frame.body).value("ok", false) ? 0 : 2;
+}
+
+} // namespace
+
+int main(int argc, char** argv)
+{
+#ifdef _WIN32
+    SetConsoleOutputCP(CP_UTF8);
+#endif
+    const ClientArguments arguments = read_arguments(argc, argv);
+    const std::vector<std::string>& rest = arguments.rest;
 
     if (rest.empty())
     {
@@ -269,229 +506,50 @@ int main(int argc, char** argv)
     const std::string command = rest[0];
     Conn connection;
 
-    if (!connect_to(connection, host, port))
+    if (!connect_to(connection, arguments.host, arguments.port))
     {
-        std::cerr << "연결 실패 " << host << ":" << port << " — quant_trader가 ops_port로 떠 있는지 확인\n";
+        std::cerr << "연결 실패 " << arguments.host << ":" << arguments.port << " — quant_trader가 ops_port로 떠 있는지 확인\n";
         return 1;
     }
 
-    connection.send_frame(ops::OpsMsg::HELLO_REQ, json{{"token", token}, {"client", "ops_client/0.1"}}.dump());
-    ops::Frame frame;
+    bool authentication = false;
 
-    if (connection.recv_frame(frame, kAckWaitMilliseconds) != 1 || frame.type != static_cast<uint8_t>(ops::OpsMsg::HELLO_ACK))
+    if (!handshake(connection, arguments.token, authentication))
     {
-        std::cerr << "HELLO_ACK 없음: " << (frame.body.empty() ? "(응답 없음)" : frame.body) << "\n";
         return 1;
     }
-
-    const json welcome = parse_object(frame.body);
-    const bool authentication    = welcome.value("auth", false);
-    std::cout << "연결됨 paper=" << welcome.value("paper", true) << " auth=" << authentication << "\n";
-
-    // HELLO_ACK 직후 서버가 POSITIONS_NTF 스냅샷을 먼저 보낸다 — 명령 응답을 기다릴 때 섞여 들어오므로
-    //  타입으로 걸러 받는다.
-    auto wait_type = [&](ops::OpsMsg wanted_type, int timeout_ms, ops::Frame& out) -> int
-    {
-        auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
-
-        while (true)
-        {
-            auto left = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
-
-            if (left.count() <= 0)
-            {
-                return -1;
-            }
-
-            const int result_code = connection.recv_frame(out, static_cast<int>(left.count()));
-
-            if (result_code != 1)
-            {
-                return result_code;
-            }
-
-            if (out.type == static_cast<uint8_t>(wanted_type))
-            {
-                return 1;
-            }
-
-            if (out.type == static_cast<uint8_t>(ops::OpsMsg::ERROR_NTF))
-            {
-                std::cerr << "서버 오류: " << out.body << "\n";
-                return 0;
-            }
-        }
-    };
 
     if (command == "status")
     {
-        connection.send_frame(ops::OpsMsg::STATUS_REQ, "{}");
-
-        if (wait_type(ops::OpsMsg::STATUS_ACK, kAckWaitMilliseconds, frame) != 1)
-        {
-            return 1;
-        }
-
-        std::cout << parse_object(frame.body).dump(2) << "\n";
-        return 0;
+        return run_status(connection);
     }
 
     if (command == "positions")
     {
-        connection.send_frame(ops::OpsMsg::POSITIONS_REQ, "{}");
-
-        if (wait_type(ops::OpsMsg::POSITIONS_ACK, kAckWaitMilliseconds, frame) != 1)
-        {
-            return 1;
-        }
-
-        print_positions(parse_object(frame.body));
-        return 0;
+        return run_positions(connection);
     }
 
     if (command == "sell" || command == "buy")
     {
-        if (rest.size() < 3)
-        {
-            std::cerr << "사용법: " << command << " <ticker> <qty> [price]\n";
-            return 1;
-        }
-
-        if (!authentication)
-        {
-            std::cerr << "주문에는 --token이 필요하다(서버 ops_token과 일치)\n";
-            return 2;
-        }
-
-        const std::string client_id = make_client_id();
-        json request{{"cid", client_id},
-                 {"ticker", rest[1]},
-                 {"side", command == "sell" ? "SELL" : "BUY"},
-                 {"qty", std::atoi(rest[2].c_str())},
-                 {"price", rest.size() > 3 ? std::atof(rest[3].c_str()) : 0.0}};
-        connection.send_frame(ops::OpsMsg::ORDER_REQ, request.dump());
-
-        if (wait_type(ops::OpsMsg::ORDER_ACK, kAckWaitMilliseconds, frame) != 1)
-        {
-            std::cerr << "ORDER_ACK 없음\n";
-            return 1;
-        }
-
-        json acknowledgement = parse_object(frame.body);
-
-        if (!acknowledgement.value("accepted", false))
-        {
-            std::cerr << "인테이크 거부: " << acknowledgement.value("msg", std::string()) << "\n";
-            return 2;
-        }
-
-        std::cout << "인테이크 적재 cid=" << client_id << " — 게이트·브로커 결과 대기…\n";
-
-        // 같은 cid의 ORDER_RESULT만 기다린다(전략 주문 결과도 같은 채널로 온다). 브로커 왕복이
-        //  3~5초라 15초까지 본다.
-        auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
-
-        while (true)
-        {
-            auto left = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
-
-            if (left.count() <= 0)
-            {
-                std::cerr << "ORDER_RESULT 대기 시간 초과 — 로그(quant_trader.log)에서 cid로 확인\n";
-                return 3;
-            }
-
-            const int result_code = connection.recv_frame(frame, static_cast<int>(left.count()));
-
-            if (result_code == 0)
-            {
-                return 1;
-            }
-
-            if (result_code != 1)
-            {
-                continue;
-            }
-
-            if (frame.type == static_cast<uint8_t>(ops::OpsMsg::ORDER_RESULT_NTF))
-            {
-                json node = parse_object(frame.body);
-
-                if (node.value("cid", std::string()) == client_id)
-                {
-                    const bool ok = node.value("ok", false);
-                    std::cout << (ok ? "접수 " : "거부 ") << node.value("order_id", std::string()) << " odno="
-                              << node.value("odno", std::string()) << (ok ? "" : " — " + node.value("msg", std::string()))
-                              << "\n";
-                    return ok ? 0 : 2;
-                }
-            }
-
-            print_push(frame);
-        }
+        return run_order(connection, command, rest, authentication);
     }
 
     if (command == "watch")
     {
-        std::cout << "push 대기 (Ctrl+C로 종료)\n";
-        auto last_ping = std::chrono::steady_clock::now();
-
-        while (true)
-        {
-            const int result_code = connection.recv_frame(frame, 1000);
-
-            if (result_code == 0)
-            {
-                std::cerr << "연결 끊김\n";
-                return 1;
-            }
-
-            if (result_code == 1)
-            {
-                if (frame.type == static_cast<uint8_t>(ops::OpsMsg::POSITIONS_ACK) || frame.type == static_cast<uint8_t>(ops::OpsMsg::POSITIONS_NTF))
-                {
-                    print_positions(parse_object(frame.body));
-                }
-                else
-                {
-                    print_push(frame);
-                }
-            }
-
-            if (std::chrono::steady_clock::now() - last_ping >= std::chrono::seconds(10))
-            {
-                last_ping = std::chrono::steady_clock::now();
-                connection.send_frame(ops::OpsMsg::PING_REQ, "{}");
-            }
-        }
+        return run_watch(connection);
     }
 
     if (command == "kill")
     {
-        connection.send_frame(ops::OpsMsg::KILL_REQ, "{}");
-
-        if (wait_type(ops::OpsMsg::KILL_ACK, kAckWaitMilliseconds, frame) != 1)
-        {
-            return 1;
-        }
-
-        std::cout << frame.body << "\n";
-        return parse_object(frame.body).value("ok", false) ? 0 : 2;
+        return run_simple_request(connection, ops::OpsMsg::KILL_REQ, "{}", ops::OpsMsg::KILL_ACK);
     }
 
     if (command == "shutdown")
     {
         // 누가 내렸는지 한 줄이 종료 사유에 그대로 실린다. 안 주면 서버가 연결 이름으로 대신한다.
         const std::string who = rest.size() > 1 ? rest[1] : std::string("ops_client");
-        connection.send_frame(ops::OpsMsg::SHUTDOWN_REQ, json{{"who", who}}.dump());
-
-        if (wait_type(ops::OpsMsg::SHUTDOWN_ACK, kAckWaitMilliseconds, frame) != 1)
-        {
-            return 1;
-        }
-
-        std::cout << frame.body << "\n";
-        return parse_object(frame.body).value("ok", false) ? 0 : 2;
+        return run_simple_request(connection, ops::OpsMsg::SHUTDOWN_REQ, json{{"who", who}}.dump(),
+                                  ops::OpsMsg::SHUTDOWN_ACK);
     }
 
     std::cerr << "알 수 없는 명령: " << command << "\n";

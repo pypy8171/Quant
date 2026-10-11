@@ -115,20 +115,16 @@ public:
         return positions_;
     }
 
-    void set_clock(Clock clock)
-    {
-        clock_ = std::move(clock);
-    }
-
-    void set_regime_check(RegimeCheck check)
-    {
-        regime_check_ = std::move(check);
-    }
+    void set_clock(Clock clock);
+    void set_regime_check(RegimeCheck check);
 
     static const char* status_text(Status status);
 
 private:
     void        run_buys(std::vector<OrderSignal>& out);
+    // run_buys의 단계 — 이번 분에 집행할 계획의 as_of(없으면 nullopt), 매수 행 하나의 판정과 발주(상태 파일 쓰기 실패면 false).
+    std::optional<int> buy_plan_as_of();
+    bool        buy_row(const surge::PlanRow& row, bool allowed, std::vector<OrderSignal>& out);
     void        run_due_exits(std::vector<OrderSignal>& out);
     void        run_close_exits(std::vector<OrderSignal>& out);
     void        run_exit_retries(std::vector<OrderSignal>& out);

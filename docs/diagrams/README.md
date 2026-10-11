@@ -3,12 +3,12 @@
 구조와 코드 흐름을 그린 HTML이다. 브라우저로 바로 열어도 되고, 같은 내용이 아티팩트로도 올라가 있다
 (링크는 `_private/LINKS.md` 표에도 있다).
 
-<!-- sync: Quant/include/ipc/SharedLayout.h@8bcbd7f Quant/include/core/CommandLine.h@fd9dea0 Quant/src/core/Engine.cpp@376f688 docs/code_flow.toml@d3714fa -->
+<!-- sync: Quant/include/ipc/SharedLayout.h@8bcbd7f Quant/include/core/CommandLine.h@fd9dea0 Quant/src/core/Engine.cpp@ae04221 docs/code_flow.toml@69a6499 -->
 
 | 파일 | 무엇을 그렸나 | 발행한 주소 |
 |---|---|---|
 | [engine_processes.html](engine_processes.html) | 엔진을 시세·전략·주문 셋으로 가른 흐름, 둘 사이를 잇는 공유 면 열 개, 가르면서 뒤집힌 전제(D-114) | https://claude.ai/artifact/6ruh7SHu2Bp3sv3D1roysi |
-| [code_walk.html](code_walk.html) | KIS 수신부터 주문·체결·DB 적재까지 64걸음. 걸음마다 파일:줄을 적어 코드로 바로 건너뛸 수 있다 | https://claude.ai/artifact/7EwTv8FMNjNmSZTHepiSyt |
+| [code_walk.html](code_walk.html) | KIS 수신부터 주문·체결·DB 적재까지 64걸음. 걸음마다 파일:줄을 적어 코드로 바로 건너뛸 수 있다. 줄 번호는 그린 시점 기준이라 2026-10-11 3단계 분할(Engine·OrderRouter·전략 파일을 주제별로 나눔) 뒤에는 `docs/CODE_FLOW.md`가 맞는 자리다 | https://claude.ai/artifact/7EwTv8FMNjNmSZTHepiSyt |
 
 ## 다시 올리는 법
 

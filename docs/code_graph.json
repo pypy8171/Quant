@@ -25,12 +25,12 @@
     {
       "from": "core",
       "to": "api",
-      "weight": 11
+      "weight": 12
     },
     {
       "from": "core",
       "to": "ipc",
-      "weight": 15
+      "weight": 20
     },
     {
       "from": "core",
@@ -40,7 +40,7 @@
     {
       "from": "core",
       "to": "strategy",
-      "weight": 4
+      "weight": 5
     },
     {
       "from": "core",
@@ -50,7 +50,7 @@
     {
       "from": "core",
       "to": "utils",
-      "weight": 48
+      "weight": 56
     },
     {
       "from": "exchange",
@@ -65,22 +65,22 @@
     {
       "from": "ipc",
       "to": "api",
-      "weight": 3
+      "weight": 5
     },
     {
       "from": "ipc",
       "to": "core",
-      "weight": 27
+      "weight": 30
     },
     {
       "from": "ipc",
       "to": "risk",
-      "weight": 1
+      "weight": 2
     },
     {
       "from": "ipc",
       "to": "utils",
-      "weight": 15
+      "weight": 19
     },
     {
       "from": "main",
@@ -105,7 +105,7 @@
     {
       "from": "regime",
       "to": "core",
-      "weight": 1
+      "weight": 3
     },
     {
       "from": "regime",
@@ -115,7 +115,7 @@
     {
       "from": "risk",
       "to": "core",
-      "weight": 12
+      "weight": 14
     },
     {
       "from": "risk",
@@ -125,7 +125,7 @@
     {
       "from": "risk",
       "to": "utils",
-      "weight": 5
+      "weight": 6
     },
     {
       "from": "strategy",
@@ -135,7 +135,7 @@
     {
       "from": "strategy",
       "to": "core",
-      "weight": 29
+      "weight": 33
     },
     {
       "from": "strategy",
@@ -150,7 +150,7 @@
     {
       "from": "strategy",
       "to": "utils",
-      "weight": 15
+      "weight": 18
     },
     {
       "from": "universe",
@@ -192,6 +192,11 @@
     "core/ControlPlane.h": "core",
     "core/DataPoller.h": "core",
     "core/Engine.h": "core",
+    "core/EngineFeedState.h": "core",
+    "core/EngineOpsChannel.h": "core",
+    "core/EngineOrderAge.h": "core",
+    "core/EnginePipeline.h": "core",
+    "core/EngineStrategyRegistry.h": "core",
     "core/FeedMux.h": "core",
     "core/FeedSupervisor.h": "core",
     "core/HealthSnapshot.h": "core",
@@ -231,6 +236,7 @@
     "exchange/ZmqOrderFeed.h": "exchange",
     "ipc/ControlChannel.h": "ipc",
     "ipc/DbManager.h": "ipc",
+    "ipc/DbWorkerState.h": "ipc",
     "ipc/FillChannel.h": "ipc",
     "ipc/FillKey.h": "ipc",
     "ipc/FixedText.h": "ipc",
@@ -243,6 +249,10 @@
     "ipc/OrderHistory.h": "ipc",
     "ipc/OrderJournal.h": "ipc",
     "ipc/OrderRouter.h": "ipc",
+    "ipc/OrderRouterRecoveryState.h": "ipc",
+    "ipc/OrderRouterSendSteps.h": "ipc",
+    "ipc/OrderRouterSubmitState.h": "ipc",
+    "ipc/OrderRouterTypes.h": "ipc",
     "ipc/ProcessIdentity.h": "ipc",
     "ipc/RegimeCell.h": "ipc",
     "ipc/SharedLayout.h": "ipc",
@@ -261,8 +271,10 @@
     "risk/LedgerKeys.h": "risk",
     "risk/OrderGate.h": "risk",
     "risk/PositionLedger.h": "risk",
+    "risk/PositionLedgerTypes.h": "risk",
     "risk/ProtectiveOrders.h": "risk",
     "risk/ProtectiveRule.h": "risk",
+    "strategy/DeviationScaleState.h": "strategy",
     "strategy/DeviationScaleStrategy.h": "strategy",
     "strategy/DevScaleRules.h": "strategy",
     "strategy/FixedIntervalStrategy.h": "strategy",
@@ -320,12 +332,16 @@
     "core/EngineControlThread.cpp": "core",
     "core/EngineDataThread.cpp": "core",
     "core/EngineFeed.cpp": "core",
+    "core/EngineFeedSlots.cpp": "core",
+    "core/EngineFeedWatch.cpp": "core",
     "core/EngineFillThread.cpp": "core",
     "core/EngineLayout.cpp": "core",
     "core/EngineLedgerThread.cpp": "core",
     "core/EngineOpsServer.cpp": "core",
     "core/EngineOrderThread.cpp": "core",
     "core/EngineRegime.cpp": "core",
+    "core/EngineSetters.cpp": "core",
+    "core/EngineStartupSetup.cpp": "core",
     "core/EngineStrategyThread.cpp": "core",
     "core/EngineSymbols.cpp": "core",
     "core/EngineUniverse.cpp": "core",
@@ -360,7 +376,10 @@
     "exchange/OrderWire.cpp": "exchange",
     "exchange/ZmqOrderFeed.cpp": "exchange",
     "ipc/ControlChannel.cpp": "ipc",
+    "ipc/DbConnection.cpp": "ipc",
+    "ipc/DbCopyFormat.cpp": "ipc",
     "ipc/DbManager.cpp": "ipc",
+    "ipc/DbWorkers.cpp": "ipc",
     "ipc/FillChannel.cpp": "ipc",
     "ipc/FillKey.cpp": "ipc",
     "ipc/Heartbeat.cpp": "ipc",
@@ -372,7 +391,9 @@
     "ipc/OrderHistory.cpp": "ipc",
     "ipc/OrderJournal.cpp": "ipc",
     "ipc/OrderRouter.cpp": "ipc",
+    "ipc/OrderRouterBlockedSell.cpp": "ipc",
     "ipc/OrderRouterFill.cpp": "ipc",
+    "ipc/OrderRouterModify.cpp": "ipc",
     "ipc/OrderRouterReconcile.cpp": "ipc",
     "ipc/OrderRouterSubmit.cpp": "ipc",
     "ipc/ProcessIdentity.cpp": "ipc",
@@ -383,16 +404,28 @@
     "ipc/SharedWriteLock.cpp": "ipc",
     "ipc/ZmqBridge.cpp": "ipc",
     "regime/RegimeFeed.cpp": "regime",
+    "regime/RegimeFeedParse.cpp": "regime",
+    "regime/RegimeFeedScore.cpp": "regime",
+    "regime/detail/RegimeTables.h": "regime",
     "risk/DisplacementDesk.cpp": "risk",
     "risk/EntryPriority.cpp": "risk",
     "risk/GateReasons.cpp": "risk",
     "risk/LedgerJournal.cpp": "risk",
     "risk/LedgerKeys.cpp": "risk",
     "risk/OrderGate.cpp": "risk",
+    "risk/OrderGateDisplace.cpp": "risk",
+    "risk/OrderGateState.cpp": "risk",
     "risk/PositionLedger.cpp": "risk",
+    "risk/PositionLedgerJournal.cpp": "risk",
+    "risk/PositionLedgerQuery.cpp": "risk",
+    "risk/PositionLedgerReconcile.cpp": "risk",
     "risk/ProtectiveOrders.cpp": "risk",
     "risk/ProtectiveRule.cpp": "risk",
+    "strategy/DeviationScaleBars.cpp": "strategy",
+    "strategy/DeviationScaleExit.cpp": "strategy",
+    "strategy/DeviationScaleOrders.cpp": "strategy",
     "strategy/DeviationScaleStrategy.cpp": "strategy",
+    "strategy/DeviationScaleZone.cpp": "strategy",
     "strategy/DevScaleLoader.cpp": "strategy",
     "strategy/DevScaleRules.cpp": "strategy",
     "strategy/FixedIntervalStrategy.cpp": "strategy",
@@ -403,7 +436,10 @@
     "strategy/StrategyBase.cpp": "strategy",
     "strategy/StrategyFactory.cpp": "strategy",
     "strategy/StrategyLoadPass.h": "strategy",
+    "strategy/SurgeHoldBuys.cpp": "strategy",
+    "strategy/SurgeHoldExits.cpp": "strategy",
     "strategy/SurgeHoldPlan.cpp": "strategy",
+    "strategy/SurgeHoldState.cpp": "strategy",
     "strategy/SurgeHoldStrategy.cpp": "strategy",
     "strategy/TargetBasketPlan.cpp": "strategy",
     "strategy/TargetBasketStrategy.cpp": "strategy",
@@ -413,6 +449,7 @@
     "strategy/VwapPullbackStrategy.cpp": "strategy",
     "universe/MaAlign.cpp": "universe",
     "universe/MarketBoard.cpp": "universe",
+    "universe/MarketBoardParse.cpp": "universe",
     "universe/ScoreWeight.cpp": "universe",
     "universe/UniverseCandidates.cpp": "universe",
     "universe/UniverseFeatures.cpp": "universe",
@@ -582,6 +619,11 @@
       "core/CommandLine.h",
       "core/ControlPlane.h",
       "core/DataPoller.h",
+      "core/EngineFeedState.h",
+      "core/EngineOpsChannel.h",
+      "core/EngineOrderAge.h",
+      "core/EnginePipeline.h",
+      "core/EngineStrategyRegistry.h",
       "core/FeedMux.h",
       "core/FeedSupervisor.h",
       "core/LatencyTrace.h",
@@ -654,6 +696,23 @@
       "utils/ThreadName.h",
       "utils/Utf8.h"
     ],
+    "core/EngineFeedSlots.cpp": [
+      "core/Engine.h",
+      "utils/Logger.h"
+    ],
+    "core/EngineFeedState.h": [
+      "api/KisClient.h",
+      "core/FeedSupervisor.h",
+      "core/IFeedSource.h",
+      "core/PaperExecutor.h",
+      "core/SymbolTable.h",
+      "core/TickCapture.h",
+      "core/WebSocketSlotPlan.h"
+    ],
+    "core/EngineFeedWatch.cpp": [
+      "core/Engine.h",
+      "utils/Logger.h"
+    ],
     "core/EngineFillThread.cpp": [
       "core/Engine.h",
       "utils/Logger.h",
@@ -668,10 +727,17 @@
       "utils/Logger.h",
       "utils/ThreadName.h"
     ],
+    "core/EngineOpsChannel.h": [
+      "core/MpscQueue.h",
+      "ipc/OpsServer.h"
+    ],
     "core/EngineOpsServer.cpp": [
       "core/Engine.h",
       "core/KstTime.h",
       "utils/Logger.h"
+    ],
+    "core/EngineOrderAge.h": [
+      "core/Types.h"
     ],
     "core/EngineOrderThread.cpp": [
       "core/Engine.h",
@@ -682,9 +748,44 @@
       "utils/Logger.h",
       "utils/ThreadName.h"
     ],
+    "core/EnginePipeline.h": [
+      "core/MpscQueue.h",
+      "core/RingBuffer.h",
+      "core/ShardMatrix.h",
+      "core/ShardRoutes.h",
+      "core/StrategyShard.h",
+      "core/Types.h",
+      "core/WakeGate.h",
+      "ipc/FillChannel.h",
+      "ipc/Heartbeat.h",
+      "ipc/OrderChannel.h",
+      "ipc/SharedSpscRing.h"
+    ],
     "core/EngineRegime.cpp": [
       "core/Engine.h",
       "utils/Logger.h"
+    ],
+    "core/EngineSetters.cpp": [
+      "core/Engine.h",
+      "core/KstTime.h",
+      "core/LatencyTrace.h",
+      "core/ReconcilePlan.h",
+      "utils/Logger.h",
+      "utils/ThreadName.h",
+      "utils/Utf8.h"
+    ],
+    "core/EngineStartupSetup.cpp": [
+      "core/Engine.h",
+      "core/KstTime.h",
+      "core/LatencyTrace.h",
+      "core/ReconcilePlan.h",
+      "utils/Logger.h",
+      "utils/ThreadName.h",
+      "utils/Utf8.h"
+    ],
+    "core/EngineStrategyRegistry.h": [
+      "core/Types.h",
+      "strategy/StrategyBase.h"
     ],
     "core/EngineStrategyThread.cpp": [
       "core/Engine.h",
@@ -930,18 +1031,33 @@
     "ipc/ControlChannel.h": [
       "core/Types.h"
     ],
+    "ipc/DbConnection.cpp": [
+      "ipc/DbWorkerState.h",
+      "utils/Logger.h"
+    ],
+    "ipc/DbCopyFormat.cpp": [
+      "ipc/DbManager.h"
+    ],
     "ipc/DbManager.cpp": [
-      "core/MpscQueue.h",
-      "core/WakeGate.h",
       "ipc/DbManager.h",
+      "ipc/DbWorkerState.h",
       "utils/Logger.h",
-      "utils/ThreadGuard.h",
-      "utils/ThreadName.h"
+      "utils/ThreadGuard.h"
     ],
     "ipc/DbManager.h": [
       "core/HealthSnapshot.h",
       "core/SymbolTable.h",
       "core/Types.h"
+    ],
+    "ipc/DbWorkerState.h": [
+      "core/MpscQueue.h",
+      "core/WakeGate.h",
+      "ipc/DbManager.h"
+    ],
+    "ipc/DbWorkers.cpp": [
+      "ipc/DbWorkerState.h",
+      "utils/Logger.h",
+      "utils/ThreadName.h"
     ],
     "ipc/FillChannel.cpp": [
       "ipc/FillChannel.h",
@@ -1015,8 +1131,16 @@
       "ipc/FillKey.h",
       "ipc/OrderHistory.h",
       "ipc/OrderJournal.h",
+      "ipc/OrderRouterRecoveryState.h",
+      "ipc/OrderRouterSubmitState.h",
+      "ipc/OrderRouterTypes.h",
       "ipc/ZmqBridge.h",
       "risk/OrderGate.h"
+    ],
+    "ipc/OrderRouterBlockedSell.cpp": [
+      "api/KisErrorCodes.h",
+      "ipc/OrderRouter.h",
+      "utils/Logger.h"
     ],
     "ipc/OrderRouterFill.cpp": [
       "core/KstTime.h",
@@ -1024,6 +1148,11 @@
       "ipc/SideLabel.h",
       "utils/Logger.h",
       "utils/ThreadName.h"
+    ],
+    "ipc/OrderRouterModify.cpp": [
+      "ipc/OrderRouter.h",
+      "ipc/OrderRouterSendSteps.h",
+      "utils/Logger.h"
     ],
     "ipc/OrderRouterReconcile.cpp": [
       "api/KisErrorCodes.h",
@@ -1033,12 +1162,23 @@
       "utils/Logger.h",
       "utils/ThreadName.h"
     ],
+    "ipc/OrderRouterRecoveryState.h": [
+      "core/SymbolTable.h",
+      "core/Types.h",
+      "ipc/FillKey.h"
+    ],
     "ipc/OrderRouterSubmit.cpp": [
       "api/KisErrorCodes.h",
       "core/LatencyTrace.h",
       "ipc/OrderRouter.h",
+      "ipc/OrderRouterSendSteps.h",
       "ipc/SideLabel.h",
       "utils/Logger.h"
+    ],
+    "ipc/OrderRouterSubmitState.h": [
+      "api/IOrderExecutor.h",
+      "core/Types.h",
+      "risk/OrderGate.h"
     ],
     "ipc/ProcessIdentity.cpp": [
       "ipc/ProcessIdentity.h"
@@ -1117,6 +1257,12 @@
       "utils/Logger.h",
       "utils/ThreadName.h"
     ],
+    "regime/RegimeFeedParse.cpp": [
+      "core/KstTime.h"
+    ],
+    "regime/RegimeFeedScore.cpp": [
+      "core/KstTime.h"
+    ],
     "risk/DisplacementDesk.cpp": [
       "risk/DisplacementDesk.h",
       "utils/Logger.h"
@@ -1148,7 +1294,6 @@
     "risk/OrderGate.cpp": [
       "core/KstTime.h",
       "ipc/LedgerSnapshot.h",
-      "risk/GateReasons.h",
       "risk/OrderGate.h",
       "utils/Logger.h"
     ],
@@ -1160,17 +1305,39 @@
       "risk/LedgerKeys.h",
       "risk/PositionLedger.h"
     ],
-    "risk/PositionLedger.cpp": [
-      "ipc/LedgerSnapshot.h",
-      "risk/PositionLedger.h",
+    "risk/OrderGateDisplace.cpp": [
+      "risk/OrderGate.h"
+    ],
+    "risk/OrderGateState.cpp": [
+      "risk/GateReasons.h",
+      "risk/OrderGate.h",
       "utils/Logger.h"
+    ],
+    "risk/PositionLedger.cpp": [
+      "risk/PositionLedger.h"
     ],
     "risk/PositionLedger.h": [
       "core/StrategyTable.h",
       "core/SymbolTable.h",
       "core/Types.h",
       "risk/LedgerJournal.h",
-      "risk/LedgerKeys.h"
+      "risk/LedgerKeys.h",
+      "risk/PositionLedgerTypes.h"
+    ],
+    "risk/PositionLedgerJournal.cpp": [
+      "risk/PositionLedger.h",
+      "utils/Logger.h"
+    ],
+    "risk/PositionLedgerQuery.cpp": [
+      "ipc/LedgerSnapshot.h",
+      "risk/PositionLedger.h"
+    ],
+    "risk/PositionLedgerReconcile.cpp": [
+      "risk/PositionLedger.h"
+    ],
+    "risk/PositionLedgerTypes.h": [
+      "core/SymbolTable.h",
+      "core/Types.h"
     ],
     "risk/ProtectiveOrders.cpp": [
       "risk/ProtectiveOrders.h"
@@ -1205,6 +1372,18 @@
     "strategy/DevScaleRules.h": [
       "core/Types.h"
     ],
+    "strategy/DeviationScaleBars.cpp": [
+      "strategy/DeviationScaleStrategy.h"
+    ],
+    "strategy/DeviationScaleExit.cpp": [
+      "strategy/DeviationScaleStrategy.h"
+    ],
+    "strategy/DeviationScaleOrders.cpp": [
+      "strategy/DeviationScaleStrategy.h"
+    ],
+    "strategy/DeviationScaleState.h": [
+      "core/Types.h"
+    ],
     "strategy/DeviationScaleStrategy.cpp": [
       "strategy/DeviationScaleStrategy.h"
     ],
@@ -1217,9 +1396,13 @@
       "core/TickSize.h",
       "core/WakeGate.h",
       "strategy/DevScaleRules.h",
+      "strategy/DeviationScaleState.h",
       "strategy/StrategyBase.h",
       "universe/MaAlign.h",
       "utils/Logger.h"
+    ],
+    "strategy/DeviationScaleZone.cpp": [
+      "strategy/DeviationScaleStrategy.h"
     ],
     "strategy/FixedIntervalStrategy.cpp": [
       "strategy/FixedIntervalStrategy.h"
@@ -1288,8 +1471,23 @@
       "strategy/StrategyBase.h",
       "strategy/StrategyFactory.h"
     ],
+    "strategy/SurgeHoldBuys.cpp": [
+      "core/KstTime.h",
+      "strategy/SurgeHoldStrategy.h",
+      "utils/Logger.h"
+    ],
+    "strategy/SurgeHoldExits.cpp": [
+      "core/KstTime.h",
+      "strategy/SurgeHoldStrategy.h",
+      "utils/Logger.h"
+    ],
     "strategy/SurgeHoldPlan.cpp": [
       "strategy/SurgeHoldPlan.h"
+    ],
+    "strategy/SurgeHoldState.cpp": [
+      "core/KstTime.h",
+      "strategy/SurgeHoldStrategy.h",
+      "utils/Logger.h"
     ],
     "strategy/SurgeHoldStrategy.cpp": [
       "core/KstTime.h",
@@ -1366,6 +1564,9 @@
       "utils/ThreadGuard.h",
       "utils/ThreadName.h",
       "utils/Utf8.h"
+    ],
+    "universe/MarketBoardParse.cpp": [
+      "universe/MarketBoard.h"
     ],
     "universe/ScoreWeight.cpp": [
       "universe/ScoreWeight.h"
@@ -1479,7 +1680,8 @@
       "api/KisClient.h",
       "api/KisRestDecode.h",
       "core/PaperExecutor.h",
-      "ipc/OrderRouter.h"
+      "ipc/OrderRouter.h",
+      "ipc/OrderRouterSubmitState.h"
     ],
     "api/KisClient.h": [
       "api/KisClient.cpp",
@@ -1487,6 +1689,7 @@
       "api/KisWebSocket.h",
       "core/AppConfig.h",
       "core/Engine.h",
+      "core/EngineFeedState.h",
       "strategy/DevScaleLoader.cpp",
       "strategy/DeviationScaleStrategy.h",
       "strategy/StrategyFactory.h",
@@ -1503,6 +1706,7 @@
       "api/KisClientInternal.h",
       "core/OrderRateLimiter.cpp",
       "core/PaperExecutor.h",
+      "ipc/OrderRouterBlockedSell.cpp",
       "ipc/OrderRouterReconcile.cpp",
       "ipc/OrderRouterSubmit.cpp"
     ],
@@ -1570,12 +1774,16 @@
       "core/EngineControlThread.cpp",
       "core/EngineDataThread.cpp",
       "core/EngineFeed.cpp",
+      "core/EngineFeedSlots.cpp",
+      "core/EngineFeedWatch.cpp",
       "core/EngineFillThread.cpp",
       "core/EngineLayout.cpp",
       "core/EngineLedgerThread.cpp",
       "core/EngineOpsServer.cpp",
       "core/EngineOrderThread.cpp",
       "core/EngineRegime.cpp",
+      "core/EngineSetters.cpp",
+      "core/EngineStartupSetup.cpp",
       "core/EngineStrategyThread.cpp",
       "core/EngineSymbols.cpp",
       "core/EngineUniverse.cpp",
@@ -1584,12 +1792,28 @@
       "strategy/StrategyFactory.cpp",
       "strategy/VwapPullbackLoader.cpp"
     ],
+    "core/EngineFeedState.h": [
+      "core/Engine.h"
+    ],
+    "core/EngineOpsChannel.h": [
+      "core/Engine.h"
+    ],
+    "core/EngineOrderAge.h": [
+      "core/Engine.h"
+    ],
+    "core/EnginePipeline.h": [
+      "core/Engine.h"
+    ],
+    "core/EngineStrategyRegistry.h": [
+      "core/Engine.h"
+    ],
     "core/FeedMux.h": [
       "core/Engine.h",
       "core/FeedMux.cpp"
     ],
     "core/FeedSupervisor.h": [
       "core/Engine.h",
+      "core/EngineFeedState.h",
       "core/FeedSupervisor.cpp"
     ],
     "core/HealthSnapshot.h": [
@@ -1602,6 +1826,7 @@
     ],
     "core/IFeedSource.h": [
       "api/KisWebSocket.h",
+      "core/EngineFeedState.h",
       "core/FeedMux.h",
       "core/IFeedSource.cpp",
       "core/ReplaySource.h",
@@ -1620,6 +1845,8 @@
       "core/EngineFeed.cpp",
       "core/EngineOpsServer.cpp",
       "core/EngineOrderThread.cpp",
+      "core/EngineSetters.cpp",
+      "core/EngineStartupSetup.cpp",
       "core/EngineUniverse.cpp",
       "core/KstTime.cpp",
       "core/LedgerReconciler.h",
@@ -1628,11 +1855,16 @@
       "ipc/OrderJournal.cpp",
       "ipc/OrderRouterFill.cpp",
       "regime/RegimeFeed.cpp",
+      "regime/RegimeFeedParse.cpp",
+      "regime/RegimeFeedScore.cpp",
       "risk/OrderGate.cpp",
       "strategy/DevScaleLoader.cpp",
       "strategy/DeviationScaleStrategy.h",
       "strategy/SeedPeakStore.h",
       "strategy/StrategyBase.cpp",
+      "strategy/SurgeHoldBuys.cpp",
+      "strategy/SurgeHoldExits.cpp",
+      "strategy/SurgeHoldState.cpp",
       "strategy/SurgeHoldStrategy.cpp",
       "strategy/TargetBasketStrategy.cpp",
       "strategy/VwapPullbackLoader.cpp",
@@ -1653,6 +1885,8 @@
       "core/EngineDataThread.cpp",
       "core/EngineFeed.cpp",
       "core/EngineOrderThread.cpp",
+      "core/EngineSetters.cpp",
+      "core/EngineStartupSetup.cpp",
       "core/EngineStrategyThread.cpp",
       "core/EngineSymbols.cpp",
       "core/LatencyTrace.cpp",
@@ -1675,10 +1909,12 @@
     "core/MpscQueue.h": [
       "core/ControlPlane.h",
       "core/Engine.h",
+      "core/EngineOpsChannel.h",
+      "core/EnginePipeline.h",
       "core/TickCapture.h",
       "core/TransportPool.h",
       "exchange/ZmqOrderFeed.h",
-      "ipc/DbManager.cpp",
+      "ipc/DbWorkerState.h",
       "ipc/ZmqBridge.h",
       "utils/Logger.cpp"
     ],
@@ -1688,6 +1924,7 @@
     ],
     "core/PaperExecutor.h": [
       "core/Engine.h",
+      "core/EngineFeedState.h",
       "core/PaperExecutor.cpp"
     ],
     "core/PrefetchPool.h": [
@@ -1699,6 +1936,8 @@
     "core/ReconcilePlan.h": [
       "core/Engine.cpp",
       "core/EngineFeed.cpp",
+      "core/EngineSetters.cpp",
+      "core/EngineStartupSetup.cpp",
       "core/LedgerReconciler.h",
       "core/ReconcilePlan.cpp",
       "ipc/OrderRouter.h"
@@ -1715,6 +1954,7 @@
     ],
     "core/RingBuffer.h": [
       "core/Engine.h",
+      "core/EnginePipeline.h",
       "core/FeedMux.h",
       "core/ShardMatrix.h"
     ],
@@ -1723,10 +1963,12 @@
       "core/SessionEndJudge.cpp"
     ],
     "core/ShardMatrix.h": [
+      "core/EnginePipeline.h",
       "core/StrategyShard.h"
     ],
     "core/ShardRoutes.h": [
       "core/Engine.h",
+      "core/EnginePipeline.h",
       "core/ShardRoutes.cpp"
     ],
     "core/SignalDispatcher.h": [
@@ -1739,6 +1981,7 @@
     ],
     "core/StrategyShard.h": [
       "core/Engine.h",
+      "core/EnginePipeline.h",
       "core/StrategyShard.cpp"
     ],
     "core/StrategyTable.h": [
@@ -1752,6 +1995,7 @@
     "core/SymbolTable.h": [
       "core/ControlPlane.h",
       "core/Engine.h",
+      "core/EngineFeedState.h",
       "core/PaperExecutor.h",
       "core/ReconcilePlan.h",
       "core/ShardMatrix.h",
@@ -1766,16 +2010,19 @@
       "exchange/ZmqOrderFeed.h",
       "ipc/DbManager.h",
       "ipc/LedgerSnapshot.h",
+      "ipc/OrderRouterRecoveryState.h",
       "ipc/SharedSymbolDictionary.h",
       "risk/EntryPriority.h",
       "risk/LedgerKeys.h",
       "risk/OrderGate.h",
       "risk/PositionLedger.h",
+      "risk/PositionLedgerTypes.h",
       "universe/ScoreWeight.h",
       "universe/UniverseScanner.h"
     ],
     "core/TickCapture.h": [
       "core/Engine.h",
+      "core/EngineFeedState.h",
       "core/ReplaySource.h",
       "core/TickCapture.cpp"
     ],
@@ -1801,6 +2048,9 @@
       "core/BarAggregator.h",
       "core/DataPoller.h",
       "core/Engine.h",
+      "core/EngineOrderAge.h",
+      "core/EnginePipeline.h",
+      "core/EngineStrategyRegistry.h",
       "core/FeedMux.h",
       "core/HttpQuoteFeed.h",
       "core/IFeedSource.h",
@@ -1824,6 +2074,8 @@
       "ipc/OrderHistory.h",
       "ipc/OrderJournal.h",
       "ipc/OrderRouter.h",
+      "ipc/OrderRouterRecoveryState.h",
+      "ipc/OrderRouterSubmitState.h",
       "ipc/SideLabel.h",
       "ipc/ZmqBridge.h",
       "main.cpp",
@@ -1831,8 +2083,10 @@
       "risk/LedgerKeys.h",
       "risk/OrderGate.h",
       "risk/PositionLedger.h",
+      "risk/PositionLedgerTypes.h",
       "risk/ProtectiveRule.h",
       "strategy/DevScaleRules.h",
+      "strategy/DeviationScaleState.h",
       "strategy/StrategyBase.h",
       "strategy/StrategyFactory.cpp",
       "strategy/StrategyLoadPass.h",
@@ -1859,19 +2113,21 @@
       "core/ControlPlane.h",
       "core/DataPoller.cpp",
       "core/Engine.h",
+      "core/EnginePipeline.h",
       "core/FeedMux.h",
       "core/PrefetchPool.h",
       "core/StrategyShard.h",
       "core/TickCapture.h",
       "core/TransportPool.h",
       "core/WakeGate.cpp",
-      "ipc/DbManager.cpp",
+      "ipc/DbWorkerState.h",
       "ipc/OrderRouterReconcile.cpp",
       "ipc/ZmqBridge.h",
       "strategy/DeviationScaleStrategy.h"
     ],
     "core/WebSocketSlotPlan.h": [
       "core/Engine.h",
+      "core/EngineFeedState.h",
       "core/WebSocketSlotPlan.cpp"
     ],
     "ipc/ControlChannel.h": [
@@ -1883,15 +2139,24 @@
     "ipc/DbManager.h": [
       "core/AppConfig.h",
       "core/Engine.h",
-      "ipc/DbManager.cpp"
+      "ipc/DbCopyFormat.cpp",
+      "ipc/DbManager.cpp",
+      "ipc/DbWorkerState.h"
+    ],
+    "ipc/DbWorkerState.h": [
+      "ipc/DbConnection.cpp",
+      "ipc/DbManager.cpp",
+      "ipc/DbWorkers.cpp"
     ],
     "ipc/FillChannel.h": [
+      "core/EnginePipeline.h",
       "ipc/FillChannel.cpp",
       "ipc/SharedLayout.h"
     ],
     "ipc/FillKey.h": [
       "ipc/FillKey.cpp",
-      "ipc/OrderRouter.h"
+      "ipc/OrderRouter.h",
+      "ipc/OrderRouterRecoveryState.h"
     ],
     "ipc/FixedText.h": [
       "ipc/FillChannel.cpp",
@@ -1899,6 +2164,7 @@
     ],
     "ipc/Heartbeat.h": [
       "core/Engine.h",
+      "core/EnginePipeline.h",
       "ipc/Heartbeat.cpp",
       "ipc/SharedLayout.h"
     ],
@@ -1909,7 +2175,7 @@
       "ipc/LedgerSnapshot.cpp",
       "ipc/SharedLayout.h",
       "risk/OrderGate.cpp",
-      "risk/PositionLedger.cpp"
+      "risk/PositionLedgerQuery.cpp"
     ],
     "ipc/MarketFeedChannel.h": [
       "ipc/MarketFeedChannel.cpp",
@@ -1921,10 +2187,12 @@
     ],
     "ipc/OpsServer.h": [
       "core/Engine.h",
+      "core/EngineOpsChannel.h",
       "ipc/OpsServer.cpp"
     ],
     "ipc/OrderChannel.h": [
       "core/Engine.h",
+      "core/EnginePipeline.h",
       "ipc/OrderChannel.cpp",
       "ipc/SharedLayout.h"
     ],
@@ -1939,9 +2207,24 @@
     "ipc/OrderRouter.h": [
       "core/Engine.h",
       "ipc/OrderRouter.cpp",
+      "ipc/OrderRouterBlockedSell.cpp",
       "ipc/OrderRouterFill.cpp",
+      "ipc/OrderRouterModify.cpp",
       "ipc/OrderRouterReconcile.cpp",
       "ipc/OrderRouterSubmit.cpp"
+    ],
+    "ipc/OrderRouterRecoveryState.h": [
+      "ipc/OrderRouter.h"
+    ],
+    "ipc/OrderRouterSendSteps.h": [
+      "ipc/OrderRouterModify.cpp",
+      "ipc/OrderRouterSubmit.cpp"
+    ],
+    "ipc/OrderRouterSubmitState.h": [
+      "ipc/OrderRouter.h"
+    ],
+    "ipc/OrderRouterTypes.h": [
+      "ipc/OrderRouter.h"
     ],
     "ipc/ProcessIdentity.h": [
       "ipc/ProcessIdentity.cpp",
@@ -1962,6 +2245,7 @@
     ],
     "ipc/SharedSpscRing.h": [
       "core/ControlPlane.h",
+      "core/EnginePipeline.h",
       "ipc/FillChannel.h",
       "ipc/MarketFeedChannel.h",
       "ipc/SharedLayout.h",
@@ -2003,7 +2287,7 @@
     "risk/GateReasons.h": [
       "core/OrderRateLimiter.cpp",
       "risk/GateReasons.cpp",
-      "risk/OrderGate.cpp"
+      "risk/OrderGateState.cpp"
     ],
     "risk/LedgerJournal.h": [
       "risk/LedgerJournal.cpp",
@@ -2021,13 +2305,22 @@
       "core/LedgerReconciler.h",
       "core/SignalDispatcher.h",
       "ipc/OrderRouter.h",
+      "ipc/OrderRouterSubmitState.h",
       "risk/DisplacementDesk.h",
       "risk/OrderGate.cpp",
+      "risk/OrderGateDisplace.cpp",
+      "risk/OrderGateState.cpp",
       "risk/ProtectiveOrders.h"
     ],
     "risk/PositionLedger.h": [
       "risk/OrderGate.h",
-      "risk/PositionLedger.cpp"
+      "risk/PositionLedger.cpp",
+      "risk/PositionLedgerJournal.cpp",
+      "risk/PositionLedgerQuery.cpp",
+      "risk/PositionLedgerReconcile.cpp"
+    ],
+    "risk/PositionLedgerTypes.h": [
+      "risk/PositionLedger.h"
     ],
     "risk/ProtectiveOrders.h": [
       "core/ControlPlane.cpp",
@@ -2046,9 +2339,16 @@
       "strategy/DeviationScaleStrategy.h",
       "strategy/VwapPullbackLoader.cpp"
     ],
+    "strategy/DeviationScaleState.h": [
+      "strategy/DeviationScaleStrategy.h"
+    ],
     "strategy/DeviationScaleStrategy.h": [
       "strategy/DevScaleLoader.cpp",
-      "strategy/DeviationScaleStrategy.cpp"
+      "strategy/DeviationScaleBars.cpp",
+      "strategy/DeviationScaleExit.cpp",
+      "strategy/DeviationScaleOrders.cpp",
+      "strategy/DeviationScaleStrategy.cpp",
+      "strategy/DeviationScaleZone.cpp"
     ],
     "strategy/FixedIntervalStrategy.h": [
       "strategy/FixedIntervalStrategy.cpp",
@@ -2072,6 +2372,7 @@
     ],
     "strategy/StrategyBase.h": [
       "core/Engine.h",
+      "core/EngineStrategyRegistry.h",
       "core/StrategyRouter.h",
       "core/StrategyShard.h",
       "core/UniverseRescan.cpp",
@@ -2098,6 +2399,9 @@
     ],
     "strategy/SurgeHoldStrategy.h": [
       "strategy/StrategyFactory.cpp",
+      "strategy/SurgeHoldBuys.cpp",
+      "strategy/SurgeHoldExits.cpp",
+      "strategy/SurgeHoldState.cpp",
       "strategy/SurgeHoldStrategy.cpp"
     ],
     "strategy/TargetBasketPlan.h": [
@@ -2138,6 +2442,7 @@
       "strategy/VwapPullbackLoader.cpp",
       "strategy/VwapPullbackStrategy.cpp",
       "universe/MarketBoard.cpp",
+      "universe/MarketBoardParse.cpp",
       "universe/UniverseCandidates.cpp",
       "universe/UniverseFeatures.cpp",
       "universe/UniverseQuotes.cpp",
@@ -2200,12 +2505,16 @@
       "core/EngineControlThread.cpp",
       "core/EngineDataThread.cpp",
       "core/EngineFeed.cpp",
+      "core/EngineFeedSlots.cpp",
+      "core/EngineFeedWatch.cpp",
       "core/EngineFillThread.cpp",
       "core/EngineLayout.cpp",
       "core/EngineLedgerThread.cpp",
       "core/EngineOpsServer.cpp",
       "core/EngineOrderThread.cpp",
       "core/EngineRegime.cpp",
+      "core/EngineSetters.cpp",
+      "core/EngineStartupSetup.cpp",
       "core/EngineStrategyThread.cpp",
       "core/EngineSymbols.cpp",
       "core/EngineUniverse.cpp",
@@ -2215,10 +2524,14 @@
       "core/SignalDispatcher.cpp",
       "core/UniverseRescan.cpp",
       "exchange/ZmqOrderFeed.cpp",
+      "ipc/DbConnection.cpp",
       "ipc/DbManager.cpp",
+      "ipc/DbWorkers.cpp",
       "ipc/OpsServer.cpp",
       "ipc/OrderJournal.cpp",
+      "ipc/OrderRouterBlockedSell.cpp",
       "ipc/OrderRouterFill.cpp",
+      "ipc/OrderRouterModify.cpp",
       "ipc/OrderRouterReconcile.cpp",
       "ipc/OrderRouterSubmit.cpp",
       "ipc/ZmqBridge.cpp",
@@ -2227,7 +2540,8 @@
       "risk/DisplacementDesk.cpp",
       "risk/LedgerJournal.cpp",
       "risk/OrderGate.cpp",
-      "risk/PositionLedger.cpp",
+      "risk/OrderGateState.cpp",
+      "risk/PositionLedgerJournal.cpp",
       "risk/ProtectiveOrders.h",
       "strategy/DevScaleLoader.cpp",
       "strategy/DeviationScaleStrategy.h",
@@ -2235,6 +2549,9 @@
       "strategy/IntradayBreakoutStrategy.h",
       "strategy/SeedPeakStore.h",
       "strategy/StrategyFactory.cpp",
+      "strategy/SurgeHoldBuys.cpp",
+      "strategy/SurgeHoldExits.cpp",
+      "strategy/SurgeHoldState.cpp",
       "strategy/SurgeHoldStrategy.cpp",
       "strategy/TargetBasketStrategy.cpp",
       "strategy/ValueContraryStrategy.h",
@@ -2273,6 +2590,8 @@
       "core/EngineFillThread.cpp",
       "core/EngineLedgerThread.cpp",
       "core/EngineOrderThread.cpp",
+      "core/EngineSetters.cpp",
+      "core/EngineStartupSetup.cpp",
       "core/EngineStrategyThread.cpp",
       "core/FeedMux.cpp",
       "core/HttpQuoteFeed.cpp",
@@ -2282,7 +2601,7 @@
       "core/TickCapture.cpp",
       "core/TransportPool.h",
       "exchange/ZmqOrderFeed.cpp",
-      "ipc/DbManager.cpp",
+      "ipc/DbWorkers.cpp",
       "ipc/OpsServer.cpp",
       "ipc/OrderJournal.cpp",
       "ipc/OrderRouterFill.cpp",
@@ -2298,6 +2617,8 @@
     "utils/Utf8.h": [
       "core/Engine.cpp",
       "core/EngineFeed.cpp",
+      "core/EngineSetters.cpp",
+      "core/EngineStartupSetup.cpp",
       "exchange/ZmqOrderFeed.cpp",
       "strategy/VwapPullbackLoader.cpp",
       "strategy/VwapPullbackStrategy.cpp",
@@ -2308,46 +2629,54 @@
   "hubs": [
     {
       "header": "utils/Logger.h",
-      "in_degree": 64
+      "in_degree": 76
     },
     {
       "header": "core/Types.h",
-      "in_degree": 53
+      "in_degree": 60
     },
     {
       "header": "core/KstTime.h",
-      "in_degree": 36
+      "in_degree": 43
     },
     {
       "header": "utils/ThreadName.h",
-      "in_degree": 30
+      "in_degree": 32
     },
     {
       "header": "core/SymbolTable.h",
-      "in_degree": 23
+      "in_degree": 26
     },
     {
       "header": "core/Engine.h",
-      "in_degree": 19
+      "in_degree": 23
     },
     {
       "header": "strategy/StrategyBase.h",
-      "in_degree": 15
+      "in_degree": 16
     },
     {
       "header": "core/WakeGate.h",
+      "in_degree": 15
+    },
+    {
+      "header": "core/LatencyTrace.h",
       "in_degree": 14
     },
     {
       "header": "api/KisClient.h",
-      "in_degree": 12
+      "in_degree": 13
     },
     {
-      "header": "core/LatencyTrace.h",
+      "header": "risk/OrderGate.h",
       "in_degree": 12
     },
     {
       "header": "universe/MarketBoard.h",
+      "in_degree": 11
+    },
+    {
+      "header": "core/MpscQueue.h",
       "in_degree": 10
     },
     {
@@ -2359,16 +2688,12 @@
       "in_degree": 10
     },
     {
-      "header": "risk/OrderGate.h",
-      "in_degree": 9
-    },
-    {
       "header": "utils/EtfFilter.h",
       "in_degree": 9
     },
     {
-      "header": "core/MpscQueue.h",
-      "in_degree": 8
+      "header": "utils/Utf8.h",
+      "in_degree": 9
     },
     {
       "header": "universe/MaAlign.h",
@@ -2379,11 +2704,7 @@
       "in_degree": 7
     },
     {
-      "header": "ipc/LedgerSnapshot.h",
-      "in_degree": 7
-    },
-    {
-      "header": "utils/Utf8.h",
+      "header": "core/ReconcilePlan.h",
       "in_degree": 7
     }
   ],
@@ -3337,6 +3658,7 @@
         "Quant/src/core/EngineConfigure.cpp",
         "Quant/src/core/EngineDataThread.cpp",
         "Quant/src/core/EngineRegime.cpp",
+        "Quant/src/core/EngineSetters.cpp",
         "Quant/src/core/RegimeFileJudge.cpp",
         "Quant/src/ipc/ZmqBridge.cpp",
         "Quant/src/strategy/StrategyFactory.cpp",

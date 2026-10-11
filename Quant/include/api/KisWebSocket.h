@@ -89,6 +89,10 @@ public:
     //  비워 두므로 맡지 않고, 그 덕에 구독 슬롯(kMaxWsSubs)도 한 칸 남는다. [why D-114]
     bool owns_fill_notice() const override;
 
+    // message[0]=='{' 로 두 경로를 가르는 얇은 디스패처. 실제 처리는 private 절의 handle_control_frame·handle_data_frame.
+    // public: 벤치(bench_ws_parse)가 창구 없이 파싱만 재도록 바깥에서 부른다.
+    void parse_message(const std::string& message);
+
 private:
     // 메시지 수신 시 호출 — parse_message 진입부에서 갱신
     void on_message_received();
@@ -112,8 +116,6 @@ private:
     // 현재 세션이 사용 중인 구독 슬롯 수(subscribe_all이 리셋, 증분 구독이 증가).
     std::atomic<int> sub_used_{0};
     void recv_loop(std::stop_token stop_token);
-    // message[0]=='{' 로 두 경로를 가르는 얇은 디스패처. 실제 처리는 아래 두 함수.
-    void parse_message(const std::string& message);
     // 제어 프레임: PINGPONG 에코, 구독 응답 JSON(체결통보 AES key/iv 확보 포함).
     // 근거: key/iv는 공식 샘플 ccnl_notice(2026-09-27 MCP 확인). PINGPONG 에코는 샘플·실측 기록 모두 찾지 못했다.
     void handle_control_frame(const std::string& message);

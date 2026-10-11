@@ -1,4 +1,9 @@
 #pragma once
+// 우산 헤더 — 설정·결과 타입(OrderRouterTypes.h), 발주 경로 상태(OrderRouterSubmitState.h), 체결·대조 기록
+//  (OrderRouterRecoveryState.h)을 모으고 클래스 본체를 선언한다.
+#include "ipc/OrderRouterTypes.h"
+#include "ipc/OrderRouterSubmitState.h"
+#include "ipc/OrderRouterRecoveryState.h"
 #include "core/Types.h"
 #include "ipc/FillKey.h"
 #include "ipc/OrderHistory.h"
@@ -48,16 +53,6 @@
 //       ├─ 성공 → ACCEPTED, 장부 ACCEPT, ZMQ publish_order(ok=true)
 //       └─ 실패 → REJECTED, 장부 REJECT, ZMQ publish_order(ok=false). 전송 타임아웃이면 재확인 스레드를 띄운다
 // ─────────────────────────────────────────────────────────────────────────────
-
-struct OrderRouterConfig
-{
-    int max_history = 500; // 보관할 최대 주문 이력 건수
-    // 전송 타임아웃 재확인 — 조회 전 기다림, 그리고 조회가 실패했을 때 다시 조회하기까지의 간격(차례로 쓰고 끝 값을 되풀이).
-    //  10·30·60초는 2026-10-07 09:00 모의 서버가 주문·조회 모두 15초 넘게 늦던 1–2분을 넘기려고 고른 값이다. 시험은 짧게 준다.
-    std::chrono::milliseconds                reconcile_settle{3000};
-    std::array<std::chrono::milliseconds, 3> reconcile_retry{std::chrono::seconds(10), std::chrono::seconds(30),
-                                                             std::chrono::seconds(60)};
-};
 
 class OrderRouter
 {
@@ -129,11 +124,7 @@ public:
     //     짝지어 되살린다 — 무조건 풀면 살아 있는 주문을 잊고 같은 수량을 또 낸다.
     //  모의투자는 ACCEPT를 본 주문을 살아 있는 것으로 보고, 미체결조회는 ③이 있을 때만 쓴다.
     //  [inv] 스레드 시작 전, 잔고 시드 뒤에 한 번.
-    struct AdoptResult
-    {
-        int restored = 0; // history_에 되살린 미체결 주문
-        int released = 0; // 선점만 푼 주문(KIS가 모르는 것)
-    };
+    using AdoptResult = order_router::AdoptResult; // 필드는 ipc/OrderRouterTypes.h
     AdoptResult adopt_open_intents(const std::vector<OrderGate::OpenIntent>& intents);
 
     // 내부 주문번호를 highest 다음부터 매긴다. 재기동하면 번호가 1부터 다시 시작해 같은 날 저널 안에서 다른 주문과
@@ -166,12 +157,7 @@ public:
     }
 
     // ── 통계 조회 ─────────────────────────────────────────────────────────
-    struct Stats
-    {
-        uint64_t total    = 0;
-        uint64_t accepted = 0;
-        uint64_t rejected = 0;
-    };
+    using Stats = order_router::Stats; // 필드는 ipc/OrderRouterTypes.h
     Stats statistics() const;
 
     // KIS 주문 API(신규·취소·정정)와 전송 타임아웃 재확인의 미체결조회를 부른 누적 횟수. 주문 스레드가
@@ -243,34 +229,8 @@ private:
     [[nodiscard]] bool take_intent(const OrderSignal& signal, const OrderGate::OrderRef& reference);
 
     // ── 신규 주문 단계 (new_route) ──────────────────────────────────────────
-    //  신규 주문 한 건이 단계 함수들을 지나며 들고 다니는 상태. 순서는 클램프 → 이력 가드 → 게이트 → 전송 → 마무리다.
-    //  각 단계가 거짓을 돌려주면 그 자리에서 거부로 닫고 이력까지 적은 것이다 — new_route는 그대로 돌려주기만 한다.
-    struct NewRoute
-    {
-        OrderSignal         signal;          // 들어온 신호의 사본 — 클램프가 수량을 고친다
-        ManagedOrder        managed_order;
-        OrderGate::OrderRef order_reference; // 장부 레코드 이름표 — 내부 주문번호와 주문 유형. ODNO는 접수 뒤에 붙는다
-        OrderAck            acknowledgement;
-        std::string         reject_reason;
-        int                 allowed          = 0;     // 게이트가 허락한 수량(clamp_buy_quantity)
-        bool                sell_no_quantity = false; // 매도가능이 모자라 예약매도 취소부터 해 봐야 하는가
-        bool                freed            = false; // 예약매도 취소 뒤 재발주가 이미 접수됐는가
-        bool                intent_taken     = false; // 장부에 INTENT를 적었는가
-        // 구간 계측. 게이트까지 두 구간(이력 가드·게이트)은 stamp_gate_stages가 찍는다. [why D-117] [why D-126]
-        int64_t entered_ns           = 0; // new_route에 들어온 시각
-        int64_t history_guard_ns     = 0; // 이력 잠금·중복 가드에 쓴 시간 합
-        int64_t history_lock_wait_ns = 0; // 그중 잠금을 기다린 몫
-        // 접수 왕복지연과 그 안의 초당 한도 버킷 대기. count()의 타입 그대로 — MSVC는 long long이라 long이면 잘린다(C4244)
-        std::chrono::milliseconds::rep rtt_ms         = 0;
-        std::chrono::milliseconds::rep bucket_wait_ms = 0;
-        // 왕복지연을 재기 시작한 시각 — INTENT 전이다. 전송 스레드로 넘기면 넘겨받기까지의 대기도 여기 들어간다.
-        std::chrono::steady_clock::time_point send_started{};
-        bool        transport_failed = false; // 전송이 예외로 끝났다 — 접수 여부를 모른다
-        std::string transport_error;          // 그 예외 문구
-
-        // 게이트까지의 두 구간을 한 번에 찍는다 — 이력 가드 몫을 게이트에서 빼 둘이 겹치지 않게 한다. [why D-117]
-        void stamp_gate_stages();
-    };
+    //  신규 주문 한 건이 단계 함수들을 지나며 들고 다니는 상태(정의와 단계 순서는 ipc/OrderRouterSubmitState.h).
+    using NewRoute = order_router::NewRoute;
     // 한도 클램프 — 한도를 넘치면 거부 대신 한도 안으로 줄인다. 매도가능이 모자라면 sell_no_quantity를 세운다.
     void clamp_new_order(NewRoute& route);
     // 직전 취소가 "대상 없음"이던 종목의 매수를 잠깐 막는다. 막았으면 거부로 닫고 참.
@@ -309,12 +269,8 @@ private:
     //  두 문구는 부른 자리의 로그 머리말이다(실패 문구 뒤에 오류 설명, 예외 문구 뒤에 예외 내용이 붙는다).
     bool fetch_open_orders(std::vector<OpenOrder>& open_orders, std::string_view failure_message,
                            std::string_view exception_message);
-    // 전송 타임아웃 뒤 재확인할 종목 하나. 번호는 주문 스레드가 받아 둔다 — 종목 표에 새로 넣는 일은 그 스레드 몫이다.
-    struct PendingReconcile
-    {
-        std::string      ticker;
-        symbol::SymbolId symbol_id;
-    };
+    // 전송 타임아웃 뒤 재확인할 종목 하나(정의는 ipc/OrderRouterRecoveryState.h).
+    using PendingReconcile = order_router::PendingReconcile;
     // 재확인 스레드 본체. 예외는 여기서 잡아 로그로 남기고 reconcile_running_을 내린다.
     void reconcile_unknown_orders_loop(std::stop_token stop_token);
     // 목록이 빌 때까지 조회하고, 조회가 실패하면 간격을 늘려 다시 조회한다. 끝날 때 reconcile_running_을 내린다.
@@ -329,42 +285,20 @@ private:
     // 부속 파일의 수량 칸을 읽는다. 숫자가 아니면 빈 값.
     static std::optional<int> parse_quantity(const std::string& text);
 
-    // 취소·정정할 원주문의 값 사본 — 락 밖에서 KIS를 부르는 동안 history_ 원소가 축출될 수 있어 값으로 뜬다.
-    struct OriginalOrder
-    {
-        std::string ticker;
-        std::string kis_order_no;
-        std::string krx_forwarding_org_no;
-        std::string account;
-        OrderSide   side        = OrderSide::NONE;
-        int         outstanding = 0; // 뜬 시점의 미체결 잔량
-    };
+    // 취소·정정할 원주문의 값 사본(정의는 ipc/OrderRouterSubmitState.h).
+    using OriginalOrder = order_router::OriginalOrder;
     // 살아 있는 원주문을 찾아 값으로 뜬다. 없으면 거짓. [inv] history_mutex_를 쥐고 부른다.
     bool snapshot_live_original_locked(uint64_t client_order_number, OriginalOrder& original);
-    // close_live_original_locked가 정한 원주문 선점 해제분. 장부 기록은 락을 푼 뒤 release_original이 한다.
-    struct OriginalRelease
-    {
-        int      quantity     = 0; // 풀 선점 수량. 0이면 장부에 적지 않는다
-        uint64_t order_number = 0; // 원주문의 내부 주문번호(이력에서 빠졌으면 0)
-    };
+    // close_live_original_locked가 정한 원주문 선점 해제분(정의는 ipc/OrderRouterSubmitState.h).
+    using OriginalRelease = order_router::OriginalRelease;
     // 취소·정정이 접수된 뒤 원주문을 CANCELLED로 닫고 그 시점 잔량을 돌려준다. 잔량은 지금 confirmed_quantity로
     //  다시 센다 — 전송 사이 체결 스레드가 올렸을 수 있어서다. 원주문이 이미 빠졌으면 release_if_gone을 돌려준다.
     //  [inv] history_mutex_를 쥐고 부른다. 장부는 부르지 않는다(락 안 디스크 쓰기 금지, CODE_CONVENTIONS 4.5).
     [[nodiscard]] OriginalRelease close_live_original_locked(const OrderSignal& signal, int release_if_gone);
     // 위에서 정한 해제분을 장부에 적는다(선점 해제 + CANCEL 저널). [inv] history_mutex_를 쥐지 않고 부른다.
     void release_original(const OrderSignal& signal, const OriginalOrder& original, const OriginalRelease& release);
-    // 취소·정정 한 건이 세 토막을 지나며 들고 다니는 상태.
-    struct ModifyRoute
-    {
-        OrderSignal         signal;
-        ManagedOrder        managed_order;
-        OriginalOrder       original;
-        int                 new_quantity = 0;    // 정정 수량. 취소는 쓰지 않는다
-        OrderGate::OrderRef order_reference;      // 정정의 장부 레코드 이름표
-        OrderAck            acknowledgement;
-        bool                transport_failed = false; // 전송이 예외로 끝났다
-        std::string         transport_error;          // 그 예외 문구
-    };
+    // 취소·정정 한 건이 세 토막을 지나며 들고 다니는 상태(정의는 ipc/OrderRouterSubmitState.h).
+    using ModifyRoute = order_router::ModifyRoute;
     // close_modify의 두 갈래 — 응답으로 거부·접수를 확정하고 원주문을 닫은 뒤 이력에 적는다.
     void close_cancel(ModifyRoute& route);
     void close_replace(ModifyRoute& route);
@@ -394,7 +328,7 @@ private:
 
     // ── 기동 취소 단계 (cancel_stale_orders_async) ─────────────────────────
     //  부속 파일 한 줄 = odno|orgno|ticker|side|remaining.
-    using CarryRow = std::array<std::string, 5>;
+    using CarryRow = order_router::CarryRow;
     // 부속 파일을 읽어 줄로 나눈다. 칸이 모자란 줄·ODNO가 빈 줄은 버린다.
     static std::vector<CarryRow> read_open_orders_file(const std::filesystem::path& path);
     // 부속 파일이 모르는 브로커 미체결을 줄로 채운다(ODNO를 못 받은 주문). [why D-101]
@@ -437,22 +371,8 @@ private:
     // 신호의 종목 id — 배선이 빠진 경로(테스트·수동)만 문자열로 한 번 채운다.
     symbol::SymbolId symbol_of(const OrderSignal& signal);
 
-    // ── ODNO → 주문 사유 기록 ────────────────────────────────────────────────
-    //  history_는 메모리에만 있어 재기동하면 이전 세션 주문의 ODNO를 잊는다. 그 주문이
-    //  나중에 체결되면 전략도 사유도 모르는 미매핑 체결로 들어가고, 주문수량을 모르니
-    //  잔량 클램프도 걸 수 없다. 접수 시점에 한 줄씩 파일로 남겨 재기동 뒤에도 같은
-    //  정보를 복원한다. 파일은 거래일별 append 전용이다 — open_orders.txt는 스냅샷마다
-    //  통째로 덮어쓰고 살아 있는 주문만 담으므로 거기에 얹으면 안 된다.
-    struct OrderReason
-    {
-        std::string ticker;
-        std::string strategy_id;
-        std::string reason;
-        OrderSide   side      = OrderSide::BUY;
-        int         quantity  = 0;
-        double      price     = 0.0;
-        double      reference_price = 0.0;
-    };
+    // ── ODNO → 주문 사유 기록 (정의와 설명은 ipc/OrderRouterRecoveryState.h) ─────────────
+    using OrderReason = order_router::OrderReason;
     // 오늘자 기록 파일을 읽어 order_reasons_를 채운다. 첫 체결통보 때 1회.
     //  호출자는 history_mutex_를 보유해야 한다.
     void load_order_reasons_locked();
@@ -531,15 +451,8 @@ private:
 
     using FillKey     = fill_key::FillKey;     // 정의는 ipc/FillKey.h
     using FillKeyHash = fill_key::FillKeyHash;
-    // 체결통보 키 하나를 어느 실시간 세션에서 몇 번 봤는가. 같은 세션 안의 같은 키는 분할체결이고,
-    //  새 세션에서 앞 세션까지 받은 횟수 이하로 다시 오면 재연결 뒤 재전송이다(on_fill 주석).
-    struct FillSighting
-    {
-        uint32_t session_generation      = 0; // 마지막으로 이 키를 본 세션
-        int      accepted_before_session = 0; // 그 세션이 시작되기 전까지 실체결로 받은 횟수
-        int      seen_in_session         = 0; // 그 세션에서 본 횟수
-        int      accepted                = 0; // 실체결로 받은 총 횟수
-    };
+    // 체결통보 키 하나의 세션별 목격 기록(정의는 ipc/OrderRouterRecoveryState.h).
+    using FillSighting = order_router::FillSighting;
     // 체결통보 키 → 목격 기록 (history_mutex_로 보호).
     std::unordered_map<FillKey, FillSighting, FillKeyHash> fill_sightings_;
     // 재연결 뒤 재전송으로 보고 장부에 넣지 않은 통보 수. 수량은 주기 잔고 대조가 맞춘다.
@@ -550,25 +463,15 @@ private:
     //  잔량 상한을 못 잡는 통보만 여기로 막는다 — 주문수량을 받은 통보는 아래 unlinked_orders_가 맡는다.
     std::unordered_set<FillKey, FillKeyHash> unlinked_fill_keys_;
 
-    // 미연결 주문 하나의 누적 상태. 연결된 주문의 (signal.quantity, confirmed_quantity) 짝과 같은 역할이다.
-    struct UnlinkedOrder
-    {
-        int order_quantity     = 0; // 전문 [16]ODER_QTY. 0이면 "전문이 안 줘서 모른다"
-        int confirmed_quantity = 0; // 지금까지 장부에 반영한 수량
-    };
+    // 미연결 주문 하나의 누적 상태(정의는 ipc/OrderRouterRecoveryState.h).
+    using UnlinkedOrder = order_router::UnlinkedOrder;
 
     // 주문 단위 키(거래일+ODNO, 체결 건별 칸은 0) → 그 주문의 누적 상태 (history_mutex_로 보호).
     //  ODNO는 영업일마다 재사용되므로 거래일을 키에 같이 담는다. 일별 리셋으로 비운다.
     std::unordered_map<FillKey, UnlinkedOrder, FillKeyHash> unlinked_orders_;
 
-    // 접수 답을 닫기 전에 온 체결 하나. 전송 스레드가 답을 받고 주문 스레드가 close_new로 ODNO를 적기까지의
-    //  틈에 체결통보가 먼저 올 수 있다. [why D-151]
-    struct EarlyFill
-    {
-        FillNotification notification;
-        FillKey          key;
-        uint64_t         order_number = 0;
-    };
+    // 접수 답을 닫기 전에 온 체결 하나(정의는 ipc/OrderRouterRecoveryState.h). [why D-151]
+    using EarlyFill = order_router::EarlyFill;
 
     // 붙든 체결 (history_mutex_로 보호). close_new가 비운다.
     std::vector<EarlyFill> early_fills_;

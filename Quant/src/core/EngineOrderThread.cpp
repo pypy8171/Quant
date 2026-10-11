@@ -1,6 +1,6 @@
 // 주문 쪽 — 주문 실행 스레드, 보호 주문 표 한 주기, 전략 생존 추적.
-//  Engine 클래스는 그대로다. Engine.cpp 가 3,200줄을 넘겨 열기 어려워 이 갈래만 따로 낸 것이다
-//  (헤더는 한 줄도 안 바뀐다 — 같은 Engine 의 멤버 함수 본체가 여기 있을 뿐이다).
+//  Engine.cpp 가 3,200줄을 넘겨 열기 어려워 이 갈래만 따로 낸 것이다
+//  같은 Engine 의 멤버 함수 본체다. 스레드 한 바퀴는 단계 함수로 나눴고, 그 선언은 Engine.h 의 private 절에 있다.
 //
 //  ── 부르는 자리 ──────────────────────────────────────────────────────────
 //  order_thread_fn()          : spawn_threads() 가 order 스레드로 띄운다
@@ -208,208 +208,56 @@ void Engine::track_strategy_liveness(ipc::HeartbeatMonitor::Step step, bool just
 }
 
 // ─── 주문 실행 스레드 ─────────────────────────────────────────────────────
-void Engine::order_thread_fn(std::stop_token stop_token)
+
+namespace
 {
-    auto& ledger = order_gate_.ledger();
 
-    using std::chrono::steady_clock;
-    thread_name::set_current("Order");
-    LOG_INFO("[OrderThread] 시작");
+// 시세 쪽 생사를 보는 눈. 문턱이 전략 쪽(250ms·1s)보다 훨씬 헐거운 것은 시세 박동이 hot loop 가 아니라
+//  제어 스레드의 5초 바퀴에서 찍히기 때문이다. 그 바퀴에는 구독 걸기·칸 재배정이 같이 들어 있어
+//  2,700종목을 올리는 기동 중에는 시세 쪽이 번호를 다 받기까지 27초가 걸린다(2026-09-25 부하시험
+//  실측). 사망 문턱을 그보다 낮게 잡으면 멀쩡한 기동을 죽었다고 읽으므로 그 위에서 시작하고,
+//  feed_beat_gap_max_ns 에 쌓이는 실측으로 뒤에 좁힌다. [why D-137]
+constexpr int64_t kFeedBeatPeriodMs  = 5'000;
+constexpr int64_t kFeedBeatSuspectMs = 30'000;
+constexpr int64_t kFeedBeatDeadMs    = 90'000;
 
-    // 발주 간격과 거부 재시도는 이 스레드 소유라 조절기를 여기에 둔다. pipeline_.requests는 SPSC(생산자=전략 스레드)라
-    //  되밀 수 없어 재시도는 조절기의 전용 버퍼에 산다. [why D-065]
-    OrderRateLimiter rate_limiter({order_min_interval_ms_, order_max_retries_}, steady_clock::now());
-    rate_limiter.set_position([&ledger](const std::string& argument, const std::string& ticker)
+// 신규·취소·정정의 KIS 왕복을 맡는 스레드에 넘길 보내기 한 건. [why D-151]
+using TransportSend = std::variant<OrderRouter::NewOrderSend, OrderRouter::ModifyOrderSend>;
+
+// 전송 스레드로 넘길 것을 연다. 보낼 것이 없으면(로컬 거부·취소 대상 없음) 끝난 주문을 돌려준다.
+std::variant<ManagedOrder, TransportSend> open_for_transport(OrderRouter& order_router, const OrderSignal& signal)
+{
+    if (signal.action == OrderAction::NEW)
     {
-        return ledger.position(argument, ticker);
-    });
+        auto opened = order_router.open_new(signal);
 
-    // 구간 지연 CSV. 이 스레드만 쓰므로 지역 객체로 두고, 첫 주문 때 파일을 연다. [why D-071]
-    trace::LatencyTrace latency_trace(Logger::instance().path_for("latency_trace.csv"));
+        if (auto* send = std::get_if<OrderRouter::NewOrderSend>(&opened))
+        {
+            return TransportSend{std::move(*send)};
+        }
 
-    // 같은 순번을 두 번 받으면 이중 발주다(A등급). 생산자가 하나인 지금은 안 생기지만 단계 4에서
-    //  공유메모리로 바뀌면 재전송이 생긴다 — 거르는 자리를 먼저 둔다. 창은 요청 큐 크기다. [why D-114]
-    ipc::DuplicateFilter duplicate_filter(ShardPipeline::kOrderQueueCapacity);
-    ipc::HeartbeatMonitor strategy_monitor;
+        return std::move(std::get<ManagedOrder>(opened));
+    }
 
-    // 시세 쪽 생사를 보는 눈. 문턱이 전략 쪽(250ms·1s)보다 훨씬 헐거운 것은 시세 박동이 hot loop 가 아니라
-    //  제어 스레드의 5초 바퀴에서 찍히기 때문이다. 그 바퀴에는 구독 걸기·칸 재배정이 같이 들어 있어
-    //  2,700종목을 올리는 기동 중에는 시세 쪽이 번호를 다 받기까지 27초가 걸린다(2026-09-25 부하시험
-    //  실측). 사망 문턱을 그보다 낮게 잡으면 멀쩡한 기동을 죽었다고 읽으므로 그 위에서 시작하고,
-    //  feed_beat_gap_max_ns 에 쌓이는 실측으로 뒤에 좁힌다. [why D-137]
-    constexpr int64_t     kFeedBeatPeriodMs  = 5'000;
-    constexpr int64_t     kFeedBeatSuspectMs = 30'000;
-    constexpr int64_t     kFeedBeatDeadMs    = 90'000;
-    ipc::HeartbeatMonitor feed_monitor(
-        ipc::HeartbeatConfig{kFeedBeatPeriodMs, kFeedBeatSuspectMs, kFeedBeatDeadMs});
+    auto opened = order_router.open_modify(signal);
 
-    // 꺼낸 값이 표 밖을 짚지 않는지 보는 기준. 지금 든 수가 아니라 표가 받을 수 있는 칸 수를 쓴다 —
-    //  종목 표는 장중에도 늘어나서(처음 보는 종목) 지금 든 수로 재면 방금 올라온 종목이 걸린다. [why D-114]
-    const ipc::RequestLimits request_limits{static_cast<uint32_t>(ledger.symbols().capacity()),
-                                            static_cast<uint32_t>(ledger.strategy_table().capacity())};
-
-    // 교체 진입 — 최약체 고르기·매도 발주·쿨다운 기록·매수 보류가 여기 한 덩어리로 있다. 전략 쪽에 두면
-    //  고르는 시점과 예약하는 시점이 갈려 둘이 같은 종목을 두 번 판다. [why D-114]
-    risk::DisplacementDesk displace_desk(order_gate_);
-    displace_desk.set_label([this](const std::string& ticker)
+    if (auto* send = std::get_if<OrderRouter::ModifyOrderSend>(&opened))
     {
-        return ticker_label(ticker);
-    });
-    std::vector<OrderSignal> displace_expired;
+        return TransportSend{std::move(*send)};
+    }
 
-    // 주문 하나 몫 가운데 pop→submit 반환 밖에 있는 몫을 잰다. 재는 자리(latency_trace.record)가 고리
-    //  한가운데라 이번 회차 꼬리는 아직 안 돌았다 — 직전 회차 값을 들고 있다가 다음 줄에 실어 보낸다.
-    //  09-26 부하시험에서 주문 하나 몫 약 770µs 중 재고 있던 것이 31µs뿐이었다. [why D-071 원칙 7]
-    int64_t        previous_done_ns     = 0;
-    int64_t        previous_loop_end_ns = 0;
-    // 그 꼬리를 다시 셋으로 가르는 중간 시각 — 계측 쓰기 / 체결·방송·답 / 장부 사본. 한 덩이로는 무엇을
-    //  줄여야 하는지 못 짚는다(09-26 부하시험에서 꼬리 137µs를 장부로 지레짐작했다). [why D-071 원칙 7]
-    int64_t        previous_after_trace_ns  = 0;
-    int64_t        previous_after_answer_ns = 0;
+    return std::move(std::get<ManagedOrder>(opened));
+}
 
-    // 결과를 전략 쪽으로 돌려준다. 지금은 같은 프로세스의 큐고, 단계 4에서 공유메모리로 바뀌어도
-    //  레코드는 그대로다. [inv] 순번 0은 통로 밖에서 들어온 신호라 맞출 짝이 없어 답하지 않는다. [why D-114]
-    auto answer = [this](uint64_t sequence, ipc::OrderResult result, uint64_t kis_order_number, std::string_view reason)
-    {
-        if (sequence == 0)
-        {
-            return;
-        }
+} // namespace
 
-        if (!pipeline_.order_responses->push(
-                ipc::make_response(sequence, result, kis_order_number, reason, trace::now_ns())))
-        {
-            pipeline_.order_response_dropped.fetch_add(1, std::memory_order_relaxed);
-        }
-    };
-
-    // 발주 대상이 되기 전 지나는 한 자리 — 종목 번호를 채우고 교체 창구의 판정을 받는다. 통로로 온
-    //  신호와 운영단말이 낸 수동주문이 같은 자리를 지나게 한다. [why D-114]
-    auto admit = [this, &ledger, &displace_desk](OrderSignal&& signal) -> std::optional<OrderRateLimiter::Pending>
-    {
-        // 번호는 주문 쪽이 준다 — 전략 쪽은 종목 표를 찾기만 하고, 처음 보는 종목은 받는 이 자리에서
-        //  표에 올린다. 표를 고치는 쪽을 하나로 두는 것이 원칙 4다. [why D-114]
-        if (signal.symbol_id == symbol::kNone && !signal.ticker.empty())
-        {
-            signal.symbol_id = ledger.intern_symbol(signal.ticker);
-        }
-
-        // 자리가 꽉 찬 책에 새 종목 매수가 왔는가 — 최약체 매도를 앞세우고 이 매수는 창구가 든다.
-        //  kSellFirst면 signal 자리에 교체 매도가 들어와 있다(순번이 0이라 답하지 않는다). 원래의
-        //  매수는 창구가 들고 있다가 자리가 나면 내고, 못 내면 expire가 답한다. kHold면 이 회차에
-        //  낼 것이 없다.
-        if (displace_desk.consider(signal, steady_clock::now()) == risk::DisplacementDesk::Verdict::kHold)
-        {
-            return std::nullopt;
-        }
-
-        return OrderRateLimiter::Pending{std::move(signal), 0};
-    };
-
-    // 할 일이 없을 때 자는 상한. 갈라 띄우면 건너편 프로세스가 이 스레드를 깨울 방법이 없다 — WakeGate는
-    //  이 프로세스 안의 condvar라 notify가 경계를 못 넘는다. 그래서 이 상한이 곧 등록 한 건의 지연이 된다:
-    //  100ms면 종목·전략 2,700쌍에 9분이 걸리고, 시세 쪽이 5분 시한에 먼저 걸려 종목 순번표를 아예 못 적는다
-    //  (2026-09-25 부하시험 실측 249/2700). 한 프로세스판은 같은 프로세스의 전략 스레드가 notify로 깨우므로
-    //  줄일 까닭이 없다 — 깨어나는 횟수만 늘어난다. [why D-114]
-    const auto idle_capture = (runs_order_side() && !runs_strategy_side()) ? 2ms : 100ms;
-
-    // 발주 뒤 마무리 — 계측 한 줄, 모의 체결 틱, 단말 알림, 전략 쪽 답(또는 재시도 예약). 이 스레드가 직접 보낸
-    //  주문과 전송 스레드가 답을 가져온 주문이 같은 자리를 지난다. [why D-151]
-    auto settle = [&](OrderRateLimiter::Pending&& pending, const ManagedOrder& managed_order, bool kis_called,
-                      int64_t pop_ns, int64_t send_ready_ns)
-    {
-        const int64_t      done_ns          = trace::now_ns();
-        const OrderSignal& signal           = pending.signal;
-        // pending은 아래에서 재시도 버퍼로 옮겨진다(sink). 답할 순번은 그 전에 챙겨 둔다.
-        const uint64_t     request_sequence = signal.sequence;
-
-        // 재시도 건은 pop 시각이 첫 시도 것이라 구간이 부풀지 않게 첫 시도만 남긴다.
-        if (pending.attempts == 0)
-        {
-            trace::Marks marks{signal.tick_at_ns, signal.signal_at_ns, pop_ns, send_ready_ns, done_ns};
-            marks.previous_tail_us = (previous_done_ns != 0 && previous_loop_end_ns != 0)
-                                         ? trace::segment_us(previous_done_ns, previous_loop_end_ns)
-                                         : -1;
-            marks.previous_wait_us = (previous_loop_end_ns != 0 && pop_ns != 0)
-                                         ? trace::segment_us(previous_loop_end_ns, pop_ns)
-                                         : -1;
-            marks.previous_trace_us = (previous_done_ns != 0 && previous_after_trace_ns != 0)
-                                          ? trace::segment_us(previous_done_ns, previous_after_trace_ns)
-                                          : -1;
-            marks.previous_post_us = (previous_after_trace_ns != 0 && previous_after_answer_ns != 0)
-                                         ? trace::segment_us(previous_after_trace_ns, previous_after_answer_ns)
-                                         : -1;
-            marks.previous_publish_us = (previous_after_answer_ns != 0 && previous_loop_end_ns != 0)
-                                            ? trace::segment_us(previous_after_answer_ns, previous_loop_end_ns)
-                                            : -1;
-            latency_trace.record(signal, marks, managed_order.stages, kis_called,
-                                 managed_order.status == OrderStatus::ACCEPTED);
-            // 같은 값을 분포로도 — HEALTH가 분위수를 싣는다. 라우터 안 구간은 managed_order가 실어 왔다.
-            pipeline_latency_.add(marks, managed_order.stages);
-        }
-
-        // 여기까지가 계측 자신의 몫이다 — 줄 한 줄을 적고 분포에 넣는 데 든 시간.
-        const int64_t after_trace_ns = trace::now_ns();
-
-        // 갈라 띄운 주문 프로세스만 하는 일 — 접수가 끝난 뒤에 모의 체결기에 틱을 먹인다. 접수 안에서
-        //  체결을 내면 라우터가 ODNO를 적기 전이라 통보가 "미매핑 체결"로 빠진다. [why D-114 단계 5]
-        previous_done_ns = done_ns;
-
-        if (managed_order.status == OrderStatus::ACCEPTED)
-        {
-            feed_paper_fill_tick(signal);
-        }
-
-        // 단말이 없으면 JSON 직렬화를 건너뛴다 — 주문 스레드 hot path에서 받는 이 없는 문자열을 만들지 않는다.
-        //  client_count()는 원자 변수 한 번 읽기라 직렬화보다 싸다. [why D-071]
-        if (ops_.server && ops_.server->client_count() > 0)
-        {
-            // 게이트·브로커를 지난 최종 결과. 단말은 cid로 자기 ORDER_ACK와 잇고, 전략 주문도
-            //  같은 채널로 보여 운영 화면이 자동매매를 함께 본다.
-            ops_.server->broadcast(ops::OpsMsg::ORDER_RESULT_NTF,
-                                   nlohmann::json{{"cid", signal.client_order_id},
-                                                  {"order_id", managed_order.order_id},
-                                                  {"odno", managed_order.kis_order_no},
-                                                  {"strategy", signal.strategy_id},
-                                                  {"ticker", signal.ticker},
-                                                  {"side", signal.side == OrderSide::BUY ? "BUY" : "SELL"},
-                                                  {"qty", signal.quantity},
-                                                  {"price", signal.price},
-                                                  {"ok", managed_order.status == OrderStatus::ACCEPTED},
-                                                  {"msg", managed_order.reject_reason}}
-                                       .dump());
-        }
-
-        if (managed_order.status == OrderStatus::ACCEPTED)
-        {
-            ++order_count_;
-            answer(request_sequence, ipc::OrderResult::kAccepted, ipc::to_order_number(managed_order.kis_order_no), "");
-        }
-        else
-        {
-            // 재시도를 예약했으면 아직 끝이 아니다 — 답은 마지막 한 번만 보낸다(전략은 답 하나로 기다림을 지운다).
-            const bool will_retry = rate_limiter.on_rejected(std::move(pending), managed_order.status,
-                                                             managed_order.reject_reason, steady_clock::now());
-
-            if (!will_retry)
-            {
-                answer(request_sequence, ipc::OrderResult::kRejected, 0, managed_order.reject_reason);
-            }
-        }
-
-        // 장부가 바뀌었지만 사본은 여기서 내지 않는다. 한 판이 2,700종목에서 98microseconds라 주문 하나 몫
-        //  160microseconds의 61%였고, 그만큼 요청 큐가 밀려 주문을 버렸다(09-26 부하시험). 발행은
-        //  ledger_thread_fn이 간격을 두고 낸다 — 읽는 쪽 약속은 그대로 100ms다. [why D-114]
-        previous_after_trace_ns  = after_trace_ns;
-        previous_after_answer_ns = trace::now_ns();
-        previous_loop_end_ns     = previous_after_answer_ns;
-    };
-
+// 주문 스레드가 고리 내내 들고 있는 것. 예전에는 order_thread_fn 의 지역 변수였다 — 단계 함수로 나누면서
+//  한 묶음으로 옮겼다. 이 스레드만 만지므로 잠금이 없다. [inv]
+struct Engine::OrderLoopState
+{
     // 신규·취소·정정의 KIS 왕복을 맡는 스레드. 직접 보내면 한 건의 왕복(09-14~18 p50 약 1.5초)마다 뒤 주문이 전부
     //  멈춘다. 이 스레드는 판정·선점·장부까지 하고 보내기를 넘긴 뒤 다음 주문으로 간다. 0이면 예전처럼 직접
     //  보낸다. [why D-151]
-    using TransportSend = std::variant<OrderRouter::NewOrderSend, OrderRouter::ModifyOrderSend>;
-
     struct TransportJob
     {
         TransportSend             send;
@@ -418,413 +266,665 @@ void Engine::order_thread_fn(std::stop_token stop_token)
         int64_t                   send_ready_ns = 0;
     };
 
-    std::optional<order_transport::Pool<TransportJob>> transport;
-
-    if (order_transport_threads_ > 0)
-    {
-        transport.emplace(static_cast<std::size_t>(order_transport_threads_),
-                          [this](TransportJob& job)
-                          {
-                              if (auto* send = std::get_if<OrderRouter::NewOrderSend>(&job.send))
-                              {
-                                  order_router_->send_new(*send);
-                              }
-                              else
-                              {
-                                  order_router_->send_modify(std::get<OrderRouter::ModifyOrderSend>(job.send));
-                              }
-                          },
-                          pipeline_.order_wake);
-        LOG_INFO("[OrderThread] 전송 스레드 " + std::to_string(order_transport_threads_) + "개");
-    }
-
-    // 답을 기다리는 종목. 같은 종목의 다음 주문(신규·취소·정정·재시도)은 앞 주문의 답이 올 때까지 parked에서
-    //  기다린다 — 앞 주문이 이력에 적히기 전에 뒤 주문이 판정되면 중복 매도 검사·취소 대상 찾기가 앞 주문을
-    //  못 본다. 순서 보장 단위가 종목이라는 원칙 2를 여기서 지킨다. [why D-151]
-    std::vector<symbol::SymbolId> sending_symbols;
-
     struct ParkedOrder
     {
         OrderRateLimiter::Pending pending;
         int64_t                   pop_ns = 0;
     };
 
-    std::deque<ParkedOrder> parked;
+    explicit OrderLoopState(Engine& engine);
 
-    const auto is_sending = [&sending_symbols](symbol::SymbolId symbol_id)
+    PositionLedger& ledger;
+
+    // 발주 간격과 거부 재시도는 이 스레드 소유라 조절기를 여기에 둔다. pipeline_.requests는 SPSC(생산자=전략 스레드)라
+    //  되밀 수 없어 재시도는 조절기의 전용 버퍼에 산다. [why D-065]
+    OrderRateLimiter rate_limiter;
+
+    // 구간 지연 CSV. 이 스레드만 쓰므로 여기에 두고, 첫 주문 때 파일을 연다. [why D-071]
+    trace::LatencyTrace latency_trace;
+
+    // 같은 순번을 두 번 받으면 이중 발주다(A등급). 생산자가 하나인 지금은 안 생기지만 단계 4에서
+    //  공유메모리로 바뀌면 재전송이 생긴다 — 거르는 자리를 먼저 둔다. 창은 요청 큐 크기다. [why D-114]
+    ipc::DuplicateFilter  duplicate_filter;
+    ipc::HeartbeatMonitor strategy_monitor;
+    ipc::HeartbeatMonitor feed_monitor;
+
+    // 꺼낸 값이 표 밖을 짚지 않는지 보는 기준. 지금 든 수가 아니라 표가 받을 수 있는 칸 수를 쓴다 —
+    //  종목 표는 장중에도 늘어나서(처음 보는 종목) 지금 든 수로 재면 방금 올라온 종목이 걸린다. [why D-114]
+    const ipc::RequestLimits request_limits;
+
+    // 교체 진입 — 최약체 고르기·매도 발주·쿨다운 기록·매수 보류가 여기 한 덩어리로 있다. 전략 쪽에 두면
+    //  고르는 시점과 예약하는 시점이 갈려 둘이 같은 종목을 두 번 판다. [why D-114]
+    risk::DisplacementDesk   displace_desk;
+    std::vector<OrderSignal> displace_expired;
+
+    // 주문 하나 몫 가운데 pop→submit 반환 밖에 있는 몫을 잰다. 재는 자리(latency_trace.record)가 고리
+    //  한가운데라 이번 회차 꼬리는 아직 안 돌았다 — 직전 회차 값을 들고 있다가 다음 줄에 실어 보낸다.
+    //  09-26 부하시험에서 주문 하나 몫 약 770µs 중 재고 있던 것이 31µs뿐이었다. [why D-071 원칙 7]
+    int64_t previous_done_ns     = 0;
+    int64_t previous_loop_end_ns = 0;
+    // 그 꼬리를 다시 셋으로 가르는 중간 시각 — 계측 쓰기 / 체결·방송·답 / 장부 사본. 한 덩이로는 무엇을
+    //  줄여야 하는지 못 짚는다(09-26 부하시험에서 꼬리 137µs를 장부로 지레짐작했다). [why D-071 원칙 7]
+    int64_t previous_after_trace_ns  = 0;
+    int64_t previous_after_answer_ns = 0;
+
+    // 할 일이 없을 때 자는 상한. 갈라 띄우면 건너편 프로세스가 이 스레드를 깨울 방법이 없다 — WakeGate는
+    //  이 프로세스 안의 condvar라 notify가 경계를 못 넘는다. 그래서 이 상한이 곧 등록 한 건의 지연이 된다:
+    //  100ms면 종목·전략 2,700쌍에 9분이 걸리고, 시세 쪽이 5분 시한에 먼저 걸려 종목 순번표를 아예 못 적는다
+    //  (2026-09-25 부하시험 실측 249/2700). 한 프로세스판은 같은 프로세스의 전략 스레드가 notify로 깨우므로
+    //  줄일 까닭이 없다 — 깨어나는 횟수만 늘어난다. [why D-114]
+    const std::chrono::milliseconds idle_capture;
+
+    std::optional<order_transport::Pool<TransportJob>> transport;
+
+    // 답을 기다리는 종목. 같은 종목의 다음 주문(신규·취소·정정·재시도)은 앞 주문의 답이 올 때까지 parked에서
+    //  기다린다 — 앞 주문이 이력에 적히기 전에 뒤 주문이 판정되면 중복 매도 검사·취소 대상 찾기가 앞 주문을
+    //  못 본다. 순서 보장 단위가 종목이라는 원칙 2를 여기서 지킨다. [why D-151]
+    std::vector<symbol::SymbolId> sending_symbols;
+    std::deque<ParkedOrder>       parked;
+
+    [[nodiscard]] bool is_sending(symbol::SymbolId symbol_id) const
     {
         return symbol_id != symbol::kNone &&
                std::find(sending_symbols.begin(), sending_symbols.end(), symbol_id) != sending_symbols.end();
-    };
+    }
 
-    const auto is_parked = [&parked](symbol::SymbolId symbol_id)
+    [[nodiscard]] bool is_parked(symbol::SymbolId symbol_id) const
     {
         return symbol_id != symbol::kNone &&
                std::any_of(parked.begin(), parked.end(), [symbol_id](const ParkedOrder& parked_order)
                {
                    return parked_order.pending.signal.symbol_id == symbol_id;
                });
-    };
+    }
+};
 
-    // 답이 온 주문을 닫는다 — 이력·장부에 적고 마무리한다. 고리 곳곳(맨 앞, 간격 대기, 자리 대기)에서 부른다.
-    const auto collect_sent = [&]()
+// 이번 회차에 낼 주문 하나와 그것을 꺼낸 시각.
+struct Engine::OrderPick
+{
+    std::optional<OrderRateLimiter::Pending> next;
+    int64_t                                  pop_ns            = 0;
+    bool                                     taken_from_parked = false;
+};
+
+Engine::OrderLoopState::OrderLoopState(Engine& engine)
+    : ledger(engine.order_gate_.ledger()),
+      rate_limiter({engine.order_min_interval_ms_, engine.order_max_retries_}, std::chrono::steady_clock::now()),
+      latency_trace(Logger::instance().path_for("latency_trace.csv")),
+      duplicate_filter(ShardPipeline::kOrderQueueCapacity),
+      feed_monitor(ipc::HeartbeatConfig{kFeedBeatPeriodMs, kFeedBeatSuspectMs, kFeedBeatDeadMs}),
+      request_limits{static_cast<uint32_t>(ledger.symbols().capacity()),
+                     static_cast<uint32_t>(ledger.strategy_table().capacity())},
+      displace_desk(engine.order_gate_),
+      idle_capture((engine.runs_order_side() && !engine.runs_strategy_side()) ? 2ms : 100ms)
+{
+    rate_limiter.set_position([this](const std::string& argument, const std::string& ticker)
     {
-        if (!transport)
-        {
-            return;
-        }
+        return ledger.position(argument, ticker);
+    });
 
-        while (std::optional<TransportJob> job = transport->take_done())
-        {
-            const auto sending = std::find(sending_symbols.begin(), sending_symbols.end(), job->pending.signal.symbol_id);
-
-            if (sending != sending_symbols.end())
-            {
-                sending_symbols.erase(sending);
-            }
-
-            const uint64_t request_sequence = job->pending.signal.sequence;
-
-            try
-            {
-                auto*              send          = std::get_if<OrderRouter::NewOrderSend>(&job->send);
-                const ManagedOrder managed_order =
-                    send ? order_router_->close_new(std::move(*send))
-                         : order_router_->close_modify(std::move(std::get<OrderRouter::ModifyOrderSend>(job->send)));
-                settle(std::move(job->pending), managed_order, true, job->pop_ns, job->send_ready_ns);
-            }
-            catch (const std::exception& exception)
-            {
-                LOG_ERROR("[OrderThread] 예외: " + std::string(exception.what()));
-                answer(request_sequence, ipc::OrderResult::kFailed, 0, exception.what());
-            }
-        }
-    };
-
-    // 전송 스레드로 넘길 것을 연다. 보낼 것이 없으면(로컬 거부·취소 대상 없음) 끝난 주문을 돌려준다.
-    const auto open_for_transport = [this](const OrderSignal& signal) -> std::variant<ManagedOrder, TransportSend>
+    displace_desk.set_label([&engine](const std::string& ticker)
     {
-        if (signal.action == OrderAction::NEW)
-        {
-            auto opened = order_router_->open_new(signal);
+        return engine.ticker_label(ticker);
+    });
 
-            if (auto* send = std::get_if<OrderRouter::NewOrderSend>(&opened))
-            {
-                return TransportSend{std::move(*send)};
-            }
-
-            return std::move(std::get<ManagedOrder>(opened));
-        }
-
-        auto opened = order_router_->open_modify(signal);
-
-        if (auto* send = std::get_if<OrderRouter::ModifyOrderSend>(&opened))
-        {
-            return TransportSend{std::move(*send)};
-        }
-
-        return std::move(std::get<ManagedOrder>(opened));
-    };
-
-    // 답이 하나 올 때까지(또는 until까지) 자고, 온 것을 닫는다.
-    const auto wait_sent = [&](steady_clock::time_point until)
+    if (engine.order_transport_threads_ > 0)
     {
-        pipeline_.order_wake.wait_until(until, [&transport]
-        {
-            return transport->done_empty();
-        });
-        collect_sent();
-    };
+        transport.emplace(static_cast<std::size_t>(engine.order_transport_threads_),
+                          [&engine](TransportJob& job)
+                          {
+                              if (auto* send = std::get_if<OrderRouter::NewOrderSend>(&job.send))
+                              {
+                                  engine.order_router_->send_new(*send);
+                              }
+                              else
+                              {
+                                  engine.order_router_->send_modify(std::get<OrderRouter::ModifyOrderSend>(job.send));
+                              }
+                          },
+                          engine.pipeline_.order_wake);
+        LOG_INFO("[OrderThread] 전송 스레드 " + std::to_string(engine.order_transport_threads_) + "개");
+    }
+}
+
+void Engine::order_thread_fn(std::stop_token stop_token)
+{
+    thread_name::set_current("Order");
+    LOG_INFO("[OrderThread] 시작");
+
+    OrderLoopState state(*this);
 
     while (!stop_token.stop_requested())
     {
-        // 살아 있다고 찍는다 — 전략 쪽이 이 값의 공백만 보고 판정한다. 아래 KIS 왕복이 이 자리를 몇 초
-        //  붙잡으므로 공백에는 그 시간이 그대로 들어간다. 그래서 전략 쪽 문턱이 훨씬 헐겁다. [why D-114]
-        pipeline_.order_heartbeat->beat(trace::now_ns());
-
-        // 전략이 살아 있는가 — 박동 공백만 본다. 사망이어도 주문 스레드는 안 내려간다(보유분을 지켜야 한다).
-        // 표 고치기가 주문보다 먼저다 — 슬롯 면제·우선순위가 낡은 채로 이 회차의 주문을 거르면
-        //  전략이 이미 반영된 줄 알고 낸 신호가 옛 표에 걸린다. [why D-114]
-        control_plane_.apply();
-
-        const auto step = strategy_monitor.observe(trace::now_ns(), pipeline_.strategy_heartbeat->last_ns());
-        pipeline_.strategy_beat_gap_max_ns.store(strategy_monitor.max_gap_ns(), std::memory_order_relaxed);
-
-        // 이 스레드가 멈췄다 깼다 — 프로세스째 멈춘 것(디버거 정지·OS 정지)이라 전략 사망으로 세지 않았다.
-        //  몇 번, 얼마나 멈췄는지는 건전성 점검이 이 줄로 센다.
-        if (const int64_t stall_ns = strategy_monitor.take_observer_stall_ns(); stall_ns != 0)
-        {
-            LOG_WARN("[마무리] 주문 스레드가 " + std::to_string(stall_ns / kNanosecondsPerMillisecond) +
-                     "ms 멈췄다 깼다 — 그 사이 공백은 전략 사망으로 세지 않는다");
-        }
-
-        track_strategy_liveness(step, strategy_monitor.take_dead_once(), strategy_monitor.last_gap_ns(),
-                                steady_clock::now());
-
-        // 시세가 살아 있는가 — 같은 자리에서 본다. 전략 쪽과 달리 아직 한 번도 안 뛴 칸(0)은 정상으로
-        //  읽히므로(HeartbeatMonitor::observe), 시세 프로세스가 아직 안 뜬 기동 초반을 사망으로 보지 않는다.
-        //  [why D-137]
-        const auto feed_step = feed_monitor.observe(trace::now_ns(), pipeline_.feed_heartbeat->last_ns());
-        pipeline_.feed_beat_gap_max_ns.store(feed_monitor.max_gap_ns(), std::memory_order_relaxed);
-        track_feed_liveness(feed_step, feed_monitor.take_dead_once());
-
-        // 교체 보류 시한이 지난 매수는 버리고 그 순번에 답을 돌려준다 — 답이 없으면 전략 쪽 PendingRequests가 샌다.
-        displace_desk.expire(steady_clock::now(), displace_expired);
-
-        for (const OrderSignal& dropped : displace_expired)
-        {
-            answer(dropped.sequence, ipc::OrderResult::kRejected, 0, "교체 보류 만료");
-        }
-
-        displace_expired.clear();
+        observe_order_loop_liveness(state);
 
         // 답이 온 주문부터 닫는다 — 그래야 아래 고르기가 풀린 종목을 본다.
-        collect_sent();
+        collect_sent_orders(state);
 
-        // 발주 대상 선택: 만기된 재시도분 우선, 앞 주문 답을 기다리던 같은 종목 주문, 사람이 낸 수동주문,
-        //  자리가 나 풀린 교체 보류분, 없으면 신규 큐
-        std::optional<OrderRateLimiter::Pending> next = rate_limiter.take_due_retry(steady_clock::now());
-        int64_t                            pop_ns = 0;
-        bool                               taken_from_parked = false;
+        OrderPick       pick;
+        const OrderTake take = take_next_order(state, pick);
 
-        if (!next)
+        if (take == OrderTake::kAgain)
         {
-            // 답이 온 종목의 첫 대기분. 같은 종목이 여럿이면 앞의 것이 먼저다 — 앞의 것이 안 풀렸으면 뒤의 것도
-            //  같은 종목이라 안 풀렸다.
-            for (auto iterator = parked.begin(); iterator != parked.end(); ++iterator)
-            {
-                if (is_sending(iterator->pending.signal.symbol_id))
-                {
-                    continue;
-                }
-
-                ParkedOrder taken = std::move(*iterator);
-                parked.erase(iterator);
-
-                // 앞 주문 답을 너무 오래 기다린 신규 매수만 버린다. 기다린 시간은 우리 쪽 순서 보장 때문이라 1초
-                //  기준(D-127)으로 재지 않는다 — 그러면 취소 뒤 다시 까는 매수가 버려진다. [why D-151]
-                const int64_t parked_now_ns = trace::now_ns();
-
-                if (taken.pending.attempts == 0 && is_stale_parked_entry(taken.pending.signal, taken.pop_ns, parked_now_ns))
-                {
-                    const auto waited_ms = (parked_now_ns - taken.pop_ns) / kNanosecondsPerMillisecond;
-                    const auto count     = pipeline_.order_stale.fetch_add(1, std::memory_order_relaxed) + 1;
-                    LOG_WARN("[주문] 앞 주문 답을 " + std::to_string(waited_ms) + "ms 기다린 신규 매수를 버린다 " +
-                             taken.pending.signal.ticker + " (누적 " + std::to_string(count) + ")");
-                    answer(taken.pending.signal.sequence, ipc::OrderResult::kStale, 0, "앞 주문 답을 기다리다 낡아 버림");
-                    break;
-                }
-
-                next              = std::move(taken.pending);
-                pop_ns            = taken.pop_ns;
-                taken_from_parked = true;
-                break;
-            }
-        }
-
-        if (!next)
-        {
-            // 운영단말 수동주문 — 소켓 스레드가 넣은 것을 주문 쪽이 바로 꺼낸다. 전략 프로세스를 거치지
-            //  않아야 전략이 멎어도 사람이 손으로 낼 수 있다. 통로 밖에서 온 것이라 순번은 0이고,
-            //  단말에는 발주 결과를 ORDER_RESULT_NTF로 따로 알린다. [why D-114][why D-043]
-            if (OrderSignal manual_signal; take_manual_order(manual_signal))
-            {
-                pop_ns = trace::now_ns();
-                next   = admit(std::move(manual_signal));
-            }
-        }
-
-        if (!next)
-        {
-            if (OrderSignal ready; displace_desk.take_ready(ready))
-            {
-                next   = OrderRateLimiter::Pending{std::move(ready), 0};
-                pop_ns = trace::now_ns();
-            }
-        }
-
-        if (!next)
-        {
-            if (ipc::OrderRequest request; pipeline_.requests->pop(request))
-            {
-                // 건너편이 망가졌거나 칸이 덮였으면 여기서 멎는다 — 그 값으로 낸 주문은 되돌릴 수 없다.
-                if (!ipc::is_plausible(request, request_limits))
-                {
-                    const auto count = pipeline_.order_implausible.fetch_add(1, std::memory_order_relaxed) + 1;
-                    LOG_ERROR("[주문] 값이 말이 안 되는 요청을 버린다 순번=" + std::to_string(request.sequence) +
-                              " 종목=" + std::to_string(request.symbol_id) + " 전략=" +
-                              std::to_string(request.strategy_index) + " 수량=" + std::to_string(request.quantity) +
-                              " (누적 " + std::to_string(count) + ")");
-                    answer(request.sequence, ipc::OrderResult::kInvalid, 0, "값이 말이 안 된다");
-                    continue;
-                }
-
-                if (request.sequence != 0 && !duplicate_filter.accept(request.sequence))
-                {
-                    const auto count = pipeline_.order_duplicate.fetch_add(1, std::memory_order_relaxed) + 1;
-                    LOG_WARN("[주문] 같은 순번을 다시 받아 거른다 순번=" + std::to_string(request.sequence) +
-                             " (누적 " + std::to_string(count) + ")");
-                    answer(request.sequence, ipc::OrderResult::kDuplicate, 0, "같은 순번");
-                    continue;
-                }
-
-                // 여기서 신호 모양으로 되살린다 — 아래 사슬(교체 창구·발주 조절기·라우터)은 그대로 OrderSignal을
-                //  받는다. 전략 이름은 레코드에 없어 번호로 표에서 찾는다. [why D-114]
-                const strategy_table::StrategyName strategy_name =
-                    ledger.strategy_table().name(request.strategy_index);
-                OrderSignal signal = ipc::to_signal(request, strategy_name.view());
-
-                pop_ns = trace::now_ns();
-
-                // 오래 기다린 신규 매수는 여기서 버린다 — 큐가 찬 동안 증권사 초당한도는 그대로라, 이 한 건을
-                //  보내면 그만큼 방금 만든 판단이 못 나간다. 조건이 남아 있으면 다음 틱·봉이 다시 만든다.
-                //  취소·정정과 매도는 나이를 안 본다(손절·청산은 늦어도 나가야 한다). 신호를 낸 시각은
-                //  통로 레코드의 sent_at_ns 가 실어 오므로 갈라 띄워도 같은 나이로 잰다. [why D-127][why D-114]
-                if (is_stale_entry(signal, pop_ns))
-                {
-                    const auto waited_ms = (pop_ns - signal.signal_at_ns) / kNanosecondsPerMillisecond;
-                    const auto count = pipeline_.order_stale.fetch_add(1, std::memory_order_relaxed) + 1;
-
-                    // 버림은 드물어야 정상이고 소실 건수를 로그로 셀 수 있어야 해서 매 건 남긴다 — 100건마다로
-                    //  솎으면 10-02 모의 바스켓 19건 중 1건만 남았다. [why D-155]
-                    LOG_WARN("[주문] 큐에서 " + std::to_string(waited_ms) + "ms 기다린 신규 매수를 버린다 " +
-                             signal.ticker + " " + signal.strategy_id + " (누적 " + std::to_string(count) + ")");
-
-                    answer(request.sequence, ipc::OrderResult::kStale, 0, "큐 대기가 길어 버림");
-                    continue;
-                }
-
-                next = admit(std::move(signal));
-
-                // 창구가 들고 있기로 했으면 이 회차에 낼 것이 없다.
-                if (!next)
-                {
-                    continue;
-                }
-            }
-        }
-
-        if (!next)
-        {
-            // 재시도 만기가 있으면 그 시각까지, 없으면 idle_capture 상한(종료 확인). 신규 신호는 전략
-            //  스레드의 notify가, 수동주문은 운영단말 서버 스레드의 notify가, 전송 답은 전송 스레드의 notify가 깨운다.
-            const auto deadline = rate_limiter.next_retry_at().value_or(steady_clock::now() + idle_capture);
-            // 제어 요청·수동주문도 이 스레드가 처리하므로 잠드는 조건에 같이 넣는다 — 안 넣으면 표 고치기와
-            //  사람이 누른 주문이 다음 주문이나 100ms 만기까지 밀린다. [why D-114]
-            pipeline_.order_wake.wait_until(deadline, stop_token, [this, &transport] {
-                return pipeline_.requests->readable() == 0 && control_plane_.order_lane_empty() &&
-                       ops_.manual_inbox.empty() && (!transport || transport->done_empty());
-            });
-
             continue;
         }
 
-        if (transport)
+        if (take == OrderTake::kIdle)
         {
-            // 같은 종목이 답을 기다리는 중이면(또는 먼저 온 같은 종목이 기다리고 있으면) 뒤에 세운다. 줄에서 꺼낸
-            //  주문은 그 종목의 맨 앞이라 줄 검사를 건너뛴다.
-            if (should_park(is_sending(next->signal.symbol_id), is_parked(next->signal.symbol_id), taken_from_parked))
-            {
-                parked.push_back(ParkedOrder{std::move(*next), pop_ns});
-                continue;
-            }
-
-            // 전송 스레드가 다 차 있으면 하나가 답을 가져올 때까지 기다린다.
-            while (transport->full())
-            {
-                wait_sent(steady_clock::now() + idle_capture);
-            }
+            wait_for_order_work(state, stop_token);
+            continue;
         }
 
-        // 호출 간격 조절 — 직전 KIS 발주 후 min_interval 경과 보장(초당한도 하회로 EGW00201 회피).
-        //  전송 스레드를 쓰면 기다리는 동안 온 답을 닫는다 — 간격만큼 답을 묵히지 않게.
-        if (const auto wait = rate_limiter.wait_before_send(steady_clock::now()); wait > steady_clock::duration::zero())
-        {
-            if (transport)
-            {
-                const auto until = steady_clock::now() + wait;
+        dispatch_order(state, pick);
+    }
 
-                while (steady_clock::now() < until)
-                {
-                    wait_sent(until);
-                }
-            }
-            else
-            {
-                std::this_thread::sleep_for(wait);
-            }
+    finish_order_loop(state);
+    LOG_INFO("[OrderThread] 종료");
+}
+
+// 결과를 전략 쪽으로 돌려준다. 지금은 같은 프로세스의 큐고, 단계 4에서 공유메모리로 바뀌어도
+//  레코드는 그대로다. [inv] 순번 0은 통로 밖에서 들어온 신호라 맞출 짝이 없어 답하지 않는다. [why D-114]
+void Engine::answer_order_request(uint64_t sequence, ipc::OrderResult result, uint64_t kis_order_number,
+                                  std::string_view reason)
+{
+    if (sequence == 0)
+    {
+        return;
+    }
+
+    if (!pipeline_.order_responses->push(
+            ipc::make_response(sequence, result, kis_order_number, reason, trace::now_ns())))
+    {
+        pipeline_.order_response_dropped.fetch_add(1, std::memory_order_relaxed);
+    }
+}
+
+// 발주 대상이 되기 전 지나는 한 자리 — 종목 번호를 채우고 교체 창구의 판정을 받는다. 통로로 온
+//  신호와 운영단말이 낸 수동주문이 같은 자리를 지나게 한다. [why D-114]
+std::optional<OrderRateLimiter::Pending> Engine::admit_order(OrderLoopState& state, OrderSignal&& signal)
+{
+    // 번호는 주문 쪽이 준다 — 전략 쪽은 종목 표를 찾기만 하고, 처음 보는 종목은 받는 이 자리에서
+    //  표에 올린다. 표를 고치는 쪽을 하나로 두는 것이 원칙 4다. [why D-114]
+    if (signal.symbol_id == symbol::kNone && !signal.ticker.empty())
+    {
+        signal.symbol_id = state.ledger.intern_symbol(signal.ticker);
+    }
+
+    // 자리가 꽉 찬 책에 새 종목 매수가 왔는가 — 최약체 매도를 앞세우고 이 매수는 창구가 든다.
+    //  kSellFirst면 signal 자리에 교체 매도가 들어와 있다(순번이 0이라 답하지 않는다). 원래의
+    //  매수는 창구가 들고 있다가 자리가 나면 내고, 못 내면 expire가 답한다. kHold면 이 회차에
+    //  낼 것이 없다.
+    if (state.displace_desk.consider(signal, std::chrono::steady_clock::now()) ==
+        risk::DisplacementDesk::Verdict::kHold)
+    {
+        return std::nullopt;
+    }
+
+    return OrderRateLimiter::Pending{std::move(signal), 0};
+}
+
+// 발주 뒤 마무리 — 계측 한 줄, 모의 체결 틱, 단말 알림, 전략 쪽 답(또는 재시도 예약). 이 스레드가 직접 보낸
+//  주문과 전송 스레드가 답을 가져온 주문이 같은 자리를 지난다. [why D-151]
+void Engine::settle_order(OrderLoopState& state, OrderRateLimiter::Pending&& pending,
+                          const ManagedOrder& managed_order, bool kis_called, int64_t pop_ns, int64_t send_ready_ns)
+{
+    const int64_t      done_ns          = trace::now_ns();
+    const OrderSignal& signal           = pending.signal;
+    // pending은 아래에서 재시도 버퍼로 옮겨진다(sink). 답할 순번은 그 전에 챙겨 둔다.
+    const uint64_t     request_sequence = signal.sequence;
+
+    // 재시도 건은 pop 시각이 첫 시도 것이라 구간이 부풀지 않게 첫 시도만 남긴다.
+    if (pending.attempts == 0)
+    {
+        record_order_latency(state, signal, managed_order, kis_called, pop_ns, send_ready_ns, done_ns);
+    }
+
+    // 여기까지가 계측 자신의 몫이다 — 줄 한 줄을 적고 분포에 넣는 데 든 시간.
+    const int64_t after_trace_ns = trace::now_ns();
+
+    // 갈라 띄운 주문 프로세스만 하는 일 — 접수가 끝난 뒤에 모의 체결기에 틱을 먹인다. 접수 안에서
+    //  체결을 내면 라우터가 ODNO를 적기 전이라 통보가 "미매핑 체결"로 빠진다. [why D-114 단계 5]
+    state.previous_done_ns = done_ns;
+
+    if (managed_order.status == OrderStatus::ACCEPTED)
+    {
+        feed_paper_fill_tick(signal);
+    }
+
+    // 단말이 없으면 JSON 직렬화를 건너뛴다 — 주문 스레드 hot path에서 받는 이 없는 문자열을 만들지 않는다.
+    //  client_count()는 원자 변수 한 번 읽기라 직렬화보다 싸다. [why D-071]
+    if (ops_.server && ops_.server->client_count() > 0)
+    {
+        // 게이트·브로커를 지난 최종 결과. 단말은 cid로 자기 ORDER_ACK와 잇고, 전략 주문도
+        //  같은 채널로 보여 운영 화면이 자동매매를 함께 본다.
+        ops_.server->broadcast(ops::OpsMsg::ORDER_RESULT_NTF,
+                               nlohmann::json{{"cid", signal.client_order_id},
+                                              {"order_id", managed_order.order_id},
+                                              {"odno", managed_order.kis_order_no},
+                                              {"strategy", signal.strategy_id},
+                                              {"ticker", signal.ticker},
+                                              {"side", signal.side == OrderSide::BUY ? "BUY" : "SELL"},
+                                              {"qty", signal.quantity},
+                                              {"price", signal.price},
+                                              {"ok", managed_order.status == OrderStatus::ACCEPTED},
+                                              {"msg", managed_order.reject_reason}}
+                                   .dump());
+    }
+
+    if (managed_order.status == OrderStatus::ACCEPTED)
+    {
+        ++order_count_;
+        answer_order_request(request_sequence, ipc::OrderResult::kAccepted,
+                             ipc::to_order_number(managed_order.kis_order_no), "");
+    }
+    else
+    {
+        // 재시도를 예약했으면 아직 끝이 아니다 — 답은 마지막 한 번만 보낸다(전략은 답 하나로 기다림을 지운다).
+        const bool will_retry = state.rate_limiter.on_rejected(std::move(pending), managed_order.status,
+                                                               managed_order.reject_reason,
+                                                               std::chrono::steady_clock::now());
+
+        if (!will_retry)
+        {
+            answer_order_request(request_sequence, ipc::OrderResult::kRejected, 0, managed_order.reject_reason);
+        }
+    }
+
+    // 장부가 바뀌었지만 사본은 여기서 내지 않는다. 한 판이 2,700종목에서 98microseconds라 주문 하나 몫
+    //  160microseconds의 61%였고, 그만큼 요청 큐가 밀려 주문을 버렸다(09-26 부하시험). 발행은
+    //  ledger_thread_fn이 간격을 두고 낸다 — 읽는 쪽 약속은 그대로 100ms다. [why D-114]
+    state.previous_after_trace_ns  = after_trace_ns;
+    state.previous_after_answer_ns = trace::now_ns();
+    state.previous_loop_end_ns     = state.previous_after_answer_ns;
+}
+
+// settle_order 단계 — 첫 시도 주문의 구간 지연을 CSV 한 줄과 분포에 남긴다. 직전 회차 꼬리도 같이 적는다.
+void Engine::record_order_latency(OrderLoopState& state, const OrderSignal& signal, const ManagedOrder& managed_order,
+                                  bool kis_called, int64_t pop_ns, int64_t send_ready_ns, int64_t done_ns)
+{
+    trace::Marks marks{signal.tick_at_ns, signal.signal_at_ns, pop_ns, send_ready_ns, done_ns};
+    marks.previous_tail_us = (state.previous_done_ns != 0 && state.previous_loop_end_ns != 0)
+                                 ? trace::segment_us(state.previous_done_ns, state.previous_loop_end_ns)
+                                 : -1;
+    marks.previous_wait_us = (state.previous_loop_end_ns != 0 && pop_ns != 0)
+                                 ? trace::segment_us(state.previous_loop_end_ns, pop_ns)
+                                 : -1;
+    marks.previous_trace_us = (state.previous_done_ns != 0 && state.previous_after_trace_ns != 0)
+                                  ? trace::segment_us(state.previous_done_ns, state.previous_after_trace_ns)
+                                  : -1;
+    marks.previous_post_us = (state.previous_after_trace_ns != 0 && state.previous_after_answer_ns != 0)
+                                 ? trace::segment_us(state.previous_after_trace_ns, state.previous_after_answer_ns)
+                                 : -1;
+    marks.previous_publish_us = (state.previous_after_answer_ns != 0 && state.previous_loop_end_ns != 0)
+                                    ? trace::segment_us(state.previous_after_answer_ns, state.previous_loop_end_ns)
+                                    : -1;
+    state.latency_trace.record(signal, marks, managed_order.stages, kis_called,
+                               managed_order.status == OrderStatus::ACCEPTED);
+    // 같은 값을 분포로도 — HEALTH가 분위수를 싣는다. 라우터 안 구간은 managed_order가 실어 왔다.
+    pipeline_latency_.add(marks, managed_order.stages);
+}
+
+// 답이 온 주문을 닫는다 — 이력·장부에 적고 마무리한다. 고리 곳곳(맨 앞, 간격 대기, 자리 대기)에서 부른다.
+void Engine::collect_sent_orders(OrderLoopState& state)
+{
+    if (!state.transport)
+    {
+        return;
+    }
+
+    while (std::optional<OrderLoopState::TransportJob> job = state.transport->take_done())
+    {
+        const auto sending =
+            std::find(state.sending_symbols.begin(), state.sending_symbols.end(), job->pending.signal.symbol_id);
+
+        if (sending != state.sending_symbols.end())
+        {
+            state.sending_symbols.erase(sending);
         }
 
-        // 이 sleep은 우리가 스스로 줄 세운 시간이다 — pop→반환 한 덩이에 섞어 두면 증권사가 느린 것처럼 읽힌다. [why D-071]
-        const int64_t  send_ready_ns    = pop_ns != 0 ? trace::now_ns() : 0;
-        const uint64_t request_sequence = next->signal.sequence;
+        const uint64_t request_sequence = job->pending.signal.sequence;
 
         try
         {
-            // 간격은 KIS를 실제로 부른 뒤에만 센다. 로컬 거부(게이트·ENTRY_HALT)는 한도와 무관하다.
-            const uint64_t calls_before = order_router_->kis_calls();
-
-            if (transport)
-            {
-                auto opened = open_for_transport(next->signal);
-
-                if (auto* send = std::get_if<TransportSend>(&opened))
-                {
-                    // 간격은 보낸 시각부터 센다 — 답을 기다리지 않고 다음 주문이 간격만큼 뒤에 나간다.
-                    rate_limiter.note_sent(steady_clock::now());
-                    sending_symbols.push_back(next->signal.symbol_id);
-                    transport->dispatch(TransportJob{std::move(*send), std::move(*next), pop_ns, send_ready_ns});
-                    continue;
-                }
-
-                const ManagedOrder& managed_order = std::get<ManagedOrder>(opened);
-                const bool          kis_called    = order_router_->kis_calls() != calls_before;
-
-                if (kis_called)
-                {
-                    rate_limiter.note_sent(steady_clock::now());
-                }
-
-                settle(std::move(*next), managed_order, kis_called, pop_ns, send_ready_ns);
-                continue;
-            }
-
-            const ManagedOrder managed_order = order_router_->submit(next->signal);
-            const bool         kis_called    = order_router_->kis_calls() != calls_before;
-
-            if (kis_called)
-            {
-                rate_limiter.note_sent(steady_clock::now());
-            }
-
-            settle(std::move(*next), managed_order, kis_called, pop_ns, send_ready_ns);
+            auto*              send          = std::get_if<OrderRouter::NewOrderSend>(&job->send);
+            const ManagedOrder managed_order =
+                send ? order_router_->close_new(std::move(*send))
+                     : order_router_->close_modify(std::move(std::get<OrderRouter::ModifyOrderSend>(job->send)));
+            settle_order(state, std::move(job->pending), managed_order, true, job->pop_ns, job->send_ready_ns);
         }
         catch (const std::exception& exception)
         {
-            rate_limiter.note_sent(steady_clock::now());
             LOG_ERROR("[OrderThread] 예외: " + std::string(exception.what()));
-            answer(request_sequence, ipc::OrderResult::kFailed, 0, exception.what());
+            answer_order_request(request_sequence, ipc::OrderResult::kFailed, 0, exception.what());
         }
     }
+}
 
-    // 끝내기 전에 보내는 중인 주문의 답을 다 받는다 — 안 받으면 INTENT만 적힌 채 이력에 안 남는다.
-    //  뒤에 세워 둔 주문은 내지 않고 답만 돌려준다.
-    if (transport)
+// 답이 하나 올 때까지(또는 until까지) 자고, 온 것을 닫는다.
+void Engine::wait_sent_orders(OrderLoopState& state, std::chrono::steady_clock::time_point until)
+{
+    pipeline_.order_wake.wait_until(until, [&state]
     {
-        while (transport->in_flight() > 0)
+        return state.transport->done_empty();
+    });
+    collect_sent_orders(state);
+}
+
+// 고리 한 바퀴의 앞머리 — 박동을 찍고, 제어 요청을 적용하고, 전략·시세 생사를 보고, 교체 보류 만료분에 답한다.
+void Engine::observe_order_loop_liveness(OrderLoopState& state)
+{
+    // 살아 있다고 찍는다 — 전략 쪽이 이 값의 공백만 보고 판정한다. 아래 KIS 왕복이 이 자리를 몇 초
+    //  붙잡으므로 공백에는 그 시간이 그대로 들어간다. 그래서 전략 쪽 문턱이 훨씬 헐겁다. [why D-114]
+    pipeline_.order_heartbeat->beat(trace::now_ns());
+
+    // 전략이 살아 있는가 — 박동 공백만 본다. 사망이어도 주문 스레드는 안 내려간다(보유분을 지켜야 한다).
+    // 표 고치기가 주문보다 먼저다 — 슬롯 면제·우선순위가 낡은 채로 이 회차의 주문을 거르면
+    //  전략이 이미 반영된 줄 알고 낸 신호가 옛 표에 걸린다. [why D-114]
+    control_plane_.apply();
+
+    const auto step = state.strategy_monitor.observe(trace::now_ns(), pipeline_.strategy_heartbeat->last_ns());
+    pipeline_.strategy_beat_gap_max_ns.store(state.strategy_monitor.max_gap_ns(), std::memory_order_relaxed);
+
+    // 이 스레드가 멈췄다 깼다 — 프로세스째 멈춘 것(디버거 정지·OS 정지)이라 전략 사망으로 세지 않았다.
+    //  몇 번, 얼마나 멈췄는지는 건전성 점검이 이 줄로 센다.
+    if (const int64_t stall_ns = state.strategy_monitor.take_observer_stall_ns(); stall_ns != 0)
+    {
+        LOG_WARN("[마무리] 주문 스레드가 " + std::to_string(stall_ns / kNanosecondsPerMillisecond) +
+                 "ms 멈췄다 깼다 — 그 사이 공백은 전략 사망으로 세지 않는다");
+    }
+
+    track_strategy_liveness(step, state.strategy_monitor.take_dead_once(), state.strategy_monitor.last_gap_ns(),
+                            std::chrono::steady_clock::now());
+
+    // 시세가 살아 있는가 — 같은 자리에서 본다. 전략 쪽과 달리 아직 한 번도 안 뛴 칸(0)은 정상으로
+    //  읽히므로(HeartbeatMonitor::observe), 시세 프로세스가 아직 안 뜬 기동 초반을 사망으로 보지 않는다.
+    //  [why D-137]
+    const auto feed_step = state.feed_monitor.observe(trace::now_ns(), pipeline_.feed_heartbeat->last_ns());
+    pipeline_.feed_beat_gap_max_ns.store(state.feed_monitor.max_gap_ns(), std::memory_order_relaxed);
+    track_feed_liveness(feed_step, state.feed_monitor.take_dead_once());
+
+    // 교체 보류 시한이 지난 매수는 버리고 그 순번에 답을 돌려준다 — 답이 없으면 전략 쪽 PendingRequests가 샌다.
+    state.displace_desk.expire(std::chrono::steady_clock::now(), state.displace_expired);
+
+    for (const OrderSignal& dropped : state.displace_expired)
+    {
+        answer_order_request(dropped.sequence, ipc::OrderResult::kRejected, 0, "교체 보류 만료");
+    }
+
+    state.displace_expired.clear();
+}
+
+// 발주 대상 선택: 만기된 재시도분 우선, 앞 주문 답을 기다리던 같은 종목 주문, 사람이 낸 수동주문,
+//  자리가 나 풀린 교체 보류분, 없으면 신규 큐
+Engine::OrderTake Engine::take_next_order(OrderLoopState& state, OrderPick& pick)
+{
+    pick.next = state.rate_limiter.take_due_retry(std::chrono::steady_clock::now());
+
+    if (!pick.next)
+    {
+        take_parked_order(state, pick);
+    }
+
+    if (!pick.next)
+    {
+        // 운영단말 수동주문 — 소켓 스레드가 넣은 것을 주문 쪽이 바로 꺼낸다. 전략 프로세스를 거치지
+        //  않아야 전략이 멎어도 사람이 손으로 낼 수 있다. 통로 밖에서 온 것이라 순번은 0이고,
+        //  단말에는 발주 결과를 ORDER_RESULT_NTF로 따로 알린다. [why D-114][why D-043]
+        if (OrderSignal manual_signal; take_manual_order(manual_signal))
         {
-            wait_sent(steady_clock::now() + idle_capture);
+            pick.pop_ns = trace::now_ns();
+            pick.next   = admit_order(state, std::move(manual_signal));
         }
     }
 
-    for (const ParkedOrder& parked_order : parked)
+    if (!pick.next)
     {
-        answer(parked_order.pending.signal.sequence, ipc::OrderResult::kRejected, 0, "종료로 내지 않음");
+        if (OrderSignal ready; state.displace_desk.take_ready(ready))
+        {
+            pick.next   = OrderRateLimiter::Pending{std::move(ready), 0};
+            pick.pop_ns = trace::now_ns();
+        }
     }
 
-    parked.clear();
+    if (!pick.next)
+    {
+        return take_queued_request(state, pick);
+    }
 
-    LOG_INFO("[OrderThread] 종료");
+    return OrderTake::kReady;
+}
+
+// take_next_order 단계 — 답이 온 종목의 첫 대기분을 꺼낸다. 같은 종목이 여럿이면 앞의 것이 먼저다 — 앞의 것이
+//  안 풀렸으면 뒤의 것도 같은 종목이라 안 풀렸다.
+void Engine::take_parked_order(OrderLoopState& state, OrderPick& pick)
+{
+    for (auto iterator = state.parked.begin(); iterator != state.parked.end(); ++iterator)
+    {
+        if (state.is_sending(iterator->pending.signal.symbol_id))
+        {
+            continue;
+        }
+
+        OrderLoopState::ParkedOrder taken = std::move(*iterator);
+        state.parked.erase(iterator);
+
+        // 앞 주문 답을 너무 오래 기다린 신규 매수만 버린다. 기다린 시간은 우리 쪽 순서 보장 때문이라 1초
+        //  기준(D-127)으로 재지 않는다 — 그러면 취소 뒤 다시 까는 매수가 버려진다. [why D-151]
+        const int64_t parked_now_ns = trace::now_ns();
+
+        if (taken.pending.attempts == 0 && is_stale_parked_entry(taken.pending.signal, taken.pop_ns, parked_now_ns))
+        {
+            const auto waited_ms = (parked_now_ns - taken.pop_ns) / kNanosecondsPerMillisecond;
+            const auto count     = pipeline_.order_stale.fetch_add(1, std::memory_order_relaxed) + 1;
+            LOG_WARN("[주문] 앞 주문 답을 " + std::to_string(waited_ms) + "ms 기다린 신규 매수를 버린다 " +
+                     taken.pending.signal.ticker + " (누적 " + std::to_string(count) + ")");
+            answer_order_request(taken.pending.signal.sequence, ipc::OrderResult::kStale, 0,
+                                 "앞 주문 답을 기다리다 낡아 버림");
+            return;
+        }
+
+        pick.next              = std::move(taken.pending);
+        pick.pop_ns            = taken.pop_ns;
+        pick.taken_from_parked = true;
+        return;
+    }
+}
+
+// take_next_order 단계 — 전략 쪽 요청 큐에서 하나 꺼내 검사한다. 버렸거나 창구가 들었으면 kAgain, 큐가 비었으면 kIdle.
+Engine::OrderTake Engine::take_queued_request(OrderLoopState& state, OrderPick& pick)
+{
+    ipc::OrderRequest request;
+
+    if (!pipeline_.requests->pop(request))
+    {
+        return OrderTake::kIdle;
+    }
+
+    // 건너편이 망가졌거나 칸이 덮였으면 여기서 멎는다 — 그 값으로 낸 주문은 되돌릴 수 없다.
+    if (!ipc::is_plausible(request, state.request_limits))
+    {
+        const auto count = pipeline_.order_implausible.fetch_add(1, std::memory_order_relaxed) + 1;
+        LOG_ERROR("[주문] 값이 말이 안 되는 요청을 버린다 순번=" + std::to_string(request.sequence) +
+                  " 종목=" + std::to_string(request.symbol_id) + " 전략=" +
+                  std::to_string(request.strategy_index) + " 수량=" + std::to_string(request.quantity) +
+                  " (누적 " + std::to_string(count) + ")");
+        answer_order_request(request.sequence, ipc::OrderResult::kInvalid, 0, "값이 말이 안 된다");
+        return OrderTake::kAgain;
+    }
+
+    if (request.sequence != 0 && !state.duplicate_filter.accept(request.sequence))
+    {
+        const auto count = pipeline_.order_duplicate.fetch_add(1, std::memory_order_relaxed) + 1;
+        LOG_WARN("[주문] 같은 순번을 다시 받아 거른다 순번=" + std::to_string(request.sequence) +
+                 " (누적 " + std::to_string(count) + ")");
+        answer_order_request(request.sequence, ipc::OrderResult::kDuplicate, 0, "같은 순번");
+        return OrderTake::kAgain;
+    }
+
+    // 여기서 신호 모양으로 되살린다 — 아래 사슬(교체 창구·발주 조절기·라우터)은 그대로 OrderSignal을
+    //  받는다. 전략 이름은 레코드에 없어 번호로 표에서 찾는다. [why D-114]
+    const strategy_table::StrategyName strategy_name = state.ledger.strategy_table().name(request.strategy_index);
+    OrderSignal signal = ipc::to_signal(request, strategy_name.view());
+
+    pick.pop_ns = trace::now_ns();
+
+    // 오래 기다린 신규 매수는 여기서 버린다 — 큐가 찬 동안 증권사 초당한도는 그대로라, 이 한 건을
+    //  보내면 그만큼 방금 만든 판단이 못 나간다. 조건이 남아 있으면 다음 틱·봉이 다시 만든다.
+    //  취소·정정과 매도는 나이를 안 본다(손절·청산은 늦어도 나가야 한다). 신호를 낸 시각은
+    //  통로 레코드의 sent_at_ns 가 실어 오므로 갈라 띄워도 같은 나이로 잰다. [why D-127][why D-114]
+    if (is_stale_entry(signal, pick.pop_ns))
+    {
+        const auto waited_ms = (pick.pop_ns - signal.signal_at_ns) / kNanosecondsPerMillisecond;
+        const auto count = pipeline_.order_stale.fetch_add(1, std::memory_order_relaxed) + 1;
+
+        // 버림은 드물어야 정상이고 소실 건수를 로그로 셀 수 있어야 해서 매 건 남긴다 — 100건마다로
+        //  솎으면 10-02 모의 바스켓 19건 중 1건만 남았다. [why D-155]
+        LOG_WARN("[주문] 큐에서 " + std::to_string(waited_ms) + "ms 기다린 신규 매수를 버린다 " +
+                 signal.ticker + " " + signal.strategy_id + " (누적 " + std::to_string(count) + ")");
+
+        answer_order_request(request.sequence, ipc::OrderResult::kStale, 0, "큐 대기가 길어 버림");
+        return OrderTake::kAgain;
+    }
+
+    pick.next = admit_order(state, std::move(signal));
+
+    // 창구가 들고 있기로 했으면 이 회차에 낼 것이 없다.
+    if (!pick.next)
+    {
+        return OrderTake::kAgain;
+    }
+
+    return OrderTake::kReady;
+}
+
+// 낼 것이 없을 때 잔다. 재시도 만기가 있으면 그 시각까지, 없으면 idle_capture 상한(종료 확인). 신규 신호는 전략
+//  스레드의 notify가, 수동주문은 운영단말 서버 스레드의 notify가, 전송 답은 전송 스레드의 notify가 깨운다.
+void Engine::wait_for_order_work(OrderLoopState& state, const std::stop_token& stop_token)
+{
+    const auto deadline =
+        state.rate_limiter.next_retry_at().value_or(std::chrono::steady_clock::now() + state.idle_capture);
+    // 제어 요청·수동주문도 이 스레드가 처리하므로 잠드는 조건에 같이 넣는다 — 안 넣으면 표 고치기와
+    //  사람이 누른 주문이 다음 주문이나 100ms 만기까지 밀린다. [why D-114]
+    pipeline_.order_wake.wait_until(deadline, stop_token, [this, &state] {
+        return pipeline_.requests->readable() == 0 && control_plane_.order_lane_empty() &&
+               ops_.manual_inbox.empty() && (!state.transport || state.transport->done_empty());
+    });
+}
+
+// 꺼낸 주문 하나를 낸다 — 같은 종목 줄 세우기, 전송 자리 대기, 호출 간격, 그다음 보내기.
+void Engine::dispatch_order(OrderLoopState& state, OrderPick& pick)
+{
+    using std::chrono::steady_clock;
+
+    if (state.transport)
+    {
+        // 같은 종목이 답을 기다리는 중이면(또는 먼저 온 같은 종목이 기다리고 있으면) 뒤에 세운다. 줄에서 꺼낸
+        //  주문은 그 종목의 맨 앞이라 줄 검사를 건너뛴다.
+        if (should_park(state.is_sending(pick.next->signal.symbol_id), state.is_parked(pick.next->signal.symbol_id),
+                        pick.taken_from_parked))
+        {
+            state.parked.push_back(OrderLoopState::ParkedOrder{std::move(*pick.next), pick.pop_ns});
+            return;
+        }
+
+        // 전송 스레드가 다 차 있으면 하나가 답을 가져올 때까지 기다린다.
+        while (state.transport->full())
+        {
+            wait_sent_orders(state, steady_clock::now() + state.idle_capture);
+        }
+    }
+
+    // 호출 간격 조절 — 직전 KIS 발주 후 min_interval 경과 보장(초당한도 하회로 EGW00201 회피).
+    //  전송 스레드를 쓰면 기다리는 동안 온 답을 닫는다 — 간격만큼 답을 묵히지 않게.
+    if (const auto wait = state.rate_limiter.wait_before_send(steady_clock::now());
+        wait > steady_clock::duration::zero())
+    {
+        if (state.transport)
+        {
+            const auto until = steady_clock::now() + wait;
+
+            while (steady_clock::now() < until)
+            {
+                wait_sent_orders(state, until);
+            }
+        }
+        else
+        {
+            std::this_thread::sleep_for(wait);
+        }
+    }
+
+    // 이 sleep은 우리가 스스로 줄 세운 시간이다 — pop→반환 한 덩이에 섞어 두면 증권사가 느린 것처럼 읽힌다. [why D-071]
+    const int64_t  send_ready_ns    = pick.pop_ns != 0 ? trace::now_ns() : 0;
+    const uint64_t request_sequence = pick.next->signal.sequence;
+
+    try
+    {
+        // 간격은 KIS를 실제로 부른 뒤에만 센다. 로컬 거부(게이트·ENTRY_HALT)는 한도와 무관하다.
+        const uint64_t calls_before = order_router_->kis_calls();
+
+        if (state.transport)
+        {
+            auto opened = open_for_transport(*order_router_, pick.next->signal);
+
+            if (auto* send = std::get_if<TransportSend>(&opened))
+            {
+                // 간격은 보낸 시각부터 센다 — 답을 기다리지 않고 다음 주문이 간격만큼 뒤에 나간다.
+                state.rate_limiter.note_sent(steady_clock::now());
+                state.sending_symbols.push_back(pick.next->signal.symbol_id);
+                state.transport->dispatch(
+                    OrderLoopState::TransportJob{std::move(*send), std::move(*pick.next), pick.pop_ns, send_ready_ns});
+                return;
+            }
+
+            const ManagedOrder& managed_order = std::get<ManagedOrder>(opened);
+            const bool          kis_called    = order_router_->kis_calls() != calls_before;
+
+            if (kis_called)
+            {
+                state.rate_limiter.note_sent(steady_clock::now());
+            }
+
+            settle_order(state, std::move(*pick.next), managed_order, kis_called, pick.pop_ns, send_ready_ns);
+            return;
+        }
+
+        const ManagedOrder managed_order = order_router_->submit(pick.next->signal);
+        const bool         kis_called    = order_router_->kis_calls() != calls_before;
+
+        if (kis_called)
+        {
+            state.rate_limiter.note_sent(steady_clock::now());
+        }
+
+        settle_order(state, std::move(*pick.next), managed_order, kis_called, pick.pop_ns, send_ready_ns);
+    }
+    catch (const std::exception& exception)
+    {
+        state.rate_limiter.note_sent(steady_clock::now());
+        LOG_ERROR("[OrderThread] 예외: " + std::string(exception.what()));
+        answer_order_request(request_sequence, ipc::OrderResult::kFailed, 0, exception.what());
+    }
+}
+
+// 끝내기 전에 보내는 중인 주문의 답을 다 받는다 — 안 받으면 INTENT만 적힌 채 이력에 안 남는다.
+//  뒤에 세워 둔 주문은 내지 않고 답만 돌려준다.
+void Engine::finish_order_loop(OrderLoopState& state)
+{
+    if (state.transport)
+    {
+        while (state.transport->in_flight() > 0)
+        {
+            wait_sent_orders(state, std::chrono::steady_clock::now() + state.idle_capture);
+        }
+    }
+
+    for (const OrderLoopState::ParkedOrder& parked_order : state.parked)
+    {
+        answer_order_request(parked_order.pending.signal.sequence, ipc::OrderResult::kRejected, 0, "종료로 내지 않음");
+    }
+
+    state.parked.clear();
 }
 
 // 갈라 띄운 주문 프로세스에는 시세가 오지 않아 모의 체결기의 대기 주문이 영영 안 찬다 — 산 적이 없으니

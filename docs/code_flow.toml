@@ -254,12 +254,12 @@ review = [
 
   [[stage.step]]
   sym = "Engine::collect_watch_specifications"
-  file = "Quant/src/core/EngineFeed.cpp"
+  file = "Quant/src/core/EngineFeedWatch.cpp"
   what = "전략들이 보는 종목(`WatchSpec`)을 모아 중복을 빼고 고정 종목을 앞에 둔다"
 
   [[stage.step]]
   sym = "Engine::send_watch_request"
-  file = "Quant/src/core/EngineFeed.cpp"
+  file = "Quant/src/core/EngineFeedWatch.cpp"
   what = "구독·해지·우선순위 요청을 제어 링으로 시세 프로세스에 보낸다"
 
 # ───────────────────────────────────────────────────────────────────────────────
@@ -277,12 +277,12 @@ review = [
 
   [[stage.step]]
   sym = "Engine::apply_feed_control_requests"
-  file = "Quant/src/core/EngineFeed.cpp"
+  file = "Quant/src/core/EngineFeedSlots.cpp"
   what = "control 스레드가 5초마다 제어 링에서 전략 쪽 구독 요청을 꺼내 대기열에 올린다"
 
   [[stage.step]]
   sym = "Engine::drain_pending_subscriptions"
-  file = "Quant/src/core/EngineFeed.cpp"
+  file = "Quant/src/core/EngineFeedWatch.cpp"
   what = "해지 먼저, 이어서 `subscribe_incremental`로 소켓에 추가 구독. 소켓 칸을 넘는 종목은 REST 폴러로 돌린다"
 
   [[stage.step]]
@@ -349,7 +349,7 @@ review = [
 
   [[stage.step]]
   sym = "tick_loop"
-  file = "Quant/src/ipc/DbManager.cpp"
+  file = "Quant/src/ipc/DbWorkers.cpp"
   match = "^void tick_loop\\(.*index\\)\\s*$"
   what = "적재 워커 — `batch_rows`가 차거나 `flush_ms`가 지나면 묶어서 `COPY ticks(ts,ticker,price,volume,direction,market)`. 끊기면 한 워커만 다시 붙어 본다"
   test = "test_db_manager"
@@ -577,7 +577,7 @@ review = [
 
   [[stage.step]]
   sym = "OrderGate::plan_displacement"
-  file = "Quant/src/risk/OrderGate.cpp"
+  file = "Quant/src/risk/OrderGateDisplace.cpp"
   what = "슬롯이 찼을 때 어느 보유를 내보낼지. 디스패처의 교체 진입이 이 계획을 쓴다"
   test = "test_order_gate"
 
@@ -715,7 +715,7 @@ review = [
 
   [[stage.step]]
   sym = "OrderGate::set_manual_halt"
-  file = "Quant/include/risk/OrderGate.h"
+  file = "Quant/src/risk/OrderGateState.cpp"
   what = "운영단말 HALT_REQ의 수동 정지 — 신규 매수·전략 매도를 따로 끈다. 국면의 `entry_halt_`와는 다른 플래그고 `is_entry_halted`에서만 OR로 합친다(D-091)"
   test = "test_order_gate"
 

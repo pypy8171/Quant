@@ -222,249 +222,6 @@ void Engine::setup_zmq_bridge()
 }
 #endif
 
-bool Engine::authenticate_feed(bool offline)
-{
-    // 피드를 직접 받았거나 캡처 파일을 트는 것이면 브로커 없이 돈다 — feed_.kis는 비고, 아래 KIS를 보는 경로는 전부 null을
-    //  "소스 없음"으로 다룬다. 리플레이의 종목은 config tickers(전략 구독)뿐이고 유니버스 스캔·REST 봉 시드는 없다. [why D-071]
-    if (offline)
-    {
-        LOG_INFO(std::string("[Engine] ") + (feed_.feed_override ? "피드 주입" : "리플레이") +
-                 " — KIS 없이 기동(주문·잔고는 모의 체결기)");
-        return true;
-    }
-
-    feed_.kis = std::make_unique<KisClient>(kis_config_);
-
-    if (!feed_.kis->authenticate())
-    {
-        LOG_ERROR("[Engine] KIS 인증 실패");
-        return false;
-    }
-
-    // 시세 전용 클라이언트(실전 도메인) — 모의 시세 REST가 HTTP 500이므로 시세만 실전으로 조회.
-    //  실패해도 feed_.kis(모의)로 폴백하되, 모의 시세는 500이라 사실상 틱이 안 나옴을 경고.
-    //  WS 모드에서도 만들어 둔다: WS가 죽어 폴링으로 낮출 때 쓸 시세 소스가 그때 가서는 없으면
-    //  폴백이 무의미해진다(모의 도메인으로 폴링하면 500만 쌓인다).
-    //  근거: 실측 — Quant/logs/archive/quant_trader_2026-08-06.log 509행(openapivts 시세 HTTP 500), docs/DECISIONS.md D-097(2026-09-23).
-    if (feed_.has_quote_kis)
-    {
-        feed_.quote_kis = std::make_unique<KisClient>(feed_.quote_kis_config);
-
-        if (!feed_.quote_kis->authenticate())
-        {
-            LOG_ERROR("[Engine] 시세 클라이언트(실전) 인증 실패 — 모의 시세로 폴백(틱 없을 수 있음)");
-            feed_.quote_kis.reset();
-        }
-        else
-        {
-            LOG_INFO("[Engine] 시세 클라이언트(실전 도메인) 인증 완료 — 현재가 폴링 소스");
-
-            // 실계좌는 시세 키가 주문 키의 사본이다 — 초당 한도를 둘이 따로 세면 같은 키로 두 배가 나간다. [why D-138]
-            if (feed_.quote_kis->share_rate_limit_with(*feed_.kis))
-            {
-                LOG_INFO("[Engine] 시세·주문 클라이언트가 같은 앱키 — 초당 호출 한도를 하나로 센다");
-            }
-        }
-    }
-
-    return true;
-}
-
-void Engine::setup_paper_executor(bool offline)
-{
-    // KIS가 없으면 주문·잔고는 모의 체결기가 받는다. [why D-071]
-    if (offline)
-    {
-        feed_.paper = std::make_unique<feed::PaperExecutor>(feed_.replay_cash, symbols_.table);
-        LOG_INFO("[Engine] 모의 체결기: 현금 " + std::to_string(static_cast<long long>(feed_.replay_cash)) + "원");
-    }
-}
-
-void Engine::set_paper_acknowledgement_delay(feed::PaperExecutor::AcknowledgementDelay delay)
-{
-    if (feed_.paper)
-    {
-        feed_.paper->set_acknowledgement_delay(std::move(delay));
-    }
-}
-
-void Engine::initialize_order_router()
-{
-    IOrderExecutor& executor = feed_.paper ? static_cast<IOrderExecutor&>(*feed_.paper) : *feed_.kis;
-
-    // FEP OrderRouter 초기화
-#ifdef HAS_ZMQ
-    order_router_ = std::make_unique<OrderRouter>(order_gate_, executor, zmq_bridge_.get());
-#else
-    order_router_ = std::make_unique<OrderRouter>(order_gate_, executor);
-#endif
-    LOG_INFO("[Engine] OrderRouter (FEP) 초기화 완료");
-    start_ops_server();
-
-    // 이전 세션이 남긴 미체결 주문을 취소한다. 건당 왕복이 3~5초라 여기서 기다리면
-    //  기동이 몇 분씩 멈춘다 — 목록을 읽고 부속 파일을 비우는 것만 여기서 하고 취소는
-    //  별도 스레드가 이어서 낸다. 잔고 시드가 이를 기다릴 필요는 없다: 미체결 취소는
-    //  보유수량을 바꾸지 않고 주문가능현금·매도가능수량만 푸는데 둘 다 주기 잔고 대조가
-    //  다시 읽는다.
-    order_router_->cancel_stale_orders_async();
-}
-
-void Engine::initialize_ledger_reconciler()
-{
-    // 잔고 → 장부 대조기. 브로커·라우터·종목명은 함수로 넘겨 대조기가 KisClient·OrderRouter를 모르게 한다. [why D-061]
-    ledger_ = std::make_unique<LedgerReconciler>(order_gate_,
-                                                 [this]
-                                                 {
-                                                     return feed_.paper ? feed_.paper->balance() : feed_.kis->get_balance();
-                                                 });
-    ledger_->set_account_no(feed_.kis ? feed_.kis->account_no() : std::string("PAPER"));
-    ledger_->set_baseline_directory(Logger::instance().base_directory()); // 실행 위치와 무관하게 로그 폴더와 같은 곳
-    ledger_->set_name_sink([this](const std::string& ticker, const std::string& name)
-    {
-        register_ticker_name(ticker, name);
-    });
-    ledger_->set_reconcile_sink([this](const reconcile::Row& row)
-    {
-        order_router_->record_reconcile(row);
-    });
-}
-
-void Engine::initialize_data_poller()
-{
-    // REST 현재가 폴러. 시세는 시세 전용 클라이언트가 있으면 그쪽(실전 도메인 초당 한도가 높다). [why D-062]
-    //  [lock-order] 폴러 스레드는 pipeline_.trade_matrix의 WS 수신 스레드 행에 넣지 않는다 — 폴러의 틱은 자기 행(pipeline_.data_row())으로 간다.
-    poller_ = std::make_unique<DataPoller>(
-        [this](const std::string& ticker)
-        {
-            KisClient* quote_client = feed_.quote_kis ? feed_.quote_kis.get() : feed_.kis.get();
-            return quote_client ? quote_client->get_current_price(ticker) : 0.0;
-        },
-        [this](TradeData trade)
-        {
-            trade.symbol_id       = lookup_symbol(trade.ticker);
-
-            // 갈라 띄우면 샤드가 저쪽에 있다 — WS 수신 스레드와 같은 길로 통로에 넣고, 꺼내 가르는 일은
-            //  전략 쪽 줄 스레드가 한다. 줄 번호는 행렬의 폴러 행과 같은 자리다(폴러 몫 한 줄).
-            //  [inv] 이 줄에 넣는 스레드는 폴러의 조회 스레드 하나다 — SPSC가 그 위에 서 있다. [why D-114] [why D-138]
-            //  단계 5부터 소켓과 넘침 폴러를 쥔 쪽은 시세 프로세스다 — 여기 넣는 쪽도 그쪽 하나다.
-            if (role_ == ProcessRole::Feed)
-            {
-                push_feed_trade(pipeline_.data_row(), trade);
-                return;
-            }
-
-            shard::for_each_shard(pipeline_.routes.mask(trade.symbol_id), pipeline_.trade_matrix.consumer_of(trade.symbol_id),
-                                  [&](uint32_t consumer)
-            {
-                while (!pipeline_.trade_matrix.push_to(pipeline_.data_row(), consumer, trade) && running_.load(std::memory_order_acquire))
-                {
-                    std::this_thread::sleep_for(1ms);
-                }
-
-                pipeline_.shards[consumer]->wake().notify();
-            });
-        });
-    poller_->set_keep_going([this]
-    {
-        return running_.load(std::memory_order_acquire);
-    });
-    // 넘침·폴백 조회는 30종목씩 멀티종목 시세 한 건으로 받는다. 실패한 묶음은 폴러가 한 종목씩 다시 받는다.
-    //  첫 실패만 KIS 오류 코드를 남긴다(모의 도메인 지원 여부를 공식 자료로 확인하지 못했다). [why D-150]
-    poller_->set_batch_quote(
-        [this, failure_logged = false](const std::vector<std::string>& tickers) mutable -> std::optional<std::vector<double>>
-        {
-            KisClient* quote_client = feed_.quote_kis ? feed_.quote_kis.get() : feed_.kis.get();
-
-            if (!quote_client)
-            {
-                return std::nullopt;
-            }
-
-            auto prices = quote_client->get_current_prices(tickers);
-
-            if (!prices)
-            {
-                if (!failure_logged)
-                {
-                    failure_logged = true;
-                    LOG_WARN("[Engine] 멀티종목 시세 조회 실패 - error(" + error_text(prices) + ") paper(" +
-                             std::string(quote_client->is_paper() ? "true" : "false") + ")");
-                }
-
-                return std::nullopt;
-            }
-
-            return std::move(*prices);
-        },
-        KisClient::kMultiPriceMax);
-}
-
-bool Engine::try_open_ledger_journal()
-{
-    auto& ledger = order_gate_.ledger();
-
-    if (ledger_journal_directory_.empty())
-    {
-        return true;
-    }
-
-    // 단일 계좌 키("")로 적히는 레코드에 실을 계좌 번호 — DB fills·orders·positions가 계좌를 가르는 칸이다.
-    ledger.set_journal_account(feed_.kis ? feed_.kis->account_no() : std::string("PAPER"));
-
-    // 오늘 파일을 열고 처음부터 다시 적용한다 — 재기동 전 선점·체결·대조가 장부에 되살아난다. 못 열면 장부 없이
-    //  주문이 나가는 셈이라 기동을 거부한다(감시견이 다시 띄운다). [why D-113]
-    if (!ledger.set_journal(utf8::path_from_utf8(ledger_journal_directory_), kst::date_yyyymmdd(std::time(nullptr)),
-                                 ledger_journal_fsync_))
-    {
-        LOG_ERROR("[Engine] 장부 저널을 못 열어 기동하지 않는다: " + ledger_journal_directory_);
-        return false;
-    }
-
-    const auto& replay = ledger.journal_replay();
-    LOG_INFO("[Engine] 장부 저널 리플레이: " + std::to_string(replay.applied) + "건 (마지막 seq " +
-             std::to_string(replay.last_sequence) + (replay.truncated_tail ? ", 꼬리 잘림" : "") + ")");
-    return true;
-}
-
-// 저널 리플레이가 남긴 미결 주문 — 엔진이 죽은 순간 호가창에 살아 있었을 주문이다. 잔고 시드가 끝난 뒤에 부른다:
-//  체결로 닫힌 주문은 시드가 이미 보유에 반영했고, 여기서는 주문 쪽(이력·선점)만 맞춘다. [why D-113]
-void Engine::resolve_open_intents()
-{
-    auto& ledger = order_gate_.ledger();
-    order_router_->continue_order_numbers(ledger.highest_order_id());
-
-    const auto intents = ledger.open_intents();
-
-    if (intents.empty())
-    {
-        LOG_INFO("[Engine] 장부 미결 주문 대조: 되살림 0건 · 선점해제 0건 · 저널기록실패 " +
-                 std::to_string(ledger.journal_failures()) + "건");
-        return;
-    }
-
-    const auto adopted = order_router_->adopt_open_intents(intents);
-    LOG_INFO("[Engine] 장부 미결 주문 대조: 되살림 " + std::to_string(adopted.restored) + "건 · 선점해제 " +
-             std::to_string(adopted.released) + "건 · 저널기록실패 " + std::to_string(ledger.journal_failures()) + "건");
-}
-
-bool Engine::try_bootstrap_ledger()
-{
-    // G5: 실계좌 보유분을 장부에 시드 (스레드 시작 전, 단일스레드 구간)
-    if (!bootstrap_ledger_)
-    {
-        return true;
-    }
-
-    if (ledger_->bootstrap())
-    {
-        return true;
-    }
-
-    // running_이 아직 false라 main 루프가 바로 빠지고, 감시자가 5초 뒤 다시 띄운다.
-    LOG_ERROR("[Engine] 장부 없이 기동하지 않는다 — 프로세스 종료");
-    return false;
-}
-
 uint64_t Engine::fill_channel_overflows()
 {
     return layout_.fills().overflow();
@@ -576,69 +333,12 @@ void Engine::start()
 
     LOG_INFO("[Engine] ── 퀀트 엔진 시작 ──────────────────────────────");
 
-    // 자리표부터 맞춘다. 뒤에 오는 setup_shards 가 전략이 다루는 종목을 표에 올리는데, 그때 표가
-    //  아직 힙 것이면 거기 찍힌 번호가 곧 버려진다 — 갈라 띄운 쪽은 그 번호로 시세를 못 알아본다.
-    //  소켓 수는 setup_shards 가 쓰는 것과 같은 셈(websocket_lane_count)이라 먼저 물어도 된다.
-    //  줄 하나를 더 둔다 — 마지막 줄은 구독 상한에 밀린 종목을 REST로 대신 흘리는 자리다(넣는 쪽은
-    //  시세 역할 프로세스의 데이터 스레드 하나). 행렬이 데이터 스레드 행을 따로 두는 것과 같은 모양이다. [why D-114]
-    const uint32_t feed_lane_count = websocket_lane_count() + 1;
-
-    if (layout_config_.feed_lanes != feed_lane_count)
+    if (!prepare_layout_and_shards())
     {
-        // 쪽지를 이미 열었으면 여기서 다시 깔면 안 된다 — 쪽지 위 종목 표·전략 이름표가 0으로 밀려,
-        //  설정을 읽고 전략을 올리며 찍어 둔 번호 수백 개가 통째로 사라진다. configure()가 같은 셈으로
-        //  미리 깔아 두므로 여기서 갈리는 것은 그 뒤에 피드가 더 붙었다는 뜻이다 — 조용히 넘기지 않는다.
-        //  아직 안 열었으면(설정을 안 읽고 역할만 준 길) 여기서 처음 여는 것이라 잃을 번호가 없다. [why D-114]
-        if (layout_region_.is_open())
-        {
-            LOG_ERROR("[Engine] 시세 줄 수가 설정을 읽을 때와 다르다(" + std::to_string(layout_config_.feed_lanes) +
-                      "→" + std::to_string(feed_lane_count) + ") — 갈라 띄운 채로는 다시 깔 수 없어 뜨지 않는다");
-            return;
-        }
-
-        if (!bind_layout(feed_lane_count))
-        {
-            LOG_ERROR("[Engine] 시세 줄 " + std::to_string(feed_lane_count) + "개로 자리표를 다시 못 깔았다");
-            return;
-        }
-    }
-
-    // 틱 파이프라인 자리는 역할에 상관없이 그대로 깐다. 샤드 스레드를 띄우는 것은 전략 역할뿐이라
-    //  (spawn_threads) 주문·시세 쪽에서는 아무도 돌지 않지만, 자리는 아직 잡는다 — 떼는 것은 남은 일이다
-    //  (docs/DECISIONS.md D-114 단계 5 "남은 것"). [why D-114 단계 5]
-    setup_shards();
-
-    // [inv] 자리표를 깔 때 쓴 셈과 샤드가 실제로 연 줄 수는 같아야 한다 — 다르면 통로의 줄 자리가
-    //  어긋나 건너편이 남의 줄을 읽는다.
-    if (pipeline_.websocket_lanes + 1 != layout_config_.feed_lanes)
-    {
-        LOG_ERROR("[Engine] 시세 줄 수가 자리표와 어긋난다(" + std::to_string(layout_config_.feed_lanes) + "→" +
-                  std::to_string(pipeline_.websocket_lanes + 1) + ") — 통로 자리가 밀려 뜨지 않는다");
         return;
     }
 
-#ifdef HAS_PQ
-    // DB 적재 워커는 다른 스레드보다 먼저 띄워 끝까지 둔다. 체결은 시세 쪽 수신 스레드로만 들어오므로
-    //  체결 워커는 시세 쪽 프로세스에만 둔다. [why D-148]
-    //  신호·헬스는 역할마다 제 것을 넣는다 — 신호는 전략 쪽, 헬스는 모든 역할의 데이터 스레드. [why D-154]
-    if (database_config_.enabled)
-    {
-        db::DbConfig config = database_config_;
-        config.tick_workers = runs_feed_side() ? config.tick_workers : 0;
-        config.account      = kis_config_.account_no;
-        config.role         = role_.to_string();
-        database_           = std::make_unique<db::DbManager>(std::move(config));
-    }
-#endif
-
-#ifdef HAS_ZMQ
-    // 발행 채널은 역할마다 하나씩 둔다 — 시세는 체결을, 전략은 신호를, 주문은 주문·체결통보를 낸다.
-    //  제어(KILL·잔고 조회)는 주문 쪽 포트에만 붙어 전략이 멎어도 살아 있다. [why D-114]
-    if (zmq_enabled_)
-    {
-        setup_zmq_bridge();
-    }
-#endif
+    start_database_and_bridge();
 
     const bool offline = feed_.feed_override != nullptr || !feed_.replay_file.empty() || feed_.broker_offline;
 
@@ -655,31 +355,10 @@ void Engine::start()
 
     if (runs_order_side())
     {
-        setup_paper_executor(offline);
-        initialize_order_router();
-        initialize_ledger_reconciler();
-
-        // 갈라 띄운 주문 프로세스의 모의 체결기에는 체결을 낼 길이 없다 — 틱은 시세 프로세스로만 가고
-        //  (connect_feed 가 거기서 콜백을 건다), 그대로 두면 대기 주문이 영영 안 차서 보유 수량이 0이고
-        //  매도가 전량 40240000으로 거부된다(09-25 실측 6,060건). 여기서 콜백만 걸고, 틱은 주문 스레드가
-        //  접수를 마친 뒤 지어 먹인다(feed_paper_fill_tick) — 이 역할에는 WS 생산자가 없어 큐 생산자는
-        //  주문 스레드 하나로 남는다. [why D-114 단계 5]
-        if (feed_.paper && !runs_feed_side())
-        {
-            feed_.paper->set_fill_callback(
-                [this](const FillNotification& fill_notification)
-                {
-                    push_fill_notification(fill_notification);
-                });
-        }
-
-        // 장부 파일·미결주문 파일은 한 프로세스만 연다 — 둘이 같은 파일을 쓰면 줄이 섞인다. [why D-114]
-        if (!try_open_ledger_journal() || !try_bootstrap_ledger())
+        if (!start_order_side(offline))
         {
             return;
         }
-
-        resolve_open_intents();
     }
 
     if (runs_strategy_side())
@@ -709,9 +388,176 @@ void Engine::start()
     LOG_INFO("[Engine] 모든 스레드 시작 완료");
 }
 
-void Engine::set_role(ProcessRole role)
+// start() 단계 — 자리표를 소켓 수에 맞추고 샤드를 깐다. 뜨면 안 되는 상태면 거짓을 돌려주고 start()가 접는다.
+bool Engine::prepare_layout_and_shards()
 {
-    role_ = role;
+    // 자리표부터 맞춘다. 뒤에 오는 setup_shards 가 전략이 다루는 종목을 표에 올리는데, 그때 표가
+    //  아직 힙 것이면 거기 찍힌 번호가 곧 버려진다 — 갈라 띄운 쪽은 그 번호로 시세를 못 알아본다.
+    //  소켓 수는 setup_shards 가 쓰는 것과 같은 셈(websocket_lane_count)이라 먼저 물어도 된다.
+    //  줄 하나를 더 둔다 — 마지막 줄은 구독 상한에 밀린 종목을 REST로 대신 흘리는 자리다(넣는 쪽은
+    //  시세 역할 프로세스의 데이터 스레드 하나). 행렬이 데이터 스레드 행을 따로 두는 것과 같은 모양이다. [why D-114]
+    const uint32_t feed_lane_count = websocket_lane_count() + 1;
+
+    if (layout_config_.feed_lanes != feed_lane_count)
+    {
+        // 쪽지를 이미 열었으면 여기서 다시 깔면 안 된다 — 쪽지 위 종목 표·전략 이름표가 0으로 밀려,
+        //  설정을 읽고 전략을 올리며 찍어 둔 번호 수백 개가 통째로 사라진다. configure()가 같은 셈으로
+        //  미리 깔아 두므로 여기서 갈리는 것은 그 뒤에 피드가 더 붙었다는 뜻이다 — 조용히 넘기지 않는다.
+        //  아직 안 열었으면(설정을 안 읽고 역할만 준 길) 여기서 처음 여는 것이라 잃을 번호가 없다. [why D-114]
+        if (layout_region_.is_open())
+        {
+            LOG_ERROR("[Engine] 시세 줄 수가 설정을 읽을 때와 다르다(" + std::to_string(layout_config_.feed_lanes) +
+                      "→" + std::to_string(feed_lane_count) + ") — 갈라 띄운 채로는 다시 깔 수 없어 뜨지 않는다");
+            return false;
+        }
+
+        if (!bind_layout(feed_lane_count))
+        {
+            LOG_ERROR("[Engine] 시세 줄 " + std::to_string(feed_lane_count) + "개로 자리표를 다시 못 깔았다");
+            return false;
+        }
+    }
+
+    // 틱 파이프라인 자리는 역할에 상관없이 그대로 깐다. 샤드 스레드를 띄우는 것은 전략 역할뿐이라
+    //  (spawn_threads) 주문·시세 쪽에서는 아무도 돌지 않지만, 자리는 아직 잡는다 — 떼는 것은 남은 일이다
+    //  (docs/DECISIONS.md D-114 단계 5 "남은 것"). [why D-114 단계 5]
+    setup_shards();
+
+    // [inv] 자리표를 깔 때 쓴 셈과 샤드가 실제로 연 줄 수는 같아야 한다 — 다르면 통로의 줄 자리가
+    //  어긋나 건너편이 남의 줄을 읽는다.
+    if (pipeline_.websocket_lanes + 1 != layout_config_.feed_lanes)
+    {
+        LOG_ERROR("[Engine] 시세 줄 수가 자리표와 어긋난다(" + std::to_string(layout_config_.feed_lanes) + "→" +
+                  std::to_string(pipeline_.websocket_lanes + 1) + ") — 통로 자리가 밀려 뜨지 않는다");
+        return false;
+    }
+
+    return true;
+}
+
+// start() 단계 — DB 적재 워커와 ZMQ 다리를 다른 스레드보다 먼저 띄운다.
+void Engine::start_database_and_bridge()
+{
+#ifdef HAS_PQ
+    // DB 적재 워커는 다른 스레드보다 먼저 띄워 끝까지 둔다. 체결은 시세 쪽 수신 스레드로만 들어오므로
+    //  체결 워커는 시세 쪽 프로세스에만 둔다. [why D-148]
+    //  신호·헬스는 역할마다 제 것을 넣는다 — 신호는 전략 쪽, 헬스는 모든 역할의 데이터 스레드. [why D-154]
+    if (database_config_.enabled)
+    {
+        db::DbConfig config = database_config_;
+        config.tick_workers = runs_feed_side() ? config.tick_workers : 0;
+        config.account      = kis_config_.account_no;
+        config.role         = role_.to_string();
+        database_           = std::make_unique<db::DbManager>(std::move(config));
+    }
+#endif
+
+#ifdef HAS_ZMQ
+    // 발행 채널은 역할마다 하나씩 둔다 — 시세는 체결을, 전략은 신호를, 주문은 주문·체결통보를 낸다.
+    //  제어(KILL·잔고 조회)는 주문 쪽 포트에만 붙어 전략이 멎어도 살아 있다. [why D-114]
+    if (zmq_enabled_)
+    {
+        setup_zmq_bridge();
+    }
+#endif
+}
+
+// start() 단계 — 주문 쪽 준비(모의 체결기·주문 라우터·잔고 대조기·장부 저널·잔고 시드). 장부를 못 열면 거짓.
+bool Engine::start_order_side(bool offline)
+{
+    setup_paper_executor(offline);
+    initialize_order_router();
+    initialize_ledger_reconciler();
+
+    // 갈라 띄운 주문 프로세스의 모의 체결기에는 체결을 낼 길이 없다 — 틱은 시세 프로세스로만 가고
+    //  (connect_feed 가 거기서 콜백을 건다), 그대로 두면 대기 주문이 영영 안 차서 보유 수량이 0이고
+    //  매도가 전량 40240000으로 거부된다(09-25 실측 6,060건). 여기서 콜백만 걸고, 틱은 주문 스레드가
+    //  접수를 마친 뒤 지어 먹인다(feed_paper_fill_tick) — 이 역할에는 WS 생산자가 없어 큐 생산자는
+    //  주문 스레드 하나로 남는다. [why D-114 단계 5]
+    if (feed_.paper && !runs_feed_side())
+    {
+        feed_.paper->set_fill_callback(
+            [this](const FillNotification& fill_notification)
+            {
+                push_fill_notification(fill_notification);
+            });
+    }
+
+    // 장부 파일·미결주문 파일은 한 프로세스만 연다 — 둘이 같은 파일을 쓰면 줄이 섞인다. [why D-114]
+    if (!try_open_ledger_journal() || !try_bootstrap_ledger())
+    {
+        return false;
+    }
+
+    resolve_open_intents();
+    return true;
+}
+
+// stop() 단계 — 스레드를 정해진 순서로 회수한다. 순서의 까닭은 줄마다 주석에 적었다.
+void Engine::join_threads()
+{
+    // 역순 join 권장: control → order → strategy → data. fill_thread는 WS를 끊은 뒤에 join한다(아래).
+    if (control_thread_.joinable())
+    {
+        control_thread_.join();
+    }
+
+    if (order_thread_.joinable())
+    {
+        order_thread_.join();
+    }
+
+    // 폴러 조회 스레드는 샤드보다 먼저 — 폴러 행의 생산자라 샤드가 선 뒤에 넣으면 받을 쪽이 없다.
+    if (poller_)
+    {
+        poller_->join();
+    }
+
+    // 줄 스레드가 먼저 — 줄이 넣던 시세를 샤드가 비운 뒤 선다(샤드 행렬의 생산자가 이 스레드다).
+    for (auto& feed_lane_thread : feed_lane_threads_)
+    {
+        if (feed_lane_thread.joinable())
+        {
+            feed_lane_thread.join();
+        }
+    }
+
+    // 그 다음 샤드 — 샤드가 넣던 봉투를 전략 스레드가 비운 뒤 선다.
+    for (auto& shard_thread : pipeline_.shard_threads)
+    {
+        if (shard_thread.joinable())
+        {
+            shard_thread.join();
+        }
+    }
+
+    if (strategy_thread_.joinable())
+    {
+        strategy_thread_.join();
+    }
+
+    if (data_thread_.joinable())
+    {
+        data_thread_.join();
+    }
+
+    if (feed_.websocket)
+    {
+        feed_.websocket->disconnect();
+    }
+
+    // disconnect()가 수신 스레드를 join하므로 이 뒤로는 push가 없다. fill_thread는 큐가 빌 때까지 돌고 끝난다.
+    if (fill_thread_.joinable())
+    {
+        fill_thread_.join();
+    }
+
+    // 장부 사본 스레드는 맨 뒤 — 고치는 쪽(주문·체결)이 다 선 뒤에 마지막 한 판을 내고 끝나야
+    //  읽는 쪽이 보는 마지막 사본이 실제 마지막 상태가 된다.
+    if (ledger_thread_.joinable())
+    {
+        ledger_thread_.join();
+    }
 }
 
 // 전략에 주는 매도가능수량. 게이트 clamp와 같은 식(possible_quantity_cap - pending)이라 전략이 낸 수량이 게이트에서
@@ -814,68 +660,7 @@ void Engine::stop()
 
     LOG_INFO("[Engine] 종료 시작");
 
-    // 역순 join 권장: control → order → strategy → data. fill_thread는 WS를 끊은 뒤에 join한다(아래).
-    if (control_thread_.joinable())
-    {
-        control_thread_.join();
-    }
-
-    if (order_thread_.joinable())
-    {
-        order_thread_.join();
-    }
-
-    // 폴러 조회 스레드는 샤드보다 먼저 — 폴러 행의 생산자라 샤드가 선 뒤에 넣으면 받을 쪽이 없다.
-    if (poller_)
-    {
-        poller_->join();
-    }
-
-    // 줄 스레드가 먼저 — 줄이 넣던 시세를 샤드가 비운 뒤 선다(샤드 행렬의 생산자가 이 스레드다).
-    for (auto& feed_lane_thread : feed_lane_threads_)
-    {
-        if (feed_lane_thread.joinable())
-        {
-            feed_lane_thread.join();
-        }
-    }
-
-    // 그 다음 샤드 — 샤드가 넣던 봉투를 전략 스레드가 비운 뒤 선다.
-    for (auto& shard_thread : pipeline_.shard_threads)
-    {
-        if (shard_thread.joinable())
-        {
-            shard_thread.join();
-        }
-    }
-
-    if (strategy_thread_.joinable())
-    {
-        strategy_thread_.join();
-    }
-
-    if (data_thread_.joinable())
-    {
-        data_thread_.join();
-    }
-
-    if (feed_.websocket)
-    {
-        feed_.websocket->disconnect();
-    }
-
-    // disconnect()가 수신 스레드를 join하므로 이 뒤로는 push가 없다. fill_thread는 큐가 빌 때까지 돌고 끝난다.
-    if (fill_thread_.joinable())
-    {
-        fill_thread_.join();
-    }
-
-    // 장부 사본 스레드는 맨 뒤 — 고치는 쪽(주문·체결)이 다 선 뒤에 마지막 한 판을 내고 끝나야
-    //  읽는 쪽이 보는 마지막 사본이 실제 마지막 상태가 된다.
-    if (ledger_thread_.joinable())
-    {
-        ledger_thread_.join();
-    }
+    join_threads();
 
 #ifdef HAS_ZMQ
     if (zmq_bridge_)
@@ -912,154 +697,4 @@ void Engine::stop()
     layout_region_.mark_clean_shutdown(
         static_cast<ipc::SharedShutdownReason>(shutdown_reason_.load(std::memory_order_relaxed)));
     LOG_INFO("[Engine] 종료 완료");
-}
-
-// 제어 요청 한 줄을 전략 스레드가 옮겨 줄 통로에 싣는다. 순번과 보낸 시각은 여기서 찍는다. 통로가 가득이면
-//  거짓을 돌려주고 버린 수(control_dropped)만 센다 — 표를 보내는 쪽이 그 판을 접는다. [why D-114]
-// 스캔 스레드가 슬리브마다 부른다(20초 간격). 파일은 임시 이름으로 쓰고 바꿔치기해
-//  대시보드가 반쯤 쓰인 JSON을 읽지 않게 한다. 쓰기 실패는 매매와 무관하므로 경고만 남긴다.
-void Engine::set_entry_priority(const std::vector<OrderGate::PriorityEntry>& entries, int total)
-{
-    nlohmann::json scores = nlohmann::json::object();
-
-    for (const auto& entry : entries)
-    {
-        scores[symbols_.table.name(entry.symbol).string()] = {{"rank", entry.rank}, {"z", entry.z_score}};
-    }
-
-    // 표를 게이트에 바로 걸지 않고 주문 스레드로 보낸다 — 표를 고치는 것은 단일 시퀀서다(원칙 4).
-    //  부르는 쪽이 스캔 스레드라 프로세스가 갈리면 이 자리가 통째로 막힌다. [why D-114]
-    {
-        ipc::ControlRequest open;
-        open.kind = ipc::ControlKind::kEntryPriorityBegin;
-
-        if (control_plane_.send(open))
-        {
-            uint32_t sent = 0;
-            bool     full = false;
-
-            for (const OrderGate::PriorityEntry& entry : entries)
-            {
-                ipc::ControlRequest row;
-                row.kind      = ipc::ControlKind::kEntryPriorityEntry;
-                row.batch     = open.sequence;
-                row.symbol_id = entry.symbol;
-                row.rank      = entry.rank;
-                row.score_z   = entry.z_score;
-
-                if (!control_plane_.send(row))
-                {
-                    full = true;
-                    break;
-                }
-
-                ++sent;
-            }
-
-            if (full)
-            {
-                LOG_WARN("[Engine] 진입 우선순위 표를 보내다 통로가 가득 찼다 — 이번 판을 접는다(보낸 " +
-                         std::to_string(sent) + "줄)");
-            }
-            else
-            {
-                ipc::ControlRequest close;
-                close.kind      = ipc::ControlKind::kEntryPriorityCommit;
-                close.batch     = open.sequence;
-                close.rank      = total;
-                close.row_count = sent;
-
-                if (!control_plane_.send(close))
-                {
-                    LOG_WARN("[Engine] 진입 우선순위 표 마무리를 못 보냈다 — 이번 판은 걸리지 않는다");
-                }
-            }
-        }
-        else
-        {
-            LOG_WARN("[Engine] 진입 우선순위 " + std::to_string(entries.size()) +
-                     "종목 — 제어 통로가 가득 차 이번 판을 접는다");
-        }
-    }
-
-    static std::mutex file_mutex; // 두 슬리브가 겹쳐 불러도 파일은 한 번에 하나만 쓴다
-    std::lock_guard<std::mutex> lock(file_mutex);
-    const auto path = Logger::instance().base_directory() / "entry_scores.json";
-    const auto temporary  = Logger::instance().base_directory() / "entry_scores.json.tmp";
-    std::error_code error_code;
-    {
-        std::ofstream output_file(temporary, std::ios::trunc);
-
-        if (!output_file.is_open())
-        {
-            LOG_WARN("[Engine] entry_scores.json 쓰기 실패: " + temporary.string());
-            return;
-        }
-
-        const auto now = std::chrono::system_clock::now();
-        output_file << nlohmann::json{{"ts", std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count()},
-                             {"total", total},
-                             {"unscored_z", order_gate_.config().displace_unscored_z},
-                             {"scores", std::move(scores)}}
-                  .dump();
-    }
-
-    std::filesystem::rename(temporary, path, error_code);
-
-    if (error_code)
-    {
-        LOG_WARN("[Engine] entry_scores.json 교체 실패: " + error_code.message());
-    }
-}
-
-void Engine::set_session_end(int close_min, int grace_sec)
-{
-    session_end::Config config;
-    config.close_min = close_min;
-    config.grace_sec = grace_sec;
-    session_end_ = session_end::Judge(config);
-}
-
-void Engine::set_universe_rescan(std::function<std::vector<symbol::SymbolId>(KisClient&)> universe_fn,
-                                 std::function<std::unique_ptr<StrategyBase>(symbol::SymbolId)> factory,
-                                 int interval_sec, size_t max_registered, int drop_after_sec, int block_after_sec,
-                                 int return_confirm, bool follow_board)
-{
-    // 슬리브마다 한 번씩 부른다 — 덮어쓰지 않고 쌓는다. 예전에는 단일 슬롯이라
-    //  두 번째 호출이 첫 번째를 조용히 지웠다(먼저 건 재스캔이 사라짐).
-    UniverseRescan::Job rescan_job;
-    rescan_job.universe_fn = std::move(universe_fn);
-    rescan_job.factory = std::move(factory);
-    rescan_job.interval_sec = interval_sec;
-    rescan_job.max_registered = max_registered;
-    rescan_job.drop_after_sec = drop_after_sec;
-    rescan_job.block_after_sec = block_after_sec;
-    rescan_job.return_confirm = return_confirm;
-    rescan_job.follow_board = follow_board;
-    universe_rescan_.add_job(std::move(rescan_job));
-}
-
-void Engine::set_zmq_control(const std::string& bind_address, const std::string& token)
-{
-    if (!bind_address.empty())
-    {
-        zmq_bind_address_ = bind_address;
-    }
-
-    zmq_control_token_ = token;
-}
-
-void Engine::set_protective_orders(const std::string& mode, int interval_ms, int retry_ms)
-{
-    protective_book_.set_mode(risk::protective_mode_from_string(mode));
-    protective_interval_ = std::chrono::milliseconds(interval_ms > 0 ? interval_ms : kProtectiveIntervalMsDefault);
-    protective_book_.set_retry_interval(std::chrono::milliseconds(retry_ms > 0 ? retry_ms : kProtectiveRetryMsDefault));
-}
-
-void Engine::mark_exit_managed(symbol::SymbolId symbol)
-{
-    if (symbol != symbol::kNone && symbol < symbols_.exit_managed.size())
-    {
-        symbols_.exit_managed[symbol] = true;
-    }
 }

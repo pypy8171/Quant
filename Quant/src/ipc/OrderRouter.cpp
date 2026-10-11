@@ -1,5 +1,6 @@
 // 주문 라우터 — 생성·소멸, 미결주문 스냅샷, 이력 색인, 통계. 파일 쓰기는 OrderJournal.cpp가 맡는다.
-//  발주 경로는 OrderRouterSubmit.cpp, 기동·재확인 대조는 OrderRouterReconcile.cpp, 체결은 OrderRouterFill.cpp.
+//  신규 발주는 OrderRouterSubmit.cpp, 취소·정정은 OrderRouterModify.cpp, 막힌 매도 정리는 OrderRouterBlockedSell.cpp,
+//  기동·재확인 대조는 OrderRouterReconcile.cpp, 체결은 OrderRouterFill.cpp.
 #include "ipc/OrderRouter.h"
 #include "ipc/SideLabel.h"
 

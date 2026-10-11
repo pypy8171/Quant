@@ -185,6 +185,10 @@ set(HEADER_IMPL_SOURCES
   src/strategy/VwapPullbackRules.cpp
   src/strategy/VwapPullbackStrategy.cpp
   src/strategy/DeviationScaleStrategy.cpp
+  src/strategy/DeviationScaleZone.cpp
+  src/strategy/DeviationScaleOrders.cpp
+  src/strategy/DeviationScaleExit.cpp
+  src/strategy/DeviationScaleBars.cpp
   src/strategy/FixedIntervalStrategy.cpp
   src/strategy/IntradayBreakoutStrategy.cpp
   src/strategy/MarketMakingStrategy.cpp
@@ -205,7 +209,10 @@ set(ENGINE_SOURCES
   src/universe/UniverseCandidates.cpp
   src/universe/UniverseFeatures.cpp
   src/universe/MarketBoard.cpp
+  src/universe/MarketBoardParse.cpp
   src/regime/RegimeFeed.cpp
+  src/regime/RegimeFeedParse.cpp
+  src/regime/RegimeFeedScore.cpp
   src/universe/UniverseItb.cpp
   src/universe/UniverseQuotes.cpp
   src/universe/UniverseRiskGate.cpp
@@ -222,11 +229,15 @@ set(ENGINE_SOURCES
   src/core/EngineControlThread.cpp
   src/core/EngineDataThread.cpp
   src/core/EngineFeed.cpp
+  src/core/EngineFeedSlots.cpp
+  src/core/EngineFeedWatch.cpp
   src/core/EngineFillThread.cpp
   src/core/EngineLedgerThread.cpp
   src/core/EngineLayout.cpp
   src/core/EngineOrderThread.cpp
   src/core/EngineRegime.cpp
+  src/core/EngineSetters.cpp
+  src/core/EngineStartupSetup.cpp
   src/core/EngineOpsServer.cpp
   src/core/EngineStrategyThread.cpp
   src/core/EngineSymbols.cpp
@@ -244,10 +255,18 @@ set(ENGINE_SOURCES
   src/strategy/TargetBasketStrategy.cpp
   src/strategy/SurgeHoldPlan.cpp
   src/strategy/SurgeHoldStrategy.cpp
+  src/strategy/SurgeHoldState.cpp
+  src/strategy/SurgeHoldBuys.cpp
+  src/strategy/SurgeHoldExits.cpp
   src/risk/OrderGate.cpp
+  src/risk/OrderGateDisplace.cpp
+  src/risk/OrderGateState.cpp
   src/risk/LedgerKeys.cpp
   src/risk/EntryPriority.cpp
   src/risk/PositionLedger.cpp
+  src/risk/PositionLedgerJournal.cpp
+  src/risk/PositionLedgerQuery.cpp
+  src/risk/PositionLedgerReconcile.cpp
   src/utils/Logger.cpp
   src/utils/Timer.cpp
 )
@@ -255,7 +274,8 @@ set(ENGINE_SOURCES
 # 주문 라우터 소스 — 엔진·test_order_router·bench_order_router_submit이 같은 목록을 쓴다
 set(ORDER_ROUTER_SOURCES src/ipc/OrderRouter.cpp src/ipc/OrderRouterSubmit.cpp src/ipc/OrderRouterReconcile.cpp
     src/ipc/OrderRouterFill.cpp src/ipc/OrderJournal.cpp
-    src/ipc/OrderHistory.cpp)
+    src/ipc/OrderHistory.cpp
+    src/ipc/OrderRouterModify.cpp src/ipc/OrderRouterBlockedSell.cpp)
 list(APPEND ENGINE_SOURCES ${ORDER_ROUTER_SOURCES} src/ipc/OpsServer.cpp)
 
 if(ZMQ_FOUND)
@@ -263,7 +283,7 @@ if(ZMQ_FOUND)
 endif()
 
 if(PostgreSQL_FOUND)
-  list(APPEND ENGINE_SOURCES src/ipc/DbManager.cpp)
+  list(APPEND ENGINE_SOURCES src/ipc/DbManager.cpp src/ipc/DbConnection.cpp src/ipc/DbCopyFormat.cpp src/ipc/DbWorkers.cpp)
 endif()
 
 # ─── 헤더에서 내려온 구현 ────────────────────────────
@@ -352,6 +372,7 @@ endif()
 
 # ─── 테스트 타겟: OrderGate 단위 테스트 ──────────────────────────────────
 add_executable(test_order_gate tests/test_order_gate.cpp src/risk/OrderGate.cpp src/ipc/LedgerSnapshot.cpp)
+target_sources(test_order_gate PRIVATE tests/test_order_gate_support.cpp tests/test_order_gate_basic.cpp tests/test_order_gate_displace.cpp tests/test_order_gate_session.cpp tests/test_order_gate_ledger.cpp)
 target_include_directories(test_order_gate PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 if(UNIX)
     target_link_libraries(test_order_gate PRIVATE pthread)
@@ -395,6 +416,17 @@ set_tests_properties(bench_order_path_keys PROPERTIES TIMEOUT 120)
 # ─── 테스트 타겟: OrderRouter 통합 테스트 (StubOrderExecutor, KIS 불필요) ──
 add_executable(test_order_router
     tests/test_order_router.cpp
+    tests/test_order_router_support.cpp
+    tests/test_order_router_reconcile.cpp
+    tests/test_order_router_submit.cpp
+    tests/test_order_router_fill.cpp
+    tests/test_order_router_send.cpp
+    tests/test_order_router_cancel.cpp
+    tests/test_order_router_journal.cpp
+    tests/test_order_router_blocked_sell.cpp
+    tests/test_order_router_restart.cpp
+    tests/test_order_router_recover.cpp
+    tests/test_order_router_session.cpp
     src/risk/OrderGate.cpp
     ${ORDER_ROUTER_SOURCES}
     src/core/WakeGate.cpp
@@ -565,6 +597,9 @@ endif()
 add_executable(test_surge_hold
     tests/test_surge_hold.cpp
     src/strategy/SurgeHoldStrategy.cpp
+    src/strategy/SurgeHoldState.cpp
+    src/strategy/SurgeHoldBuys.cpp
+    src/strategy/SurgeHoldExits.cpp
     src/strategy/SurgeHoldPlan.cpp
     src/utils/Logger.cpp
 )
@@ -638,6 +673,7 @@ endif()
 
 # ─── 벤치 타겟: 시세 피드 수신·처리 부하 (TCP loopback, KOSCOM→broker) ────
 add_executable(bench_feed_ingest tests/bench_feed_ingest.cpp tests/bench_common.cpp)
+target_sources(bench_feed_ingest PRIVATE tests/bench_feed_ingest_support.cpp tests/bench_feed_ingest_socket.cpp tests/bench_feed_ingest_pipeline.cpp)
 target_include_directories(bench_feed_ingest PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
@@ -721,11 +757,13 @@ endif()
 
 # ─── 테스트 타깃: Engine 한 바퀴 — 시험용 시세를 주입해 KIS·소켓 없이 틱→샤드→전략→주문→모의 체결→원장을 돈다, 수신 스레드 1×샤드 1과 2×2 (D-071) ──
 add_executable(test_engine tests/test_engine.cpp)
+target_sources(test_engine PRIVATE tests/test_engine_support.cpp tests/test_engine_pipeline.cpp tests/test_engine_order_path.cpp tests/test_engine_roles.cpp tests/test_engine_universe.cpp tests/test_engine_generation_copy.cpp)
 target_link_libraries(test_engine PRIVATE quant_engine)
 
 # ─── 벤치 타깃: 전 종목 부하 — 합성 체결 2,700종목을 진짜 Engine에 밀어넣고 수신 스레드 N × 전략 샤드 M을 쓸어 잰다 (D-071 원칙 7) ──
 #     ctest에 붙이지 않는다 — 수십 초씩 코어를 다 쓴다. 부하 하네스의 관례다(bench_market_firehose와 같다).
 add_executable(bench_engine_load tests/bench_engine_load.cpp)
+target_sources(bench_engine_load PRIVATE tests/bench_engine_load_inputs.cpp tests/bench_engine_load_run.cpp)
 target_link_libraries(bench_engine_load PRIVATE quant_engine)
 # ─── 벤치 타깃: 주문 몰림 재현 — 수동주문 N건을 한꺼번에 넣고 접수까지 걸린 시간을 전송 스레드 수별로 잰다 (D-151) ──
 add_executable(bench_order_burst tests/bench_order_burst.cpp)
@@ -821,6 +859,7 @@ endif()
 
 # ─── 벤치 타겟: 09-13 hot path 조각 항목별 옛/새 비교 (D-071 측정 근거, 헤더 전용) ────
 add_executable(bench_latency_path tests/bench_latency_path.cpp)
+target_sources(bench_latency_path PRIVATE tests/bench_latency_path_support.cpp tests/bench_latency_path_decode.cpp tests/bench_latency_path_router.cpp tests/bench_latency_path_capture.cpp tests/bench_latency_path_chain.cpp)
 target_include_directories(bench_latency_path PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 if(UNIX)
     target_link_libraries(bench_latency_path PRIVATE pthread)
@@ -1242,3 +1281,7 @@ foreach(one_target ${QUANT_ALL_TARGETS})
         target_link_libraries(${one_target} PRIVATE quant_header_impl)
     endif()
 endforeach()
+
+# ─── 벤치 타겟: KIS 실시간 전문 파서 한 건 처리 시간 (parse_message 분할 전후 비교, 2026-10-11) ──
+add_executable(bench_ws_parse tests/bench_ws_parse.cpp tests/bench_common.cpp)
+target_link_libraries(bench_ws_parse PRIVATE quant_engine)   # quant_trader 와 같은 묶음 — 파서가 Logger·ThreadName 등을 끌어온다

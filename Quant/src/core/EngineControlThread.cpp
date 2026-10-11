@@ -1,6 +1,6 @@
 // 제어 쪽 — 제어 스레드(감시·피드 끊김 폴백·마감 자기 종료)와 통계 모으기.
-//  Engine 클래스는 그대로다. Engine.cpp 가 2,700줄을 넘겨 열기 어려워 이 갈래만 따로 낸 것이다
-//  (헤더는 한 줄도 안 바뀐다 — 같은 Engine 의 멤버 함수 본체가 여기 있을 뿐이다).
+//  같은 Engine 의 멤버 함수 본체다. Engine.cpp 가 2,700줄을 넘겨 열기 어려워 이 갈래만 따로 냈다.
+//  제어 스레드 한 바퀴는 단계 함수(peer_went_away·log_queue_high_water 등)로 나눴다.
 //
 //  ── 부르는 자리 ──────────────────────────────────────────────────────────
 //  control_thread_fn()          : spawn_threads() 가 control 스레드로 띄운다
@@ -112,8 +112,6 @@ void Engine::control_thread_fn(std::stop_token stop_token)
     constexpr int kCheckIntervalSec = 5;
     // 큐 고수위는 장 외에도 찍는다 — 큐 크기가 맞는지의 근거가 되므로 WS 유무·개장 여부와 무관하다. [why D-071]
     constexpr int kHighWaterEvery = 12; // 5초 × 12 = 1분
-    // 박동 공백은 나노초로 들고 다니다가 찍을 때만 밀리초로 줄인다.
-    constexpr int64_t kNanosecondsPerMillisecond = 1'000'000;
     int high_water_tick = 0;
     constexpr int kTokenEvery = 60; // 5초 × 60 = 5분
     int token_tick = 0;
@@ -125,156 +123,21 @@ void Engine::control_thread_fn(std::stop_token stop_token)
         // 붙어 있는 쪽지의 기동 번호가 바뀌었으면 건너편이 죽고 다시 떴다는 뜻이다. 그 판의 큐·장부
         //  사본은 내가 아는 것이 아니라, 그대로 두면 신호가 허공으로 나간다 — 같이 내려가 감시견이
         //  짝을 다시 띄우게 한다. 붙은 쪽(전략 프로세스)에서만 0이 아니다. [why D-114]
-        if (peer_boot_generation_ != 0)
+        if (peer_went_away())
         {
-            if (const uint64_t now_generation = layout_region_.boot_generation();
-                now_generation != peer_boot_generation_)
-            {
-                LOG_ERROR("[Control] 건너편이 다시 떴다 — 공유 쪽지 기동 번호 " +
-                          std::to_string(peer_boot_generation_) + " → " + std::to_string(now_generation) +
-                          ". 옛 판을 들고 주문을 내지 않도록 같이 내려간다");
-                request_shutdown("건너편 프로세스 재기동(공유 쪽지 기동 번호가 바뀌었다)");
-                break;
-            }
-
-            // 건너편이 종료 사유를 적고 나갔으면 여기도 따라 내려간다. 예전에는 감시견이 남은 쪽을
-            //  강제로 죽였고, 그러면 stop()이 안 돌아 이쪽 종료 사유 칸이 빈 채로 남아 정상 배포와
-            //  크래시가 갈리지 않았다. 이제 스스로 나가고, 감시견은 그동안 기다렸다가 안 나가면
-            //  그때 강제로 죽인다. 붙은 쪽(전략 프로세스)에서만 돌린다. [why D-114]
-            if (const auto peer_reason = layout_region_.shutdown_reason();
-                peer_reason != ipc::SharedShutdownReason::kNone)
-            {
-                LOG_WARN("[Control] 건너편이 종료 사유를 적고 나갔다(사유 번호 " +
-                         std::to_string(static_cast<uint32_t>(peer_reason)) + ") — 옛 판을 들고 있지 않도록 같이 내려간다");
-                request_shutdown("건너편 프로세스 종료(공유 쪽지에 사유가 적혔다)",
-                                 ipc::SharedShutdownReason::kOperator);
-                break;
-            }
+            break;
         }
 
         if (++high_water_tick >= kHighWaterEvery)
         {
             high_water_tick = 0;
-            std::string shard_high_water; // 샤드마다 세 열 가운데 가장 높았던 셀
-
-            for (const auto& sh : pipeline_.shards)
-            {
-                if (!shard_high_water.empty())
-                {
-                    shard_high_water += ',';
-                }
-
-                shard_high_water += std::to_string(sh->high_water());
-            }
-
-            // DB 적재 — 받은 행·넣은 행·큐가 차서 버린 행. 이 값은 DbManager 가 멈출 때 한 줄로 찍는데,
-            //  트레이더는 감시견이 Stop-Process 로 끊고 부하시험도 terminate 로 끊어 곱게 멈추는 일이 없다 —
-            //  그래서 실제로는 한 번도 안 보였다(2026-09-26 부하시험에서 발견). 1분마다 여기서 같이 낸다.
-            std::string database_counters;
-#ifdef HAS_PQ
-
-            if (database_)
-            {
-                const db::DbStatistics database_totals = database_->statistics();
-                database_counters = " db_offered=" + std::to_string(database_totals.ticks_offered) +
-                                    " db_written=" + std::to_string(database_totals.ticks_written) +
-                                    " db_dropped=" + std::to_string(database_totals.ticks_dropped) +
-                                    " db_failed=" + std::to_string(database_totals.ticks_failed) +
-                                    " db_ambiguous=" + std::to_string(database_totals.ticks_ambiguous) +
-                                    // 신호·헬스 — 옛 파이썬 적재기의 "발행/받음/넣음" 줄을 대신한다. [why D-154]
-                                    " db_signal_offered=" + std::to_string(database_totals.signals_offered) +
-                                    " db_signal_written=" + std::to_string(database_totals.signals_written) +
-                                    " db_signal_dropped=" + std::to_string(database_totals.signals_dropped) +
-                                    " db_signal_failed=" + std::to_string(database_totals.signals_failed) +
-                                    " db_health_offered=" + std::to_string(database_totals.health_offered) +
-                                    " db_health_written=" + std::to_string(database_totals.health_written) +
-                                    " db_health_dropped=" + std::to_string(database_totals.health_dropped) +
-                                    " db_health_failed=" + std::to_string(database_totals.health_failed);
-            }
-
-#endif
-
-            LOG_INFO("[큐 고수위] shard=" + shard_high_water + "/" + std::to_string(ShardPipeline::kTickCellCapacity) + " shard_out=" + std::to_string(pipeline_.shard_out.size()) + "/" +
-                     std::to_string(pipeline_.shard_out.capacity()) + " shard_dropped=" +
-                     std::to_string(pipeline_.shard_dropped.load(std::memory_order_relaxed)) + " order=" +
-                     std::to_string(pipeline_.order_high_water.load(std::memory_order_relaxed)) + "/" +
-                     std::to_string(pipeline_.requests->capacity()) +
-                     " fill=" + std::to_string(pipeline_.fill_queue.high_water()) + "/" + std::to_string(pipeline_.fill_queue.capacity()) +
-                     " fill_dropped=" + std::to_string(pipeline_.fill_dropped.load(std::memory_order_relaxed)) +
-                     " fill_overflowed=" + std::to_string(pipeline_.fill_overflowed.load(std::memory_order_relaxed)) +
-                     " order_dropped=" + std::to_string(pipeline_.order_dropped.load(std::memory_order_relaxed)) +
-                     " order_sell_held=" + std::to_string(pipeline_.order_sell_held.load(std::memory_order_relaxed)) +
-                     " order_stale=" + std::to_string(pipeline_.order_stale.load(std::memory_order_relaxed)) +
-                     " order_duplicate=" + std::to_string(pipeline_.order_duplicate.load(std::memory_order_relaxed)) +
-                     " order_implausible=" +
-                     std::to_string(pipeline_.order_implausible.load(std::memory_order_relaxed)) +
-                     " order_truncated=" +
-                     std::to_string(pipeline_.order_reason_truncated.load(std::memory_order_relaxed)) +
-                     " order_response_dropped=" +
-                     std::to_string(pipeline_.order_response_dropped.load(std::memory_order_relaxed)) +
-                     " beat_gap_max=" +
-                     std::to_string(pipeline_.strategy_beat_gap_max_ns.load(std::memory_order_relaxed) /
-                                    kNanosecondsPerMillisecond) + "ms" +
-                     // 주문 쪽 박동과 답 없는 요청 — 앞엣것에는 증권사 왕복이 들어 있고, 뒤엣것은 0이어야 한다.
-                     " order_beat_gap_max=" +
-                     std::to_string(pipeline_.order_beat_gap_max_ns.load(std::memory_order_relaxed) /
-                                    kNanosecondsPerMillisecond) + "ms" +
-                     " order_answer_overdue=" +
-                     std::to_string(pipeline_.order_answer_overdue.load(std::memory_order_relaxed)) +
-                     // 시세 쪽 박동 — 제어 바퀴 5초가 그대로 들어온다. 이 값이 사망 문턱의 근거다. [why D-137]
-                     " feed_beat_gap_max=" +
-                     std::to_string(pipeline_.feed_beat_gap_max_ns.load(std::memory_order_relaxed) /
-                                    kNanosecondsPerMillisecond) + "ms" +
-                     // 장부 사본 — 몇 판 나왔는지와 못 실은 남의 계좌 줄 수. 뒤엣것은 0이어야 한다. [why D-114]
-                     " ledger_gen=" + std::to_string(ledger_snapshot_->generation()) +
-                     " ledger_foreign=" + std::to_string(order_gate_.ledger().ledger_foreign_account_rows()) +
-                     // 판이 기한 안에 안 닫혀 보수값(정지·빈 줄)을 돌려준 읽기 수. 0이어야 한다. [why D-114]
-                     " ledger_stale_read=" + std::to_string(ledger_snapshot_->stale_read_count()) +
-                     // 제어 요청 — 못 보낸 줄, 경계 너머로 못 옮긴 줄, 반쪽 표로 보고 버린 줄. 셋 다 0이어야 한다. [why D-114]
-                     " control_dropped=" + std::to_string(control_plane_.dropped()) +
-                     " control_relay_dropped=" +
-                     std::to_string(control_plane_.relay_dropped()) +
-                     " control_discarded=" +
-                     std::to_string(control_plane_.discarded()) +
-                     // 티커→번호 — 등록을 주문 쪽에서 못 받은 수, 표에 없는 티커로 잦은 자리가 불린 수. 둘 다 0이어야 한다. [why D-114]
-                     " symbol_register_timeout=" + std::to_string(symbol_register_timeouts()) +
-                     " symbol_lookup_miss=" + std::to_string(symbol_lookup_misses()) +
-                     // 전략 이름→번호 — 이름표 등록을 못 받은 수. 0이 아니면 그 전략 손익이 빈 칸에 붙는다. [why D-114]
-                     " strategy_register_timeout=" + std::to_string(strategy_register_timeouts()) +
-                     // 구독 — 상한에 밀려 소켓에 못 건 종목 수. 0이어야 한다(밀린 종목은 WS 틱이 없다). [why D-114]
-                     " watch_overflow=" + std::to_string(watch_overflows()) +
-                     // 시세 통로 — 큐가 차서 못 넘긴 건수와, 값이 말이 안 돼 꺼내는 쪽이 버린 건수. 둘 다 0이어야 한다. [why D-114]
-                     " feed_channel_overflow=" + std::to_string(feed_channel_overflows()) +
-                     " feed_channel_discarded=" + std::to_string(feed_channel_discarded()) +
-                     // 경계를 실제로 넘은 건수 — 공유 칸에서 읽어 어느 역할에서 봐도 같은 값이다. 갈라 띄운 날에
-                     //  둘 다 0 이면 시세가 한 건도 안 넘어간 것이다(한 프로세스로 돌면 원래 둘 다 0 이다). [why D-114]
-                     " feed_channel_sent=" + std::to_string(feed_channel_sent()) +
-                     " feed_channel_received=" + std::to_string(feed_channel_received()) +
-                     // 체결 통로 — 큐가 차서 못 넘긴 건수와 값이 말이 안 돼 버린 건수. 둘 다 0이어야 한다.
-                     //  0이 아니면 주문 쪽 예약 수량이 안 풀려 총노출을 이중계상한다. [why D-114 단계 5]
-                     " fill_channel_overflow=" + std::to_string(fill_channel_overflows()) +
-                     " fill_channel_discarded=" + std::to_string(fill_channel_discarded()) +
-                     // 체결이 실제로 경계를 넘었는지 — 공유 칸에서 읽어 어느 역할에서 봐도 같은 값이다.
-                     //  셋으로 갈라 띄운 날에 체결이 있었는데 둘 다 0 이면 통로가 막힌 것이다. [why D-114 단계 5]
-                     " fill_channel_sent=" + std::to_string(fill_channel_sent()) +
-                     " fill_channel_received=" + std::to_string(fill_channel_received()) + database_counters);
+            log_queue_high_water();
         }
 
         if (++token_tick >= kTokenEvery)
         {
             token_tick = 0;
-
-            // 만료 30분 전에 여기서 미리 갱신한다. 발급 왕복을 파이프라인 밖 스레드가 떠안아야
-            //  전략·데이터 스레드의 http_get이 5분 margin에 걸리지 않는다. [why D-073]
-            if (feed_.kis)
-            {
-                feed_.kis->refresh_token(std::chrono::minutes(30));
-            }
-
-            if (feed_.quote_kis)
-            {
-                feed_.quote_kis->refresh_token(std::chrono::minutes(30));
-            }
+            refresh_tokens_early();
         }
 
         // 마감 자기 종료 — WS 유무와 무관하게 매 주기 [why D-098]. 판정이 주문 큐를 보므로 주문 쪽이 한다. [why D-114]
@@ -283,80 +146,253 @@ void Engine::control_thread_fn(std::stop_token stop_token)
             step_session_end();
         }
 
-        // 재연결은 소켓을 쥔 쪽이 본다 — 단계 5부터 소켓은 시세 프로세스에 있다(앱키 하나에 세션 하나라
-        //  체결통보도 같은 소켓에 실린다). 주문·전략 프로세스는 이 포인터가 비어 있어 아래를 통째로
-        //  건너뛴다. [why D-114 단계 5]
-        if (!feed_.websocket)
+        supervise_feed_socket();
+    }
+}
+
+// 제어 단계 — 붙은 쪽(전략 프로세스)에서 건너편이 다시 떴거나 사유를 적고 나갔으면 종료를 청하고 참을 돌려준다.
+bool Engine::peer_went_away()
+{
+    if (peer_boot_generation_ == 0)
+    {
+        return false;
+    }
+
+    if (const uint64_t now_generation = layout_region_.boot_generation();
+        now_generation != peer_boot_generation_)
+    {
+        LOG_ERROR("[Control] 건너편이 다시 떴다 — 공유 쪽지 기동 번호 " +
+                  std::to_string(peer_boot_generation_) + " → " + std::to_string(now_generation) +
+                  ". 옛 판을 들고 주문을 내지 않도록 같이 내려간다");
+        request_shutdown("건너편 프로세스 재기동(공유 쪽지 기동 번호가 바뀌었다)");
+        return true;
+    }
+
+    // 건너편이 종료 사유를 적고 나갔으면 여기도 따라 내려간다. 예전에는 감시견이 남은 쪽을
+    //  강제로 죽였고, 그러면 stop()이 안 돌아 이쪽 종료 사유 칸이 빈 채로 남아 정상 배포와
+    //  크래시가 갈리지 않았다. 이제 스스로 나가고, 감시견은 그동안 기다렸다가 안 나가면
+    //  그때 강제로 죽인다. 붙은 쪽(전략 프로세스)에서만 돌린다. [why D-114]
+    if (const auto peer_reason = layout_region_.shutdown_reason();
+        peer_reason != ipc::SharedShutdownReason::kNone)
+    {
+        LOG_WARN("[Control] 건너편이 종료 사유를 적고 나갔다(사유 번호 " +
+                 std::to_string(static_cast<uint32_t>(peer_reason)) + ") — 옛 판을 들고 있지 않도록 같이 내려간다");
+        request_shutdown("건너편 프로세스 종료(공유 쪽지에 사유가 적혔다)",
+                         ipc::SharedShutdownReason::kOperator);
+        return true;
+    }
+
+    return false;
+}
+
+// 제어 단계 — DB 적재 카운터를 큐 고수위 줄 끝에 붙일 글자로 만든다. DB가 없으면 빈 글자.
+std::string Engine::database_counter_text() const
+{
+    // DB 적재 — 받은 행·넣은 행·큐가 차서 버린 행. 이 값은 DbManager 가 멈출 때 한 줄로 찍는데,
+    //  트레이더는 감시견이 Stop-Process 로 끊고 부하시험도 terminate 로 끊어 곱게 멈추는 일이 없다 —
+    //  그래서 실제로는 한 번도 안 보였다(2026-09-26 부하시험에서 발견). 1분마다 여기서 같이 낸다.
+    std::string database_counters;
+#ifdef HAS_PQ
+
+    if (database_)
+    {
+        const db::DbStatistics database_totals = database_->statistics();
+        database_counters = " db_offered=" + std::to_string(database_totals.ticks_offered) +
+                            " db_written=" + std::to_string(database_totals.ticks_written) +
+                            " db_dropped=" + std::to_string(database_totals.ticks_dropped) +
+                            " db_failed=" + std::to_string(database_totals.ticks_failed) +
+                            " db_ambiguous=" + std::to_string(database_totals.ticks_ambiguous) +
+                            // 신호·헬스 — 옛 파이썬 적재기의 "발행/받음/넣음" 줄을 대신한다. [why D-154]
+                            " db_signal_offered=" + std::to_string(database_totals.signals_offered) +
+                            " db_signal_written=" + std::to_string(database_totals.signals_written) +
+                            " db_signal_dropped=" + std::to_string(database_totals.signals_dropped) +
+                            " db_signal_failed=" + std::to_string(database_totals.signals_failed) +
+                            " db_health_offered=" + std::to_string(database_totals.health_offered) +
+                            " db_health_written=" + std::to_string(database_totals.health_written) +
+                            " db_health_dropped=" + std::to_string(database_totals.health_dropped) +
+                            " db_health_failed=" + std::to_string(database_totals.health_failed);
+    }
+
+#endif
+
+    return database_counters;
+}
+
+// 제어 단계 — 1분마다 큐 고수위·버린 건수·통로 카운터를 한 줄로 남긴다. 큐 크기가 맞는지의 근거다. [why D-071]
+void Engine::log_queue_high_water()
+{
+    std::string shard_high_water; // 샤드마다 세 열 가운데 가장 높았던 셀
+
+    for (const auto& sh : pipeline_.shards)
+    {
+        if (!shard_high_water.empty())
         {
-            continue;
+            shard_high_water += ',';
         }
 
-        // 살아 있다고 찍는다. 시세가 죽으면 체결통보가 주문 쪽에 안 들어와 예약 수량이 안 풀리므로
-        //  (총노출 이중계상) 이 칸의 공백이 그 사고를 가장 먼저 알린다. 찍는 간격은 이 바퀴의 5초다 —
-        //  전략·주문 칸과 달리 hot loop 가 아니라 소켓이 깨우는 쪽이라, 문턱은 그 간격 위에서 잡는다.
-        //  [why D-114 단계 5]
-        pipeline_.feed_heartbeat->beat(trace::now_ns());
+        shard_high_water += std::to_string(sh->high_water());
+    }
 
-        // 전략 쪽이 보낸 구독 요청을 꺼내 목록에 올리고, 이어서 소켓에 건다. 꺼내는 자리가 여기 하나라
-        //  시세 제어 줄은 받는 쪽이 하나로 선다(SPSC). [why D-114 단계 5]
-        apply_feed_control_requests();
-        drain_pending_subscriptions();
-        rebalance_websocket_slots();
+    const std::string database_counters = database_counter_text();
 
-        // 장 외 시간에는 stale이 정상 — 장 중에만 묻는다. 전이 판정은 감독기, 소켓·폴백 적용은 여기. [why D-071]
-        const bool market_open = ::kst::any_market_open(std::time(nullptr));
-        const bool stale       = market_open && feed_.websocket->is_stale(feed_.feed_sup.config().stale_sec);
-        const auto step        = feed_.feed_sup.observe(market_open, stale, std::chrono::steady_clock::now());
+    LOG_INFO("[큐 고수위] shard=" + shard_high_water + "/" + std::to_string(ShardPipeline::kTickCellCapacity) + " shard_out=" + std::to_string(pipeline_.shard_out.size()) + "/" +
+             std::to_string(pipeline_.shard_out.capacity()) + " shard_dropped=" +
+             std::to_string(pipeline_.shard_dropped.load(std::memory_order_relaxed)) + " order=" +
+             std::to_string(pipeline_.order_high_water.load(std::memory_order_relaxed)) + "/" +
+             std::to_string(pipeline_.requests->capacity()) +
+             " fill=" + std::to_string(pipeline_.fill_queue.high_water()) + "/" + std::to_string(pipeline_.fill_queue.capacity()) +
+             " fill_dropped=" + std::to_string(pipeline_.fill_dropped.load(std::memory_order_relaxed)) +
+             " fill_overflowed=" + std::to_string(pipeline_.fill_overflowed.load(std::memory_order_relaxed)) +
+             " order_dropped=" + std::to_string(pipeline_.order_dropped.load(std::memory_order_relaxed)) +
+             " order_sell_held=" + std::to_string(pipeline_.order_sell_held.load(std::memory_order_relaxed)) +
+             " order_stale=" + std::to_string(pipeline_.order_stale.load(std::memory_order_relaxed)) +
+             " order_duplicate=" + std::to_string(pipeline_.order_duplicate.load(std::memory_order_relaxed)) +
+             " order_implausible=" +
+             std::to_string(pipeline_.order_implausible.load(std::memory_order_relaxed)) +
+             " order_truncated=" +
+             std::to_string(pipeline_.order_reason_truncated.load(std::memory_order_relaxed)) +
+             " order_response_dropped=" +
+             std::to_string(pipeline_.order_response_dropped.load(std::memory_order_relaxed)) +
+             " beat_gap_max=" +
+             std::to_string(pipeline_.strategy_beat_gap_max_ns.load(std::memory_order_relaxed) /
+                            kNanosecondsPerMillisecond) + "ms" +
+             // 주문 쪽 박동과 답 없는 요청 — 앞엣것에는 증권사 왕복이 들어 있고, 뒤엣것은 0이어야 한다.
+             " order_beat_gap_max=" +
+             std::to_string(pipeline_.order_beat_gap_max_ns.load(std::memory_order_relaxed) /
+                            kNanosecondsPerMillisecond) + "ms" +
+             " order_answer_overdue=" +
+             std::to_string(pipeline_.order_answer_overdue.load(std::memory_order_relaxed)) +
+             // 시세 쪽 박동 — 제어 바퀴 5초가 그대로 들어온다. 이 값이 사망 문턱의 근거다. [why D-137]
+             " feed_beat_gap_max=" +
+             std::to_string(pipeline_.feed_beat_gap_max_ns.load(std::memory_order_relaxed) /
+                            kNanosecondsPerMillisecond) + "ms" +
+             // 장부 사본 — 몇 판 나왔는지와 못 실은 남의 계좌 줄 수. 뒤엣것은 0이어야 한다. [why D-114]
+             " ledger_gen=" + std::to_string(ledger_snapshot_->generation()) +
+             " ledger_foreign=" + std::to_string(order_gate_.ledger().ledger_foreign_account_rows()) +
+             // 판이 기한 안에 안 닫혀 보수값(정지·빈 줄)을 돌려준 읽기 수. 0이어야 한다. [why D-114]
+             " ledger_stale_read=" + std::to_string(ledger_snapshot_->stale_read_count()) +
+             // 제어 요청 — 못 보낸 줄, 경계 너머로 못 옮긴 줄, 반쪽 표로 보고 버린 줄. 셋 다 0이어야 한다. [why D-114]
+             " control_dropped=" + std::to_string(control_plane_.dropped()) +
+             " control_relay_dropped=" +
+             std::to_string(control_plane_.relay_dropped()) +
+             " control_discarded=" +
+             std::to_string(control_plane_.discarded()) +
+             // 티커→번호 — 등록을 주문 쪽에서 못 받은 수, 표에 없는 티커로 잦은 자리가 불린 수. 둘 다 0이어야 한다. [why D-114]
+             " symbol_register_timeout=" + std::to_string(symbol_register_timeouts()) +
+             " symbol_lookup_miss=" + std::to_string(symbol_lookup_misses()) +
+             // 전략 이름→번호 — 이름표 등록을 못 받은 수. 0이 아니면 그 전략 손익이 빈 칸에 붙는다. [why D-114]
+             " strategy_register_timeout=" + std::to_string(strategy_register_timeouts()) +
+             // 구독 — 상한에 밀려 소켓에 못 건 종목 수. 0이어야 한다(밀린 종목은 WS 틱이 없다). [why D-114]
+             " watch_overflow=" + std::to_string(watch_overflows()) +
+             // 시세 통로 — 큐가 차서 못 넘긴 건수와, 값이 말이 안 돼 꺼내는 쪽이 버린 건수. 둘 다 0이어야 한다. [why D-114]
+             " feed_channel_overflow=" + std::to_string(feed_channel_overflows()) +
+             " feed_channel_discarded=" + std::to_string(feed_channel_discarded()) +
+             // 경계를 실제로 넘은 건수 — 공유 칸에서 읽어 어느 역할에서 봐도 같은 값이다. 갈라 띄운 날에
+             //  둘 다 0 이면 시세가 한 건도 안 넘어간 것이다(한 프로세스로 돌면 원래 둘 다 0 이다). [why D-114]
+             " feed_channel_sent=" + std::to_string(feed_channel_sent()) +
+             " feed_channel_received=" + std::to_string(feed_channel_received()) +
+             // 체결 통로 — 큐가 차서 못 넘긴 건수와 값이 말이 안 돼 버린 건수. 둘 다 0이어야 한다.
+             //  0이 아니면 주문 쪽 예약 수량이 안 풀려 총노출을 이중계상한다. [why D-114 단계 5]
+             " fill_channel_overflow=" + std::to_string(fill_channel_overflows()) +
+             " fill_channel_discarded=" + std::to_string(fill_channel_discarded()) +
+             // 체결이 실제로 경계를 넘었는지 — 공유 칸에서 읽어 어느 역할에서 봐도 같은 값이다.
+             //  셋으로 갈라 띄운 날에 체결이 있었는데 둘 다 0 이면 통로가 막힌 것이다. [why D-114 단계 5]
+             " fill_channel_sent=" + std::to_string(fill_channel_sent()) +
+             " fill_channel_received=" + std::to_string(fill_channel_received()) + database_counters);
+}
 
-        if (step == feed::Supervisor::Step::kHealthy)
+// 제어 단계 — 5분마다 토큰을 만료 30분 전에 미리 갱신한다.
+void Engine::refresh_tokens_early()
+{
+    // 만료 30분 전에 여기서 미리 갱신한다. 발급 왕복을 파이프라인 밖 스레드가 떠안아야
+    //  전략·데이터 스레드의 http_get이 5분 margin에 걸리지 않는다. [why D-073]
+    if (feed_.kis)
+    {
+        feed_.kis->refresh_token(std::chrono::minutes(30));
+    }
+
+    if (feed_.quote_kis)
+    {
+        feed_.quote_kis->refresh_token(std::chrono::minutes(30));
+    }
+}
+
+// 제어 단계 — 소켓을 쥔 쪽에서 시세 박동을 찍고, 구독 요청을 걸고, 끊김을 보고 재연결·폴백한다.
+void Engine::supervise_feed_socket()
+{
+    // 재연결은 소켓을 쥔 쪽이 본다 — 단계 5부터 소켓은 시세 프로세스에 있다(앱키 하나에 세션 하나라
+    //  체결통보도 같은 소켓에 실린다). 주문·전략 프로세스는 이 포인터가 비어 있어 아래를 통째로
+    //  건너뛴다. [why D-114 단계 5]
+    if (!feed_.websocket)
+    {
+        return;
+    }
+
+    // 살아 있다고 찍는다. 시세가 죽으면 체결통보가 주문 쪽에 안 들어와 예약 수량이 안 풀리므로
+    //  (총노출 이중계상) 이 칸의 공백이 그 사고를 가장 먼저 알린다. 찍는 간격은 이 바퀴의 5초다 —
+    //  전략·주문 칸과 달리 hot loop 가 아니라 소켓이 깨우는 쪽이라, 문턱은 그 간격 위에서 잡는다.
+    //  [why D-114 단계 5]
+    pipeline_.feed_heartbeat->beat(trace::now_ns());
+
+    // 전략 쪽이 보낸 구독 요청을 꺼내 목록에 올리고, 이어서 소켓에 건다. 꺼내는 자리가 여기 하나라
+    //  시세 제어 줄은 받는 쪽이 하나로 선다(SPSC). [why D-114 단계 5]
+    apply_feed_control_requests();
+    drain_pending_subscriptions();
+    rebalance_websocket_slots();
+
+    // 장 외 시간에는 stale이 정상 — 장 중에만 묻는다. 전이 판정은 감독기, 소켓·폴백 적용은 여기. [why D-071]
+    const bool market_open = ::kst::any_market_open(std::time(nullptr));
+    const bool stale       = market_open && feed_.websocket->is_stale(feed_.feed_sup.config().stale_sec);
+    const auto step        = feed_.feed_sup.observe(market_open, stale, std::chrono::steady_clock::now());
+
+    if (step == feed::Supervisor::Step::kHealthy)
+    {
+        deactivate_rest_fallback(); // 폴백으로 낮춰 뒀다면 WS로 되돌린다(전이 시에만 동작)
+        return;
+    }
+
+    if (step != feed::Supervisor::Step::kReconnect)
+    {
+        return;
+    }
+
+    LOG_WARN("[Control] WebSocket " + std::to_string(feed_.feed_sup.config().stale_sec) +
+             "초 이상 시세 미수신 — 재연결 시도");
+    std::vector<WatchSpec> specifications_copy;
+    {
+        std::lock_guard<std::mutex> specifications_lock(watch_specifications_mutex_); // data_thread의 재스캔 push_back과 겹친다
+        specifications_copy = watch_specifications_;
+    }
+
+    // 다시 걸 때 칸이 모자라면 뒤에 선 종목이 밀린다 — 우선순위 순으로 세워 보유 종목이 먼저 칸을 받게 한다. [why D-132]
+    std::stable_sort(specifications_copy.begin(), specifications_copy.end(),
+                     [this](const WatchSpec& left, const WatchSpec& right)
+                     {
+                         return websocket_slot_priority(left) < websocket_slot_priority(right);
+                     });
+
+    // 소켓이 여럿이면 멈춘 것만 다시 잇는다 — 살아 있는 소켓의 종목은 그 사이에도 틱이 흐른다. 하나면 끊고 다시 잇는 것.
+    const bool ok    = feed_.websocket->reconnect_stale(specifications_copy, feed_.feed_sup.config().stale_sec);
+    const auto after = feed_.feed_sup.on_reconnect(ok, std::chrono::steady_clock::now());
+
+    if (ok)
+    {
+        LOG_INFO("[Control] WebSocket 재연결 성공");
+        return;
+    }
+
+    LOG_ERROR("[Control] WebSocket 재연결 실패(" + std::to_string(feed_.feed_sup.fail_streak()) + "회) — " +
+              std::to_string(feed_.feed_sup.last_backoff_sec()) + "초 후 재시도");
+
+    // 반복 실패 시에만 대응한다(1회 실패로 즉시 조치하면 순간 장애에도 흔들린다).
+    //  먼저 REST 폴링으로 낮춰 매매를 이어가고, 그것마저 불가할 때 kill switch로 멈춘다.
+    //  예전에는 곧장 kill switch였다 — 시세 경로가 하나 죽었다고 매매 전체를 세울 이유는 없다.
+    if (after == feed::Supervisor::After::kFallback)
+    {
+        if (!activate_rest_fallback("재연결 " + std::to_string(feed_.feed_sup.fail_streak()) + "회 실패"))
         {
-            deactivate_rest_fallback(); // 폴백으로 낮춰 뒀다면 WS로 되돌린다(전이 시에만 동작)
-            continue;
-        }
-
-        if (step != feed::Supervisor::Step::kReconnect)
-        {
-            continue;
-        }
-
-        LOG_WARN("[Control] WebSocket " + std::to_string(feed_.feed_sup.config().stale_sec) +
-                 "초 이상 시세 미수신 — 재연결 시도");
-        std::vector<WatchSpec> specifications_copy;
-        {
-            std::lock_guard<std::mutex> specifications_lock(watch_specifications_mutex_); // data_thread의 재스캔 push_back과 겹친다
-            specifications_copy = watch_specifications_;
-        }
-
-        // 다시 걸 때 칸이 모자라면 뒤에 선 종목이 밀린다 — 우선순위 순으로 세워 보유 종목이 먼저 칸을 받게 한다. [why D-132]
-        std::stable_sort(specifications_copy.begin(), specifications_copy.end(),
-                         [this](const WatchSpec& left, const WatchSpec& right)
-                         {
-                             return websocket_slot_priority(left) < websocket_slot_priority(right);
-                         });
-
-        // 소켓이 여럿이면 멈춘 것만 다시 잇는다 — 살아 있는 소켓의 종목은 그 사이에도 틱이 흐른다. 하나면 끊고 다시 잇는 것.
-        const bool ok    = feed_.websocket->reconnect_stale(specifications_copy, feed_.feed_sup.config().stale_sec);
-        const auto after = feed_.feed_sup.on_reconnect(ok, std::chrono::steady_clock::now());
-
-        if (ok)
-        {
-            LOG_INFO("[Control] WebSocket 재연결 성공");
-            continue;
-        }
-
-        LOG_ERROR("[Control] WebSocket 재연결 실패(" + std::to_string(feed_.feed_sup.fail_streak()) + "회) — " +
-                  std::to_string(feed_.feed_sup.last_backoff_sec()) + "초 후 재시도");
-
-        // 반복 실패 시에만 대응한다(1회 실패로 즉시 조치하면 순간 장애에도 흔들린다).
-        //  먼저 REST 폴링으로 낮춰 매매를 이어가고, 그것마저 불가할 때 kill switch로 멈춘다.
-        //  예전에는 곧장 kill switch였다 — 시세 경로가 하나 죽었다고 매매 전체를 세울 이유는 없다.
-        if (after == feed::Supervisor::After::kFallback)
-        {
-            if (!activate_rest_fallback("재연결 " + std::to_string(feed_.feed_sup.fail_streak()) + "회 실패"))
-            {
-                LOG_ERROR("[Control] 폴링 폴백 불가(시세 소스 없음) — kill switch 작동");
-                request_kill_switch(true);
-            }
+            LOG_ERROR("[Control] 폴링 폴백 불가(시세 소스 없음) — kill switch 작동");
+            request_kill_switch(true);
         }
     }
 }

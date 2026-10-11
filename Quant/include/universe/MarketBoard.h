@@ -126,7 +126,13 @@ public:
         std::string minute_directory;        // 비어 있지 않으면 장중 1분마다 판 하나를 이 폴더의 board_YYYYMMDD.csv에 덧붙인다
     };
 
-    // 프로세스에 하나. 슬리브 여럿이 켜도 같은 판을 본다.
+    // 인스턴스로 만들어 쓸 수 있다. 소유자 하나(엔진)가 만들어 전략·스캐너에 참조로 넘기는 쪽으로 옮기는 중이다.
+    MarketBoard() = default;
+    MarketBoard(const MarketBoard&)            = delete;
+    MarketBoard& operator=(const MarketBoard&) = delete;
+
+    // 옮기는 동안 남기는 호환 접근자 — 프로세스에 하나. 슬리브 여럿이 켜도 같은 판을 본다.
+    //  호출처가 모두 소유자의 참조를 받게 되면 지운다(코드 규약 1.2).
     static MarketBoard& instance();
 
     // 처음 부른 설정으로 한 번만 띄운다. 이미 돌고 있으면 아무것도 안 한다.
@@ -158,8 +164,6 @@ public:
     std::shared_ptr<const std::vector<ListedStock>> listing() const;
 
 private:
-    MarketBoard() = default;
-
     void run();
     bool refresh_listing();
     bool sweep();

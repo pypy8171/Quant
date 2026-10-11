@@ -71,7 +71,7 @@ CLAIMS = (
     },
 )
 
-# 지표 정의 — 규칙 탭 머리. 코드 정본은 Quant/include/strategy/DeviationScaleStrategy.h 설계 주석(25~57행).
+# 지표 정의 — 규칙 탭 머리. 코드 정본은 Quant/include/strategy/DeviationScaleStrategy.h 설계 주석(31–63행).
 INDICATORS = (
     ("정배열", "일봉 종가 단순이동평균 SMA5 > SMA10 > SMA20 (60일선 조건은 D-141에서 뺐다). 마지막 조건(SMA10>SMA20)만 align_ma_tol_pct 허용오차. 전일까지의 일봉 250개(daily_lookback)에 오늘 현재가를 최신 봉 자리로 접어 넣어 재스캔마다 다시 본다."),
     ("이격(%)", "(현재가 ÷ 일봉 SMA20 − 1) × 100. 진입 존은 이 값의 구간이다 — DEVSCALE은 SMA20 아래로 눌린 쪽(−pullback_pct ~ +entry_upper_pct)."),

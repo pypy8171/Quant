@@ -454,7 +454,7 @@ config_key = "interval_sec"
 
 [[code_value]]
 id = "regime_feed_stale_after_sec"
-file = "Quant/src/regime/RegimeFeed.cpp"
+file = "Quant/src/regime/RegimeFeedScore.cpp"
 regex = '^constexpr int kStaleAfterSec\s+= (\d+);'
 unit = "초"
 group = "국면(regime) — 엔진 안 국면 판정 피드"

@@ -107,18 +107,39 @@ void print_clock_resolution()
 #endif
     std::printf("\n");
 }
-} // namespace
 
-int main(int argc, char** argv)
+// 명령행 인자. --live · limit 은 위치 인자가 아니다.
+struct PathCheckArguments
 {
-    const int64_t process_start_ns = now_ns();
-#ifdef _WIN32
-    SetConsoleOutputCP(CP_UTF8);
-#endif
+    bool        allow_live = false; // [inv] argv에 "--live"가 있을 때만 true
+    bool        use_limit  = false;
+    std::string config_path;
+    std::string ticker;
+};
 
-    // --live · limit 은 위치 인자가 아니다. 먼저 걷어내고 나머지를 순서대로 읽는다.
-    bool                     allow_live = false;
-    bool                     use_limit  = false;
+// 그 종목 첫 체결과, 그것을 받고 주문 스레드가 깨어난 시각.
+struct FirstTrade
+{
+    int64_t received_ns          = 0; // TradeData::received_ns
+    double  price                = 0.0;
+    int32_t hhmmss               = 0;
+    int64_t order_thread_woke_ns = 0;
+};
+
+// 마지막 표에 들어가는 값.
+struct PathReport
+{
+    int64_t          process_start_ns = 0;
+    double           order_price      = 0.0;
+    int64_t          acknowledged_ns  = 0;
+    uint64_t         bucket_wait_ns   = 0;
+    int64_t          filled_ns        = 0; // 0 = 체결통보가 오지 않음
+    FillNotification fill;
+};
+
+// --live · limit 을 먼저 걷어내고 나머지를 순서대로 읽는다. 인자가 모자라면 사용법을 찍고 false.
+bool read_arguments(int argc, char** argv, PathCheckArguments& parsed)
+{
     std::vector<std::string> arguments;
 
     for (int index = 0; index < argc; ++index)
@@ -127,13 +148,13 @@ int main(int argc, char** argv)
 
         if (argument == "--live")
         {
-            allow_live = true;
+            parsed.allow_live = true;
             continue;
         }
 
         if (argument == "limit")
         {
-            use_limit = true;
+            parsed.use_limit = true;
             continue;
         }
 
@@ -144,28 +165,33 @@ int main(int argc, char** argv)
     {
         std::cout << "사용법: order_path_check <config> <ticker> [limit] [--live]\n"
                      "예) Quant/build_win/order_path_check Quant/config/config_dev_paper.json 005930\n";
-        return 1;
+        return false;
     }
 
-    const std::string config_path = arguments[1];
-    const std::string ticker      = arguments[2];
+    parsed.config_path = arguments[1];
+    parsed.ticker      = arguments[2];
+    return true;
+}
 
+// config를 읽어 이 도구가 쓸 계좌 설정을 만든다. 실계좌면 지정가로 돌린다. 통과하면 0, 아니면 종료코드(1·2).
+int load_account(PathCheckArguments& parsed, KisConfig& kis_config)
+{
     // 엔진과 같은 parse_config로 읽는다(규약 8.3). 실시간 채널(H0STCNT0 / 통합 H0UNCNT0)도 kis.exchange로
     //  엔진과 같게 고른다(WebSocketClient.cpp kis_unified_feed).
     AppConfig app;
 
     try
     {
-        app = parse_config(load_config_file(config_path));
+        app = parse_config(load_config_file(parsed.config_path));
     }
     catch (const std::exception& error)
     {
-        std::cerr << "[중단] config 읽기 실패: " << config_path << "\n"
+        std::cerr << "[중단] config 읽기 실패: " << parsed.config_path << "\n"
                   << "       - error(" << error.what() << ")\n";
         return 1;
     }
 
-    KisConfig kis_config = app.kis;
+    kis_config = app.kis;
 
     // feed_keys 중 하나가 체결통보를 맡으면 parse_config가 기본 키의 hts_id를 비운다. 이 도구는 자기 세션 하나로
     //  체결통보를 받으므로, 그 키에 남은 hts_id를 되가져온다(예전처럼 kis.hts_id를 쓴다).
@@ -180,13 +206,13 @@ int main(int argc, char** argv)
     // [inv] 실계좌는 argv에 "--live"가 있을 때만 돈다. 그때는 늘 지정가다.
     if (!kis_config.is_paper)
     {
-        if (!allow_live)
+        if (!parsed.allow_live)
         {
             std::cerr << "[중단] is_paper=false (실계좌 config). 실계좌로 내려면 --live 를 붙이세요.\n";
             return 2;
         }
 
-        use_limit = true;
+        parsed.use_limit = true;
     }
 
     if (kis_config.hts_id.empty())
@@ -195,24 +221,12 @@ int main(int argc, char** argv)
         return 2;
     }
 
-    print_clock_resolution();
-    std::vector<Stage> stages;
-    stages.push_back({"프로세스 시작", process_start_ns});
+    return 0;
+}
 
-    // ── 1. 인증 ──────────────────────────────────────────────────────────────
-    KisClient kis(kis_config);
-
-    if (!kis.authenticate())
-    {
-        std::cerr << "[중단] 인증 실패\n";
-        return 3;
-    }
-
-    stages.push_back({"인증(토큰) 끝", now_ns()});
-
-    // ── 2. 실시간 접속 ───────────────────────────────────────────────────────
-    SharedState shared;
-    KisWebSocket websocket(kis_config);
+// 수신 스레드에서 도는 콜백 두 개. 그 종목 첫 체결 하나와 체결통보를 SharedState에 적고 주문 스레드를 깨운다.
+void attach_callbacks(KisWebSocket& websocket, SharedState& shared, const std::string& ticker)
+{
     websocket.set_callbacks(
         [](const OrderBook&)
         {
@@ -256,6 +270,184 @@ int main(int argc, char** argv)
 
             shared.changed.notify_all();
         });
+}
+
+// 수신 스레드가 첫 체결을 넘겨줄 때까지 이 스레드가 잔다. 시간 안에 안 오면 이유를 찍고 false.
+bool wait_first_trade(SharedState& shared, const std::string& ticker, std::vector<Stage>& stages, FirstTrade& first_trade)
+{
+    {
+        std::unique_lock<std::mutex> lock(shared.mutex);
+        const bool arrived = shared.changed.wait_for(lock, std::chrono::seconds(kFirstTradeWaitSec),
+                                                     [&shared]
+                                                     {
+                                                         return shared.first_trade_ns != 0;
+                                                     });
+        first_trade.order_thread_woke_ns = now_ns();
+
+        if (!arrived)
+        {
+            std::cerr << "[중단] " << kFirstTradeWaitSec << "초 안에 " << ticker
+                      << " 체결이 오지 않았다 (장 시간·종목 코드 확인)\n";
+            return false;
+        }
+
+        first_trade.price       = shared.first_trade_price;
+        first_trade.hhmmss      = shared.first_trade_hhmmss;
+        first_trade.received_ns = shared.first_trade_ns;
+
+        if (shared.fill_subscribed_ns != 0)
+        {
+            stages.push_back({"체결통보 구독 확인", shared.fill_subscribed_ns});
+        }
+
+        stages.push_back({"첫 체결 수신(수신 스레드)", shared.first_trade_ns});
+    }
+
+    stages.push_back({"주문 스레드 깨어남", first_trade.order_thread_woke_ns});
+    return true;
+}
+
+// 주문 가격. 시장가는 0, 모의 지정가는 첫 체결가, 실계좌는 한 걸음 올린 호가. 실계좌 금액이 상한을 넘으면 이유를 찍고 false.
+bool decide_order_price(const KisConfig& kis_config, bool use_limit, double first_trade_price, double& order_price)
+{
+    order_price = use_limit ? first_trade_price : 0.0;
+
+    if (kis_config.is_paper)
+    {
+        return true;
+    }
+
+    // 사는 쪽으로 한 걸음 올린 뒤 호가 단위로 올림한다. round_to_tick은 SELL=올림이다.
+    order_price = krx::round_to_tick(first_trade_price * (1.0 + kLivePriceStep), OrderSide::SELL);
+
+    if (order_price * kOrderQuantity > kLiveNotionalCap)
+    {
+        std::cerr << "[중단] 실계좌 주문 금액 " << static_cast<long long>(order_price * kOrderQuantity)
+                  << "원이 상한 " << static_cast<long long>(kLiveNotionalCap) << "원을 넘는다. 더 싼 종목을 고른다.\n";
+        return false;
+    }
+
+    return true;
+}
+
+OrderSignal make_buy_signal(const KisConfig& kis_config, const std::string& ticker, bool use_limit, double order_price,
+                            double first_trade_price)
+{
+    OrderSignal signal;
+    signal.ticker          = ticker;
+    signal.side            = OrderSide::BUY;
+    signal.type            = use_limit ? OrderType::LIMIT : OrderType::MARKET;
+    signal.quantity        = kOrderQuantity;
+    signal.price           = order_price;
+    signal.reference_price = first_trade_price;
+    signal.strategy_id     = "ORDER_PATH_CHECK";
+    signal.market          = Market::KR;
+    signal.account_id      = kis_config.account_no;
+    signal.timestamp       = std::chrono::system_clock::now();
+    return signal;
+}
+
+// 접수 응답의 주문번호와 같은 체결통보를 기다린다. 돌려주는 값은 도착 시각(0 = 시간 안에 안 옴).
+int64_t wait_fill(SharedState& shared, const std::string& kis_order_no, FillNotification& fill)
+{
+    const std::string wanted_order = without_leading_zeros(kis_order_no);
+    int64_t filled_ns = 0;
+    std::unique_lock<std::mutex> lock(shared.mutex);
+    shared.changed.wait_for(lock, std::chrono::seconds(kFillWaitSec),
+                            [&]
+                            {
+                                for (const auto& [arrived_ns, notification] : shared.fills)
+                                {
+                                    if (without_leading_zeros(notification.kis_order_no) == wanted_order)
+                                    {
+                                        filled_ns = arrived_ns;
+                                        fill      = notification;
+                                        return true;
+                                    }
+                                }
+
+                                return false;
+                            });
+    return filled_ns;
+}
+
+void print_report(const KisConfig& kis_config, const PathCheckArguments& parsed, const FirstTrade& first_trade,
+                  const std::vector<Stage>& stages, const PathReport& report)
+{
+    std::printf("\n%s / 종목 %s / %s 1주 %.0f원 / 첫 체결 %06d %.0f원\n", kis_config.is_paper ? "모의계좌" : "실계좌",
+                parsed.ticker.c_str(), parsed.use_limit ? "지정가" : "시장가", report.order_price, first_trade.hhmmss,
+                first_trade.price);
+    std::printf("%-40s %14s %14s\n", "단계", "시작부터(ms)", "앞 단계부터(µs)");
+    int64_t previous_ns = report.process_start_ns;
+
+    for (const Stage& stage : stages)
+    {
+        std::printf("%-40s %14.3f %14.1f\n", stage.name.c_str(),
+                    static_cast<double>(stage.at_ns - report.process_start_ns) / kNanosecondsPerMillisecond,
+                    static_cast<double>(stage.at_ns - previous_ns) / kNanosecondsPerMicrosecond);
+        previous_ns = stage.at_ns;
+    }
+
+    std::printf("\n첫 체결 수신 → 접수 응답: %.1f µs (이 스레드의 초당 한도 대기 누계 %.1f µs)\n",
+                static_cast<double>(report.acknowledged_ns - first_trade.received_ns) / kNanosecondsPerMicrosecond,
+                static_cast<double>(report.bucket_wait_ns) / kNanosecondsPerMicrosecond);
+
+    if (report.filled_ns != 0)
+    {
+        std::printf("체결: %d주 %.0f원, 증권사 체결시각 %s\n", report.fill.filled_quantity, report.fill.filled_price,
+                    report.fill.fill_time.c_str());
+    }
+    else
+    {
+        std::printf("체결통보: %d초 안에 오지 않았다 (지정가 미체결이거나 장 밖)\n", kFillWaitSec);
+    }
+}
+} // namespace
+
+int main(int argc, char** argv)
+{
+    const int64_t process_start_ns = now_ns();
+    PathReport    report;
+    report.process_start_ns = process_start_ns;
+#ifdef _WIN32
+    SetConsoleOutputCP(CP_UTF8);
+#endif
+    PathCheckArguments parsed;
+
+    if (!read_arguments(argc, argv, parsed))
+    {
+        return 1;
+    }
+
+    KisConfig kis_config;
+    const int load_exit_code = load_account(parsed, kis_config);
+
+    if (load_exit_code != 0)
+    {
+        return load_exit_code;
+    }
+
+    const std::string& ticker = parsed.ticker;
+
+    print_clock_resolution();
+    std::vector<Stage> stages;
+    stages.push_back({"프로세스 시작", report.process_start_ns});
+
+    // ── 1. 인증 ──────────────────────────────────────────────────────────────
+    KisClient kis(kis_config);
+
+    if (!kis.authenticate())
+    {
+        std::cerr << "[중단] 인증 실패\n";
+        return 3;
+    }
+
+    stages.push_back({"인증(토큰) 끝", now_ns()});
+
+    // ── 2. 실시간 접속 ───────────────────────────────────────────────────────
+    SharedState shared;
+    KisWebSocket websocket(kis_config);
+    attach_callbacks(websocket, shared, ticker);
 
     WatchSpec watch;
     watch.ticker     = ticker;
@@ -271,74 +463,27 @@ int main(int argc, char** argv)
     stages.push_back({"실시간 접속·구독 요청 끝", now_ns()});
 
     // ── 3. 첫 체결 대기 (수신 스레드 → 이 스레드) ───────────────────────────
-    int64_t order_thread_woke_ns = 0;
-    double  first_trade_price    = 0.0;
-    int32_t first_trade_hhmmss   = 0;
-    int64_t first_trade_ns       = 0;
+    FirstTrade first_trade;
+
+    if (!wait_first_trade(shared, ticker, stages, first_trade))
     {
-        std::unique_lock<std::mutex> lock(shared.mutex);
-        const bool arrived = shared.changed.wait_for(lock, std::chrono::seconds(kFirstTradeWaitSec),
-                                                     [&shared]
-                                                     {
-                                                         return shared.first_trade_ns != 0;
-                                                     });
-        order_thread_woke_ns = now_ns();
-
-        if (!arrived)
-        {
-            std::cerr << "[중단] " << kFirstTradeWaitSec << "초 안에 " << ticker
-                      << " 체결이 오지 않았다 (장 시간·종목 코드 확인)\n";
-            websocket.disconnect();
-            return 5;
-        }
-
-        first_trade_price  = shared.first_trade_price;
-        first_trade_hhmmss = shared.first_trade_hhmmss;
-        first_trade_ns     = shared.first_trade_ns;
-
-        if (shared.fill_subscribed_ns != 0)
-        {
-            stages.push_back({"체결통보 구독 확인", shared.fill_subscribed_ns});
-        }
-
-        stages.push_back({"첫 체결 수신(수신 스레드)", shared.first_trade_ns});
+        websocket.disconnect();
+        return 5;
     }
-
-    stages.push_back({"주문 스레드 깨어남", order_thread_woke_ns});
 
     // ── 4. 1주 매수 ──────────────────────────────────────────────────────────
-    double order_price = use_limit ? first_trade_price : 0.0;
-
-    if (!kis_config.is_paper)
+    if (!decide_order_price(kis_config, parsed.use_limit, first_trade.price, report.order_price))
     {
-        // 사는 쪽으로 한 걸음 올린 뒤 호가 단위로 올림한다. round_to_tick은 SELL=올림이다.
-        order_price = krx::round_to_tick(first_trade_price * (1.0 + kLivePriceStep), OrderSide::SELL);
-
-        if (order_price * kOrderQuantity > kLiveNotionalCap)
-        {
-            std::cerr << "[중단] 실계좌 주문 금액 " << static_cast<long long>(order_price * kOrderQuantity)
-                      << "원이 상한 " << static_cast<long long>(kLiveNotionalCap) << "원을 넘는다. 더 싼 종목을 고른다.\n";
-            websocket.disconnect();
-            return 2;
-        }
+        websocket.disconnect();
+        return 2;
     }
 
-    OrderSignal signal;
-    signal.ticker          = ticker;
-    signal.side            = OrderSide::BUY;
-    signal.type            = use_limit ? OrderType::LIMIT : OrderType::MARKET;
-    signal.quantity        = kOrderQuantity;
-    signal.price           = order_price;
-    signal.reference_price = first_trade_price;
-    signal.strategy_id     = "ORDER_PATH_CHECK";
-    signal.market          = Market::KR;
-    signal.account_id      = kis_config.account_no;
-    signal.timestamp       = std::chrono::system_clock::now();
+    const OrderSignal signal = make_buy_signal(kis_config, ticker, parsed.use_limit, report.order_price, first_trade.price);
 
     const int64_t submit_start_ns = now_ns();
     const OrderAck acknowledgement = kis.submit_order_acknowledgement(signal);
-    const int64_t acknowledged_ns = now_ns();
-    const uint64_t bucket_wait_ns = kis.rate_limit_wait_ns_this_thread();
+    report.acknowledged_ns = now_ns();
+    report.bucket_wait_ns  = kis.rate_limit_wait_ns_this_thread();
     stages.push_back({"매수 요청 보냄", submit_start_ns});
 
     if (!acknowledgement.ok())
@@ -348,65 +493,19 @@ int main(int argc, char** argv)
         return 6;
     }
 
-    stages.push_back({"접수 응답(주문번호 " + acknowledgement.kis_order_no + ")", acknowledged_ns});
+    stages.push_back({"접수 응답(주문번호 " + acknowledgement.kis_order_no + ")", report.acknowledged_ns});
 
     // ── 5. 체결통보 대기 ─────────────────────────────────────────────────────
-    const std::string wanted_order = without_leading_zeros(acknowledgement.kis_order_no);
-    int64_t filled_ns = 0;
-    FillNotification fill;
-    {
-        std::unique_lock<std::mutex> lock(shared.mutex);
-        shared.changed.wait_for(lock, std::chrono::seconds(kFillWaitSec),
-                                [&]
-                                {
-                                    for (const auto& [arrived_ns, notification] : shared.fills)
-                                    {
-                                        if (without_leading_zeros(notification.kis_order_no) == wanted_order)
-                                        {
-                                            filled_ns = arrived_ns;
-                                            fill      = notification;
-                                            return true;
-                                        }
-                                    }
+    report.filled_ns = wait_fill(shared, acknowledgement.kis_order_no, report.fill);
 
-                                    return false;
-                                });
-    }
-
-    if (filled_ns != 0)
+    if (report.filled_ns != 0)
     {
-        stages.push_back({"체결통보 도착", filled_ns});
+        stages.push_back({"체결통보 도착", report.filled_ns});
     }
 
     websocket.disconnect();
 
     // ── 6. 표 ────────────────────────────────────────────────────────────────
-    std::printf("\n%s / 종목 %s / %s 1주 %.0f원 / 첫 체결 %06d %.0f원\n", kis_config.is_paper ? "모의계좌" : "실계좌",
-                ticker.c_str(), use_limit ? "지정가" : "시장가", order_price, first_trade_hhmmss, first_trade_price);
-    std::printf("%-40s %14s %14s\n", "단계", "시작부터(ms)", "앞 단계부터(µs)");
-    int64_t previous_ns = process_start_ns;
-
-    for (const Stage& stage : stages)
-    {
-        std::printf("%-40s %14.3f %14.1f\n", stage.name.c_str(),
-                    static_cast<double>(stage.at_ns - process_start_ns) / kNanosecondsPerMillisecond,
-                    static_cast<double>(stage.at_ns - previous_ns) / kNanosecondsPerMicrosecond);
-        previous_ns = stage.at_ns;
-    }
-
-    std::printf("\n첫 체결 수신 → 접수 응답: %.1f µs (이 스레드의 초당 한도 대기 누계 %.1f µs)\n",
-                static_cast<double>(acknowledged_ns - first_trade_ns) / kNanosecondsPerMicrosecond,
-                static_cast<double>(bucket_wait_ns) / kNanosecondsPerMicrosecond);
-
-    if (filled_ns != 0)
-    {
-        std::printf("체결: %d주 %.0f원, 증권사 체결시각 %s\n", fill.filled_quantity, fill.filled_price,
-                    fill.fill_time.c_str());
-    }
-    else
-    {
-        std::printf("체결통보: %d초 안에 오지 않았다 (지정가 미체결이거나 장 밖)\n", kFillWaitSec);
-    }
-
+    print_report(kis_config, parsed, first_trade, stages, report);
     return 0;
 }

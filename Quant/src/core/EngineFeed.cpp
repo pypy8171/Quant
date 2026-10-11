@@ -1,6 +1,6 @@
 // 시세 입력 — WebSocket 구독 목록을 만들고 소켓에 걸고, 받은 체결·호가를 전략 샤드 큐나 시세 통로로 보낸다.
-//  Engine 클래스는 그대로다. Engine.cpp 가 길어 열기 어려워 이 갈래만 따로 낸 것이다
-//  (헤더는 한 줄도 안 바뀐다 — 같은 Engine 의 멤버 함수 본체가 여기 있을 뿐이다).
+//  같은 Engine 의 멤버 함수 본체다. 구독 목록은 EngineFeedWatch.cpp, 구독 칸 배정·시세 쪽 제어 요청은
+//  EngineFeedSlots.cpp 로 떼어 냈다. 아래 표는 세 파일을 합쳐 부르는 자리다.
 //
 //  ── 부르는 자리 ──────────────────────────────────────────────────────────
 //  websocket_lane_count()             : setup_shards()·start()·configure() 가 소켓 수를 셀 때
@@ -36,229 +36,6 @@
 #include <nlohmann/json.hpp>
 
 using namespace std::chrono_literals;
-
-uint32_t Engine::websocket_lane_count() const
-{
-    if (feed_.feed_override)
-    {
-        return feed_.feed_override->lanes();
-    }
-
-    if (feed_.replay_file.empty() && !feed_.extra_feed_cfgs.empty())
-    {
-        return static_cast<uint32_t>(feed_.extra_feed_cfgs.size() + 1);
-    }
-
-    return ShardPipeline::kDefaultWebsocketLanes;
-}
-
-// 설정의 종목 목록을 그대로 구독 목록으로 깐다 — 전략이 없는 시세 프로세스에서 종목 순번표를 채우려면
-//  이 목록이 필요하다. 스레드가 뜨기 전에만 불러서 자물쇠 없이 쓴다. [why D-114 단계 5]
-void Engine::seed_watch_specifications(const std::vector<std::string>& tickers)
-{
-    watch_specifications_.clear();
-    watch_specifications_.reserve(tickers.size());
-
-    for (const auto& ticker : tickers)
-    {
-        WatchSpec specification;
-        specification.ticker = ticker;
-        specification.market = Market::KR;
-        watch_specifications_.push_back(std::move(specification));
-    }
-
-    watch_specifications_generation_.fetch_add(1, std::memory_order_relaxed);
-    LOG_INFO("[Engine] 설정에서 깐 WS 구독 종목: " + std::to_string(watch_specifications_.size()) + "개");
-}
-
-void Engine::collect_watch_specifications()
-{
-    // 전략별 구독 스펙 수집 (중복 제거)
-    watch_specifications_.clear();
-    {
-        // 키가 "시장:거래소:티커" 문자열 셋의 조합이고 설정에서 온 스펙을 기동 때 한 번 거르는 자리라 문자열 집합을 쓴다.
-        std::unordered_set<std::string> seen;
-
-        for (auto& strategy : strategy_.list)
-        {
-            for (auto& specification : strategy->get_watch_specifications())
-            {
-                std::string key = (specification.market == Market::US ? "US:" : "KR:") + specification.exchange + ":" + specification.ticker;
-
-                if (seen.insert(std::move(key)).second)
-                {
-                    watch_specifications_.push_back(std::move(specification)); // get_watch_specifications()가 준 임시 벡터라 옮겨도 된다
-                }
-            }
-        }
-    }
-
-    // 고정 종목은 목록 맨 앞에 체결만으로 넣는다 — 연결 때 앞에서부터 칸을 채우므로 상한에 밀리지 않는다. [why D-138]
-    for (auto pin = websocket_pin_tickers_.rbegin(); pin != websocket_pin_tickers_.rend(); ++pin)
-    {
-        const bool already = std::any_of(watch_specifications_.begin(), watch_specifications_.end(),
-                                         [&pin](const WatchSpec& watch)
-                                         {
-                                             return watch.market == Market::KR && watch.ticker == *pin;
-                                         });
-
-        if (!already)
-        {
-            WatchSpec specification;
-            specification.ticker     = *pin;
-            specification.market     = Market::KR;
-            specification.trade_only = true;
-            watch_specifications_.insert(watch_specifications_.begin(), std::move(specification));
-        }
-
-        LOG_INFO("[Engine] WS 고정 종목: " + *pin);
-    }
-
-    // 스레드가 뜨기 전이라 자물쇠는 없지만, 데이터 스레드 사본이 첫 바퀴에 이 목록을 뜨도록 판 번호는 올린다.
-    watch_specifications_generation_.fetch_add(1, std::memory_order_relaxed);
-    LOG_INFO("[Engine] WS 구독 종목: " + std::to_string(watch_specifications_.size()) + "개");
-
-    // 재스캔 중복 방지 시드 — 기동 유니버스에 이미 등록된 KR 종목 기록(스펙의 문자열 티커는 여기서 id가 된다).
-    universe_rescan_.reset_registered();
-
-    for (auto& specification : watch_specifications_)
-    {
-        if (specification.market == Market::KR)
-        {
-            universe_rescan_.set_registered(register_symbol(specification.ticker), true);
-        }
-
-        // 거는 자리는 소켓을 쥔 시세 쪽 하나다. Both 로 돌면 connect_feed() 가 이미 이 목록을 통째로
-        //  걸어 둔 뒤라 이 요청은 "이미 구독 중"으로 끝난다 — 갈라 띄운 날 처음 도는 코드를 안 만들려고
-        //  양쪽이 같은 길을 쓴다. [why D-114]
-        send_watch_request(specification);
-    }
-}
-
-bool Engine::add_watch_specification(const WatchSpec& specification)
-{
-    std::lock_guard<std::mutex> specifications_lock(watch_specifications_mutex_);
-
-    for (const auto& watch_specification : watch_specifications_)
-    {
-        if (watch_specification.market == specification.market && watch_specification.exchange == specification.exchange &&
-            watch_specification.ticker == specification.ticker)
-        {
-            return false;
-        }
-    }
-
-    watch_specifications_.push_back(specification);
-    watch_specifications_generation_.fetch_add(1, std::memory_order_relaxed); // 자물쇠 안 — 데이터 스레드 사본이 다음 바퀴에 다시 뜬다
-    return true;
-}
-
-void Engine::send_watch_request(const WatchSpec& specification, ipc::ControlKind kind, int32_t priority)
-{
-    // 칸을 넘는 종목 코드는 잘라 보내지 않는다 — 잘린 코드로 구독하면 엉뚱한 종목의 틱이 이 종목 것으로 온다.
-    if (specification.ticker.size() > symbol::Ticker::kMax || specification.exchange.size() >= ipc::kControlExchangeMax)
-    {
-        LOG_ERROR("[Engine] 구독 스펙이 칸을 넘어 보내지 못했다 — " + specification.ticker + "(" + specification.exchange + ")");
-        return;
-    }
-
-    ipc::ControlRequest request;
-    request.kind       = kind;
-    request.rank       = priority;
-    request.ticker     = std::string_view(specification.ticker);
-    request.market     = static_cast<uint8_t>(specification.market);
-    request.trade_only = specification.trade_only ? 1 : 0;
-    ipc::set_exchange(request, specification.exchange);
-
-    if (!control_plane_.send(request))
-    {
-        // 사라지면 그 종목은 틱이 영영 오지 않는다(09-11 실측: 구독 밖 종목 체결 0건). 큰 소리로 남긴다.
-        LOG_ERROR("[Engine] 구독 요청을 못 보냈다 — " + specification.ticker + " 는 시세를 받지 못한다");
-    }
-}
-
-void Engine::drain_pending_subscriptions()
-{
-    std::vector<WatchSpec> specifications;
-    std::vector<WatchSpec> unsubscriptions;
-    {
-        std::lock_guard<std::mutex> specifications_lock(watch_specifications_mutex_);
-        specifications.swap(pending_subscriptions_); // 소켓 쓰기는 자물쇠 밖에서 한다
-        unsubscriptions.swap(pending_unsubscriptions_);
-
-        // 해지는 목록에서도 뺀다 — 남기면 REST 대체(poll_universe)와 재연결이 다시 건다.
-        for (const auto& specification : unsubscriptions)
-        {
-            std::erase_if(watch_specifications_,
-                          [&specification](const WatchSpec& watch)
-                          {
-                              return same_watch(watch, specification);
-                          });
-        }
-
-        if (!unsubscriptions.empty())
-        {
-            watch_specifications_generation_.fetch_add(1, std::memory_order_relaxed);
-        }
-    }
-
-    if ((specifications.empty() && unsubscriptions.empty()) || !feed_.websocket)
-    {
-        return;
-    }
-
-    // 해지를 먼저 푼다 — 돌려받은 칸을 같은 바퀴의 구독이 쓴다. [why D-132]
-    for (const auto& specification : unsubscriptions)
-    {
-        const bool released = feed_.websocket->unsubscribe_incremental(specification);
-
-        if (poller_)
-        {
-            poller_->remove_overflow(specification);
-        }
-
-        const symbol::SymbolId symbol = symbols_.table.lookup(specification.ticker);
-
-        if (symbol < websocket_slots_.size())
-        {
-            websocket_slots_[symbol] = WebSocketSlotState{};
-        }
-
-        LOG_INFO("[WS칸] 구독 해지 — " + specification.ticker + (released ? " (칸 반납)" : " (REST 대체만 멈춤)") +
-                 ", 보는 전략·보유·선점 없음");
-    }
-
-    for (const auto& specification : specifications)
-    {
-        if (feed_.capture)
-        {
-            // 그날 무엇을 구독했는지 캡처 파일 머리에 남긴다 — 호가가 빈 종목이 trade_only 인지 파일만 보고 알 수 있게.
-            feed_.capture->on_universe(specification.ticker, static_cast<uint8_t>(specification.market),
-                                       symbols_.table.intern(specification.ticker), specification.trade_only);
-        }
-
-        // 거짓 자체는 정상일 수 있다(연결 전·이미 구독). 목록에서까지 빠졌으면 구독 상한에 밀린 것이고,
-        //  그대로 두면 이 종목은 틱 없이 조용히 매매하지 않는다(09-11 실측: 40 초과 종목 체결 0건).
-        if (feed_.websocket->subscribe_incremental(specification) || feed_.websocket->has_specification(specification))
-        {
-            continue;
-        }
-
-        watch_overflow_.fetch_add(1, std::memory_order_relaxed);
-
-        // 넘침 목록에 넣어 데이터 스레드가 REST 로 대신 흘린다. 폴러는 양쪽에 있고, 갈라 띄우면 시세 쪽
-        //  폴러가 받아 시세 통로의 마지막 줄로 보낸다(구독을 거는 쪽과 같은 프로세스다). [why D-114]
-        if (poller_ && poller_->add_overflow(specification))
-        {
-            LOG_WARN("[Engine] WS 구독 상한 — " + specification.ticker + " 시세는 REST 폴링으로 대체(넘침 " +
-                     std::to_string(poller_->overflow_count()) + "종목)");
-        }
-        else if (!poller_)
-        {
-            LOG_ERROR("[Engine] WS 구독 상한 — " + specification.ticker + " 는 REST 대체가 아직 없어 틱을 못 받는다");
-        }
-    }
-}
 
 // 소켓을 쥔 시세 프로세스가 디코드한 체결을 전략 프로세스로 넘긴다. 기다리지 않는다 — 큐가 차면 버리고 센다(원칙 3).
 //  [inv] 한 줄의 보내는 쪽은 스레드 하나다 — 소켓 줄은 그 수신 스레드, 마지막 줄(pipeline_.data_row())은 폴러의
@@ -497,6 +274,39 @@ void Engine::connect_feed()
         return;
     }
 
+    create_feed_source();
+    open_tick_capture();
+    install_feed_callbacks();
+
+    auto push_fill = [this](const FillNotification& fill_notification)
+    {
+        push_fill_notification(fill_notification);
+    };
+
+    feed_.websocket->set_fill_callback(push_fill);
+
+    if (feed_.paper)
+    {
+        feed_.paper->set_fill_callback(push_fill);
+    }
+
+    if (!feed_.websocket->connect(watch_specifications_))
+    {
+        // 예전에는 경고만 남기고 넘어갔는데, 그러면 전략이 호가·체결을 하나도 못 받아
+        //  매매가 조용히 멈춘다(폴링 경로가 꺼져 있으므로). 폴링으로 낮춰 계속 돈다.
+        //  control_thread가 재연결을 계속 시도하고, 붙으면 WS로 되돌린다.
+        LOG_ERROR("[Engine] WebSocket 최초 연결 실패");
+
+        if (!activate_rest_fallback("최초 연결 실패"))
+        {
+            LOG_ERROR("[Engine] 폴링 폴백도 불가(시세 소스 없음) — 호가/체결 이벤트 없이 동작");
+        }
+    }
+}
+
+// connect_feed() 단계 — 피드 소스를 고른다(주입·리플레이·소켓 하나·소켓 여럿 FeedMux). 체결통보를 맡은 소켓 수를 남긴다.
+void Engine::create_feed_source()
+{
     if (feed_.feed_override)
     {
         feed_.websocket = std::move(feed_.feed_override);
@@ -545,7 +355,11 @@ void Engine::connect_feed()
             LOG_INFO("[Engine] 체결통보 세션: 소켓 " + std::to_string(fill_sources.front()));
         }
     }
+}
 
+// connect_feed() 단계 — 틱 캡처 파일을 열고 담을 종목 표와 그날 구독 목록을 파일 머리에 남긴다. 리플레이면 열지 않는다.
+void Engine::open_tick_capture()
+{
     // 리플레이를 다시 캡처하면 같은 틱이 두 파일에 남으므로 캡처는 WS일 때만 연다.
     if (!feed_.capture_directory.empty() && feed_.replay_file.empty())
     {
@@ -592,7 +406,11 @@ void Engine::connect_feed()
             LOG_WARN("[Engine] 틱 캡처 파일을 열지 못해 캡처 없이 간다: " + feed_.capture_directory + "/" + file_name);
         }
     }
+}
 
+// connect_feed() 단계 — 소켓 수신 스레드의 호가·체결 콜백을 건다. 콜백 몸통은 hot path라 람다를 그대로 둔다.
+void Engine::install_feed_callbacks()
+{
     // 수신 스레드 = 이 콜백을 부르는 수신 스레드 번호 = 행렬의 행. 한 행은 그 스레드만 넣는다(SPSC 셀, 원칙 5).
     feed_.websocket->set_lane_callbacks([this](uint32_t lane, const OrderBook& in)
                        {
@@ -689,283 +507,6 @@ void Engine::connect_feed()
 
                            fan_out_trade(lane, trade);
                        });
-    auto push_fill = [this](const FillNotification& fill_notification)
-    {
-        push_fill_notification(fill_notification);
-    };
-
-    feed_.websocket->set_fill_callback(push_fill);
-
-    if (feed_.paper)
-    {
-        feed_.paper->set_fill_callback(push_fill);
-    }
-
-    if (!feed_.websocket->connect(watch_specifications_))
-    {
-        // 예전에는 경고만 남기고 넘어갔는데, 그러면 전략이 호가·체결을 하나도 못 받아
-        //  매매가 조용히 멈춘다(폴링 경로가 꺼져 있으므로). 폴링으로 낮춰 계속 돈다.
-        //  control_thread가 재연결을 계속 시도하고, 붙으면 WS로 되돌린다.
-        LOG_ERROR("[Engine] WebSocket 최초 연결 실패");
-
-        if (!activate_rest_fallback("최초 연결 실패"))
-        {
-            LOG_ERROR("[Engine] 폴링 폴백도 불가(시세 소스 없음) — 호가/체결 이벤트 없이 동작");
-        }
-    }
-}
-
-// ─── 구독 칸 배정(제어 스레드) ────────────────────────────────────────────
-bool Engine::is_websocket_pinned(std::string_view ticker) const
-{
-    return std::find(websocket_pin_tickers_.begin(), websocket_pin_tickers_.end(), ticker) != websocket_pin_tickers_.end();
-}
-
-int32_t Engine::websocket_slot_priority(const WatchSpec& specification) const
-{
-    if (!websocket_slot::is_managed(specification))
-    {
-        return websocket_slot::kHeld; // 칸 배정 밖(미국)은 기동 때처럼 먼저 건다
-    }
-
-    const symbol::SymbolId symbol = symbols_.table.lookup(specification.ticker);
-    return symbol < websocket_slots_.size() ? websocket_slots_[symbol].priority : websocket_slot::kUnranked;
-}
-
-void Engine::rebalance_websocket_slots()
-{
-    // 칸 개념이 없는 소스(리플레이)거나 연결 전이면 하지 않는다 — 연결 전 목록은 connect()가 건다.
-    if (!feed_.websocket || !feed_.websocket->is_connected())
-    {
-        return;
-    }
-
-    const int free_slots = feed_.websocket->free_slots();
-
-    if (free_slots < 0)
-    {
-        return;
-    }
-
-    std::vector<WatchSpec> specifications;
-    {
-        std::lock_guard<std::mutex> specifications_lock(watch_specifications_mutex_);
-        specifications.reserve(watch_specifications_.size());
-
-        for (const auto& specification : watch_specifications_)
-        {
-            if (websocket_slot::is_managed(specification))
-            {
-                specifications.push_back(specification);
-            }
-        }
-    }
-
-    if (websocket_slots_.size() < symbols_.table.capacity() + 1)
-    {
-        websocket_slots_.resize(symbols_.table.capacity() + 1);
-    }
-
-    const auto                    now = std::chrono::steady_clock::now();
-    std::vector<websocket_slot::Entry>   entries;
-    std::vector<symbol::SymbolId> ids;
-    std::vector<size_t>           specification_index;
-    int                           used = 0;
-    entries.reserve(specifications.size());
-
-    for (size_t index = 0; index < specifications.size(); ++index)
-    {
-        const WatchSpec&       specification = specifications[index];
-        const symbol::SymbolId symbol        = symbols_.table.lookup(specification.ticker);
-
-        if (symbol == symbol::kNone || symbol >= websocket_slots_.size())
-        {
-            continue;
-        }
-
-        WebSocketSlotState&   state = websocket_slots_[symbol];
-        websocket_slot::Entry entry;
-        entry.channels  = websocket_slot::channels_of(specification);
-        entry.priority  = state.priority;
-        entry.on_socket = feed_.websocket->has_specification(specification);
-
-        if (entry.on_socket)
-        {
-            // 처음 칸에 오른 것을 본 때 — 재연결로 다시 걸린 종목이 REST로도 겹쳐 받지 않게 넘침에서 뺀다.
-            if (state.on_since == std::chrono::steady_clock::time_point{})
-            {
-                state.on_since = now;
-
-                if (poller_)
-                {
-                    poller_->remove_overflow(specification);
-                }
-            }
-
-            entry.held_sec = std::chrono::duration_cast<std::chrono::seconds>(now - state.on_since).count();
-            used          += entry.channels;
-        }
-        else
-        {
-            state.on_since = {};
-        }
-
-        entries.push_back(entry);
-        ids.push_back(symbol);
-        specification_index.push_back(index);
-    }
-
-    websocket_slot::Rules rules;
-    rules.capacity = used + free_slots;
-    const websocket_slot::Plan plan = websocket_slot::plan(entries, rules);
-
-    for (size_t chosen : plan.release)
-    {
-        const WatchSpec& specification = specifications[specification_index[chosen]];
-
-        if (!feed_.websocket->unsubscribe_incremental(specification))
-        {
-            continue;
-        }
-
-        if (poller_)
-        {
-            poller_->add_overflow(specification);
-        }
-
-        websocket_slots_[ids[chosen]].on_since = {};
-        LOG_INFO("[WS칸] 칸 내줌 — " + specification.ticker + " 우선순위=" + std::to_string(entries[chosen].priority) +
-                 " 쥔 시간=" + std::to_string(entries[chosen].held_sec) + "초, 이제 REST로 받는다");
-    }
-
-    std::vector<bool> taken(entries.size(), false);
-
-    for (size_t chosen : plan.take)
-    {
-        const WatchSpec& specification = specifications[specification_index[chosen]];
-
-        // 상한에 걸려 실패하면 소켓 쪽이 넘침 목록에 다시 올린다 — REST로 계속 받는다.
-        if (!feed_.websocket->subscribe_incremental(specification) || !feed_.websocket->has_specification(specification))
-        {
-            continue;
-        }
-
-        if (poller_)
-        {
-            poller_->remove_overflow(specification);
-        }
-
-        taken[chosen]                   = true;
-        websocket_slots_[ids[chosen]].on_since = now;
-        LOG_INFO("[WS칸] 칸 받음 — " + specification.ticker + " 우선순위=" + std::to_string(entries[chosen].priority));
-    }
-
-    // 보유·선점 종목이 칸 밖에 남는 것은 칸 전부를 보유·선점이 쥔 때뿐이다. 바뀔 때만 한 줄 남긴다 — 판정 행이 센다.
-    for (size_t index = 0; index < entries.size(); ++index)
-    {
-        WebSocketSlotState& state       = websocket_slots_[ids[index]];
-        const bool   off_socket  = !entries[index].on_socket && !taken[index];
-        const bool   must_listen = entries[index].priority <= websocket_slot::kProtected;
-        const bool   warn        = must_listen && off_socket;
-
-        if (warn != state.warned_off_socket)
-        {
-            state.warned_off_socket = warn;
-            const std::string& ticker = specifications[specification_index[index]].ticker;
-
-            if (warn)
-            {
-                LOG_WARN("[WS칸] 보유·선점 종목이 칸 밖 — " + ticker + " 는 REST로만 받는다(칸 전부를 보유·선점이 쥠)");
-            }
-            else
-            {
-                LOG_INFO("[WS칸] 보유·선점 종목 칸 밖 풀림 — " + ticker);
-            }
-        }
-    }
-}
-
-void Engine::apply_feed_control_requests()
-{
-    ipc::ControlRequest request;
-
-    while (control_plane_.pop_feed(request))
-    {
-        switch (request.kind)
-        {
-        // 목록에만 올리고 소켓에 거는 것은 이어지는 drain_pending_subscriptions()가 한다 — 꺼내는 자리가
-        //  소켓 쓰기에 막히면 그동안 제어 줄이 밀린다. [why D-114]
-        case ipc::ControlKind::kWatchSubscribe:
-        {
-            if (request.ticker.empty() || request.ticker.size() > symbol::Ticker::kMax)
-            {
-                break; // 통로 저쪽에서 온 칸은 믿지 않는다 — 길이가 칸을 넘으면 view() 가 칸 밖을 읽는다
-            }
-
-            WatchSpec specification = ipc::watch_specification_of(request);
-
-            // 목록에 이미 있어도 구독은 건다 — Both 로 돌면 collect_watch_specifications() 가 채운 목록에 그대로 들어 있다.
-            add_watch_specification(specification);
-
-            {
-                std::lock_guard<std::mutex> specifications_lock(watch_specifications_mutex_);
-                pending_subscriptions_.push_back(std::move(specification));
-            }
-
-            break;
-        }
-
-        // 보는 전략이 없어진 종목 — 소켓에서 푸는 것은 drain_pending_subscriptions()가 한다. 같은 바퀴에 앞서 온
-        //  구독이 아직 안 걸렸으면 그것도 거둔다(순서가 뒤집혀 다시 걸리지 않게). [why D-132]
-        case ipc::ControlKind::kWatchUnsubscribe:
-        {
-            if (request.ticker.empty() || request.ticker.size() > symbol::Ticker::kMax)
-            {
-                break;
-            }
-
-            WatchSpec specification = ipc::watch_specification_of(request);
-            std::lock_guard<std::mutex> specifications_lock(watch_specifications_mutex_);
-            std::erase_if(pending_subscriptions_,
-                          [&specification](const WatchSpec& watch)
-                          {
-                              return same_watch(watch, specification);
-                          });
-            pending_unsubscriptions_.push_back(std::move(specification));
-            break;
-        }
-
-        // 칸 우선순위만 바꾼다. 칸을 실제로 옮기는 것은 이어지는 rebalance_websocket_slots()다. [why D-132]
-        case ipc::ControlKind::kWatchPriority:
-        {
-            if (request.ticker.empty() || request.ticker.size() > symbol::Ticker::kMax)
-            {
-                break;
-            }
-
-            const symbol::SymbolId symbol = symbols_.table.lookup(request.ticker.view());
-
-            if (symbol == symbol::kNone)
-            {
-                break; // 아직 구독 요청이 안 닿은 종목 — 우선순위가 바뀌면 다음 재스캔이 다시 보낸다
-            }
-
-            if (websocket_slots_.size() <= symbol)
-            {
-                websocket_slots_.resize(std::max<size_t>(symbols_.table.capacity() + 1, symbol + 1));
-            }
-
-            websocket_slots_[symbol].priority = request.rank;
-            break;
-        }
-
-        default:
-            // 이 줄로는 구독·해지·칸 우선순위만 온다. 다른 낱말이 보이면 가르는 규칙과 보내는 쪽이 어긋난 것이다.
-            LOG_ERROR("[Engine] 시세 제어 줄에 엉뚱한 낱말이 왔다 — " +
-                      std::to_string(static_cast<int>(request.kind)));
-            break;
-        }
-    }
 }
 
 // ─── 시세 줄 스레드(전략 역할) ────────────────────────────────────────────

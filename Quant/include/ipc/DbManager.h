@@ -9,7 +9,8 @@
 //  스레드, 헬스는 데이터 스레드가 on_signal·on_health로 고정 크기 행을 큐에 넣기만 하고, 글자는 워커가 만든다.
 //  계좌가 비면 두 표에 넣지 않는다(옛 파이썬 적재기의 is_our_account와 같은 뜻 — 계좌 없는 행은 받지 않았다). [why D-154]
 //  DB에 묻고 답을 받는 요청 경로는 두지 않는다 — 받을 곳(D-128 장부)이 생길 때 그 요구에 맞춰 만든다.
-//  libpq 호출은 DbManager.cpp에만 있고, 그 파일은 HAS_PQ일 때만 빌드된다. 이 헤더는 설정 구조체 때문에 늘 포함된다.
+//  libpq 호출은 Quant/src/ipc/DbManager.cpp·DbConnection.cpp·DbWorkers.cpp(내부 헤더 ipc/DbWorkerState.h)에만 있고,
+//  그 파일들은 HAS_PQ일 때만 빌드된다. 이 헤더는 설정 구조체 때문에 늘 포함된다.
 #pragma once
 
 #include "core/HealthSnapshot.h"
@@ -142,7 +143,7 @@ public:
 
     [[nodiscard]] DbStatistics statistics() const noexcept;
 
-    // 워커와 나눠 갖는 상태. 정의는 DbManager.cpp 안에만 있다. stop()이 돌아오지 않는 워커를 떼어 둘 때도
+    // 워커와 나눠 갖는 상태. 정의는 ipc/DbWorkerState.h에만 있다. stop()이 돌아오지 않는 워커를 떼어 둘 때도
     //  그 워커가 이것을 붙들고 있어 DbManager가 먼저 사라져도 댕글링이 없다.
     struct State;
 

@@ -4,7 +4,7 @@
 DevScale 하네스는 3분봉 리플레이(PYQuant/backtest/devscale_replay.py)뿐이고 분봉은 1년치라, 2010 – 2026을 보려고
 일봉 근사를 새로 만들었다. 시험 목록·고정 조건·통과 기준은 같은 폴더 devscale_trend_filter.txt 머리말에 실행 전에 적었다.
 
-옮긴 규칙(정본 Quant/src/strategy/DeviationScaleStrategy.cpp judge_zone·day_entry_allowed, DevScaleRules.cpp,
+옮긴 규칙(정본 Quant/src/strategy/DeviationScaleZone.cpp judge_zone·day_entry_allowed, DevScaleRules.cpp,
 Quant/src/universe/MaAlign.cpp, 설정 Quant/config/config_dev_paper.json):
   - 진입: 오늘 가격을 접어 넣은 SMA5 > SMA10 > SMA20, 접은 SMA20 대비 이격 −8 – +5%, 전날 ATR14/SMA20 ≤ 4.5%,
     개장 이격 ≥ −1%, 가격 2,000원 이상(모의 설정, 상한 없음), 전날 거래대금 상위 200. 시가에서 맞으면 시가, 아니면 종가에서 맞으면 종가 체결.

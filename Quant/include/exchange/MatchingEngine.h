@@ -148,6 +148,26 @@ private:
                             OrderSide resting_side, PriceKrw execution_price,
                             const std::function<void(const Execution&)>& on_execution);
 
+    // run_auction의 단계 함수들. 체결 순서(시장가 먼저, 그다음 가격 우선·시간 우선)는 run_auction 주석이 정본이다.
+    // 한 줄에서 아직 수량이 남은 맨 앞 주문. 다 체결된 앞자리는 지나가며 줄에서 뺀다. 없으면 nullptr.
+    RestingOrder* front_in_level(PriceLevel& level);
+
+    // 단일가 매수 쪽 다음 주문. 시장가 줄 먼저, 그다음 buy_level_cursor부터 높은 가격 순으로 auction_level까지 내려간다.
+    RestingOrder* next_auction_buy(size_t& buy_level_cursor, size_t auction_level);
+
+    // 단일가 매도 쪽 다음 주문. 시장가 줄 먼저, 그다음 sell_level_cursor부터 낮은 가격 순으로 auction_level까지 올라간다.
+    RestingOrder* next_auction_sell(size_t& sell_level_cursor, size_t auction_level);
+
+    // 줄 하나의 남은 수량을 다시 세어 total_quantity에 넣고 돌려준다. 남은 주문 수는 resting_count_에 더한다.
+    int64_t recount_level(PriceLevel& level);
+
+    // 단일가 뒤 잔량 집계(resting_count_·resting_limit_quantity_·최우선호가 경계)를 처음부터 다시 센다.
+    void recount_resting();
+
+    // 연속매매에서 레벨 하나가 비었을 때 최우선호가 경계를 다음 레벨로 민다.
+    //  incoming_is_buy면 매도 경계(lowest_sell_level_)를 올리고, 아니면 매수 경계(highest_buy_level_)를 내린다.
+    void advance_best_level(bool incoming_is_buy, size_t emptied_level);
+
     // 주문 한 건을 저장소에 놓고 레벨 줄 끝에 붙인다. 저장소가 꽉 찼으면 false.
     bool push_resting(PriceLevel& level, uint64_t order_id, int32_t quantity);
 

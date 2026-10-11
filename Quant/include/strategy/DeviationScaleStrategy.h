@@ -7,6 +7,7 @@
 #include "core/TickSize.h"
 #include "core/WakeGate.h"
 #include "strategy/DevScaleRules.h"
+#include "strategy/DeviationScaleState.h"
 #include "strategy/StrategyBase.h"
 #include "universe/MaAlign.h"
 #include "utils/Logger.h"
@@ -178,10 +179,7 @@ public:
     DeviationScaleStrategy(const DeviationScaleStrategy&)            = delete;
     DeviationScaleStrategy& operator=(const DeviationScaleStrategy&) = delete;
 
-    ~DeviationScaleStrategy()
-    {
-        stop_prefetch();
-    }
+    ~DeviationScaleStrategy();
 
     const std::string& id() const override
     {
@@ -189,18 +187,12 @@ public:
     }
 
     // 로그 표시용 "티커(종목명)". 이름 없으면 티커만. id()·데이터키와는 분리.
-    std::string display() const
-    {
-        return parameters_.name.empty() ? parameters_.ticker : parameters_.ticker + "(" + parameters_.name + ")";
-    }
+    std::string display() const;
 
     std::string describe() const override;
 
     // 현재가 하트비트만 필요 → trade_only=true(호가 구독 절약). rest 모드에선 DataThread가 주입.
-    std::vector<WatchSpec> get_watch_specifications() const override
-    {
-        return {{parameters_.ticker, Market::KR, "", /*trade_only=*/true}};
-    }
+    std::vector<WatchSpec> get_watch_specifications() const override;
 
     void on_start() override;
 
@@ -247,6 +239,38 @@ private:
         bool   warming; // 3분봉이 모자라 일봉 SMA20으로 대신했으면 true
     };
 
+    // 재구성 준비(prepare_rebuild)가 정한 값 — 분할 주문 재구성(rebuild_split_steps)이 그대로 받는다.
+    struct RebuildState
+    {
+        SplitPlan plan;
+        double    simple_moving_average = 0.0; // 분할 매수 기준선
+        bool      warming = false;             // 기준선을 일봉 SMA20으로 대신했으면 true
+        int       position = 0;                // 확정 보유 수량
+        bool      entry_time_closed = false;   // 신규 진입 마감 시각을 지났으면 true
+    };
+
+    // 자본%를 가격으로 나누기 전의 명목 사이징(원). size_split_budget이 채운다.
+    struct SplitSizing
+    {
+        double base_notional = 0.0;       // 베이스 명목
+        double split_step_budget = 0.0;   // 물타기 총예산
+        double split_step_notional = 0.0; // 물타기 한 단계의 명목
+        double entry_scale_ratio = 1.0;   // 국면 매수비율(0.1 단위)
+    };
+
+    // 기동 점검 매수 1주(startup_check_buy). 냈으면 true.
+    bool fire_startup_check(const TradeData& trade, std::vector<OrderSignal>& out);
+    // 기준선·하루 진입 필터·청산 진행·진입 마감을 거쳐 계획을 만든다. 이 틱에서 재구성하지 않으면 nullopt.
+    std::optional<RebuildState> prepare_rebuild(const std::vector<MarketData>& bars, const ZoneJudgement& zone_judgement,
+                                                double current_price, int hhmm, std::vector<OrderSignal>& out,
+                                                std::chrono::steady_clock::time_point now);
+    // 진입 축 판정·먼지 정리·재구성 억제를 거쳐 기존 분할 주문을 취소하고 새 계획을 깐다.
+    void rebuild_split_steps(const TradeData& trade, const ZoneJudgement& zone_judgement, bool local_bars,
+                             double current_price, RebuildState& state, std::vector<OrderSignal>& out,
+                             std::chrono::steady_clock::time_point now);
+    // 새 REST 분봉 스냅샷을 집계기에 한 번 시드한다(소유 샤드 스레드).
+    void seed_aggregator(const std::vector<MarketData>& snapshot_bars, uint64_t bars_version, bool local_bars);
+
     void feed_bar_aggregator(const TradeData& trade);
     bool close_at_market_end(int hhmm, std::vector<OrderSignal>& out);
     // 일봉 스냅샷이 아직 없으면 nullopt — 프리페치를 기다린다.
@@ -258,9 +282,17 @@ private:
     // 기준선을 못 정했거나(봉 부족·SMA 0) 기준선 이탈로 청산했으면 nullopt.
     std::optional<Baseline> resolve_baseline(const std::vector<MarketData>& bars, double d_s20, double current_price,
                                              std::vector<OrderSignal>& out, std::chrono::steady_clock::time_point now);
-    // 발주 전 계획. peak_position_·base_target_quantity_·reentry_cooldown_until_을 갱신한다.
+    // 발주 전 계획. trading_.peak_position·trading_.base_target_quantity·liquidation_.reentry_cooldown_until을 갱신한다.
     SplitPlan plan_split_steps(int position, double current_price, double simple_moving_average, bool warming,
                                std::chrono::steady_clock::time_point now);
+    // plan_split_steps의 단계 — 명목 사이징, 보유 구간 갱신, 베이스·매도·매수 계단 순으로 부른다.
+    SplitSizing size_split_budget() const;
+    void update_hold_span(int position, std::chrono::steady_clock::time_point now);
+    void plan_base_step(int position, double current_price, double simple_moving_average, double base_notional,
+                        std::vector<SplitStep>& plan);
+    void plan_sell_steps(int position, double current_price, double sell_base_line, std::vector<SplitStep>& plan) const;
+    void plan_buy_steps(double current_price, double simple_moving_average, bool warming, double buy_base_line,
+                        double split_step_notional, std::vector<SplitStep>& plan) const;
     static std::string plan_signature(const SplitPlan& split_plan, bool entry_on);
     bool clear_dust(const SplitPlan& split_plan, bool entry_on, int position, double current_price,
                     std::vector<OrderSignal>& out, std::chrono::steady_clock::time_point now);
@@ -318,20 +350,11 @@ private:
     static int quantity_for(double notional, double price);
 
     // ── KRX 호가단위/격자 절사는 core/TickSize.h(krx::)로 일원화. 얇은 위임만 유지. ──
-    static double tick_size(double price)
-    {
-        return krx::tick_size(price);
-    }
+    static double tick_size(double price);
 
-    static double round_to_tick(double price, OrderSide side)
-    {
-        return krx::round_to_tick(price, side);
-    }
+    static double round_to_tick(double price, OrderSide side);
 
-    std::string next_order_id(const char* tag)
-    {
-        return id() + ":" + tag + ":" + std::to_string(++sequence_);
-    }
+    std::string next_order_id(const char* tag);
 
     void place(std::vector<OrderSignal>& out, OrderSide side, double price, int quantity,
                const std::string& reason = "");
@@ -372,12 +395,7 @@ private:
     int sellable_quantity();
 
     // ── KST 시각 헬퍼(서버 TZ 독립: core/KstTime.h) ─────────────────────────
-    static struct tm kst_tm()
-    {
-        return kst::to_tm(std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()));
-    }
-
-    static int kst_hhmm();
+    static struct tm kst_tm();
 
     // 지금이 몇 번째 봉인가(KST). 날짜를 섞어 자정을 넘겨도 값이 겹치지 않게 한다.
     static int kst_bar_bucket(int interval_min);
@@ -385,10 +403,7 @@ private:
     // 현재 봉이 시작한 뒤 흐른 초(KST). 프리페치 지터 판정용.
     static int kst_sec_into_bucket(int interval_min);
 
-    static std::string kst_ymd()
-    {
-        return kst::date_yyyymmdd(std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()));
-    }
+    static std::string kst_ymd();
 
     static std::string format_one_decimal(double value);
 
@@ -413,17 +428,8 @@ private:
     //  함수들이 불리는 시점에는 항상 유효하다.
     std::shared_ptr<const std::vector<MarketData>> daily_; // 이번 평가가 붙잡은 일봉(정배열/눌림 판정)
     double equity_ = 0.0;                   // 사이징 기준 자본(총평가금) 스냅샷 — 일별 갱신
-    double last_split_buy_reference_ = 0.0;             // 마지막 재구성의 분할 주문 기준점(SMA 또는 현재가) — 데드밴드 기준
-    double last_price_ = 0.0;                 // 직전 체결가 — 시장가 청산 reference_price
-    double last_average_price_ = 0.0;             // 잔고 평단(sellable_qty가 갱신) — reference_price 폴백
-    int64_t last_warm_log_ms_ = 0;         // 봉 부족 로그 스로틀(60초)
-    int    last_position_ = -1;                  // 마지막 재구성 시 포지션(데드밴드 가드)
-    int    base_target_quantity_ = 0;            // 베이스 분할 단계를 처음 깔 때의 목표 수량(부분체결 잔량 기준, 보유 0이면 초기화)
-    int    peak_position_ = 0;                   // 이번 보유 구간의 최대 보유 수량(목표에 닿았으면 베이스 잔량을 더 깔지 않음)
-    std::string entry_date_;                     // 무포지션에서 베이스 매수를 낸 날(KST YYYYMMDD) — 먼지 정리 면제 판정, 이 프로세스 안에서만 안다
-    double hold_peak_price_ = 0.0;               // 이번 보유 구간의 최고 현재가(무장 후 트레일 기준, 보유 0이면 초기화)
-    std::string entry_filter_date_;              // 진입 필터를 판정한 날(KST YYYYMMDD) — 하루 한 번
-    bool   day_entry_allowed_ = true;            // 그날 새 진입 허용 여부(진입 필터 판정 결과)
+    deviation_scale::TradingState     trading_;     // 분할 주문 재구성·존 판정 상태(소유 샤드 스레드)
+    deviation_scale::LiquidationState liquidation_; // 청산·쿨다운·평단 상태(소유 샤드 스레드)
     static constexpr int kOpenDeviationSampleHhmm = 903;   // 개장 봉(3분) 종가 시각 — 이 뒤 첫 평가에서 개장 이격을 잰다
     static constexpr int kPrefetchWindowOpenHhmm  = 850;   // 프리페치 REST를 부르는 창(KST). 장 마감 청산(15:15)까지 덮는다
     static constexpr int kPrefetchWindowCloseHhmm = 1535;
@@ -433,37 +439,14 @@ private:
     // 익절 매도가 보유를 덮는지 장부로 다시 보는 간격(초). 주문 답 왕복 p90 약 4.5초(Engine.h)보다 넉넉히 길게 둬
     //  막 낸 주문을 빈 덮개로 오판하지 않는다. 장전처럼 계속 거부되는 구간에서는 이 간격마다 한 번씩 다시 낸다. [why D-156]
     static constexpr int kSellCoverRecheckSec = 60;
-    std::string last_split_buy_signal_;          // 마지막 발주 분할 매수 시그니처(no-change 가드)
-    std::chrono::steady_clock::time_point last_work_{};   // 스로틀
-    std::chrono::steady_clock::time_point last_rebuild_{}; // 마지막 분할 매수 전면 재구성
-    bool last_zone_ = false;                              // 마지막 존 상태(변화 로그용)
-    bool in_zone_   = false;                              // 존 히스테리시스 상태(진입/청산 임계 전환)
-    bool entry_closed_logged_ = false;                    // 진입 축 닫힘 로그를 냈나(도배 방지)
-    bool entry_cutoff_logged_ = false;                    // 신규 진입 마감 로그를 냈나(하루 한 번)
-    std::chrono::steady_clock::time_point zone_log_ts_{}; // 마지막 존 판정 로그 시각
-    std::chrono::steady_clock::time_point liquidation_next_{};    // 청산 재시도 백오프 해제 시각
-    int    liquidation_last_position_    = -1;                          // 직전 청산시도 position(진행 판정)
-    int    liquidation_fail_streak_ = 0;                           // 연속 미진행 횟수(백오프 지수)
-    std::chrono::steady_clock::time_point stop_cooldown_until_{}; // 스탑·트레일 뒤 분할 매수 재개 시각
-    std::chrono::steady_clock::time_point reentry_cooldown_until_{}; // 전량 청산 뒤 새 베이스 재개 시각
-    std::chrono::steady_clock::time_point average_query_ts_{};        // 평단 직접 조회 스로틀(60초)
-    int    average_position_seen_ = 0;                                     // last_average_price_를 읽었을 때의 보유 수량(바뀌면 다시 읽음)
     int    prefetch_jitter_sec_ = 0;                       // 봉 경계 뒤 분봉 조회 지연(초, 티커 해시)
     uint64_t sequence_ = 0;
 
     // ── 프리페치(무거운 REST를 샤드 스레드 밖으로) ──────────────────────
     prefetch::Pool::TaskId  prefetch_task_ = 0;   // 풀 등록 번호(0=없음). 해제는 stop_prefetch()가 명시(멤버 소멸 순서 앞)
-    std::mutex              snap_mutex_;               // 아래 snap_* 보호
-    // 스냅샷은 포인터를 바꿔 넘긴다 — 평가마다 일봉 250봉(20KB)을 복사하지 않기 위해서다. 한 번 담은
-    //  벡터는 const라 아무도 고치지 않고, 읽는 쪽은 자기 shared_ptr로 수명을 붙잡는다. [why D-115]
-    using BarSnapshot = std::shared_ptr<const std::vector<MarketData>>;
-
-    BarSnapshot             snap_daily_;             // 일봉 스냅샷(미수신이면 null)
-    std::string             snap_daily_date_;        // 스냅샷 기준일(KST YYYYMMDD)
-    double                  snap_equity_ = 0.0;      // 자본 스냅샷(raw, 폴백 미적용)
-    BarSnapshot             snap_bars_;              // 3분봉 스냅샷(미수신이면 null)
-    int snap_bars_bucket_ = -1;                      // 그 스냅샷을 받은 봉 번호(kst_bar_bucket)
-    uint64_t snap_bars_version_ = 0;                 // 받을 때마다 +1 — 소유 샤드 스레드가 새 스냅샷만 시드한다
+    std::mutex              snap_mutex_;               // 아래 snapshot_ 보호
+    using BarSnapshot = deviation_scale::BarSnapshot;
+    deviation_scale::PrefetchSnapshot snapshot_;      // 프리페치가 채운 일봉·분봉·자본
 
     // ── 틱 집계 봉(bar_source=websocket). 집계기·아래 상태는 소유 샤드 스레드만 만진다(on_stop은 샤드가 이 전략을 놓은 뒤 reap·종료 경로에서 부른다). [why D-069] ──
     //  기저는 1분이다 — interval_min 봉은 판단 직전 resample이 만든다. keep은 SMA 창을 1분으로 편 길이. [why D-072]
@@ -474,7 +457,7 @@ private:
     bool        websocket_bars_        = false; // bar_source=="ws"
     bool        websocket_live_        = false; // 마지막 틱이 WS 체결 틱이었나(REST 대체 틱이면 REST 봉으로 판단)
     bool        reseed_pending_ = true;  // 출처 전환·날짜 변경 뒤 REST 시드를 한 번 더 받아야 한다
-    uint64_t    seeded_version_ = 0;     // 마지막으로 시드한 snap_bars_version_
+    uint64_t    seeded_version_ = 0;     // 마지막으로 시드한 snapshot_.bars_version
     std::string aggregator_day_;                // 집계기에 든 봉의 KST 날짜 — 바뀌면 비운다
     std::atomic<bool> seed_wanted_{true}; // 샤드 스레드가 프리페치 스레드에 "다음 봉에 REST 시드를 받아 달라"
 };

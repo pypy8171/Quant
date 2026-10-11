@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """DeviationScale TRENDX 슬리브의 3분봉 리플레이 — 실행 층(분할 단계 구간·물타기·스탑) 비교용.
 
-`Quant/include/strategy/DeviationScaleStrategy.h`의 `on_trade_batch` 경로 하나만 옮겼다. 스캐너·주문
+`Quant/src/strategy/DeviationScaleStrategy.cpp`의 `on_trade_batch` 경로 하나만 옮겼다. 스캐너·주문
 라우터·OrderGate는 옮기지 않는다. 옮긴 규칙과 근사는 README(research/studies/13_trendx_gate/README.md)에
 표로 있고, 여기서는 코드 옆에 짧게만 적는다.
 

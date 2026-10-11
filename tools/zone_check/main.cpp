@@ -7,7 +7,7 @@
 //   정배열·피처   Quant/src/universe/UniverseFeatures.cpp lookup_and_filter
 //   횡단면 점수   Quant/src/universe/UniverseScoring.cpp score_cross_section
 //   비중 배수     Quant/include/universe/ScoreWeight.h
-//   존 판정       Quant/src/strategy/DeviationScaleStrategy.cpp judge_zone
+//   존 판정       Quant/src/strategy/DeviationScaleZone.cpp judge_zone
 
 #include <windows.h>
 #include <winhttp.h>

@@ -4,6 +4,7 @@
 #include "core/Types.h"
 #include "risk/LedgerJournal.h"
 #include "risk/LedgerKeys.h"
+#include "risk/PositionLedgerTypes.h"
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -49,24 +50,12 @@ public:
     template <class V>
     using PosMap = LedgerKeys::Map<V>;
 
-    // 미체결 선점 한 종목분. 매수와 매도를 따로 센다(둘 다 0 이상). 부호 있는 합 하나로 두던 때는
-    //  "매수 10·매도 3"이 +7로 뭉쳐, 매수 10이 체결돼 10을 풀면 0에서 멈추며 살아 있는 매도 3까지 지웠다 —
-    //  그 뒤 매도 가능 수량을 3주 부풀려 봤다. [why 전수조사 B1b-1]
-    struct Reservation
-    {
-        int buy  = 0;
-        int sell = 0;
-
-        int net() const noexcept
-        {
-            return buy - sell;
-        }
-
-        bool empty() const noexcept
-        {
-            return buy == 0 && sell == 0;
-        }
-    };
+    using Reservation  = position_ledger::Reservation;
+    using OpenIntent   = position_ledger::OpenIntent;
+    using OrderRef     = position_ledger::OrderRef;
+    using FillResult   = position_ledger::FillResult;
+    using SellableView = position_ledger::SellableView;
+    using HeldPos      = position_ledger::HeldPos;
 
     PositionLedger()                                 = default;
     PositionLedger(const PositionLedger&)            = delete;
@@ -217,33 +206,8 @@ public:
         return journal_failures_.load(std::memory_order_relaxed);
     }
 
-    // 리플레이가 남긴 미결 주문 — INTENT는 적혔는데 체결·취소·거부로 닫히지 않은 것들. 엔진이 죽은 순간
-    //  거래소 호가창에 살아 있었을 주문이다. 재기동 대조(Engine::resolve_open_intents)가 KIS 미체결조회와
-    //  맞춰, 살아 있으면 라우터 이력에 되살리고(늦은 체결통보가 전략까지 이어진다) 없으면 선점을 푼다. [why D-113]
-    struct OpenIntent
-    {
-        uint64_t    order_id         = 0;
-        uint64_t    kis_order_number = 0; // ACCEPT를 못 본 주문은 0 — 접수됐는지조차 모른다는 뜻
-        std::string account;
-        std::string ticker;
-        std::string strategy_name;
-        OrderSide   side      = OrderSide::BUY;
-        OrderType   type      = OrderType::MARKET;
-        int         remaining = 0;   // 아직 안 닫힌 수량
-        double      price     = 0.0;
-        bool        accepted  = false;
-    };
-
     // 주문번호 오름차순 — 적힌 순서대로 본다. 리플레이 뒤에만 채워져 있다.
     [[nodiscard]] std::vector<OpenIntent> open_intents() const;
-
-    // 주문 하나를 저널 레코드에 잇는 이름표 — 주문 사건(INTENT·ACCEPT·REJECT·FILL·CANCEL)이 같이 받는다.
-    struct OrderRef
-    {
-        uint64_t  order_id         = 0; // OrderSignal.client_order_number
-        uint64_t  kis_order_number = 0; // KIS ODNO 정수(접수 전 0)
-        OrderType type             = OrderType::MARKET;
-    };
 
     // 전략 번호 테이블 — 장부 서브장부·중복 신호 키가 쓰는 번호. 엔진이 전략을 등록할 때 받는다. 고정 이름은
     //  FORCE_LIQ·LIMIT_TRIM은 Engine이 받아 디스패처에 넘기고, UNLINKED는 라우터, DISPLACE는 DisplacementDesk가
@@ -330,9 +294,9 @@ public:
     // quantity = 취소된 미체결 잔량(>0). reserved_만 감소 — positions_/average_price는 불변(취소는 체결 아님).
     // side 쪽 선점만 줄인다(on_fill_confirmed의 선점 해제와 같은 규칙).
     // 호출 규약: 반드시 KIS 취소 성공(rt_cd=="0") 이후에만 호출 — 실패 시 호출하면 이중해제.
-    // reference 기본값을 `= OrderRef{}`로 두지 않는다 — 중첩 구조체의 멤버 기본값은 바깥 클래스가 끝나야 읽히는데
-    //  GCC는 기본 인자에서 그것을 요구해 컴파일을 거부한다(리눅스 빌드 09-22). 인자 없는 겹정의 본문은 그 뒤에
-    //  읽히므로 거기서 만든다. 아래 on_fill_confirmed도 같다.
+    // reference 기본값을 `= OrderRef{}`로 두지 않고 겹정의로 둔다 — OrderRef가 이 클래스 안의 중첩 구조체이던 때
+    //  GCC가 기본 인자에서 멤버 기본값을 읽지 못해 컴파일을 거부했다(리눅스 빌드 09-22). 지금은 PositionLedgerTypes.h로
+    //  나왔지만 호출처 시그니처를 그대로 두려고 겹정의를 남긴다. 아래 on_fill_confirmed도 같다.
     void on_cancel(const std::string& account, const std::string& ticker, OrderSide side, int quantity,
                    const OrderRef& reference);
     void on_cancel(const std::string& account, const std::string& ticker, OrderSide side, int quantity);
@@ -340,26 +304,7 @@ public:
     void on_cancel(const std::string& ticker, OrderSide side, int quantity);
 
     // ── 체결 확인 시 장부 갱신 ─────────────────────────────────────────────
-    // H0STCNI0 체결통보 수신 후 호출. average_price 재계산 + 실현손익 적립.
-    struct FillResult
-    {
-        double average_price    = 0.0; // 갱신된 매수 평균단가
-        int    net_quantity      = 0;   // 체결 후 순 보유수량
-        double commission   = 0.0; // 수수료 (0.015%)
-        double tax          = 0.0; // 거래세 (매도 0.20%)
-        //  출처: 수수료 0.015%는 KIS 공시 온라인 수수료 KRX 0.0140527%·NXT 0.0130527%(유관기관 제비용 포함,
-        //  securities.koreainvestment.com 수수료안내 TF04ae010000)를 올려 잡은 값. 거래세 0.20%는 2026-01-01 양도분부터
-        //  코스피 거래세 0.05%+농어촌특별세 0.15%, 코스닥 0.20%(증권거래세법 시행령 개정, 헤럴드경제 biz.heraldcorp.com/article/10627001).
-        //  둘 다 2026-09-27 확인.
-        double realized_pnl = 0.0; // 이번 체결 실현손익 (SELL만 양수)
-        // SELL인데 장부가 평단을 모를 때 true. 그 경우 realized_pnl은 0으로 두고 daily_pnl에도
-        //  더하지 않는다 — (price-0)*quantity가 이익으로 잡히면 일일 손실컷이 무력화된다(C-1).
-        bool   basis_unknown = false;
-        // strategy_id별 서브장부(전략별 손익 귀속, D-089) — 위 필드들과 계산은 독립이고
-        //  daily_pnl_·kill switch 판정에는 안 들어간다. 참고용 집계만.
-        double strategy_realized_pnl  = 0.0; // 이번 체결의 strategy_id 기준 실현손익 (SELL만)
-        bool   strategy_basis_unknown = false; // strategy_id가 비었거나 그 전략의 평단을 모를 때 true
-    };
+    // H0STCNI0 체결통보 수신 후 호출. average_price 재계산 + 실현손익 적립. 결과 칸은 FillResult(PositionLedgerTypes.h).
     // strategy: OrderSignal.strategy_index(strategy_index_of로 받은 번호). kNone이면 서브장부 갱신을 건너뛴다.
     //  reference: 이 체결이 속한 주문(저널 FILL 레코드용). 라우터가 ODNO를 못 이은 체결은 비워 둔다.
     FillResult on_fill_confirmed(const std::string& account, const std::string& ticker,
@@ -404,15 +349,6 @@ public:
     //  막힌다(09-09 000215: 13:45 취소 후 16분간 "매도가능수량 0"으로 교체 진입 4회 무산).
     //  보유수량을 넘지 않게 자른다. 장부가 모르는 종목이면 아무 것도 하지 않는다.
     void restore_sellable(const std::string& account, const std::string& ticker, int quantity);
-
-    // 매도가능수량이 0으로 잘린 이유를 로그에 남길 조각. 장부 보유·잔고 주문가능(시드/대조값)·
-    //  이 세션 미체결 매도(선점). 장부가 모르는 종목이면 held=0이고 나머지도 0이다.
-    struct SellableView
-    {
-        int held     = 0;
-        int possible_quantity_cap = 0;
-        int pending  = 0;
-    };
 
     SellableView sellable_view(const std::string& account, const std::string& ticker) const;
 
@@ -464,16 +400,6 @@ public:
     // ── 보유 포지션 스냅샷 (G3 강제청산) — net>0 실보유분만 락 하 복사 반환 ──────
     //  보호 주문 평가, LedgerReconciler 재동기, Engine::held_positions가 부른다.
     //  강제 청산은 LedgerSnapshot을 읽고 이 함수를 쓰지 않는다.
-    // symbol은 장부 키의 종목 id — 강제청산·한도 정리가 미체결 잔량을 물을 때 문자열 대신 이 번호로 묻는다.
-    struct HeldPos
-    {
-        std::string      account;
-        std::string      ticker;
-        int              quantity;
-        double           average_price;
-        symbol::SymbolId symbol      = symbol::kNone;
-        bool             slot_exempt = false; // 슬롯 계산 밖 종목(바스켓 슬리브 소유). 강제청산·초과 정리는 이 종목을 건너뛴다 [why D-109]
-    };
     std::vector<HeldPos> snapshot_positions() const;
 
     // 사본에 못 실은 줄 수 — 한 프로세스는 한 계좌만 다루는데(엔진 안 다계좌 금지) 다른 계좌 줄이
@@ -611,6 +537,27 @@ private:
     {
         size_t operator()(const StrategyKey& key) const noexcept;
     };
+
+    // on_fill_confirmed의 단계 — 셋 다 [inv] positions_mutex_를 쥐고 부른다. result.commission·tax는 부른 쪽이 먼저 채운다.
+    //  전략별 서브장부 한 줄(손익 귀속 참고용), 매수 체결의 종목 장부, 매도 체결의 종목 장부.
+    void apply_strategy_fill(const StrategyKey& strategy_key, OrderSide side, int quantity, double price, FillResult& result);
+    void apply_buy_fill(const PosKey& key, int pre_quantity, double current_average, int quantity, double price,
+                        FillResult& result);
+    void apply_sell_fill(const PosKey& key, int pre_quantity, double current_average, int quantity, double price,
+                         FillResult& result);
+
+    // publish의 단계 사이에 오가는 합계 — 열린 자리, 총노출 명목, 다른 계좌라 못 넣은 줄 수.
+    struct PublishTally
+    {
+        size_t   open_slots   = 0;
+        double   gross        = 0.0;
+        uint64_t foreign_rows = 0;
+    };
+
+    // publish의 단계 — 셋 다 [inv] positions_mutex_를 쥐고 부른다. 이번 판의 계좌 고르기, ① 미체결 선점 줄, ② 보유 줄.
+    uint32_t publish_account_locked() const;
+    void     publish_reserved_rows_locked(ipc::LedgerSnapshot& snapshot, uint32_t account, PublishTally& tally) const;
+    void     publish_position_rows_locked(ipc::LedgerSnapshot& snapshot, uint32_t account, PublishTally& tally) const;
 
     strategy_table::StrategyTable                            strategies_; // 전략 이름 → 번호. 자체 소유(엔진·디스패처·라우터가 이 표를 쓴다)
     std::unordered_map<StrategyKey, int, StrategyKeyHash>    strategy_positions_;
