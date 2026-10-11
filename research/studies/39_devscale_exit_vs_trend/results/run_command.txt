@@ -1,0 +1,1 @@
+py -I -X utf8 research/studies/39_devscale_exit_vs_trend/run_exit_test.py

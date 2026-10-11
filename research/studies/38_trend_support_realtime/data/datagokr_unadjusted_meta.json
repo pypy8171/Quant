@@ -1,0 +1,12 @@
+{
+ "source": "https://apis.data.go.kr/1160100/service/GetStockSecuritiesInfoService/getStockPriceInfo",
+ "range": [
+  "20200101",
+  "20261008"
+ ],
+ "fetched_on": "2026-10-10",
+ "targets": 361,
+ "ok": 361,
+ "failures": {},
+ "grade": "B (받은 날 고정)"
+}

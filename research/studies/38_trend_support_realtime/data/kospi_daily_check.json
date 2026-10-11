@@ -1,0 +1,42 @@
+{
+ "naver_rows": 9484,
+ "naver_first": 19900104,
+ "naver_last": 20261008,
+ "yfinance_path": "PYQuant/.index_cache/idx__KS11_1985-01-01_2026-08-15_adj.parquet",
+ "yfinance_first": 19961211,
+ "yfinance_last": 20260814,
+ "overlap_days": 7305,
+ "close_difference_percent": {
+  "mean": 0.0005613510073453261,
+  "median": 0.0,
+  "absolute_p99": 5.379227126400821e-06,
+  "absolute_max": 3.7743974474400144,
+  "days_absolute_over_0_1": 8
+ },
+ "only_in_naver_within_yfinance_span": 104,
+ "only_in_naver_sample": [
+  19961214,
+  19961221,
+  19970104,
+  19970111,
+  19970118,
+  19970125,
+  19970201,
+  19970215,
+  19970222,
+  19970308,
+  19970315,
+  19970322,
+  19970329,
+  19970412,
+  19970419,
+  19970426,
+  19970503,
+  19970510,
+  19970517,
+  19970524
+ ],
+ "only_in_yfinance": 0,
+ "only_in_yfinance_sample": [],
+ "high_low_equal_days_since_2009": 0
+}

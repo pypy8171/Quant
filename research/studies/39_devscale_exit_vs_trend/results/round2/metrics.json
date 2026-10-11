@@ -1,0 +1,69 @@
+{
+ "reproduction": {
+  "commit": "1ae88d9",
+  "bars_path": "PYQuant/data/bars_all_pit_v2.parquet",
+  "bars_size": 259760404,
+  "bars_rows_loaded": 8877874,
+  "common_codes": 3192,
+  "stocks": 3190,
+  "rows": 8594740,
+  "last_market_date": 20261008,
+  "signal_from": 20100101,
+  "cost_ratio": 0.9977003449482578,
+  "seed": 20261010,
+  "numba_threads": 12
+ },
+ "command": "py -I -X utf8 research/studies/39_devscale_exit_vs_trend/run_round2.py",
+ "seconds": 101.5,
+ "signals": {
+  "E∧U1∧상한": 55130,
+  "E∧U2∧상한": 322435,
+  "E∧U0∧상한": 790796,
+  "E∧U1(상한 없음)": 55130,
+  "E∧U2(상한 없음)": 322507,
+  "E 만(후보 조건 없음)": 960153,
+  "E∧U1∧상한 지수 게이트 뺌(진단)": 57514,
+  "E∧U2∧상한 지수 게이트 뺌(진단)": 334745,
+  "E∧U0∧상한 지수 게이트 뺌(진단)": 822963
+ },
+ "chosen": "E∧U2∧상한",
+ "chosen_reason": "두 계좌 모두 50% 이상인 첫 판",
+ "candidates": 322435,
+ "entries": 121428,
+ "years": 16.758384668035593,
+ "bars": {
+  "main_bar": 2.8872351007071453,
+  "month_up": 2.7649808007968297,
+  "month_down": 2.779638603207015,
+  "stock_up": 2.8872351007071453,
+  "stock_down": 2.8276910088278027,
+  "min_stat_up_reference": 1.708418228799589,
+  "min_stat_down_reference": 1.6430962256655852,
+  "reference_line_mine": 3.5,
+  "cells": 62,
+  "flips": 1000,
+  "seed": 20261010,
+  "rule": "주 기준선 = max(달 뒤집기 최대 t 95%, 종목 뒤집기 최대 t 95%) 위·아래 중 큰 값. 판정 t = min(달 t, 종목 t)"
+ },
+ "live_a": {
+  "cell": 41,
+  "rule": "(a) 라이브: 익절5·손절6.5·존 이탈",
+  "n": 121428,
+  "net_mean": -0.41051193772616507,
+  "net_t_month": -7.084014750014287,
+  "net_t_stock": -30.460483439841372,
+  "net_median": -1.022449349084803,
+  "hold_mean": 3.3978818723852817
+ },
+ "slots": 4,
+ "capital": 2000000.0,
+ "output_sha256_16": {
+  "live_coverage.csv": "bc90ed57a709d836",
+  "live_buys_detail.csv": "4de33f5d13683059",
+  "cell_table.csv": "45d6a891df5b6cdd",
+  "year_table.csv": "0f4e5e0a0258fefc",
+  "slot_table.csv": "108bcb4634834abe",
+  "coverage_gaps.csv": "c13393d32c7603ae",
+  "slot_order_spread.csv": "04dfcee2adc13cf4"
+ }
+}

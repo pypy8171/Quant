@@ -1,0 +1,8 @@
+{
+ "source": "https://finance.daum.net/api/charts/A{code}/days?limit=5000&adjusted=false",
+ "fetched_on": "2026-10-10",
+ "listed_codes": 2741,
+ "files": 2741,
+ "failures": {},
+ "grade": "B (받은 날 고정)"
+}

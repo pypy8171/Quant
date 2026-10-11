@@ -1,0 +1,285 @@
+{
+ "reproduction": {
+  "commit": "1ae88d9",
+  "bars_path": "PYQuant/data/bars_all_pit_v2.parquet",
+  "bars_size": 259760404,
+  "bars_rows_loaded": 8877874,
+  "common_codes": 3192,
+  "stocks": 3190,
+  "rows": 8594740,
+  "last_market_date": 20261008,
+  "signal_from": 20100101,
+  "cost_ratio": 0.9977003449482578,
+  "seed": 20261010,
+  "numba_threads": 12
+ },
+ "command": "py -I -X utf8 research/studies/39_devscale_exit_vs_trend/run_round4.py",
+ "seconds": 94.0,
+ "years": 16.758384668035593,
+ "boards": {
+  "U2": {
+   "signals": 322435,
+   "control_rows": 322435,
+   "signals_without_pool": 0,
+   "a_trades": 117332,
+   "a_kosdaq_share": 0.4971107626223025,
+   "control_kosdaq_share": 0.6019600849783677
+  },
+  "U0": {
+   "signals": 790796,
+   "control_rows": 790796,
+   "signals_without_pool": 0,
+   "a_trades": 224753,
+   "a_kosdaq_share": 0.5487401725449715,
+   "control_kosdaq_share": 0.631610427973839
+  }
+ },
+ "bars": {
+  "U2·종가": {
+   "index": {
+    "month_up": 2.402707480122897,
+    "month_down": 2.4873026931560727,
+    "year_up": 2.7248534647125253,
+    "year_down": 2.6510440376336253,
+    "main_bar": 2.7248534647125253
+   },
+   "beta": {
+    "month_up": 2.495443949639326,
+    "month_down": 2.5632495093589602,
+    "year_up": 2.8286360757480833,
+    "year_down": 2.8139817748545246,
+    "main_bar": 2.8286360757480833
+   },
+   "random": {
+    "month_up": 2.6648260048675922,
+    "month_down": 2.633096437525491,
+    "year_up": 2.6522567527842655,
+    "year_down": 2.73753213358214,
+    "main_bar": 2.73753213358214
+   },
+   "live": {
+    "month_up": 2.639310525793304,
+    "month_down": 2.5018132994427393,
+    "year_up": 2.491040651611407,
+    "year_down": 2.520605516726622,
+    "main_bar": 2.639310525793304
+   },
+   "control_index": {
+    "month_up": 2.464508196537698,
+    "month_down": 2.5791682199439516,
+    "year_up": 2.6322163814106365,
+    "year_down": 2.590796173959026,
+    "main_bar": 2.6322163814106365
+   }
+  },
+  "U2·종가−10%": {
+   "index": {
+    "month_up": 2.3981886464238267,
+    "month_down": 2.514352730538135,
+    "year_up": 2.5841945110128894,
+    "year_down": 2.546026098625602,
+    "main_bar": 2.5841945110128894
+   },
+   "beta": {
+    "month_up": 2.5142663581772093,
+    "month_down": 2.58824190324881,
+    "year_up": 2.735497325881213,
+    "year_down": 2.6418137761756855,
+    "main_bar": 2.735497325881213
+   },
+   "random": {
+    "month_up": 2.6642279504879327,
+    "month_down": 2.634856089336338,
+    "year_up": 2.6479344730267287,
+    "year_down": 2.735958788715303,
+    "main_bar": 2.735958788715303
+   },
+   "live": {
+    "month_up": 2.625514335199847,
+    "month_down": 2.52075531376204,
+    "year_up": 2.4837326343594484,
+    "year_down": 2.5122430213350753,
+    "main_bar": 2.625514335199847
+   },
+   "control_index": {
+    "month_up": 2.5176263337020686,
+    "month_down": 2.561415293672408,
+    "year_up": 2.585033170386798,
+    "year_down": 2.555698801764556,
+    "main_bar": 2.585033170386798
+   }
+  },
+  "U2·종가−20%": {
+   "index": {
+    "month_up": 2.4006701801671047,
+    "month_down": 2.489954461537105,
+    "year_up": 2.4931260997164264,
+    "year_down": 2.3970618234212426,
+    "main_bar": 2.4931260997164264
+   },
+   "beta": {
+    "month_up": 2.4819732523225944,
+    "month_down": 2.5471808011755286,
+    "year_up": 2.5576655059041973,
+    "year_down": 2.5152044190343523,
+    "main_bar": 2.5576655059041973
+   },
+   "random": {
+    "month_up": 2.662757151336075,
+    "month_down": 2.6371503610882687,
+    "year_up": 2.642892782653902,
+    "year_down": 2.734362984300465,
+    "main_bar": 2.734362984300465
+   },
+   "live": {
+    "month_up": 2.6269282477513456,
+    "month_down": 2.526772462198554,
+    "year_up": 2.482783598839095,
+    "year_down": 2.527656934533696,
+    "main_bar": 2.6269282477513456
+   },
+   "control_index": {
+    "month_up": 2.4965345192178505,
+    "month_down": 2.544674423574989,
+    "year_up": 2.53949947846775,
+    "year_down": 2.520373877068234,
+    "main_bar": 2.544674423574989
+   }
+  },
+  "U0·종가": {
+   "index": {
+    "month_up": 2.3805950194872656,
+    "month_down": 2.4870407963973973,
+    "year_up": 2.686016056646209,
+    "year_down": 2.6657684492616864,
+    "main_bar": 2.686016056646209
+   },
+   "beta": {
+    "month_up": 2.3906681240537524,
+    "month_down": 2.502976353008397,
+    "year_up": 2.8374788337525416,
+    "year_down": 2.694700761171046,
+    "main_bar": 2.8374788337525416
+   },
+   "random": {
+    "month_up": 2.67394524119333,
+    "month_down": 2.6536322741444307,
+    "year_up": 2.7376628026248917,
+    "year_down": 2.6593737755776377,
+    "main_bar": 2.7376628026248917
+   },
+   "live": {
+    "month_up": 2.594797925461604,
+    "month_down": 2.4853715656433475,
+    "year_up": 2.456686933992216,
+    "year_down": 2.5041842128888265,
+    "main_bar": 2.594797925461604
+   },
+   "control_index": {
+    "month_up": 2.4010863411445618,
+    "month_down": 2.4749184375432325,
+    "year_up": 2.718138927206044,
+    "year_down": 2.6164361077163463,
+    "main_bar": 2.718138927206044
+   }
+  },
+  "U0·종가−10%": {
+   "index": {
+    "month_up": 2.3736257722091185,
+    "month_down": 2.47522326816212,
+    "year_up": 2.6050227215115065,
+    "year_down": 2.620481335472831,
+    "main_bar": 2.620481335472831
+   },
+   "beta": {
+    "month_up": 2.4589774498935,
+    "month_down": 2.5282202694907396,
+    "year_up": 2.725844192871436,
+    "year_down": 2.6471226484444617,
+    "main_bar": 2.725844192871436
+   },
+   "random": {
+    "month_up": 2.6682310164357252,
+    "month_down": 2.6547486111514544,
+    "year_up": 2.7575258847623485,
+    "year_down": 2.657513505440882,
+    "main_bar": 2.7575258847623485
+   },
+   "live": {
+    "month_up": 2.6149112070339235,
+    "month_down": 2.478065731193222,
+    "year_up": 2.450035029413836,
+    "year_down": 2.492306058723934,
+    "main_bar": 2.6149112070339235
+   },
+   "control_index": {
+    "month_up": 2.4205248619895565,
+    "month_down": 2.4303658762122486,
+    "year_up": 2.6243629317402206,
+    "year_down": 2.5605917593438416,
+    "main_bar": 2.6243629317402206
+   }
+  },
+  "U0·종가−20%": {
+   "index": {
+    "month_up": 2.3477631786843967,
+    "month_down": 2.4392132343663375,
+    "year_up": 2.5005525751852837,
+    "year_down": 2.4843921741011896,
+    "main_bar": 2.5005525751852837
+   },
+   "beta": {
+    "month_up": 2.4057049077619754,
+    "month_down": 2.533109384531805,
+    "year_up": 2.588683062286592,
+    "year_down": 2.534479803456447,
+    "main_bar": 2.588683062286592
+   },
+   "random": {
+    "month_up": 2.6837640323028933,
+    "month_down": 2.662414224590947,
+    "year_up": 2.7611137693979377,
+    "year_down": 2.6599551759388187,
+    "main_bar": 2.7611137693979377
+   },
+   "live": {
+    "month_up": 2.6134169300705343,
+    "month_down": 2.480346668511278,
+    "year_up": 2.4480368652579187,
+    "year_down": 2.4930039498081804,
+    "main_bar": 2.6134169300705343
+   },
+   "control_index": {
+    "month_up": 2.387400139097951,
+    "month_down": 2.3924207723323434,
+    "year_up": 2.5091535248655807,
+    "year_down": 2.4885735208204367,
+    "main_bar": 2.5091535248655807
+   }
+  }
+ },
+ "index_missing_market_days": {
+  "kospi": 0,
+  "kosdaq": 0
+ },
+ "kosdaq_source": "research/studies/39_devscale_exit_vs_trend/data/kosdaq_daily_naver.parquet",
+ "kosdaq_hash": "65afb1a4186d6198",
+ "kosdaq_stocks": 2168,
+ "stocks": 3190,
+ "kosdaq_hold_annual_pct": 3.179281725585681,
+ "kosdaq_hold_mdd_pct": -53.79429372741491,
+ "flips": 1000,
+ "seed": 20261010,
+ "random_seed": 20261012,
+ "output_sha256_16": {
+  "first_table_a.csv": "b6a283b8dd06519d",
+  "cell_table.csv": "2e616796de3babbd",
+  "cell_table_u0.csv": "f6225ef87c3fb8b5",
+  "year_table.csv": "9a643cd345b14c23",
+  "year_table_u0.csv": "6ef50d07062b3b92",
+  "slot_table.csv": "ffe68120da21f6b2",
+  "slot_table_u0.csv": "afca1c5ae80704cf",
+  "round3_vs_round4.csv": "c8304bbc6ef57e5e",
+  "trend_cells_compare.csv": "b49ea8bda8898dd5"
+ }
+}

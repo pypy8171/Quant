@@ -1,0 +1,108 @@
+{
+ "reproduction": {
+  "commit": "1ae88d9",
+  "bars_path": "PYQuant/data/bars_all_pit_v2.parquet",
+  "bars_size": 259760404,
+  "bars_rows_loaded": 8877874,
+  "common_codes": 3192,
+  "stocks": 3190,
+  "rows": 8594740,
+  "last_market_date": 20261008,
+  "signal_from": 20100101,
+  "cost_ratio": 0.9977003449482578,
+  "seed": 20261010,
+  "numba_threads": 12
+ },
+ "command": "py -I -X utf8 research/studies/39_devscale_exit_vs_trend/run_exit_test.py",
+ "seconds": 70.6,
+ "corrections": {
+  "rows": 8594740,
+  "rows_by_status_signal_period": {
+   "datagokr": 124085,
+   "daum": 7543206,
+   "proxy_adjusted_close_times_volume": 667918
+  },
+  "turnover20_changed_over_2x_signal_rows": 1721030
+ },
+ "halt_jump_fixes": 405,
+ "delisted_stocks": 770,
+ "kospi_missing_signal_days": 0,
+ "entries": {
+  "signals_D2": 19243,
+  "P": 7946,
+  "D1": 42193
+ },
+ "control_unique_keys": {
+  "P": 145530,
+  "D1 순위 조건 없음": 577898,
+  "D2 겹침 허용": 276983,
+  "D3 그날 종가 진입": 144522
+ },
+ "config_live_strategy0": {
+  "turnover_top_n": 200,
+  "min_price": 2000,
+  "max_price": 100000,
+  "max_dev_pct": 0.05,
+  "risk_off_index_pct": -1.0,
+  "notional_cap_krw": 500000,
+  "sma_period": 20,
+  "dev_sell_pct": 5.0,
+  "stop_loss_pct": 6.5,
+  "entry_atr_max_pct": 4.5,
+  "entry_open_dev_min_pct": -1.0,
+  "dev_buy_pct": 0.8,
+  "buy_split_steps": 0,
+  "reentry_cooldown_sec": 43200,
+  "pullback_pct": 8.0,
+  "entry_upper_pct": 5.0,
+  "market_close_exit_hhmm": 2400,
+  "min_turnover": 1000000000.0
+ },
+ "cost": {
+  "commission": 0.00015,
+  "flat_impact": 0.0005,
+  "slippage_ticks": 1,
+  "linear": 0.3,
+  "amount": 500000.0,
+  "sell_tax": [
+   [
+    20000101,
+    0.3
+   ],
+   [
+    20190530,
+    0.25
+   ],
+   [
+    20210101,
+    0.23
+   ],
+   [
+    20230101,
+    0.2
+   ],
+   [
+    20240101,
+    0.18
+   ],
+   [
+    20250101,
+    0.15
+   ],
+   [
+    20260101,
+    0.2
+   ]
+  ]
+ },
+ "output_sha256_16": {
+  "cell_table.csv": "309b005a647ec2f4",
+  "year_table.csv": "3be2f88c9b53e318",
+  "hold_breakdown.csv": "92140a6d32d8ab68",
+  "mae_mfe.csv": "c73e1dc5794b1378",
+  "multiple_comparison.json": "febe83fc018eeff4",
+  "live_overlap.csv": "f3e5e6690fedd908",
+  "rules.csv": "92337010a170af55",
+  "robustness.csv": "fdf8ff96670d1e3e"
+ }
+}

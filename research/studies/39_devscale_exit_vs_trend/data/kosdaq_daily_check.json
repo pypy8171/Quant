@@ -1,0 +1,15 @@
+{
+ "source": "https://api.finance.naver.com/siseJson.naver?symbol=KOSDAQ&requestType=1&startTime=20090101&endTime=20261010&timeframe=day",
+ "fetched_at": "2026-10-11T15:25:39",
+ "rows": 4379,
+ "first": 20090102,
+ "last": 20261008,
+ "repository_copy": "research/studies/35_surge_box_breakout/halt_trigger_raw/naver_KOSDAQ.parquet",
+ "copy_first": 20081201,
+ "copy_last": 20261006,
+ "overlap_days": 4377,
+ "close_difference_percent_absolute_max": 0.2539260454015313,
+ "open_difference_percent_absolute_max": 0.0,
+ "days_close_absolute_over_0_01": 1,
+ "open_missing_or_zero_days": 0
+}

@@ -1,0 +1,86 @@
+{
+ "reproduction": {
+  "commit": "072e305",
+  "bars_path": "PYQuant/data/bars_all_pit_v2.parquet",
+  "bars_size": 259760404,
+  "bars_rows_loaded": 8877874,
+  "common_codes": 3192,
+  "stocks": 3190,
+  "rows": 8594740,
+  "last_market_date": 20261008,
+  "signal_from": 20100101,
+  "cost_ratio": 0.9977003449482578,
+  "seed": 20261010,
+  "numba_threads": 12
+ },
+ "command": "py -I -X utf8 research/studies/39_devscale_exit_vs_trend/run_round6.py",
+ "seconds": 273.0,
+ "years": 16.758384668035593,
+ "pass_floor": 3.5,
+ "family_a": {
+  "종가": {
+   "index": 4.073910528731316,
+   "cells": 2016,
+   "random": 4.556350712821603
+  },
+  "종가−10%": {
+   "index": 3.9805276818312554,
+   "cells": 2016,
+   "random": 4.55499356774775
+  },
+  "종가−20%": {
+   "index": 3.8170215400931964,
+   "cells": 2016,
+   "random": 4.543378033193028
+  }
+ },
+ "family_b": {
+  "종가": {
+   "index": 2.0526371390167832,
+   "random": 2.149799493166559
+  },
+  "종가−10%": {
+   "index": 2.0526371390167832,
+   "random": 2.149799493166559
+  },
+  "종가−20%": {
+   "index": 2.0526371390167832,
+   "random": 2.149799493166559
+  }
+ },
+ "replication_vs_round5": {
+  "U2|18|open": 8.76513483658053e-11,
+  "U2|18|close": 3.794656166283255e-10,
+  "U2|19|open": 4.10794086582758e-10,
+  "U2|19|close": 6.293213371518522e-11
+ },
+ "a2": {
+  "minute_files": 42466,
+  "pairs_with_panel_row": 20733,
+  "cells": {
+   "0": "(d) E4j10",
+   "1": "가격 익절20·손절10",
+   "2": "(f) 종가 매수 → 다음 날 시가 매도"
+  },
+  "prefilter": 0.8
+ },
+ "flips": 1000,
+ "seed": 20261010,
+ "random_seed": 20261012,
+ "status_a": {
+  "불통과": 153,
+  "판정 불가": 99
+ },
+ "status_b": {
+  "불통과": 3
+ },
+ "output_sha256_16": {
+  "a_judge_c5_252.csv": "44da3a784f390000",
+  "a_judge_all_valuations.csv": "329e1c0a2b1f7396",
+  "a2_overlap_1520.csv": "70dc76120554b869",
+  "a2_outcome_1520.csv": "61e5fb265cf52621",
+  "b_judge.csv": "b493ef34ff778918",
+  "b_breakeven.csv": "2ede9fda84e59945",
+  "b_breakeven_by_year.csv": "49ce9fa520c99a5a"
+ }
+}

@@ -1,0 +1,611 @@
+{
+ "reproduction": {
+  "commit": "072e305",
+  "bars_path": "PYQuant/data/bars_all_pit_v2.parquet",
+  "bars_size": 259760404,
+  "bars_rows_loaded": 8877874,
+  "common_codes": 3192,
+  "stocks": 3190,
+  "rows": 8594740,
+  "last_market_date": 20261008,
+  "signal_from": 20100101,
+  "cost_ratio": 0.9977003449482578,
+  "seed": 20261010,
+  "numba_threads": 12
+ },
+ "command": "py -I -X utf8 research/studies/39_devscale_exit_vs_trend/run_round5.py",
+ "seconds": 411.1,
+ "years": 16.758384668035593,
+ "runs": {
+  "U2|01|open": {
+   "signals": 322435,
+   "control_rows": 322435,
+   "signals_without_pool": 0,
+   "primary_trades": 55176,
+   "kosdaq_share": 0.43824336688014637
+  },
+  "U2|02|open": {
+   "signals": 330194,
+   "control_rows": 330194,
+   "signals_without_pool": 0,
+   "primary_trades": 56095,
+   "kosdaq_share": 0.4397959987159064
+  },
+  "U2|03|open": {
+   "signals": 49072,
+   "control_rows": 49072,
+   "signals_without_pool": 0,
+   "primary_trades": 26325,
+   "kosdaq_share": 0.4526002608412129
+  },
+  "U2|04|open": {
+   "signals": 55941,
+   "control_rows": 55941,
+   "signals_without_pool": 0,
+   "primary_trades": 28050,
+   "kosdaq_share": 0.45903719990704495
+  },
+  "U2|05|open": {
+   "signals": 3722,
+   "control_rows": 3722,
+   "signals_without_pool": 0,
+   "primary_trades": 3584,
+   "kosdaq_share": 0.5671681891456206
+  },
+  "U2|06|open": {
+   "signals": 5899,
+   "control_rows": 5899,
+   "signals_without_pool": 0,
+   "primary_trades": 5238,
+   "kosdaq_share": 0.5577216477369046
+  },
+  "U2|07|open": {
+   "signals": 94216,
+   "control_rows": 94216,
+   "signals_without_pool": 0,
+   "primary_trades": 45861,
+   "kosdaq_share": 0.721767003481362
+  },
+  "U2|07|close": {
+   "signals": 100108,
+   "control_rows": 100108,
+   "signals_without_pool": 0,
+   "primary_trades": 45651,
+   "kosdaq_share": 0.7220401965876853
+  },
+  "U2|08|open": {
+   "signals": 101539,
+   "control_rows": 101539,
+   "signals_without_pool": 0,
+   "primary_trades": 47105,
+   "kosdaq_share": 0.718147706792464
+  },
+  "U2|08|close": {
+   "signals": 107985,
+   "control_rows": 107985,
+   "signals_without_pool": 0,
+   "primary_trades": 46241,
+   "kosdaq_share": 0.7186090660739918
+  },
+  "U2|09|open": {
+   "signals": 108936,
+   "control_rows": 108936,
+   "signals_without_pool": 0,
+   "primary_trades": 50858,
+   "kosdaq_share": 0.7056620400969377
+  },
+  "U2|09|close": {
+   "signals": 115953,
+   "control_rows": 115953,
+   "signals_without_pool": 0,
+   "primary_trades": 50596,
+   "kosdaq_share": 0.7057859650030616
+  },
+  "U2|10|open": {
+   "signals": 112539,
+   "control_rows": 112539,
+   "signals_without_pool": 0,
+   "primary_trades": 50367,
+   "kosdaq_share": 0.7064839744444148
+  },
+  "U2|10|close": {
+   "signals": 119947,
+   "control_rows": 119947,
+   "signals_without_pool": 0,
+   "primary_trades": 49450,
+   "kosdaq_share": 0.7069038825481254
+  },
+  "U2|11|open": {
+   "signals": 83689,
+   "control_rows": 83689,
+   "signals_without_pool": 0,
+   "primary_trades": 18760,
+   "kosdaq_share": 0.36125416721432924
+  },
+  "U2|11|close": {
+   "signals": 89563,
+   "control_rows": 89563,
+   "signals_without_pool": 0,
+   "primary_trades": 19131,
+   "kosdaq_share": 0.36326384779429005
+  },
+  "U2|12|open": {
+   "signals": 45524,
+   "control_rows": 45524,
+   "signals_without_pool": 0,
+   "primary_trades": 12290,
+   "kosdaq_share": 0.4260609788243564
+  },
+  "U2|12|close": {
+   "signals": 49496,
+   "control_rows": 49496,
+   "signals_without_pool": 0,
+   "primary_trades": 12634,
+   "kosdaq_share": 0.43005495393567156
+  },
+  "U2|13|open": {
+   "signals": 109555,
+   "control_rows": 109555,
+   "signals_without_pool": 0,
+   "primary_trades": 25289,
+   "kosdaq_share": 0.3823650221350007
+  },
+  "U2|13|close": {
+   "signals": 116771,
+   "control_rows": 116771,
+   "signals_without_pool": 0,
+   "primary_trades": 25754,
+   "kosdaq_share": 0.3835626996428908
+  },
+  "U2|14|open": {
+   "signals": 87078,
+   "control_rows": 87078,
+   "signals_without_pool": 0,
+   "primary_trades": 22159,
+   "kosdaq_share": 0.46104641815383907
+  },
+  "U2|14|close": {
+   "signals": 93597,
+   "control_rows": 93597,
+   "signals_without_pool": 0,
+   "primary_trades": 22722,
+   "kosdaq_share": 0.4627071380492965
+  },
+  "U2|15|open": {
+   "signals": 14841,
+   "control_rows": 14841,
+   "signals_without_pool": 0,
+   "primary_trades": 4614,
+   "kosdaq_share": 0.1937200997237383
+  },
+  "U2|15|close": {
+   "signals": 15715,
+   "control_rows": 15715,
+   "signals_without_pool": 0,
+   "primary_trades": 4747,
+   "kosdaq_share": 0.193445752465797
+  },
+  "U2|16|open": {
+   "signals": 28705,
+   "control_rows": 28705,
+   "signals_without_pool": 0,
+   "primary_trades": 8497,
+   "kosdaq_share": 0.23835568716251523
+  },
+  "U2|16|close": {
+   "signals": 30471,
+   "control_rows": 30471,
+   "signals_without_pool": 0,
+   "primary_trades": 8750,
+   "kosdaq_share": 0.2377670572019297
+  },
+  "U2|17|open": {
+   "signals": 62528,
+   "control_rows": 62528,
+   "signals_without_pool": 0,
+   "primary_trades": 11250,
+   "kosdaq_share": 0.1577373336745138
+  },
+  "U2|17|close": {
+   "signals": 66809,
+   "control_rows": 66809,
+   "signals_without_pool": 0,
+   "primary_trades": 11550,
+   "kosdaq_share": 0.1561166908650032
+  },
+  "U2|18|open": {
+   "signals": 110597,
+   "control_rows": 110597,
+   "signals_without_pool": 0,
+   "primary_trades": 16766,
+   "kosdaq_share": 0.4885575558107363
+  },
+  "U2|18|close": {
+   "signals": 117538,
+   "control_rows": 117538,
+   "signals_without_pool": 0,
+   "primary_trades": 17001,
+   "kosdaq_share": 0.4892800626180469
+  },
+  "U2|19|open": {
+   "signals": 94606,
+   "control_rows": 94606,
+   "signals_without_pool": 0,
+   "primary_trades": 15852,
+   "kosdaq_share": 0.4907933957677103
+  },
+  "U2|19|close": {
+   "signals": 99654,
+   "control_rows": 99654,
+   "signals_without_pool": 0,
+   "primary_trades": 16100,
+   "kosdaq_share": 0.49200232805507055
+  },
+  "U0|01|open": {
+   "signals": 790796,
+   "control_rows": 790796,
+   "signals_without_pool": 0,
+   "primary_trades": 91704,
+   "kosdaq_share": 0.5214758294174477
+  },
+  "U0|02|open": {
+   "signals": 808992,
+   "control_rows": 808992,
+   "signals_without_pool": 0,
+   "primary_trades": 93194,
+   "kosdaq_share": 0.5229408943475338
+  },
+  "U0|03|open": {
+   "signals": 137079,
+   "control_rows": 137079,
+   "signals_without_pool": 0,
+   "primary_trades": 61632,
+   "kosdaq_share": 0.540542315015429
+  },
+  "U0|04|open": {
+   "signals": 152645,
+   "control_rows": 152645,
+   "signals_without_pool": 0,
+   "primary_trades": 64322,
+   "kosdaq_share": 0.5448327819450358
+  },
+  "U0|05|open": {
+   "signals": 7690,
+   "control_rows": 7690,
+   "signals_without_pool": 0,
+   "primary_trades": 7377,
+   "kosdaq_share": 0.6204161248374512
+  },
+  "U0|06|open": {
+   "signals": 11579,
+   "control_rows": 11579,
+   "signals_without_pool": 0,
+   "primary_trades": 10259,
+   "kosdaq_share": 0.6159426548061145
+  },
+  "U0|07|open": {
+   "signals": 105166,
+   "control_rows": 105166,
+   "signals_without_pool": 0,
+   "primary_trades": 51778,
+   "kosdaq_share": 0.7350189224654355
+  },
+  "U0|07|close": {
+   "signals": 111836,
+   "control_rows": 111836,
+   "signals_without_pool": 0,
+   "primary_trades": 51750,
+   "kosdaq_share": 0.734960120175972
+  },
+  "U0|08|open": {
+   "signals": 110312,
+   "control_rows": 110312,
+   "signals_without_pool": 0,
+   "primary_trades": 51818,
+   "kosdaq_share": 0.7323953876278193
+  },
+  "U0|08|close": {
+   "signals": 117444,
+   "control_rows": 117444,
+   "signals_without_pool": 0,
+   "primary_trades": 51153,
+   "kosdaq_share": 0.7324001226116277
+  },
+  "U0|09|open": {
+   "signals": 113012,
+   "control_rows": 113012,
+   "signals_without_pool": 0,
+   "primary_trades": 54662,
+   "kosdaq_share": 0.7301171557002796
+  },
+  "U0|09|close": {
+   "signals": 120449,
+   "control_rows": 120449,
+   "signals_without_pool": 0,
+   "primary_trades": 54630,
+   "kosdaq_share": 0.7299687004458318
+  },
+  "U0|10|open": {
+   "signals": 114666,
+   "control_rows": 114666,
+   "signals_without_pool": 0,
+   "primary_trades": 53354,
+   "kosdaq_share": 0.7297716847190973
+  },
+  "U0|10|close": {
+   "signals": 122360,
+   "control_rows": 122360,
+   "signals_without_pool": 0,
+   "primary_trades": 52644,
+   "kosdaq_share": 0.7297401111474338
+  },
+  "U0|11|open": {
+   "signals": 111900,
+   "control_rows": 111900,
+   "signals_without_pool": 0,
+   "primary_trades": 21779,
+   "kosdaq_share": 0.3949865951742627
+  },
+  "U0|11|close": {
+   "signals": 119400,
+   "control_rows": 119400,
+   "signals_without_pool": 0,
+   "primary_trades": 22184,
+   "kosdaq_share": 0.3973031825795645
+  },
+  "U0|12|open": {
+   "signals": 95772,
+   "control_rows": 95772,
+   "signals_without_pool": 0,
+   "primary_trades": 17782,
+   "kosdaq_share": 0.4671511506494591
+  },
+  "U0|12|close": {
+   "signals": 102657,
+   "control_rows": 102657,
+   "signals_without_pool": 0,
+   "primary_trades": 18135,
+   "kosdaq_share": 0.4696318809238532
+  },
+  "U0|13|open": {
+   "signals": 114710,
+   "control_rows": 114710,
+   "signals_without_pool": 0,
+   "primary_trades": 23107,
+   "kosdaq_share": 0.3984569784674396
+  },
+  "U0|13|close": {
+   "signals": 122424,
+   "control_rows": 122424,
+   "signals_without_pool": 0,
+   "primary_trades": 23587,
+   "kosdaq_share": 0.40061589230869765
+  },
+  "U0|14|open": {
+   "signals": 112135,
+   "control_rows": 112135,
+   "signals_without_pool": 0,
+   "primary_trades": 21521,
+   "kosdaq_share": 0.48037633209970126
+  },
+  "U0|14|close": {
+   "signals": 119658,
+   "control_rows": 119658,
+   "signals_without_pool": 0,
+   "primary_trades": 21938,
+   "kosdaq_share": 0.4823413394841966
+  },
+  "U0|15|open": {
+   "signals": 60701,
+   "control_rows": 60701,
+   "signals_without_pool": 0,
+   "primary_trades": 14335,
+   "kosdaq_share": 0.3886426912241973
+  },
+  "U0|15|close": {
+   "signals": 64463,
+   "control_rows": 64463,
+   "signals_without_pool": 0,
+   "primary_trades": 14654,
+   "kosdaq_share": 0.38850193134045885
+  },
+  "U0|16|open": {
+   "signals": 83626,
+   "control_rows": 83626,
+   "signals_without_pool": 0,
+   "primary_trades": 19514,
+   "kosdaq_share": 0.40596226054098006
+  },
+  "U0|16|close": {
+   "signals": 88831,
+   "control_rows": 88831,
+   "signals_without_pool": 0,
+   "primary_trades": 19949,
+   "kosdaq_share": 0.40592811068208173
+  },
+  "U0|17|open": {
+   "signals": 115890,
+   "control_rows": 115890,
+   "signals_without_pool": 0,
+   "primary_trades": 13370,
+   "kosdaq_share": 0.31982914833031323
+  },
+  "U0|17|close": {
+   "signals": 123780,
+   "control_rows": 123780,
+   "signals_without_pool": 0,
+   "primary_trades": 13533,
+   "kosdaq_share": 0.31951850056551945
+  },
+  "U0|18|open": {
+   "signals": 112132,
+   "control_rows": 112132,
+   "signals_without_pool": 0,
+   "primary_trades": 16909,
+   "kosdaq_share": 0.48219063246887595
+  },
+  "U0|18|close": {
+   "signals": 119455,
+   "control_rows": 119455,
+   "signals_without_pool": 0,
+   "primary_trades": 17138,
+   "kosdaq_share": 0.48374701770541206
+  },
+  "U0|19|open": {
+   "signals": 102683,
+   "control_rows": 102683,
+   "signals_without_pool": 0,
+   "primary_trades": 16396,
+   "kosdaq_share": 0.4810241227856607
+  },
+  "U0|19|close": {
+   "signals": 108641,
+   "control_rows": 108641,
+   "signals_without_pool": 0,
+   "primary_trades": 16638,
+   "kosdaq_share": 0.4828563801879585
+  }
+ },
+ "family_bars": {
+  "U2·종가": {
+   "index": 2.732750112059603,
+   "index_bars": {
+    "month_up": 2.522309030777437,
+    "month_down": 2.5984968994833477,
+    "year_up": 2.732750112059603,
+    "year_down": 2.623154630361632,
+    "main_bar": 2.732750112059603
+   },
+   "random": 3.1389899839437403,
+   "random_bars": {
+    "month_up": 2.841730136582931,
+    "month_down": 2.7802353699401188,
+    "year_up": 3.0256172513287853,
+    "year_down": 3.1389899839437403,
+    "main_bar": 3.1389899839437403
+   }
+  },
+  "U2·종가−10%": {
+   "index": 2.6126966929928503,
+   "index_bars": {
+    "month_up": 2.5557927554724924,
+    "month_down": 2.5847288556784465,
+    "year_up": 2.6126966929928503,
+    "year_down": 2.5579596769522923,
+    "main_bar": 2.6126966929928503
+   },
+   "random": 3.147823748180472,
+   "random_bars": {
+    "month_up": 2.8360405207329054,
+    "month_down": 2.781930554036517,
+    "year_up": 3.0242973273566105,
+    "year_down": 3.147823748180472,
+    "main_bar": 3.147823748180472
+   }
+  },
+  "U2·종가−20%": {
+   "index": 2.588640282680999,
+   "index_bars": {
+    "month_up": 2.5261428825240166,
+    "month_down": 2.588640282680999,
+    "year_up": 2.526743329993309,
+    "year_down": 2.504841231275669,
+    "main_bar": 2.588640282680999
+   },
+   "random": 3.148045678792883,
+   "random_bars": {
+    "month_up": 2.824462914320409,
+    "month_down": 2.7835707192525865,
+    "year_up": 3.0314935754480477,
+    "year_down": 3.148045678792883,
+    "main_bar": 3.148045678792883
+   }
+  },
+  "U0·종가": {
+   "index": 2.729030086875697,
+   "index_bars": {
+    "month_up": 2.5014371252543963,
+    "month_down": 2.530022727934412,
+    "year_up": 2.729030086875697,
+    "year_down": 2.5884742966276506,
+    "main_bar": 2.729030086875697
+   },
+   "random": 3.173568853029267,
+   "random_bars": {
+    "month_up": 2.792827887208089,
+    "month_down": 2.7121744002407158,
+    "year_up": 3.1094628858074347,
+    "year_down": 3.173568853029267,
+    "main_bar": 3.173568853029267
+   }
+  },
+  "U0·종가−10%": {
+   "index": 2.639169304342059,
+   "index_bars": {
+    "month_up": 2.471723949325631,
+    "month_down": 2.505400683159907,
+    "year_up": 2.639169304342059,
+    "year_down": 2.517883123175155,
+    "main_bar": 2.639169304342059
+   },
+   "random": 3.1568412154138703,
+   "random_bars": {
+    "month_up": 2.791691663436908,
+    "month_down": 2.714688737251725,
+    "year_up": 3.109023596646377,
+    "year_down": 3.1568412154138703,
+    "main_bar": 3.1568412154138703
+   }
+  },
+  "U0·종가−20%": {
+   "index": 2.565280112968538,
+   "index_bars": {
+    "month_up": 2.4525598409385503,
+    "month_down": 2.4546275679291587,
+    "year_up": 2.565280112968538,
+    "year_down": 2.4550124258777517,
+    "main_bar": 2.565280112968538
+   },
+   "random": 3.1675788201828845,
+   "random_bars": {
+    "month_up": 2.799078273156964,
+    "month_down": 2.716879388088857,
+    "year_up": 3.1048101885212125,
+    "year_down": 3.1675788201828845,
+    "main_bar": 3.1675788201828845
+   }
+  }
+ },
+ "pass_floor": 3.0,
+ "live_replication": {
+  "max_abs_difference": 4.5965911081547824e-10,
+  "columns": [
+   "trades",
+   "net_mean",
+   "index_t_min",
+   "random_t_min",
+   "live_t_min",
+   "slot_trades",
+   "slot_annual_pct"
+  ]
+ },
+ "flow_coverage": 0.9531795783405071,
+ "kosdaq_hold_annual_pct": 3.179281725585681,
+ "kosdaq_hold_mdd_pct": -53.79429372741491,
+ "flips": 1000,
+ "seed": 20261010,
+ "random_seed": 20261012,
+ "status_counts_u2": {
+  "불통과": 30,
+  "판정 불가": 2
+ },
+ "output_sha256_16": {
+  "judge_table.csv": "f2b24dc68c665581",
+  "judge_table_all_valuations.csv": "c7f8d72e7d7d486e",
+  "cell_table_all.csv": "cbfebc71c55a5358",
+  "year_table_primary.csv": "abc98a1dc8c0e857",
+  "excursions_primary.csv": "ecf2e4aa63385067",
+  "diagnosis_decomposition.csv": "1cd77627ae78e743",
+  "diagnosis_holding.csv": "53831534491ef2b8"
+ }
+}
