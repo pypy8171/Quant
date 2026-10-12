@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import csv as _csv
+import os
 import re
 import subprocess
 import sys
@@ -510,6 +511,12 @@ def main() -> int:
 
     ymd = a.date or _date.today().isoformat()
     compact = ymd.replace("-", "")
+    # 이 일지는 모의계좌 일지다(머리말이 모의계좌로 고정). 실계좌 감시견이 마감 뒤 QUANT_LOG_DIR=logs_live 를 물린 채
+    #  이 스크립트를 부르면 실계좌 원장이 모의 일지·리뷰 항목을 덮었다(10-07·10-08·10-12 20:02 실측).
+    #  실계좌 하루 기록은 scripts/daily_trade_report.py 가 따로 쓴다. 지정을 떼고 기본 폴더(모의)에서 고른다.
+    pinned_directory = os.environ.get("QUANT_LOG_DIR", "")
+    if Path(pinned_directory).name.startswith("logs_live"):
+        os.environ.pop("QUANT_LOG_DIR")
     log_path, csv_path = find_files(compact)
 
     lines = [f"[{datetime.now():%Y-%m-%d %H:%M:%S}] market_close_autodoc {ymd}"]

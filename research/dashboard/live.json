@@ -1,6 +1,6 @@
 {
   "schema": "quant.live/v1",
-  "generated": "2026-10-12 16:05",
+  "generated": "2026-10-12 23:09",
   "journals": [
     {
       "date": "2026-10-12",
@@ -2733,43 +2733,46 @@
     {
       "date": "2026-10-12",
       "path": "Quant/build_win/logs_live/trades_20261012.csv",
-      "total": 168,
+      "total": 238,
       "by_status": {
-        "REJECTED": 86,
-        "CANCELLED": 66,
-        "ACCEPTED": 12,
-        "FILLED": 4
+        "REJECTED": 116,
+        "CANCELLED": 101,
+        "ACCEPTED": 14,
+        "FILLED": 7
       },
       "by_strategy": {
-        "DEVSCALE_138610": 29,
-        "DEVSCALE_086520": 23,
+        "DEVSCALE_067080": 38,
+        "DEVSCALE_138610": 32,
+        "DEVSCALE_086520": 28,
+        "DEVSCALE_030000": 21,
         "DEVSCALE_111710": 20,
         "DEVSCALE_195940": 18,
-        "DEVSCALE_030000": 16,
+        "DEVSCALE_001120": 16,
         "SWING_TREND": 14,
-        "DEVSCALE_001120": 9,
-        "DEVSCALE_001260": 9,
+        "DEVSCALE_001260": 10,
         "DEVSCALE_011500": 8,
-        "DEVSCALE_011200": 6,
-        "DEVSCALE_012750": 5,
-        "DEVSCALE_005880": 3,
+        "DEVSCALE_011200": 7,
+        "DEVSCALE_012750": 6,
+        "DEVSCALE_005880": 4,
+        "DEVSCALE_214330": 4,
+        "DEVSCALE_003380": 3,
         "DEVSCALE_009450": 3,
-        "DEVSCALE_214330": 3,
-        "DEVSCALE_003380": 1,
-        "DEVSCALE_026960": 1
+        "DEVSCALE_000640": 3,
+        "DEVSCALE_026960": 2,
+        "DEVSCALE_222080": 1
       },
       "by_side": {
-        "BUY": 165,
+        "BUY": 235,
         "SELL": 3
       },
-      "n_tickers": 25,
-      "accepted": 12,
-      "rejected": 86,
-      "cancelled": 66,
-      "filled": 4,
-      "fill_events": 5,
+      "n_tickers": 28,
+      "accepted": 14,
+      "rejected": 116,
+      "cancelled": 101,
+      "filled": 7,
+      "fill_events": 8,
       "realized_pnl": -10016,
-      "buy_notional": 306740,
+      "buy_notional": 1102640,
       "sell_notional": 333100
     }
   ]
