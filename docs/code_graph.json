@@ -2866,6 +2866,7 @@
       "PYQuant/tools/macro_ingest.py",
       "PYQuant/tools/minute_backfill.py",
       "PYQuant/tools/minute_backfill_pairs.py",
+      "PYQuant/tools/minute_fullmarket_backfill.py",
       "PYQuant/tools/minute_strong_open_fetch.py",
       "PYQuant/tools/naver_bars_backfill.py",
       "PYQuant/tools/naver_flow_backfill.py",
@@ -3121,6 +3122,9 @@
       ],
       "PYQuant/tools/minute_backfill_pairs.py": [
         "features.fundamental"
+      ],
+      "PYQuant/tools/minute_fullmarket_backfill.py": [
+        "kis.client"
       ],
       "PYQuant/tools/minute_strong_open_fetch.py": [
         "kis.client"
@@ -3380,6 +3384,7 @@
         "PYQuant/tests/test_strategy_a.py",
         "PYQuant/tools/compare_ws_bars.py",
         "PYQuant/tools/minute_backfill.py",
+        "PYQuant/tools/minute_fullmarket_backfill.py",
         "PYQuant/tools/minute_strong_open_fetch.py",
         "PYQuant/tools/pit_universe_backfill.py",
         "scripts/check_market_open.py",
@@ -3679,7 +3684,7 @@
       {
         "from": "PYQuant/tools",
         "to": "PYQuant/kis",
-        "weight": 4
+        "weight": 5
       },
       {
         "from": "PYQuant/tools",

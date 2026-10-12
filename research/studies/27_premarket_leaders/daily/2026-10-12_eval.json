@@ -1,0 +1,177 @@
+{
+ "date": "2026-10-12",
+ "snapshot_time": "2026-10-12T08:57:00",
+ "market_median_change": -2.4,
+ "candidates": [
+  {
+   "code": "006400",
+   "name": "삼성SDI",
+   "nxt_change": 2.11,
+   "nxt_value_eok": 802.5,
+   "via": "전기제품",
+   "krx_change": -1.41,
+   "value_rank": 7,
+   "change_rank": 978,
+   "leader": false
+  },
+  {
+   "code": "373220",
+   "name": "LG에너지솔루션",
+   "nxt_change": 2.62,
+   "nxt_value_eok": 470.5,
+   "via": "전기제품",
+   "krx_change": -0.75,
+   "value_rank": 11,
+   "change_rank": 735,
+   "leader": false
+  },
+  {
+   "code": "137400",
+   "name": "피엔티",
+   "nxt_change": 3.64,
+   "nxt_value_eok": 24.6,
+   "via": "전기제품",
+   "krx_change": -5.15,
+   "value_rank": 362,
+   "change_rank": 2044,
+   "leader": false
+  },
+  {
+   "code": "348370",
+   "name": "엔켐",
+   "nxt_change": 2.95,
+   "nxt_value_eok": 24.3,
+   "via": "전기제품",
+   "krx_change": -7.27,
+   "value_rank": 439,
+   "change_rank": 2358,
+   "leader": false
+  },
+  {
+   "code": "378340",
+   "name": "필에너지",
+   "nxt_change": 3.15,
+   "nxt_value_eok": 14.2,
+   "via": "전기제품",
+   "krx_change": -3.31,
+   "value_rank": 952,
+   "change_rank": 1598,
+   "leader": false
+  },
+  {
+   "code": "036830",
+   "name": "솔브레인홀딩스",
+   "nxt_change": 3.02,
+   "nxt_value_eok": 11.2,
+   "via": "전기제품",
+   "krx_change": -4.03,
+   "value_rank": 438,
+   "change_rank": 1787,
+   "leader": false
+  },
+  {
+   "code": "416180",
+   "name": "신성에스티",
+   "nxt_change": 3.13,
+   "nxt_value_eok": 8.2,
+   "via": "전기제품",
+   "krx_change": 2.6,
+   "value_rank": 361,
+   "change_rank": 101,
+   "leader": false
+  },
+  {
+   "code": "218410",
+   "name": "RFHIC",
+   "nxt_change": 2.91,
+   "nxt_value_eok": 100.1,
+   "via": "통신장비",
+   "krx_change": -2.05,
+   "value_rank": 197,
+   "change_rank": 1218,
+   "leader": false
+  },
+  {
+   "code": "032500",
+   "name": "케이엠더블유",
+   "nxt_change": 2.67,
+   "nxt_value_eok": 12.1,
+   "via": "통신장비",
+   "krx_change": -5.4,
+   "value_rank": 464,
+   "change_rank": 2099,
+   "leader": false
+  },
+  {
+   "code": "189300",
+   "name": "인텔리안테크",
+   "nxt_change": 2.54,
+   "nxt_value_eok": 5.7,
+   "via": "통신장비",
+   "krx_change": 0.0,
+   "value_rank": 334,
+   "change_rank": 419,
+   "leader": false
+  },
+  {
+   "code": "161000",
+   "name": "애경케미칼",
+   "nxt_change": 7.29,
+   "nxt_value_eok": 222.3,
+   "via": "2차전지(나트륨이온)",
+   "krx_change": 0.0,
+   "value_rank": 278,
+   "change_rank": 394,
+   "leader": false
+  },
+  {
+   "code": "457190",
+   "name": "이수스페셜티케미컬",
+   "nxt_change": 4.71,
+   "nxt_value_eok": 265.0,
+   "via": "2차전지",
+   "krx_change": 4.46,
+   "value_rank": 70,
+   "change_rank": 57,
+   "leader": true
+  },
+  {
+   "code": "006110",
+   "name": "삼아알미늄",
+   "nxt_change": 5.35,
+   "nxt_value_eok": 131.3,
+   "via": "2차전지",
+   "krx_change": 0.27,
+   "value_rank": 207,
+   "change_rank": 319,
+   "leader": false
+  },
+  {
+   "code": "101360",
+   "name": "에코앤드림",
+   "nxt_change": 4.75,
+   "nxt_value_eok": 60.8,
+   "via": "2차전지",
+   "krx_change": 2.04,
+   "value_rank": 579,
+   "change_rank": 116,
+   "leader": false
+  }
+ ],
+ "hit_rate": 0.07,
+ "premarket_leading_industries": [
+  "전기제품"
+ ],
+ "day_top10_industries_by_median": [
+  "손해보험",
+  "해운사",
+  "전문소매",
+  "은행",
+  "창업투자",
+  "가정용품",
+  "음료",
+  "항공사",
+  "가스유틸리티",
+  "항공화물운송과물류"
+ ]
+}

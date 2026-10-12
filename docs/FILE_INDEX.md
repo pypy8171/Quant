@@ -12,9 +12,9 @@
 - [Quant](#quant) — 459개
 - [docs](#docs) — 148개
 - [linux_practice](#linux_practice) — 2개
-- [research](#research) — 542개
+- [research](#research) — 545개
 - [scripts](#scripts) — 54개
-- [strategies](#strategies) — 42개
+- [strategies](#strategies) — 43개
 - [tools](#tools) — 3개
 
 ## (루트)
@@ -1334,6 +1334,8 @@
 - [2026-10-08_eval.json](../research/studies/27_premarket_leaders/daily/2026-10-08_eval.json) — 2026-10-08 장전 주도주 후보와 장중 결과 평가
 - [2026-10-09.jsonl](../research/studies/27_premarket_leaders/daily/2026-10-09.jsonl) — 2026-10-09 장전 업종·테마 강세 관측 기록(시각별 한 줄)
 - [2026-10-09_eval.json](../research/studies/27_premarket_leaders/daily/2026-10-09_eval.json) — 2026-10-09 장전 주도주 후보와 장중 결과 평가
+- [2026-10-12.jsonl](../research/studies/27_premarket_leaders/daily/2026-10-12.jsonl) — 10-12 장 전 주도 후보 기록
+- [2026-10-12_eval.json](../research/studies/27_premarket_leaders/daily/2026-10-12_eval.json) — 10-12 장 전 주도 후보의 장중 성적 평가
 
 ### research/studies/28_devscale_zone_width/
 
@@ -1494,6 +1496,7 @@
 - [2026-10-06.jsonl](../research/studies/35_surge_box_breakout/live/2026-10-06.jsonl) — 10-06 기록 — daily_watch.py 산출
 - [2026-10-07.jsonl](../research/studies/35_surge_box_breakout/live/2026-10-07.jsonl) — 10-07 기록 — daily_watch.py 산출
 - [2026-10-08.jsonl](../research/studies/35_surge_box_breakout/live/2026-10-08.jsonl) — 2026-10-08 급등 박스 돌파 관측 일지(급등 수·신호·보유·누적 성과)
+- [2026-10-12.jsonl](../research/studies/35_surge_box_breakout/live/2026-10-12.jsonl) — 2026-10-12 급등 박스 돌파 관측 일지(급등 수·신호·보유·누적 성과)
 - [ledger.tsv](../research/studies/35_surge_box_breakout/live/ledger.tsv) — daily_watch.py 규칙별 매매 원장(신호일·매수·청산·수익률, 기록 열은 실시간/따라잡기)
 - [summary.txt](../research/studies/35_surge_box_breakout/live/summary.txt) — daily_watch.py 규칙별 누적 성적과 백테스트 대비·판정 요약
 
@@ -1811,6 +1814,7 @@
 - [2026-10-06.md](../strategies/DeviationScale/live/2026-10-06.md) — 10-06 라이브 매매일지
 - [2026-10-07.md](../strategies/DeviationScale/live/2026-10-07.md) — 10-07 라이브 매매일지
 - [2026-10-08.md](../strategies/DeviationScale/live/2026-10-08.md) — 10-08 라이브 매매일지
+- [2026-10-12.md](../strategies/DeviationScale/live/2026-10-12.md) — 10-12 라이브 매매일지
 
 ### strategies/DeviationScale/reviews/
 
