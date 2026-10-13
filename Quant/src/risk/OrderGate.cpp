@@ -65,6 +65,46 @@ money::Won gross_exposure_ceiling(double percent, money::Won equity)
     return money::floor_won(percent * static_cast<double>(equity));
 }
 
+// 시장가 매수가 현금을 얼마나 묶나 — 단가 없이 낸 주문은 KIS가 상한가(기준가 +30%)로 금액을 잡는다.
+//  근거: 공식 샘플 order_cash 설명 "ORD_UNPR 없이 낸 주문은 상한가로 금액을 잡는다"(2026-10-13 MCP 확인).
+//  기준가(전일 종가)는 신호에 없어 직전 현재가 × 1.3으로 근사한다. 10-13 실계좌 161000(현재가 약 10,950, 현금 11,789)은
+//  현재가로는 1주가 들어가 보여 냈다가 APBK0952(주문가능금액 초과)로 거부됐다. (docs/DECISIONS.md D-161)
+constexpr double kMarketBuyCashRatio = 1.3;
+
+// 매수 한 주에 묶이는 현금(원). 지정가는 그 가격, 시장가는 위 근사.
+money::Won cash_price_of(const OrderSignal& signal, money::Won evaluation_price)
+{
+    if (signal.type == OrderType::MARKET || !(signal.price > 0.0))
+    {
+        return money::round_won(static_cast<double>(evaluation_price) * kMarketBuyCashRatio);
+    }
+
+    return evaluation_price;
+}
+
+// 이 세션이 낸 미체결 매수가 묶은 현금(원) — 선점 수량 × 선점가. 브로커 값이 이미 뺐을 수 있어 겹쳐 뺄 수 있으나,
+//  모자라게 사는 쪽이 전량 거부보다 낫다. [inv] ledger(positions_mutex_)를 쥔 채 부른다.
+money::Won pending_buy_cash(const PositionLedger::Reader& ledger)
+{
+    money::Won pending_buy = 0;
+
+    for (const auto& [key, ledger_row] : ledger.rows())
+    {
+        if (ledger_row.reserved.buy > 0)
+        {
+            pending_buy += static_cast<money::Won>(ledger_row.reserved.buy) * ledger_row.reserved_price;
+        }
+    }
+
+    return pending_buy;
+}
+
+// 총노출 거부 뒤 신규 매수를 쉬는 시간. 전략은 거부를 모르고 같은 매수를 재구성마다 다시 내서, 10-13 실계좌에서
+//  DevScale 011200이 같은 매수 20번(모의 12번)을 거부받고 그때마다 취소 빗나감 줄까지 장부에 쌓았다. 총노출은
+//  보유 평가와 자본이 바뀌어야 풀리는데, 그 둘은 잔고 대조(수십 초 간격)로만 바뀐다. 10분이면 그 사이 대조가 여러 번
+//  돌아 한도가 풀렸는지 다시 볼 수 있고, 거부 줄은 10분에 한 번으로 준다. (docs/DECISIONS.md D-161)
+constexpr std::chrono::seconds kGrossExposurePause{600};
+
 // 지금 KST, 자정부터의 분.
 int kst_minute_of_day()
 {
@@ -236,24 +276,13 @@ int OrderGate::clamp_buy_to_ledger(const OrderSignal& signal, money::Won evaluat
         }
     }
 
-    // 주문가능현금 클램프. 평가금이 아니라 현금이 매수의 진짜 상한이다. 우리가 이미 낸
-    //  미체결 매수 명목을 빼는 것은 보수적으로 중복차감이 될 수 있으나(브로커 값이 이미
-    //  반영했을 수 있다), 모자라게 사는 쪽이 전량 거부보다 낫다.
-    const money::Won cash = ledger_.available_cash();
-
-    if (cash > 0 && evaluation_price > 0)
+    // 주문가능현금 클램프. 평가금이 아니라 현금이 매수의 진짜 상한이다. 받은 적 없는 현금(모름)은 보지 않는다 —
+    //  받은 0원은 "살 돈 없음"이라 0주로 자르고, 그러면 라우터가 신호를 그대로 넘겨 판정 3e가 거부한다.
+    //  시장가는 상한가 근사로 잰다(cash_price_of). 판정 3e(reject_by_orderable_cash)와 같은 셈이다.
+    if (ledger_.available_cash_known() && evaluation_price > 0)
     {
-        money::Won pending_buy = 0;
-
-        for (const auto& [key, ledger_row] : ledger.rows())
-        {
-            if (ledger_row.reserved.buy > 0)
-            {
-                pending_buy += static_cast<money::Won>(ledger_row.reserved.buy) * ledger_row.reserved_price;
-            }
-        }
-
-        const int room = quantity_from_notional(cash - pending_buy, evaluation_price);
+        const money::Won cash = ledger_.available_cash();
+        const int        room = quantity_from_notional(cash - pending_buy_cash(ledger), cash_price_of(signal, evaluation_price));
 
         if (room < quantity)
         {
@@ -281,8 +310,32 @@ bool OrderGate::check(const OrderSignal& signal, std::string& reject_reason)
         return true;
     }
 
+    if (verdict.code == GateReject::GrossExposure || verdict.code == GateReject::OrderableCash)
+    {
+        pause_after_gross_exposure(Clock::now());
+    }
+
     reject_reason = describe(verdict);
     return false;
+}
+
+// 총노출·주문가능현금 거부를 받으면 신규 매수를 kGrossExposurePause 동안 쉬게 한다. 쉬는 중에 또 거부되면 끝 시각만 민다 —
+//  로그는 쉼이 새로 시작될 때 한 번만 남긴다. (docs/DECISIONS.md D-161)
+void OrderGate::pause_after_gross_exposure(TimePoint now)
+{
+    const bool already_paused = gross_exposure_paused(now);
+    gross_exposure_pause_until_.store((now + kGrossExposurePause).time_since_epoch().count());
+
+    if (!already_paused)
+    {
+        LOG_WARN(std::format("[OrderGate] 총노출·주문가능현금 한도로 매수 거부 — 신규 매수 {}분 쉼(전략이 매수 분할 단계를 걷는다, 매도·청산은 그대로)",
+                             std::chrono::duration_cast<std::chrono::minutes>(kGrossExposurePause).count()));
+    }
+}
+
+bool OrderGate::gross_exposure_paused(std::chrono::steady_clock::time_point now) const
+{
+    return now.time_since_epoch().count() < gross_exposure_pause_until_.load();
 }
 
 // 판정 — 아래 단계를 적힌 순서대로 부르고, 처음 거부한 단계에서 멈춘다. 단계 순서가 곧 거부 우선순위다.
@@ -449,7 +502,7 @@ bool OrderGate::reject_by_order_size(const OrderSignal& signal, GateVerdict& ver
     return false;
 }
 
-// 판정 3 → 3b → 3c → 3d — BUY의 장부 쪽 한도. 장부 잠금(Reader)을 한 번 쥔 채 네 단계를 본다.
+// 판정 3 → 3b → 3c → 3d → 3e — BUY의 장부 쪽 한도. 장부 잠금(Reader)을 한 번 쥔 채 다섯 단계를 본다.
 bool OrderGate::reject_by_buy_limits(const OrderSignal& signal, const PosKey& key, GateVerdict& verdict)
 {
     const PositionLedger::Reader ledger = ledger_.read();
@@ -487,7 +540,34 @@ bool OrderGate::reject_by_buy_limits(const OrderSignal& signal, const PosKey& ke
         return true;
     }
 
-    return reject_by_gross_exposure(signal, ledger, evaluation_price, verdict);
+    return reject_by_gross_exposure(signal, ledger, evaluation_price, verdict) ||
+           reject_by_orderable_cash(signal, ledger, evaluation_price, verdict);
+}
+
+// 3e. 주문가능현금 — BUY NEW에 드는 현금(수량 × 한 주 현금)이 받은 현금에서 미체결 매수 몫을 뺀 것보다 크면 막는다.
+//     라우터가 먼저 같은 셈으로 수량을 자르므로(clamp_buy_to_ledger) 여기 걸리는 것은 1주도 못 사는 경우다.
+//     현금을 받은 적 없으면 보지 않는다. KIS로 보내 APBK0952로 거부받던 것을 게이트에서 끝낸다(10-13 실계좌 4건).
+//     (docs/DECISIONS.md D-161) [inv] ledger를 쥔 채 부른다.
+bool OrderGate::reject_by_orderable_cash(const OrderSignal& signal, const PositionLedger::Reader& ledger,
+                                         money::Won evaluation_price, GateVerdict& verdict) const
+{
+    if (signal.action != OrderAction::NEW || !ledger_.available_cash_known() || evaluation_price <= 0)
+    {
+        return false;
+    }
+
+    const money::Won usable = ledger_.available_cash() - pending_buy_cash(ledger);
+    const money::Won needed = money::notional(cash_price_of(signal, evaluation_price), signal.quantity);
+
+    if (needed > usable)
+    {
+        verdict.code    = GateReject::OrderableCash;
+        verdict.amount  = needed;
+        verdict.ceiling = usable;
+        return true;
+    }
+
+    return false;
 }
 
 // 판정 3c → 3c-1 → 3c-2 — 열린 자리 세기, 동시 보유 상한, 교체 쿨다운·슬롯 예약, 점수 우선순위 바.
@@ -747,19 +827,21 @@ bool OrderGate::reject_by_rate(GateVerdict& verdict)
 //  발행 잠금을 쥔 뒤, 장부 잠금을 잡기 전에 불린다.
 void OrderGate::publish_ledger(ipc::LedgerSnapshot& snapshot) const
 {
-    const auto fill_globals = [this](ipc::LedgerGlobals& globals)
+    // 총노출 쉼은 다섯째 원천이다 — 시각으로 저절로 풀리므로 따로 끄는 쪽이 없다. (docs/DECISIONS.md D-161)
+    const bool gross_exposure_pause = gross_exposure_paused(Clock::now());
+    const auto fill_globals = [this, gross_exposure_pause](ipc::LedgerGlobals& globals)
     {
         globals.entry_scale              = entry_scale_.load();
         globals.max_notional_per_ticker  = static_cast<double>(config_.max_notional_per_ticker); // 원 단위 정수 값
         globals.displace_unscored_z      = config_.displace_unscored_z;
         globals.max_concurrent_positions = config_.max_concurrent_positions;
         globals.displace_enabled         = config_.displace_enabled ? 1 : 0;
-        // 네 원천을 OR한 결과만 싣는다. 어느 원천이 켰는지는 주문 쪽 일이다 — 한 원천의 자동 해제가
+        // 다섯 원천을 OR한 결과만 싣는다. 어느 원천이 켰는지는 주문 쪽 일이다 — 한 원천의 자동 해제가
         //  다른 원천을 지우면 안 되므로 원천 자체는 가르지 않는다. [why D-091][why D-137]
         globals.entry_halted             = (entry_halt_.load() || manual_buy_halt_.load() ||
-                                            strategy_down_halt_.load() || feed_down_halt_.load()) ? 1 : 0;
+                                            strategy_down_halt_.load() || feed_down_halt_.load() || gross_exposure_pause) ? 1 : 0;
         globals.entry_halted_except_regime = (manual_buy_halt_.load() || strategy_down_halt_.load() ||
-                                              feed_down_halt_.load()) ? 1 : 0;
+                                              feed_down_halt_.load() || gross_exposure_pause) ? 1 : 0;
         globals.manual_sell_halted       = manual_sell_halt_.load() ? 1 : 0;
     };
 

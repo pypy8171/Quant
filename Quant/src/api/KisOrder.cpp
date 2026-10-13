@@ -107,6 +107,18 @@ static const char* kis_amend_order_division(MarketSession session)
     return session == MarketSession::AfterMarket ? "41" : "00";
 }
 
+void KisClient::remember_krx_only(const std::string& ticker)
+{
+    std::lock_guard<std::mutex> lock(order_route_mutex_);
+    krx_only_tickers_.insert(ticker);
+}
+
+bool KisClient::krx_only(const std::string& ticker)
+{
+    std::lock_guard<std::mutex> lock(order_route_mutex_);
+    return krx_only_tickers_.contains(ticker);
+}
+
 void KisClient::remember_order_route(const std::string& kis_order_no, OrderRoute route)
 {
     if (kis_order_no.empty() || route.exchange.empty())
@@ -249,7 +261,8 @@ OrderAck KisClient::submit_order_acknowledgement(const OrderSignal& signal)
                      "원으로 바꾼다 " + signal.ticker);
         }
 
-        const char* order_exchange = kis_session_exchange(config_, session);
+        // 앞서 APBK3009로 SOR이 받지 않는다고 답한 종목은 처음부터 KRX로 낸다. [why D-096]
+        const char* order_exchange = krx_only(signal.ticker) ? "KRX" : kis_session_exchange(config_, session);
         // ORD_DVSN 근거: 00 지정가·01 시장가는 공식 샘플 inquire_psbl_order 설명, 06 장후 종가·41 애프터마켓 지정가는
         //  D-097 실측(샘플에 없음). 2026-09-27 MCP 확인.
 
@@ -262,21 +275,46 @@ OrderAck KisClient::submit_order_acknowledgement(const OrderSignal& signal)
         route = OrderRoute{order_exchange, order_division};
     }
 
-    std::string response = http_post(url,
-        authentication_headers(transaction_id, {"Content-Type: application/json"}),
-        body.dump());
-
-    if (response.empty())
+    // 보내고 응답을 읽는다. 응답이 없거나 못 읽으면 false — 접수 여부를 모른다.
+    const auto send = [&](json& document)
     {
-        LOG_ERROR("[KIS] submit_order_ack 실패: " + signal.ticker);
-        return OrderAck::fail(kis_error::kTransport);
-    }
+        const std::string response = http_post(url,
+            authentication_headers(transaction_id, {"Content-Type: application/json"}),
+            body.dump());
+
+        if (response.empty())
+        {
+            LOG_ERROR("[KIS] submit_order_ack 실패: " + signal.ticker);
+            return false;
+        }
+
+        return kis_parse_order_response(response, document, "submit_order_ack");
+    };
 
     json document;
 
-    if (!kis_parse_order_response(response, document, "submit_order_ack"))
+    if (!send(document))
     {
         return OrderAck::fail(kis_error::kTransport);
+    }
+
+    // 정규장 SOR 주문이 APBK3009로 거부되면 같은 주문을 KRX로 한 번 더 낸다(2026-10-13 실계좌 228850·003480·130580이
+    //  이 거부로 하루 종일 못 샀다). 거부는 접수 전 단계라 주문번호가 없고, 두 번 나갈 위험이 없다.
+    //  route도 KRX로 바꿔 접수 뒤 취소·정정이 KRX로 나가게 한다. 그 종목은 세션 동안 처음부터 KRX로 낸다. [why D-096]
+    if (!is_us && document["rt_cd"].get_ref<const std::string&>() != "0" &&
+        kis_should_resend_to_krx(kis_reject_code(document), route.exchange))
+    {
+        LOG_WARN("[KIS] SOR 거래 불가 종목 [" + std::string(kis_error::kSorUnavailable) + "] " + signal.ticker + " " +
+                 route.exchange + " → KRX로 다시 낸다");
+        remember_krx_only(signal.ticker);
+        body["EXCG_ID_DVSN_CD"] = "KRX";
+        route.exchange          = "KRX";
+        document                = json();
+
+        if (!send(document))
+        {
+            return OrderAck::fail(kis_error::kTransport);
+        }
     }
 
     if (document["rt_cd"].get_ref<const std::string&>() != "0")
@@ -298,6 +336,9 @@ OrderAck KisClient::submit_order_acknowledgement(const OrderSignal& signal)
         return OrderAck::fail(kis_error::kTransport);
     }
 
+    // 접수 로그에 거래소를 남긴다 — APBK3009 뒤 KRX 재전송이 접수됐는지 로그만으로 가린다(check_runtime_health 판정).
+    const std::string exchange_text = is_us ? std::string() : " 거래소=" + route.exchange;
+
     if (!is_us)
     {
         remember_order_route(acknowledgement.kis_order_no, std::move(route));
@@ -306,7 +347,7 @@ OrderAck KisClient::submit_order_acknowledgement(const OrderSignal& signal)
     LOG_INFO("[KIS] 주문 접수: " + signal.ticker +
              (signal.side == OrderSide::BUY ? " BUY " : " SELL ") +
              std::to_string(signal.quantity) + "주  ODNO=" + acknowledgement.kis_order_no +
-             " ORGNO=" + acknowledgement.krx_forwarding_org_no);
+             " ORGNO=" + acknowledgement.krx_forwarding_org_no + exchange_text);
     return acknowledgement;
 }
 

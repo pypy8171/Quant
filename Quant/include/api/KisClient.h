@@ -11,7 +11,9 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 struct KisConfig
@@ -36,6 +38,11 @@ struct KisConfig
 // 주문 전문의 EXCG_ID_DVSN_CD. 모의투자는 KRX만 받는다(NXT·SOR을 보내면 거부).
 // 근거: 필드 이름은 KIS 공식 샘플 order_cash 파라미터 설명(2026-09-27 MCP 확인). 모의가 KRX만 받는 것은 샘플에 없고 docs/DECISIONS.md D-096.
 const char* kis_order_exchange(const KisConfig& config) noexcept;
+
+// SOR·NXT로 보낸 주문이 APBK3009(SOR 시장에서 거래가 불가능한 종목)로 거부됐으면 같은 주문을 KRX로 한 번 더 낸다.
+//  KRX로 보낸 주문은 다시 보내지 않는다(같은 거부가 되풀이될 뿐이다). [why D-096]
+//  근거: EXCG_ID_DVSN_CD 값 "KRX"는 공식 샘플 order_cash 파라미터 설명(2026-10-13 MCP 확인), 거부 코드는 실측.
+bool kis_should_resend_to_krx(std::string_view reject_code, std::string_view sent_exchange) noexcept;
 
 // 실시간 체결·호가를 KRX+NXT 통합 채널(H0UNCNT0/H0UNASP0)로 받나. 필드 배열은 KRX 채널과 같아
 //  파서는 하나다(체결 46필드 동일, 호가는 뒤에 중간가 6필드가 붙을 뿐). 모의 도메인은 KRX 채널만 준다.
@@ -153,6 +160,14 @@ public:
     //  실패(전송·파싱·rt_cd≠0, 어느 페이지든)는 fail 봉투로 돌려주고 부분 목록은 내지 않는다 — 호출자가 잔고에
     //  없는 장부 보유를 걷어내므로 반쪽 목록은 빈 목록보다 위험하다. [why D-059]
     [[nodiscard]] KisResult<AccountBalance> get_balance();
+
+    // 매수가능조회(inquire-psbl-order, 모의 VTTC8908R / 실전 TTTC8908R) — 미수 없이 살 수 있는 금액(원).
+    //  필드 고르기는 kis_rest::decode_orderable_cash. 종목·단가는 계좌 단위 금액을 묻는 데 쓰는 자리값이다.
+    [[nodiscard]] KisResult<double> get_orderable_cash();
+
+    // 잔고 대조용 — get_balance의 available_cash를 매수가능조회 금액으로 바꿔 돌려준다. 매수가능조회가 실패하면
+    //  잔고의 옛 값(가수도정산금액)을 그대로 둔다. 전략이 부르는 get_balance는 호출 한 번을 더 쓰지 않게 그대로 둔다. (docs/DECISIONS.md D-161)
+    [[nodiscard]] KisResult<AccountBalance> get_balance_with_orderable_cash();
 
     // 지수 현재값. 구조체는 api/IMarketDataSource.h로 옮겼고 KisClient::IndexPrice 이름은 그대로 통한다.
     using IndexPrice = ::IndexPrice;
@@ -306,6 +321,12 @@ private:
     };
     std::mutex                                  order_route_mutex_;
     std::unordered_map<std::string, OrderRoute> order_routes_; // 키는 ODNO
+    // SOR이 받지 않는다고 KIS가 답한 종목(APBK3009). 이 세션 동안 정규장 신규 주문을 처음부터 KRX로 낸다 —
+    //  매번 거부 한 번을 먹고 다시 보내면 왕복과 초당 한도를 두 배로 쓴다. order_route_mutex_가 지킨다.
+    //  키가 종목 문자열인 것은 REST 경계 안이라서다(주문 한 건에 한 번, 체결 경로가 아니다).
+    std::unordered_set<std::string> krx_only_tickers_;
+    void remember_krx_only(const std::string& ticker);
+    bool krx_only(const std::string& ticker);
     void remember_order_route(const std::string& kis_order_no, OrderRoute route);
     // 원주문의 거래소·주문구분. 모르면 정정취소가능조회를 한 번 부르고, 거기도 없으면 빈 값을 돌려준다.
     OrderRoute original_order_route(const std::string& kis_order_no);

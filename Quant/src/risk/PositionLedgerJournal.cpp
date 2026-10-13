@@ -230,6 +230,7 @@ void PositionLedger::apply_record(const ledger_journal::Record& record)
 
     case Kind::CASH:
         available_cash_.store(money::round_won(record.cash), std::memory_order_relaxed);
+        available_cash_known_.store(true, std::memory_order_relaxed);
         equity_.store(money::round_won(record.equity), std::memory_order_relaxed);
         break;
 

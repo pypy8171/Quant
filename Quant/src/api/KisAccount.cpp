@@ -89,6 +89,65 @@ KisResult<AccountBalance> KisClient::get_balance()
     return balance;
 }
 
+// ─── 매수가능조회 — inquire-psbl-order ──────────────────────────────────────
+//  [wire] 출처: KIS 공식 샘플 inquire_psbl_order(TTTC8908R/VTTC8908R, 입력 CANO·ACNT_PRDT_CD·PDNO·ORD_UNPR·ORD_DVSN·
+//  CMA_EVLU_AMT_ICLD_YN·OVRS_ICLD_YN 모두 필수, 수량을 볼 때는 01 시장가로 물어야 종목증거금율이 반영된다), 2026-10-13
+//  MCP 확인. 여기서는 금액만 보므로 종목은 005930·단가 0을 자리값으로 넣는다. 단가 0은 샘플에 없지만
+//  2026-10-13 실계좌 실측에서 KIOK0510 정상 응답이었고, nrcvb_buy_amt가 ord_psbl_cash보다 작게(보수적으로) 나왔다.
+//  거부되면 호출자가 옛 값으로 돌아간다.
+KisResult<double> KisClient::get_orderable_cash()
+{
+    const std::string transaction_id = config_.is_paper ? "VTTC8908R" : "TTTC8908R";
+    const std::string url = base_url() + "/uapi/domestic-stock/v1/trading/inquire-psbl-order" +
+                            "?CANO=" + config_.account_no + "&ACNT_PRDT_CD=" + config_.account_type +
+                            "&PDNO=005930&ORD_UNPR=0&ORD_DVSN=01&CMA_EVLU_AMT_ICLD_YN=N&OVRS_ICLD_YN=N";
+    const std::string response = http_get(url, authentication_headers(transaction_id));
+
+    if (response.empty())
+    {
+        return kis_fail("transport", "매수가능조회 응답 없음");
+    }
+
+    const nlohmann::json document = json::parse(response, nullptr, false);
+
+    if (document.is_discarded())
+    {
+        return kis_fail("parse", "매수가능조회 JSON 파싱 불가");
+    }
+
+    const std::optional<double> cash = kis_rest::decode_orderable_cash(document);
+
+    if (!cash)
+    {
+        return kis_fail(document.value("msg_cd", "rt_cd"), document.value("msg1", "매수가능금액 필드 없음"));
+    }
+
+    return *cash;
+}
+
+KisResult<AccountBalance> KisClient::get_balance_with_orderable_cash()
+{
+    KisResult<AccountBalance> balance = get_balance();
+
+    if (!balance)
+    {
+        return balance;
+    }
+
+    const KisResult<double> orderable_cash = get_orderable_cash();
+
+    if (orderable_cash && *orderable_cash >= 0.0)
+    {
+        balance->available_cash = *orderable_cash;
+    }
+    else
+    {
+        LOG_WARN("[KIS] 매수가능조회 실패(" + error_text(orderable_cash) + ") — 주문가능현금은 잔고의 가수도정산금액으로 둔다");
+    }
+
+    return balance;
+}
+
 // ─── 미체결(정정취소 가능) 예약주문 조회 — inquire-psbl-rvsecncl ─────────────
 //  장중 청산이 40240000(주문가능분 없음)으로 막힐 때, 그 종목의 예약매도를 찾아
 //  취소→재매도로 자가정리하기 위한 조회. (실거래: TTTC0084R / 모의는 VTTC0081R(inquire-daily-ccld))

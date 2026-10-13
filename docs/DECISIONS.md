@@ -7629,3 +7629,28 @@ KIS가 계속 거부하는 매도도 60초마다 다시 나간다. 덮개 점검
 - 계좌당 종목 수 상한 유지(실계좌 4): 계획 종목이 하루 11개까지 나와 대부분을 못 산다.
 
 **연결**: D-157 · D-158 · `Quant/src/strategy/SwingTrendStrategy.cpp` · `Quant/src/strategy/SwingTrendOrders.cpp` · `Quant/src/strategy/SwingTrendRules.cpp` · `Quant/src/risk/OrderGate.cpp` · `research/studies/42_swing_trend/candidates.py`
+
+### D-161 증권사 거부 셋을 엔진에서 막는다 — SOR 불가 종목은 KRX로 다시 내고, 매수는 주문가능현금으로 자르고, 한도 거부 뒤 10분 매수를 쉰다 (2026-10-13)
+
+**문제**: 10-12·10-13 실계좌 매수가 한 건도 접수되지 않았다. 증권사 거부가 두 갈래였다 — `[APBK3009] SOR 시장에서 거래가 불가능한 종목`
+(10-12 22건, 10-13 5건)과 `[APBK0952] 주문가능금액 초과`(10-12 20건, 10-13 5건). 게이트 거부 `총노출 한도 초과`도 같은 종목에서
+3분마다 되풀이됐다(10-13 011200 실계좌 20회·모의 12회, 10-12 138610 15–16회). 옛 기록은 `docs/DEFERRED_ISSUES.md` D-36·D-37·D-38.
+
+**결정**:
+1. 정규장 주문이 SOR·NXT로 나갔다가 APBK3009로 거부되면 같은 주문을 KRX로 한 번 다시 낸다(`kis_should_resend_to_krx`). 그 종목은 프로세스가
+   사는 동안 기억해 다음부터 처음부터 KRX로 낸다. 종목표를 따로 들지 않는다.
+2. 잔고 대조(약 30초)마다 매수가능조회(TTTC8908R, 종목 005930·단가 0·주문구분 01)로 주문가능현금을 받아 장부에 둔다. 미수를 쓰지 않으므로
+   `nrcvb_buy_amt`를 먼저 보고 없으면 `ord_psbl_cash`를 쓴다. 게이트는 매수 수량을 이 현금 안으로 자르고, 1주도 안 되면 `주문가능현금 부족`으로
+   거부한다. 시장가는 현재가 × 1.3으로 잰다. 현금을 한 번도 받지 못했으면 이 판정은 건너뛴다.
+3. 게이트가 `총노출 한도` 또는 `주문가능현금 부족`으로 매수를 거부하면 엔진 전체의 신규 매수를 10분 쉰다(장부 사본의 두 진입 정지 칸을 켠다).
+   쉬는 중에 또 거부되면 끝 시각을 민다. 매도·청산은 그대로 나간다.
+
+**근거**: 단가 0 조회는 공식 샘플에 없어 2026-10-13 장 마감 뒤 실계좌로 확인했다 — KIOK0510 정상, `ord_psbl_cash` 10,171원 /
+`nrcvb_buy_amt` 4,643원으로 뒤쪽이 작다(보수적). 대조 1회당 조회 1건이라 초당 한도 부담은 작다.
+
+**버린 대안**:
+- SOR 불가 종목표를 미리 받아 두기: 표를 받을 공식 조회가 없고, 거부 한 번으로 알 수 있다.
+- 전략별로 쉬기: 거부 원인이 계좌 전체의 노출·현금이라 전략을 갈라도 다른 전략이 같은 거부를 받는다.
+- 증권사 거부(APBK0952)까지 쉬기 대상으로 넣기: 2번 이후에는 그 거부가 게이트의 `주문가능현금 부족`으로 먼저 걸린다.
+
+**연결**: `Quant/src/api/KisOrder.cpp` · `Quant/src/api/KisClient.cpp` · `Quant/src/api/KisAccount.cpp` · `Quant/src/api/KisRestDecode.cpp` · `Quant/src/risk/OrderGate.cpp` · `Quant/src/core/EngineStartupSetup.cpp` · [docs/market_close/2026-10-13.md](market_close/2026-10-13.md)

@@ -1540,7 +1540,6 @@
 - [daily_stop_grid.py](../research/studies/38_trend_stop_intraday/daily_stop_grid.py) — 스터디 38 일봉 손절 시험 — 2010-01-04 – 2026-10-08 전체를 한 번에, 보통주 전 종목(daily_panel.py).
 - [ma_exit.py](../research/studies/38_trend_stop_intraday/ma_exit.py) — 스터디 38 — 이평선으로 추세가 깨진 자리를 판정해 파는 청산(사용자 정의, 2026-10-11).
 - [slot_test.py](../research/studies/38_trend_stop_intraday/slot_test.py) — 스터디 38 — 슬롯 제한 계좌 시험: 같은 매수 신호에 청산만 바꿔 2010–2026 계좌 곡선을 낸다(2026-10-11).
-- [unarmed_floor_test.py](../research/studies/38_trend_stop_intraday/unarmed_floor_test.py) — (설명 필요)
 - [verify_sample.py](../research/studies/38_trend_stop_intraday/verify_sample.py) — 스터디 38 대조 — daily_stop_grid.py(numba)의 매매 목록을 원 일봉 파일에서 순수 파이썬으로 따로 계산한 것과 맞춘다.
 
 ### research/studies/38_trend_support_realtime/

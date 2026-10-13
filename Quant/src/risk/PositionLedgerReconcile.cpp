@@ -66,6 +66,7 @@ void PositionLedger::set_available_cash(double available_cash)
 {
     const Won cash_won = money::round_won(available_cash);
     available_cash_.store(cash_won, std::memory_order_relaxed);
+    available_cash_known_.store(true, std::memory_order_relaxed);
     ledger_journal::Record record;
     record.kind   = static_cast<uint16_t>(ledger_journal::Kind::CASH);
     record.cash   = static_cast<double>(cash_won);

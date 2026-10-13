@@ -378,9 +378,9 @@ void LedgerReconciler::reconcile(bool resync_positions, std::time_t now_utc)
             responded = true;
             resync_holdings(*balance, resync_positions);
 
-            // 주문가능현금 — 매수 클램프의 진짜 상한. 가수도정산금액(실질 주문가능)을 우선 쓰고
-            //  없으면 예수금총금액으로 떨어진다. 평가금과 달리 미체결 지정가와 미결제 매수로
-            //  묶인 몫이 빠져 있어야 40250000 도배를 막을 수 있다.
+            // 주문가능현금 — 매수 클램프와 게이트 3e의 상한. 실계좌는 매수가능조회의 미수없는매수금액을 받고,
+            //  그 조회가 실패하면 잔고의 가수도정산금액·예수금총금액으로 떨어진다(KisClient::get_balance_with_orderable_cash).
+            //  가수도정산금액만 쓰던 때는 10-13 실계좌에서 APBK0952(주문가능금액 초과) 거부가 4건 났다.
             if (balance->available_cash && *balance->available_cash >= 0.0)
             {
                 position_ledger.set_available_cash(*balance->available_cash);

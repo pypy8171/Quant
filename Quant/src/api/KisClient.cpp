@@ -1,4 +1,5 @@
 #include "api/KisClient.h"
+#include "api/KisErrorCodes.h"
 
 namespace
 {
@@ -13,6 +14,11 @@ const char* kis_order_exchange(const KisConfig& config) noexcept
     }
 
     return config.exchange == "NXT" ? "NXT" : "SOR";
+}
+
+bool kis_should_resend_to_krx(std::string_view reject_code, std::string_view sent_exchange) noexcept
+{
+    return reject_code == kis_error::kSorUnavailable && !sent_exchange.empty() && sent_exchange != "KRX";
 }
 
 std::string kis_hhmmss_minus_minutes(const std::string& hhmmss, int minutes)

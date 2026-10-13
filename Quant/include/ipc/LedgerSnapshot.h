@@ -57,7 +57,7 @@ struct LedgerGlobals
     double  displace_unscored_z      = 0.0; // 점수 없는 종목을 교체 후보로 볼 때 쓰는 z. 기동 시 고정
     int32_t open_slot_count          = 0;   // 열린 슬롯 수
     int32_t max_concurrent_positions = 0;   // 동시 보유 슬롯 한도. 기동 시 고정
-    uint8_t entry_halted             = 0;   // 진입 정지 — 네 원천의 OR 결과만 싣는다(원천 구분은 주문 쪽 일이다)
+    uint8_t entry_halted             = 0;   // 진입 정지 — 다섯 원천(총노출 거부 뒤 쉼 포함)의 OR 결과만 싣는다(원천 구분은 주문 쪽 일이다)
     uint8_t manual_sell_halted       = 0;   // 전략 매도 정지
     uint8_t capacity_full            = 0;   // 신규 종목을 열 여력이 없다(자리 또는 예산)
     uint8_t displace_enabled         = 0;   // 교체 진입 사용. 기동 시 고정
@@ -66,7 +66,7 @@ struct LedgerGlobals
     //  계좌를 적으려면 이것이 있어야 한다 — 없으면 주문 쪽 계좌 표를 다시 들여다보게 된다.
     //  [inv] 채우는 쪽이 끝에 0을 넣어 끊는다. 32칸이면 계좌번호 문자열의 세 배다.
     char    account[32]              = {};
-    uint8_t entry_halted_except_regime = 0; // 국면을 뺀 세 원천의 OR — 국면을 받지 않는 전략이 본다 [why D-160]
+    uint8_t entry_halted_except_regime = 0; // 국면을 뺀 네 원천의 OR — 국면을 받지 않는 전략이 본다 [why D-160]
     uint8_t padding_[3]              = {};  // 72바이트(8의 배수)로 맞춘다 — 공개 칸을 8바이트 단어로 옮기기 때문이다
 };
 

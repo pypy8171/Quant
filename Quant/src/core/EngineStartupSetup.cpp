@@ -102,7 +102,7 @@ void Engine::initialize_ledger_reconciler()
     ledger_ = std::make_unique<LedgerReconciler>(order_gate_,
                                                  [this]
                                                  {
-                                                     return feed_.paper ? feed_.paper->balance() : feed_.kis->get_balance();
+                                                     return feed_.paper ? feed_.paper->balance() : feed_.kis->get_balance_with_orderable_cash();
                                                  });
     ledger_->set_account_no(feed_.kis ? feed_.kis->account_no() : std::string("PAPER"));
     ledger_->set_baseline_directory(Logger::instance().base_directory()); // 실행 위치와 무관하게 로그 폴더와 같은 곳

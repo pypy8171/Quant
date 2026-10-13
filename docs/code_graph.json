@@ -489,7 +489,8 @@
       "core/KstTime.h"
     ],
     "api/KisClient.cpp": [
-      "api/KisClient.h"
+      "api/KisClient.h",
+      "api/KisErrorCodes.h"
     ],
     "api/KisClient.h": [
       "api/IMarketDataSource.h",
@@ -1748,6 +1749,7 @@
       "api/WebSocketClient.cpp"
     ],
     "api/KisErrorCodes.h": [
+      "api/KisClient.cpp",
       "api/KisClientInternal.h",
       "core/OrderRateLimiter.cpp",
       "core/PaperExecutor.h",
@@ -2772,11 +2774,11 @@
       "in_degree": 8
     },
     {
-      "header": "core/MarketSession.h",
+      "header": "api/KisErrorCodes.h",
       "in_degree": 7
     },
     {
-      "header": "core/ReconcilePlan.h",
+      "header": "core/MarketSession.h",
       "in_degree": 7
     }
   ],

@@ -350,6 +350,7 @@ graph LR
   n_api_KisAccount_cpp --> n_api_KisRestDecode_h
   n_api_KisAccount_cpp --> n_core_KstTime_h
   n_api_KisClient_cpp --> n_api_KisClient_h
+  n_api_KisClient_cpp --> n_api_KisErrorCodes_h
   n_api_KisClient_h --> n_api_IMarketDataSource_h
   n_api_KisClient_h --> n_api_IOrderExecutor_h
   n_api_KisClient_h --> n_api_KisEndpoints_h

@@ -43,6 +43,7 @@ std::string OrderGate::describe(const GateVerdict& verdict) const
         return describe_slot(verdict);
 
     case GateReject::GrossExposure:
+    case GateReject::OrderableCash:
     case GateReject::DailyLoss:
     case GateReject::PnlStale:
     case GateReject::Duplicate:
@@ -143,6 +144,9 @@ std::string OrderGate::describe_guard(const GateVerdict& verdict) const
     case GateReject::GrossExposure:
         return std::format("총노출 한도 초과 ({} > {} = 자본 {}×{:g}) — 신규 매수 정지(청산 허용)", verdict.amount, verdict.ceiling,
                            static_cast<long long>(verdict.money), config_.max_gross_exposure_percent);
+
+    case GateReject::OrderableCash:
+        return std::format("주문가능현금 부족 (필요 {} > 가능 {})", verdict.amount, verdict.ceiling);
 
     case GateReject::DailyLoss:
         return std::format("일일 손실 한도 초과 (현재 {}원 / 한도 {}원)", verdict.money, config_.daily_loss_limit);

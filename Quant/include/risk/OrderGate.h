@@ -54,6 +54,7 @@ enum class GateReject : uint8_t
     SlotReserved,        // symbol = 비운 슬롯을 예약받은 종목
     PriorityBar,         // amount = 열린 종목 수, base = 유효 랭크, ceiling = 모집단, rank·ratio·bar
     GrossExposure,       // amount = 이 주문 뒤 총노출(원), ceiling = 상한(원), money = 자본(원)
+    OrderableCash,       // amount = 이 주문에 드는 현금(원), ceiling = 쓸 수 있는 현금(원, 미체결 매수 몫을 뺀 값)
     DailyLoss,           // money = 당일 손익(원)
     PnlStale,
     Duplicate,
@@ -245,6 +246,12 @@ public:
                feed_down_halt_.load();
     }
 
+    // 총노출 거부(3d) 뒤 신규 매수를 쉬는 중인가. check()가 총노출로 매수를 거부하면 그때부터 일정 시간 켜지고,
+    //  장부 사본의 entry_halted에 OR로 실려 전략이 계획 단계에서 매수 분할 단계를 걷는다. 매도·청산은 막지 않는다.
+    //  게이트 자신은 이 값으로 주문을 거부하지 않는다 — 쉬는 동안 들어온 매수도 원래 판정을 받는다.
+    //  (docs/DECISIONS.md D-161)
+    bool gross_exposure_paused(std::chrono::steady_clock::time_point now) const;
+
     // 매수 명목 비율(0~1). 국면 점수를 스위치가 아니라 비율로 옮긴 값 — 전략이 분할 단계 명목에 곱한다.
     //  게이트 자체는 이 값으로 주문을 막지 않는다(0이면 entry_halt가 같이 켜진다). [why D-083]
     void set_entry_scale(double entry_scale);
@@ -342,6 +349,9 @@ private:
     std::atomic<bool> manual_sell_halt_{false}; // 운영단말 HALT_REQ(SELL)가 켜는 전략 매도 정지 [why D-095]
     std::atomic<double> entry_scale_{1.0}; // 매수 명목 비율(0~1). 국면 점수의 비례판 [why D-083]
     std::atomic<bool> pnl_stale_{false};   // 잔고 대조 정체 → daily_pnl 미갱신, BUY NEW 보수 정지(B2)
+    // 총노출 거부 뒤 신규 매수 쉼이 끝나는 시각(steady_clock 눈금 수). 0이면 쉬지 않는다. 주문 스레드가 쓰고 장부 스레드가 읽는다.
+    std::atomic<Clock::rep> gross_exposure_pause_until_{0};
+    void pause_after_gross_exposure(TimePoint now);
 
     // 진입 우선순위 표와 교체 기록. 표는 불변 스냅샷(포인터 복사), 교체 기록은 자체 락 — 둘 다 잎 잠금이다. [why D-112]
     using PriorityTable = EntryPriority::Table;
@@ -386,10 +396,12 @@ private:
     // evaluate의 단계 — 거부면 verdict.code와 값 칸을 채우고 true. evaluate가 부르는 순서가 판정 순서다.
     bool reject_by_switches_and_session(const OrderSignal& signal, GateVerdict& verdict) const; // 1 → 2 → 1b → 1c
     bool reject_by_order_size(const OrderSignal& signal, GateVerdict& verdict) const;           // 2b
-    bool reject_by_buy_limits(const OrderSignal& signal, const PosKey& key, GateVerdict& verdict); // 3 → 3b → 3c → 3d
+    bool reject_by_buy_limits(const OrderSignal& signal, const PosKey& key, GateVerdict& verdict); // 3 → 3b → 3c → 3d → 3e
     bool reject_by_concurrent_slots(const PosKey& key, const PositionLedger::Reader& ledger, GateVerdict& verdict); // 3c
     bool reject_by_gross_exposure(const OrderSignal& signal, const PositionLedger::Reader& ledger, money::Won evaluation_price,
                                   GateVerdict& verdict) const; // 3d
+    bool reject_by_orderable_cash(const OrderSignal& signal, const PositionLedger::Reader& ledger, money::Won evaluation_price,
+                                  GateVerdict& verdict) const; // 3e
     bool reject_by_loss_guards(const OrderSignal& signal, GateVerdict& verdict) const; // 4 → 4b
     bool reject_by_duplicate(const SignalKey& deduplicate_key, GateVerdict& verdict) const; // 5
     bool reject_by_rate(GateVerdict& verdict); // 6 — 통과하면 주문 시각을 남긴다

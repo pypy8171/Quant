@@ -21,6 +21,12 @@ inline constexpr const char* kNoSellableQty = "40240000";
 // 장운영시간 아님 — 실측 응답 msg1 "장운영시간이 아닙니다.([프리마켓] 시장가 매매 불가 시간)"
 //  (Quant/build_win/logs_live/quant_trader.log 2026-10-01 08:26, 프리마켓 시장가 매도). 시각이 바뀌기 전에는 같은 거부다.
 inline constexpr const char* kMarketClosed = "APBK0918";
+// SOR 시장에서 거래가 불가능한 종목 — 실측 응답 msg1 "SOR 시장에서 거래가 불가능한 종목입니다"
+//  (2026-09-23 애프터마켓 D-096·D-097, 2026-10-13 정규장 228850·003480·130580). 같은 주문을 KRX로 보내면 받는다.
+//  공식 샘플 order_cash에는 오류코드 목록이 없다(2026-10-13 MCP 확인).
+inline constexpr const char* kSorUnavailable = "APBK3009";
+// 주문가능금액을 초과 — 실측 응답 msg1 "주문가능금액을 초과 했습니다"(2026-10-13 실계좌 005440·161000·009900·004100).
+inline constexpr const char* kOverOrderableCash = "APBK0952";
 // 자체 코드 — 장부 저널에 INTENT를 못 적어 KIS로 보내지 않았다. 적히지 않은 주문은 나가지 않는다. [why D-113]
 inline constexpr const char* kLedgerWriteFailed = "E_LEDGER";
 } // namespace kis_error

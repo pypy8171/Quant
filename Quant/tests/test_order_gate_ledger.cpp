@@ -2,9 +2,11 @@
 //  공용 준비는 test_order_gate_support.h, 실행 순서는 test_order_gate.cpp의 main.
 #include "test_order_gate_support.h"
 
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <format>
+#include <memory>
 #include <string>
 #include <system_error>
 
@@ -365,6 +367,119 @@ void test_adjust_replay_keeps_both_reservations()
     PASS("adjust_replay_keeps_both_reservations");
 }
 
+// ─── 테스트 29: 주문가능현금으로 매수를 자르고, 1주도 못 사면 거부한다 (docs/DECISIONS.md D-161) ─────
+//  10-13 실계좌는 현금 11,789원에 시장가로 현재가 약 10,950원 1주를 냈다가 APBK0952로 거부됐다. 시장가는 KIS가
+//  상한가로 금액을 잡으므로 게이트도 현재가 × 1.3으로 잰다. 현금을 받은 적이 없으면 지금처럼 보지 않는다.
+void test_orderable_cash_limit()
+{
+    OrderGate::Config config;
+    config.max_orders_per_min     = 100;
+    config.max_orders_per_sec     = 100;
+    config.deduplicate_window_sec = 0.0;
+    OrderGate gate(config);
+
+    OrderSignal limit_buy = make_signal("161000", OrderSide::BUY, 1);
+    limit_buy.type        = OrderType::LIMIT;
+    limit_buy.price       = 9020.0;
+
+    // 현금을 모르면 보지 않는다
+    assert(!gate.ledger().available_cash_known());
+    assert(gate.evaluate(limit_buy).passed());
+    assert(gate.clamp_buy_quantity(limit_buy) == 1);
+
+    // 지정가 9,020원 1주에 현금 8,000원 — 0주로 자르고 판정이 거부한다
+    gate.ledger().set_available_cash(8000.0);
+    assert(gate.ledger().available_cash_known());
+    assert(gate.clamp_buy_quantity(limit_buy) == 0);
+    const GateVerdict short_cash = gate.evaluate(limit_buy);
+    assert(short_cash.code == GateReject::OrderableCash);
+    assert(short_cash.amount == 9020);
+    assert(short_cash.ceiling == 8000);
+    assert(gate.describe(short_cash) == "주문가능현금 부족 (필요 9020 > 가능 8000)");
+
+    // 받은 0원은 "살 돈 없음"이다
+    gate.ledger().set_available_cash(0.0);
+    assert(gate.evaluate(limit_buy).code == GateReject::OrderableCash);
+
+    // 현금이 넉넉하면 수량만 자른다 — 30,000원이면 9,020원짜리 3주
+    gate.ledger().set_available_cash(30000.0);
+    limit_buy.quantity = 5;
+    assert(gate.clamp_buy_quantity(limit_buy) == 3);
+    limit_buy.quantity = 3;
+    assert(gate.evaluate(limit_buy).passed());
+
+    // 시장가는 현재가 × 1.3(10,950 → 14,235원)으로 잰다 — 11,789원으로는 1주도 못 산다
+    OrderSignal market_buy     = make_signal("161000", OrderSide::BUY, 1);
+    market_buy.type            = OrderType::MARKET;
+    market_buy.price           = 0.0;
+    market_buy.reference_price = 10950.0;
+    gate.ledger().set_available_cash(11789.0);
+    assert(gate.clamp_buy_quantity(market_buy) == 0);
+    const GateVerdict market_short = gate.evaluate(market_buy);
+    assert(market_short.code == GateReject::OrderableCash);
+    assert(market_short.amount == 14235);
+    gate.ledger().set_available_cash(20000.0);
+    assert(gate.evaluate(market_buy).passed());
+
+    // 매도는 현금과 상관없다
+    gate.ledger().seed_position("161000", 2, 9000.0);
+    gate.ledger().set_available_cash(0.0);
+    OrderSignal sell = make_signal("161000", OrderSide::SELL, 1);
+    sell.type        = OrderType::LIMIT;
+    sell.price       = 9020.0;
+    assert(gate.evaluate(sell).passed());
+
+    // check()로 현금 거부를 받으면 총노출 거부와 같이 신규 매수를 쉰다(10-12 067080 APBK0952 18회 되풀이)
+    std::string reason;
+    assert(!gate.gross_exposure_paused(std::chrono::steady_clock::now()));
+    assert(!gate.check(limit_buy, reason));
+    assert(gate.gross_exposure_paused(std::chrono::steady_clock::now()));
+    PASS("orderable_cash_limit");
+}
+
+// ─── 테스트 30: 총노출 거부 뒤 신규 매수를 10분 쉰다 (docs/DECISIONS.md D-161) ─────────
+//  10-13 실계좌는 총노출로 같은 매수가 하루 수백 번 거부됐다. 거부를 받으면 장부 사본의 진입 정지를 10분 켜
+//  전략이 매수 분할 단계를 걷게 한다. 게이트 자신은 쉬는 동안 주문을 막지 않는다(매도·청산은 그대로).
+void test_gross_exposure_pause()
+{
+    OrderGate::Config config;
+    config.max_gross_exposure_percent = 1.0;
+    config.max_orders_per_min         = 100;
+    config.max_orders_per_sec         = 100;
+    config.deduplicate_window_sec     = 0.0;
+    OrderGate gate(config);
+    gate.ledger().seed_position("005930", 10, 50000.0);
+    gate.ledger().set_equity(1'000'000.0);
+    gate.ledger().replace_mark_prices("", {{"005930", 90000.0}});
+
+    const auto before = std::chrono::steady_clock::now();
+    assert(!gate.gross_exposure_paused(before));
+
+    // 사본은 종목 칸 배열이라 커서 스택 대신 힙에 하나 두고 두 번 싣는다
+    const auto snapshot = std::make_unique<ipc::LedgerSnapshot>();
+    gate.publish_ledger(*snapshot);
+    assert(snapshot->globals().entry_halted == 0);
+    assert(snapshot->globals().entry_halted_except_regime == 0);
+
+    std::string reason;
+    assert(!gate.check(make_signal("000660", OrderSide::BUY, 2), reason));
+    const auto after = std::chrono::steady_clock::now();
+    assert(gate.gross_exposure_paused(after));
+    assert(!gate.gross_exposure_paused(after + std::chrono::minutes(11)));
+
+    // 사본의 두 진입 정지 칸이 모두 켜진다 — 국면을 받지 않는 전략도 총노출 쉼은 받는다
+    gate.publish_ledger(*snapshot);
+    assert(snapshot->globals().entry_halted == 1);
+    assert(snapshot->globals().entry_halted_except_regime == 1);
+
+    // 매도는 쉬는 동안에도 통과한다
+    OrderSignal sell = make_signal("005930", OrderSide::SELL, 1);
+    sell.type        = OrderType::LIMIT;
+    sell.price       = 90000.0;
+    assert(gate.check(sell, reason));
+    PASS("gross_exposure_pause");
+}
+
 void run_ledger_tests()
 {
     test_slot_exempt();
@@ -375,4 +490,6 @@ void run_ledger_tests()
     test_gross_exposure_uses_mark_price();
     test_buy_and_sell_reservations_kept_apart();
     test_adjust_replay_keeps_both_reservations();
+    test_orderable_cash_limit();
+    test_gross_exposure_pause();
 }

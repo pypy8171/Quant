@@ -2,6 +2,8 @@
 // 필터·커서)·interval 집계(OHLC 병합·정렬·bar_index·count 상한). 잔고: 행 필터·주문가능수량 "모름"·요약 폴백·
 // 배열/객체 output2. 전광판: 키 후보 순서·빈 코드. 미체결: 한도 초과·빈 본문은 실패, 행 필터·커서. HTTP·인증 링크 없이 돈다.
 // 관련 결정: D-051(분봉), D-059(잔고·전광판·KisResult).
+#include "api/KisClient.h"
+#include "api/KisErrorCodes.h"
 #include "api/KisRestDecode.h"
 #include "core/KstTime.h"
 #include "api/KisResult.h"
@@ -339,6 +341,36 @@ int test_decode_multi_price()
     return 0;
 }
 
+int test_decode_orderable_cash()
+{
+    // 매수가능조회(TTTC8908R) 응답. 미수를 쓰지 않으니 nrcvb_buy_amt를 먼저 본다(docs/DECISIONS.md D-161). [wire] KIS 응답 필드명
+    const json both = json::parse(R"({"rt_cd":"0","output":{"ord_psbl_cash":"11789","nrcvb_buy_amt":"8500","max_buy_amt":"30000"}})");  // [wire]
+    const std::optional<double> preferred = kis_rest::decode_orderable_cash(both);
+    CHECK(preferred && *preferred == 8500.0);
+    // nrcvb_buy_amt가 없으면 ord_psbl_cash로 떨어진다.
+    const json cash_only = json::parse(R"({"rt_cd":"0","output":{"ord_psbl_cash":"11789"}})");
+    const std::optional<double> fallback = kis_rest::decode_orderable_cash(cash_only);
+    CHECK(fallback && *fallback == 11789.0);
+    // 실패 응답과 output이 없는 응답은 값이 없다 — 부르는 쪽이 옛 현금을 그대로 둔다.
+    CHECK(!kis_rest::decode_orderable_cash(json::parse(R"({"rt_cd":"1","msg_cd":"EGW00201","output":{"nrcvb_buy_amt":"1"}})")));  // [wire]
+    CHECK(!kis_rest::decode_orderable_cash(json::parse(R"({"rt_cd":"0"})")));
+    CHECK(!kis_rest::decode_orderable_cash(json::parse(R"({"rt_cd":"0","output":[]})")));
+    return 0;
+}
+
+int test_resend_to_krx()
+{
+    // SOR·NXT로 낸 주문이 APBK3009(SOR 거래 불가 종목)로 거부되면 KRX로 한 번 다시 낸다(docs/DECISIONS.md D-161).
+    CHECK(kis_should_resend_to_krx(kis_error::kSorUnavailable, "SOR"));
+    CHECK(kis_should_resend_to_krx(kis_error::kSorUnavailable, "NXT"));
+    // 이미 KRX였거나, 거래소를 모르거나, 다른 거부 코드면 다시 내지 않는다.
+    CHECK(!kis_should_resend_to_krx(kis_error::kSorUnavailable, "KRX"));
+    CHECK(!kis_should_resend_to_krx(kis_error::kSorUnavailable, ""));
+    CHECK(!kis_should_resend_to_krx(kis_error::kOverOrderableCash, "SOR"));
+    CHECK(!kis_should_resend_to_krx("", "SOR"));
+    return 0;
+}
+
 int test_kis_result()
 {
     // 봉투(std::expected): 실패는 bool false·error_text, 성공은 값 접근. 실패 봉투에는 값이 없다.
@@ -360,7 +392,8 @@ int main()
 {
     if (test_number() || test_parse_dt() || test_parse_minute_page() || test_aggregate() || test_option_number() ||
         test_decode_holding() || test_decode_balance_page() || test_decode_future_board() || test_decode_open_order_page() ||
-        test_decode_daily_fill_page() || test_decode_multi_price() || test_kis_result())
+        test_decode_daily_fill_page() || test_decode_multi_price() || test_decode_orderable_cash() || test_resend_to_krx() ||
+        test_kis_result())
     {
         return 1;
     }

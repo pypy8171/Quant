@@ -75,6 +75,13 @@ Holding decode_holding(const nlohmann::json& node);
 //  사라진다", 2026-09-27 MCP 확인. output2가 배열·객체 둘로 온다는 것은 샘플에 없다(근거 없음).
 void decode_balance_page(const nlohmann::json& document, AccountBalance& out, bool first_page);
 
+// 매수가능조회(inquire-psbl-order) 응답 → 미수 없이 살 수 있는 금액(원). nrcvb_buy_amt(미수없는매수금액)를 먼저,
+//  없으면 ord_psbl_cash(주문가능현금)를 쓴다. rt_cd≠0이거나 둘 다 없으면 비어 있다.
+//  [wire] 출처: KIS 공식 샘플 inquire_psbl_order — output 한 건, "매수가능금액 확인: 미수 사용 X면 nrcvb_buy_amt",
+//  2026-10-13 MCP 확인. 잔고의 prvs_rcdl_excc_amt(가수도정산금액)는 주문가능금액이 아니다 — 10-13 실계좌에서 그 값이
+//  11,789원인데 9,020원 1주 매수가 APBK0952(주문가능금액 초과)로 거부됐다. (docs/DECISIONS.md D-161)
+std::optional<double> decode_orderable_cash(const nlohmann::json& document);
+
 // 선물 전광판 응답 → 계약 목록. 행 배열은 output1·output2·output 중 처음 비어 있지 않은 것이다
 //  (공식 샘플 display_board_futures(FHPIF05030200)는 행을 output에서 읽는다. 나머지 두 키는 실키 응답을 확인하지
 //  못해 남긴 방어다 — 2026-09-27 샘플 대조로 고침). 코드가 빈 행은 버린다.

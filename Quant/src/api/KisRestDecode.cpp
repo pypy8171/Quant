@@ -287,6 +287,30 @@ void decode_balance_page(const nlohmann::json& document, AccountBalance& out, bo
     out.previous_day_total_asset = option_number(*row, "bfdy_tot_asst_evlu_amt");
 }
 
+std::optional<double> decode_orderable_cash(const nlohmann::json& document)
+{
+    if (!document.is_object() || document.value("rt_cd", "") != "0")
+    {
+        return std::nullopt;
+    }
+
+    const auto output = document.find("output");
+
+    if (output == document.end() || !output->is_object())
+    {
+        return std::nullopt;
+    }
+
+    std::optional<double> cash = option_number(*output, "nrcvb_buy_amt");
+
+    if (!cash)
+    {
+        cash = option_number(*output, "ord_psbl_cash");
+    }
+
+    return cash;
+}
+
 std::vector<FutureContract> decode_future_board(const nlohmann::json& document)
 {
     std::vector<FutureContract> out;

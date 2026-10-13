@@ -266,6 +266,13 @@ public:
         return available_cash_.load(std::memory_order_relaxed);
     }
 
+    // 주문가능현금을 한 번이라도 받았나(잔고 대조 또는 저널 리플레이). 받은 0원은 "살 돈 없음"이고,
+    //  받은 적 없는 0원은 "모름"이다 — 모를 때는 현금으로 매수를 막지 않는다. (docs/DECISIONS.md D-161)
+    bool available_cash_known() const
+    {
+        return available_cash_known_.load(std::memory_order_relaxed);
+    }
+
     // 보유 종목 시가(원). 잔고 대조가 잔고 응답의 현재가로 계좌 몫을 통째 갈아 끼운다 — 잔고에 없는 종목의 값은
     //  지워진다. §3d 총노출 분자가 원가 대신 이 값을 쓰고, 값이 없는 종목은 평단으로 대신한다. 저널에는
     //  적지 않는다 — 재기동 뒤 첫 대조가 다시 채운다. 가격이 0 이하인 줄은 건너뛴다.
@@ -490,6 +497,7 @@ private:
     void track_open_intent(const ledger_journal::Record& record);
 
     std::atomic<Won> available_cash_{0}; // 주문가능현금 스냅샷(원). 잔고 대조가 갱신, clamp_buy_quantity가 락 없이 읽음
+    std::atomic<bool> available_cash_known_{false}; // available_cash_를 받은 적이 있다(set_available_cash·CASH 리플레이)
     std::atomic<Won> equity_{0};         // 총평가금 스냅샷(원, §3d 총노출 게이트 분모). 잔고 대조가 갱신, check()가 락 없이 읽음
     std::atomic<uint32_t> last_daily_reset_date_{0}; // 하루 리셋을 한 거래일(yyyymmdd). expire_reservations·RESET_DAY 리플레이가 쓴다
 
