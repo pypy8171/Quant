@@ -572,6 +572,12 @@ int main()
         CHECK(routes.mask(id_b) == (shard::mask_of(1) | shard::mask_of(3)));
         CHECK(routes.mask(symbol::kNone) == shard::mask_of(3));
 
+        // 구독 해지 판정용 마스크는 목록에 적힌 샤드만 본다 — 전부 받는 샤드3은 빠진다.
+        CHECK(routes.listed_mask(id_a) == 0);
+        CHECK(routes.listed_mask(id_b) == shard::mask_of(1));
+        CHECK(routes.listed_mask(id_c) == 0);
+        CHECK(routes.listed_mask(symbol::kNone) == 0);
+
         // for_each_shard — 낮은 번호부터, 0이면 fallback 하나만.
         std::vector<uint32_t> visited;
         shard::for_each_shard(shard::mask_of(5) | shard::mask_of(0) | shard::mask_of(63), 9, [&](uint32_t shard_index)

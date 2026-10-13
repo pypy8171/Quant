@@ -9,9 +9,12 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib> // std::getenv(QUANT_HTTP_NOPOOL)
+#include <functional>
 #include <initializer_list>
 #include <iterator>
+#include <map>
 #include <mutex>
+#include <utility>
 #include <thread>
 
 #include "api/HttpGet.h"
@@ -571,10 +574,12 @@ static std::string request_with_retry(const std::string& method, const std::stri
 
 // 초당 호출 한도를 넘지 않게 호출을 고르게 편다. KIS는 한도를 넘긴 요청에 HTTP 500이나
 //  EGW00201을 돌려주는데, 어느 쪽이든 그 호출은 버려지고 재시도가 붙어 호출량이 더 는다.
-//  버킷은 인스턴스(=app_key)마다 따로다 — 한도가 app_key 단위라 시세 클라이언트와 주문
-//  클라이언트의 예산은 서로 무관하다. 총 호출량을 줄이지는 못하고 순서만 고르게 만든다.
-// 근거: 한도가 app_key 단위라는 것은 docs/DECISIONS.md D-009·D-138. 실계좌는 주문 키가 곧 시세 키라 D-138부터
-//  같은 키 클라이언트끼리 버킷을 나눠 쓴다(rate_bucket_ 을 shared_ptr 로 들고 복사 생성 때 같이 든다). 한도 숫자는 KisRateBucket.h 주석 참고.
+//  버킷은 (app_key, 모의 여부)마다 하나다 — 프로세스 안에서 같은 키로 만든 클라이언트는 생성자에서 같은
+//  버킷을 받는다(shared_rate_bucket). 키가 다르면 예산도 따로다. 총 호출량을 줄이지는 못하고 순서만 고르게 만든다.
+// 근거: 한도가 app_key 단위라는 것은 docs/DECISIONS.md D-009·D-138. 예전에는 인스턴스마다 버킷을 따로 두고
+//  기동 코드가 share_rate_limit_with로 묶어야 했는데, 묶지 않은 경로(전략 로더가 만든 클라이언트 등)는 같은 키로
+//  한도를 한 번 더 채웠다. 프로세스 밖(다른 엔진이 같은 키를 쓸 때)은 config rest_calls_per_second 몫으로 나눈다.
+//  한도 숫자는 KisRateBucket.h 주석 참고.
 // ═══════════════════════════════════════════════════════════════════════════
 //  KIS 밖 주소 — 인증도 한도 버킷도 없는 GET
 // ═══════════════════════════════════════════════════════════════════════════
@@ -594,6 +599,65 @@ std::string get(const std::string& url, const std::vector<std::string>& headers)
 namespace
 {
 thread_local std::uint64_t t_rate_wait_ns = 0;   // 스레드별 버킷 대기 누적 — rate_wait_ns_this_thread()
+
+// 프로세스 전역 버킷 목록. 키는 앱키 원문이 아니라 해시다 — 이 목록은 로그·덤프에 나가지 않지만 원문을 들고 있을
+//  이유가 없다. 해시가 우연히 겹치면 두 키가 한 버킷을 세서 느려질 뿐 한도를 넘지는 않는다.
+//  weak_ptr라 클라이언트가 다 사라지면 버킷도 같이 사라지고, 다음 클라이언트는 가득 찬 새 버킷으로 시작한다.
+// [why D-138] 규약 1.2(전역 싱글톤 금지)의 예외 — 한도가 거래소 쪽에 앱키마다 하나라 프로세스 안에서도 하나여야 한다.
+using RateBucketKey = std::pair<std::size_t, bool>;
+
+std::mutex& rate_bucket_registry_mutex()
+{
+    static std::mutex registry_mutex;
+    return registry_mutex;
+}
+
+std::map<RateBucketKey, std::weak_ptr<KisClient::RateBucket>>& rate_bucket_registry()
+{
+    static std::map<RateBucketKey, std::weak_ptr<KisClient::RateBucket>> registry;
+    return registry;
+}
+} // namespace
+
+std::shared_ptr<KisClient::RateBucket> KisClient::shared_rate_bucket(const KisConfig& config)
+{
+    const RateBucketKey         key{ std::hash<std::string>{}(config.app_key), config.is_paper };
+    std::shared_ptr<RateBucket> bucket;
+    bool                        created = false;
+    {
+        std::lock_guard<std::mutex> lock(rate_bucket_registry_mutex());
+        std::weak_ptr<RateBucket>&  slot = rate_bucket_registry()[key];
+        bucket                           = slot.lock();
+
+        if (!bucket)
+        {
+            bucket  = std::make_shared<RateBucket>();
+            slot    = bucket;
+            created = true;
+        }
+    }
+
+    // 목록 락을 푼 뒤 버킷 락을 잡는다(두 락을 겹쳐 잡지 않는다). 몫이 다른 두 설정이 한 키를 쓰면 작은 몫을 따른다.
+    const kis_rate::BucketPlan  plan = kis_rate::bucket_plan(config.is_paper, config.rest_calls_per_second);
+    std::lock_guard<std::mutex> lock(bucket->mutex);
+
+    if (created)
+    {
+        bucket->plan = plan;
+    }
+    else if (plan.published_limit < bucket->plan.published_limit)
+    {
+        bucket->plan   = plan;
+        bucket->tokens = (std::min)(bucket->tokens, plan.capacity);
+    }
+
+    return bucket;
+}
+
+kis_rate::BucketPlan KisClient::rate_plan() const
+{
+    std::lock_guard<std::mutex> lock(rate_bucket_->mutex);
+    return rate_bucket_->plan;
 }
 
 std::uint64_t KisClient::rate_wait_ns_this_thread()
@@ -604,12 +668,9 @@ std::uint64_t KisClient::rate_wait_ns_this_thread()
 void KisClient::rate_limit_acquire(const std::string& url)
 {
     const auto acquire_start = std::chrono::steady_clock::now();
-    // 버킷 크기는 api/KisRateBucket.h에 둔다 — 공표 한도를 넘지 않는지를 단위 테스트가 본다.
-    const kis_rate::BucketPlan plan = kis_rate::bucket_plan(config_.is_paper);
-    const double refill   = plan.refill;
-    const double capacity = plan.capacity;
+    // 버킷 크기는 api/KisRateBucket.h에 둔다 — 공표 한도를 넘지 않는지를 단위 테스트가 본다. 몫은 버킷이 들고 있다
+    //  (같은 키의 다른 클라이언트가 더 작은 몫으로 줄였을 수 있어 매번 락 안에서 읽는다).
     const bool priority = url.find("/trading/") != std::string::npos;
-    const double need = priority ? plan.trade_need : plan.quote_need;
 
     while (true) // while (1)
     {
@@ -617,6 +678,9 @@ void KisClient::rate_limit_acquire(const std::string& url)
         {
             RateBucket&                 bucket = *rate_bucket_;
             std::lock_guard<std::mutex> lock(bucket.mutex);
+            const double refill   = bucket.plan.refill;
+            const double capacity = bucket.plan.capacity;
+            const double need     = priority ? bucket.plan.trade_need : bucket.plan.quote_need;
             auto now = std::chrono::steady_clock::now();
 
             if (bucket.last.time_since_epoch().count() == 0)
@@ -701,7 +765,7 @@ std::string KisClient::http_get(const std::string& url, const std::vector<std::s
         }
 
         const double wait_ms = 1000.0 * kis_rate::wait_after_rate_limited(
-            config_.is_paper, url.find("/trading/") != std::string::npos);
+            rate_plan(), url.find("/trading/") != std::string::npos);
         LOG_WARN("[KIS] 조회 (초당 한도) — 재시도 2/2, 버킷이 찰 때까지 약 " +
                  std::to_string(static_cast<int>(wait_ms)) + "ms 기다린다  url=" + url);
         rate_limit_acquire(url);

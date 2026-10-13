@@ -3,6 +3,7 @@
 //  관련 결정: D-061·D-062·D-113·D-114.
 
 #include "core/Engine.h"
+#include "api/KisErrorCodes.h"
 #include "core/KstTime.h"
 #include "core/LatencyTrace.h"
 #include "core/ReconcilePlan.h"
@@ -155,22 +156,29 @@ void Engine::initialize_data_poller()
     {
         return running_.load(std::memory_order_acquire);
     });
-    // 넘침·폴백 조회는 30종목씩 멀티종목 시세 한 건으로 받는다. 실패한 묶음은 폴러가 한 종목씩 다시 받는다.
+    // 넘침·폴백 조회는 30종목씩 멀티종목 시세 한 건으로 받는다. 실패한 묶음은 폴러가 한 종목씩 다시 받는다 —
+    //  초당 한도 초과(EGW00201)만은 쪼개지 않고 다음 바퀴로 미루라고 알린다.
     //  첫 실패만 KIS 오류 코드를 남긴다(모의 도메인 지원 여부를 공식 자료로 확인하지 못했다). [why D-150]
     poller_->set_batch_quote(
-        [this, failure_logged = false](const std::vector<std::string>& tickers) mutable -> std::optional<std::vector<double>>
+        [this, failure_logged = false](const std::vector<std::string>& tickers) mutable
+            -> std::expected<std::vector<double>, DataPoller::BatchQuoteFailure>
         {
             KisClient* quote_client = feed_.quote_kis ? feed_.quote_kis.get() : feed_.kis.get();
 
             if (!quote_client)
             {
-                return std::nullopt;
+                return std::unexpected(DataPoller::BatchQuoteFailure::Failed);
             }
 
             auto prices = quote_client->get_current_prices(tickers);
 
             if (!prices)
             {
+                if (prices.error().code == kis_error::kRateLimit)
+                {
+                    return std::unexpected(DataPoller::BatchQuoteFailure::RateLimited);
+                }
+
                 if (!failure_logged)
                 {
                     failure_logged = true;
@@ -178,7 +186,7 @@ void Engine::initialize_data_poller()
                              std::string(quote_client->is_paper() ? "true" : "false") + ")");
                 }
 
-                return std::nullopt;
+                return std::unexpected(DataPoller::BatchQuoteFailure::Failed);
             }
 
             return std::move(*prices);

@@ -7654,3 +7654,31 @@ KIS가 계속 거부하는 매도도 60초마다 다시 나간다. 덮개 점검
 - 증권사 거부(APBK0952)까지 쉬기 대상으로 넣기: 2번 이후에는 그 거부가 게이트의 `주문가능현금 부족`으로 먼저 걸린다.
 
 **연결**: `Quant/src/api/KisOrder.cpp` · `Quant/src/api/KisClient.cpp` · `Quant/src/api/KisAccount.cpp` · `Quant/src/api/KisRestDecode.cpp` · `Quant/src/risk/OrderGate.cpp` · `Quant/src/core/EngineStartupSetup.cpp` · [docs/market_close/2026-10-13.md](market_close/2026-10-13.md)
+
+### D-162 한 앱키의 초당 조회 한도를 프로세스끼리 나눠 갖고, 전부 받는 전략은 구독 해지에서 뺀다 (2026-10-13)
+
+**문제**: 초당 한도 초과 응답(HTTP 500)이 10-08 → 10-12 → 10-13에 모의 579 → 1,147 → 1,863건, 실계좌 531 → 1,008 → 2,077건으로 늘었다
+(옛 기록 `docs/DEFERRED_ISSUES.md` D-39). 원인은 넷이었다.
+1. 10-12에 올린 SWING_TREND·SURGE_HOLD가 빈 구독 목록을 돌려주고, 엔진이 빈 목록을 "전 종목을 받는다"로 읽었다. 그래서 종목 구독 해지가
+   0건이 되고 넘침 종목 REST 조회가 0 → 86종목으로 늘었다.
+2. 모의 엔진의 시세 키(`quote_kis`)가 실계좌 엔진의 주문 키와 같다. 두 프로세스가 각자 초당 20건을 채워 겹친 순간 합이 한도를 넘었다.
+3. 한 프로세스 안에서도 같은 앱키의 클라이언트마다 버킷이 따로 있었다.
+4. 여러 종목 현재가 묶음 조회가 실패하면 종목별 단건 조회 30건으로 풀려 한도를 더 눌렀다.
+
+**결정**:
+1. 전략이 "목록에 없는 종목도 전부 받는다"를 따로 밝힌다(`StrategyBase::wants_all_ticks_when_unlisted`, 기본 true). SWING_TREND·SURGE_HOLD는
+   false다. 구독 해지는 그 종목을 받는 전략이 하나도 없을 때 한다 — 전부 받는 전략(TargetBasket)이 남아 있어도 해지를 막지 않는다.
+2. 같은 앱키·같은 모의/실계좌 구분의 클라이언트는 프로세스 안에서 버킷 하나를 같이 쓴다.
+3. config `kis`·`quote_kis`의 `rest_calls_per_second`로 이 프로세스의 몫을 정한다. 실계좌 엔진 14, 모의 엔진 시세 키 6(합 20).
+   몰아치기도 몫에 비례해 줄인다(몫 14 → 3.5건, 몫 6 → 1.5건). 칸이 없으면 공표 한도 그대로다.
+4. 묶음 조회가 한도 초과로 실패하면 단건으로 풀지 않고 그 회차를 건너뛴다. 1분 요약에 `deferred(N)`로 센다.
+5. 판정 행 둘을 넣는다 — 구독 해지 0건(`watch_unsubscribe_row`), 초당 한도 초과 건수(`query_rate_limit_row`).
+
+**근거**: 10-13 로그에 두 판정 행을 돌려 FAIL·WARN이 나오는 것을 확인했다. 몫 14/6은 주문이 실계좌에만 있어 실계좌 쪽을 크게 잡은 값이고,
+시험으로 고른 값이 아니다 — 한도 초과 건수를 보고 바꾼다.
+
+**버린 대안**:
+- 모의 시세를 모의 도메인으로 돌리기: 모의 도메인은 초당 한도가 더 작고, 모의에 없는 조회가 있다.
+- 프로세스 사이에 공유 메모리로 버킷 하나 두기: 두 엔진은 따로 기동·종료하므로 수명 관리가 복잡해진다. 고정 몫으로 충분하다.
+
+**연결**: D-138 · `Quant/include/api/KisRateBucket.h` · `Quant/src/api/KisTransport.cpp` · `Quant/src/core/Engine.cpp` · `Quant/src/core/EngineUniverse.cpp` · `Quant/src/core/DataPoller.cpp` · `scripts/check_runtime_health.py` · [docs/market_close/2026-10-13.md](market_close/2026-10-13.md)

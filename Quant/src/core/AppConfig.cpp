@@ -24,6 +24,8 @@ KisConfig parse_kis(const json& node)
     kis_config.is_paper     = node.at("is_paper").get<bool>();
     // 주문 거래소·실시간 채널 — KRX(한국거래소만) / NXT(넥스트레이드만) / SOR(증권사 최선집행). [why D-096]
     kis_config.exchange     = node.value("exchange", "KRX");
+    // 이 프로세스가 이 키로 쓸 REST 초당 몫. 없으면 0(공표 한도 전부). [why D-138]
+    kis_config.rest_calls_per_second = node.value("rest_calls_per_second", 0.0);
 
     if (kis_config.exchange != "KRX" && kis_config.exchange != "NXT" && kis_config.exchange != "SOR")
     {
@@ -44,6 +46,7 @@ KisConfig parse_quote_kis(const json& node, const KisConfig& order_kis)
     kis_config.hts_id       = node.value("hts_id", "");
     kis_config.is_paper     = false; // 시세는 실전 도메인
     kis_config.exchange     = order_kis.exchange;
+    kis_config.rest_calls_per_second = node.value("rest_calls_per_second", 0.0); // 주문 키 몫과 따로 적는다
     return kis_config;
 }
 

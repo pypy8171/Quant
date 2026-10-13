@@ -166,6 +166,23 @@ std::vector<double> DataPoller::fetch_prices(const std::vector<std::string>& tic
                 continue;
             }
 
+            // 초당 한도 초과면 한 종목씩으로 쪼개지 않는다 — 묶음 30종목이 호출 30건이 되어 한도를 더 넘긴다.
+            //  남은 종목은 이번 바퀴에 받지 않고(호출자는 받은 만큼만 본다) 다음 바퀴가 다시 묶음으로 받는다.
+            // [why D-162] 10-13 실계좌 "조회 (초당 한도)" 경고가 장중 내내 났고, 실패 묶음을 쪼갠 호출이 그 수를 키웠다.
+            if (!chunk_prices && chunk_prices.error() == BatchQuoteFailure::RateLimited)
+            {
+                ++round_statistics_.deferred_rounds;
+
+                if (!rate_limit_logged_)
+                {
+                    rate_limit_logged_ = true;
+                    LOG_WARN("[Engine] REST 묶음 시세 초당 한도 초과 — 한 종목씩으로 쪼개지 않고 남은 종목은 다음 바퀴에 받는다"
+                             " - first_ticker(" + chunk.front() + ") remaining(" + std::to_string(tickers.size() - begin) + ")");
+                }
+
+                return prices;
+            }
+
             ++round_statistics_.batch_failures;
 
             if (!batch_failure_logged_)
@@ -221,7 +238,8 @@ void DataPoller::record_round(long long symbols_start, std::chrono::milliseconds
                  std::to_string(round_statistics_.calls / round_statistics_.busy_rounds) + ") avg_ms(" +
                  std::to_string(round_statistics_.elapsed_ms_sum / round_statistics_.busy_rounds) + ") max_ms(" +
                  std::to_string(round_statistics_.elapsed_ms_max) + ") batch_fail(" +
-                 std::to_string(round_statistics_.batch_failures) + ")");
+                 std::to_string(round_statistics_.batch_failures) + ") deferred(" +
+                 std::to_string(round_statistics_.deferred_rounds) + ")");
     }
 
     round_statistics_  = RoundStats{};

@@ -37,6 +37,11 @@ int main()
         return result_code;
     }
 
+    if (const int result_code = run_unlisted_route_case(); result_code != 0)
+    {
+        return result_code;
+    }
+
     if (const int result_code = run_replay_case(); result_code != 0)
     {
         return result_code;

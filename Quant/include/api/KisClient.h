@@ -2,6 +2,7 @@
 #include "api/IMarketDataSource.h"
 #include "api/IOrderExecutor.h"
 #include "api/KisEndpoints.h"
+#include "api/KisRateBucket.h"
 #include "api/KisResult.h"
 #include "api/KisTypes.h"
 #include "core/Types.h"
@@ -33,6 +34,9 @@ struct KisConfig
     //  KRX/NXT 중 유리한 쪽으로). KRX가 아니면 실시간 체결·호가도 KRX+NXT 통합 채널(H0UN*)로 받는다.
     //  모의투자 서버는 KRX만 받으므로 is_paper면 아래 두 도우미가 KRX로 되돌린다. [why D-096]
     std::string exchange = "KRX";
+    // 이 프로세스가 이 키로 쓸 REST 초당 몫(주문·조회 합). 0이면 공표 한도(실전 20, 모의 2)를 다 쓴다.
+    //  같은 앱키를 두 프로세스가 쓸 때 몫을 나눠 적는다 — 실계좌 kis 14 + 모의 엔진 quote_kis 6 = 20. [why D-138]
+    double rest_calls_per_second = 0.0;
 };
 
 // 주문 전문의 EXCG_ID_DVSN_CD. 모의투자는 KRX만 받는다(NXT·SOR을 보내면 거부).
@@ -71,6 +75,26 @@ public:
     //  클라이언트 둘이 각자 한도를 채우면 합쳐서 두 배가 나간다. 기동 때 호출 스레드가 뜨기 전에 한 번만 부른다.
     //  키나 도메인이 다르면 아무것도 하지 않고 false. [why D-138]
     bool share_rate_limit_with(const KisClient& other);
+
+    // 이 클라이언트의 버킷 크기(공표 한도·몫·몰아치기). 같은 버킷을 쥔 클라이언트 가운데 가장 작은 몫이 이긴다.
+    [[nodiscard]] kis_rate::BucketPlan rate_plan() const;
+
+    // 초당 호출 한도 토큰버킷. 한도는 app_key 단위라 같은 키를 쓰는 클라이언트끼리 버킷 하나를 나눠 쥔다
+    //  (share_rate_limit_with·shared_rate_bucket). 모든 호출이 http_get/http_post를 지나므로 여기서 재우면 우회하는
+    //  호출 경로가 없다. 주문·잔고 경로는 예약분을 따로 둬, 시세 조회가 버킷을 비워도 주문이 그 뒤에 줄서지 않게 한다. [why D-138]
+    struct RateBucket
+    {
+        std::mutex                            mutex;
+        double                                tokens = 0.0;
+        std::chrono::steady_clock::time_point last;
+        kis_rate::BucketPlan                  plan = kis_rate::bucket_plan(false); // [inv] mutex 안에서만 읽고 쓴다
+    };
+
+    // 두 클라이언트가 한 버킷을 세는지. 시험과 기동 로그용.
+    [[nodiscard]] bool shares_rate_bucket_with(const KisClient& other) const
+    {
+        return rate_bucket_ == other.rate_bucket_;
+    }
 
     // 이 스레드의 조회를 재시도 없이 보낸다(재시도 없이 즉시 실패). 공유 전략 스레드처럼 한 번의 왕복이
     //  다른 종목 전체를 막는 자리에서 쓴다 — 3회 재시도 × 타임아웃이면 한 번의 조회가 스레드를
@@ -341,16 +365,10 @@ private:
                                        const std::string& krx_forwarding_org_no, int quantity, double price,
                                        bool all_remaining);
 
-    // 초당 호출 한도 토큰버킷. 한도는 app_key 단위라 같은 키를 쓰는 클라이언트끼리 버킷 하나를 나눠 쥔다
-    //  (share_rate_limit_with). 모든 호출이 http_get/http_post를 지나므로 여기서 재우면 우회하는 호출 경로가 없다.
-    //  주문·잔고 경로는 예약분을 따로 둬, 시세 조회가 버킷을 비워도 주문이 그 뒤에 줄서지 않게 한다. [why D-138]
-    struct RateBucket
-    {
-        std::mutex                            mutex;
-        double                                tokens = 0.0;
-        std::chrono::steady_clock::time_point last;
-    };
-    std::shared_ptr<RateBucket> rate_bucket_ = std::make_shared<RateBucket>();
+    // (앱키 해시, 모의 여부)마다 버킷 하나를 프로세스 안에서 나눠 준다. 생성자가 부른다 — 같은 키로 클라이언트를
+    //  몇 개 만들든 한 버킷을 센다. 몫이 다르면 작은 쪽으로 맞춘다.
+    static std::shared_ptr<RateBucket> shared_rate_bucket(const KisConfig& config);
+    std::shared_ptr<RateBucket> rate_bucket_;
     // market-cap 한 페이지(최대 kRankingPageRows행). 가격 구간·자르기·재정렬 규약은 아래 volume-rank와 같다.
     std::vector<RankingStock> fetch_kr_ranking_page(const std::string& market_div, const std::string& price_from,
                                                     const std::string& price_to);

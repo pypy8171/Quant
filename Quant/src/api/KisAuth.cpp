@@ -39,6 +39,7 @@ static unsigned long current_process_id()
 
 KisClient::KisClient(const KisConfig& config) : config_(config)
 {
+    rate_bucket_ = shared_rate_bucket(config_);
 #ifndef _WIN32
     curl_global_init(CURL_GLOBAL_DEFAULT);
 #endif

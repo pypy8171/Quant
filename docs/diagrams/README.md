@@ -3,7 +3,7 @@
 구조와 코드 흐름을 그린 HTML이다. 브라우저로 바로 열어도 되고, 같은 내용이 아티팩트로도 올라가 있다
 (링크는 `_private/LINKS.md` 표에도 있다).
 
-<!-- sync: Quant/include/ipc/SharedLayout.h@8bcbd7f Quant/include/core/CommandLine.h@fd9dea0 Quant/src/core/Engine.cpp@513b7ac docs/code_flow.toml@69a6499 -->
+<!-- sync: Quant/include/ipc/SharedLayout.h@8bcbd7f Quant/include/core/CommandLine.h@fd9dea0 Quant/src/core/Engine.cpp@369ac5b docs/code_flow.toml@69a6499 -->
 
 | 파일 | 무엇을 그렸나 | 발행한 주소 |
 |---|---|---|

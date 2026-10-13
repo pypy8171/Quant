@@ -105,6 +105,12 @@ std::vector<WatchSpec> SwingTrendStrategy::get_watch_specifications() const
     return {};
 }
 
+// 틱을 쓰지 않는다(on_trade_batch가 비었다) — 빈 목록이어도 전 종목 틱을 받지 않는다.
+bool SwingTrendStrategy::wants_all_ticks_when_unlisted() const
+{
+    return false;
+}
+
 void SwingTrendStrategy::on_trade_batch(const TradeData& /*trade*/, std::vector<OrderSignal>& /*out*/)
 {
 }

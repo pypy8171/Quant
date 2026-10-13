@@ -51,17 +51,44 @@ constexpr double bucket_quote_need(bool is_paper)
     return bucket_burst(is_paper) >= 2.0 ? 2.0 : 1.0;
 }
 
-constexpr BucketPlan bucket_plan(bool is_paper)
+// 이 프로세스가 쓸 초당 몫. config kis·quote_kis의 rest_calls_per_second 칸이다. 0 이하이거나 공표 한도 이상이면
+//  공표 한도를 그대로 쓴다(칸이 없을 때의 옛 동작). 2건 아래로는 내리지 않는다 — 몫이 1이면 몰아치기 1건과
+//  리필 0건이 되어 두 번째 호출이 영영 못 나간다.
+// [why D-138] 같은 앱키를 두 프로세스(모의 엔진의 시세 키 = 실계좌 엔진의 주문 키)가 쓰면 각자 20건을 채워
+//  합쳐서 한도를 넘는다. 10-13 실계좌 로그의 "조회 (초당 한도)"가 그 결과다. 몫은 프로세스끼리 나눠 갖는 값이다.
+constexpr double bucket_share_limit(bool is_paper, double calls_per_second)
 {
-    return BucketPlan{ bucket_published_limit(is_paper), bucket_burst(is_paper), bucket_refill(is_paper),
-                       bucket_quote_need(is_paper), bucket_trade_need(is_paper) };
+    const double published = bucket_published_limit(is_paper);
+
+    if (calls_per_second <= 0.0 || calls_per_second >= published)
+    {
+        return published;
+    }
+
+    return calls_per_second < 2.0 ? 2.0 : calls_per_second;
+}
+
+// 몫을 받으면 몰아치기도 몫에 비례해 줄인다. 그러지 않으면 몫 6에 몰아치기 5가 남아 한 순간에 5건이 나가고,
+//  다른 프로세스와 겹친 그 순간 합이 공표 한도를 넘는다. 1건 아래로는 내리지 않는다(첫 호출이 기다리지 않게).
+constexpr BucketPlan bucket_plan(bool is_paper, double calls_per_second = 0.0)
+{
+    const double limit       = bucket_share_limit(is_paper, calls_per_second);
+    const double scaled      = bucket_burst(is_paper) * limit / bucket_published_limit(is_paper);
+    const double burst       = scaled < 1.0 ? 1.0 : scaled;
+    const double quote_need  = burst >= 2.0 ? 2.0 : 1.0;
+    return BucketPlan{ limit, burst, limit - burst, quote_need, bucket_trade_need(is_paper) };
 }
 
 // 한도 초과 응답 뒤 되보내기까지 기다리는 초. note_rate_limited가 버킷을 0으로 비우므로 요구 토큰이 다시
 //  찰 때까지다 — 실전 시세 2/15≈0.13초·주문 1/15≈0.07초, 모의 1/1=1초. 예전에는 1.1초를 고정으로 쉬었다(W-3).
+constexpr double wait_after_rate_limited(const BucketPlan& plan, bool priority)
+{
+    return (priority ? plan.trade_need : plan.quote_need) / plan.refill;
+}
+
 constexpr double wait_after_rate_limited(bool is_paper, bool priority)
 {
-    return (priority ? bucket_trade_need(is_paper) : bucket_quote_need(is_paper)) / bucket_refill(is_paper);
+    return wait_after_rate_limited(bucket_plan(is_paper), priority);
 }
 
 } // namespace kis_rate

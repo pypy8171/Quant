@@ -2140,6 +2140,137 @@ def rescan_duration_row(date: str) -> tuple:
     return (name, True, "WARN", summary)
 
 
+# 재스캔이 놓아준 종목의 구독을 실제로 풀었는지. 이탈은 "재스캔 이탈 해제"(600초 부재 뒤 슬리브에서 뺌), 해지는
+#  [WS칸] "구독 해지" 줄이다. 넘침 수는 WS 구독 상한 경고 꼬리의 "넘침 N종목"이다.
+RESCAN_RELEASE_RE = re.compile(r"재스캔 이탈 해제: ")
+WATCH_UNSUBSCRIBE_RE = re.compile(r"\[WS칸\] 구독 해지 — ")
+WATCH_OVERFLOW_COUNT_RE = re.compile(r"REST 폴링으로 대체\(넘침 (\d+)종목\)")
+WATCH_OVERFLOW_WARN = 25   # 장중 넘침 종목 상한. 넘으면 REST 조회가 한도를 잠식한다(10-13 실계좌 최대 86)
+QUERY_RATE_LIMIT_RE = re.compile(r"\[KIS\] 조회 \(초당 한도\)")
+QUERY_RATE_LIMIT_HOURLY_WARN = 50   # 장중 한 시간에 조회 한도 초과 경고가 이보다 많으면 WARN
+
+
+def in_trading_window(line: str) -> bool:
+    """줄 시각이 정규장(09:00–15:30) 또는 애프터마켓(16:00–20:00) 안인지. 기동 직후 07시대 잔고·일봉 몰림은 뺀다."""
+    found = TS_RE.match(line)
+
+    if not found:
+        return False
+
+    minute = int(found.group(2)) * 60 + int(found.group(3))
+    return 9 * 60 <= minute < 15 * 60 + 30 or 16 * 60 <= minute < 20 * 60
+
+
+def watch_unsubscribe_row(date: str) -> tuple:
+    """재스캔이 놓아준 종목의 WS 구독을 실제로 풀었는지, 장중 넘침이 25종목 안인지.
+
+    10-12·10-13 실계좌는 재스캔 이탈 해제가 수백 건인데 구독 해지가 0건이었다 — 틱을 안 쓰는 전략(SwingTrend)이
+    빈 구독 목록으로 전 종목 라우트에 붙어 해지 판정이 늘 막혔고, 넘침이 86종목까지 쌓여 REST 조회가 한도를 넘겼다.
+    """
+    name = "재스캔 이탈 구독 해지"
+    findings: list[str] = []
+    stuck: list[str] = []
+    wide: list[str] = []
+    checked = 0
+
+    for account, engine_log in engine_logs():
+        try:
+            body = engine_log.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+
+        releases = 0
+        unsubscribes = 0
+        overflow_max = 0
+
+        for line in _logdir.live_session_lines(body.splitlines()):
+            if not line.startswith(date):
+                continue
+
+            if RESCAN_RELEASE_RE.search(line):
+                releases += 1
+            elif WATCH_UNSUBSCRIBE_RE.search(line):
+                unsubscribes += 1
+            elif in_trading_window(line) and (found := WATCH_OVERFLOW_COUNT_RE.search(line)):
+                overflow_max = max(overflow_max, int(found.group(1)))
+
+        if not releases and not unsubscribes and not overflow_max:
+            continue
+
+        checked += 1
+        findings.append(f"[{account}] 이탈 해제 {releases} · 구독 해지 {unsubscribes} · 장중 넘침 최대 {overflow_max}종목")
+
+        if releases and not unsubscribes:
+            stuck.append(account)
+
+        if overflow_max > WATCH_OVERFLOW_WARN:
+            wide.append(account)
+
+    if not checked:
+        return (name, True, "WARN", f"{date} 재스캔 이탈·넘침 줄이 없다 — 판정 안 함")
+
+    summary = "; ".join(findings)
+
+    if stuck:
+        return (name, False, "FAIL", f"이탈 종목이 있는데 구독 해지 0건({', '.join(stuck)}) — {summary}")
+
+    if wide:
+        return (name, False, "WARN", f"장중 넘침이 {WATCH_OVERFLOW_WARN}종목을 넘었다({', '.join(wide)}) — {summary}")
+
+    return (name, True, "FAIL", summary)
+
+
+def query_rate_limit_row(date: str) -> tuple:
+    """장중 조회 초당 한도 초과(EGW00201) 경고가 한 시간에 50건을 넘지 않는지.
+
+    같은 앱키를 두 엔진이 나눠 쓰는데 각자 한도를 다 채우거나, 넘침 REST 조회가 한 종목씩으로 쪼개지면 난다.
+    10-13 실계좌는 11–14시에 시간당 160–240건이었다.
+    """
+    name = "조회 초당 한도 초과"
+    findings: list[str] = []
+    hot: list[str] = []
+    checked = 0
+
+    for account, engine_log in engine_logs():
+        try:
+            body = engine_log.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+
+        hourly: dict[str, int] = {}
+
+        for line in _logdir.live_session_lines(body.splitlines()):
+            if line.startswith(date) and QUERY_RATE_LIMIT_RE.search(line) and in_trading_window(line):
+                hour = line[11:13]
+                hourly[hour] = hourly.get(hour, 0) + 1
+
+        checked += 1
+
+        if not hourly:
+            continue
+
+        peak_hour = max(hourly, key=hourly.get)
+        over = [hour for hour, count in hourly.items() if count > QUERY_RATE_LIMIT_HOURLY_WARN]
+        findings.append(f"[{account}] 장중 {sum(hourly.values())}건 · 최대 {peak_hour}시 {hourly[peak_hour]}건"
+                        + (f" · {QUERY_RATE_LIMIT_HOURLY_WARN}건 넘은 시간 {len(over)}개" if over else ""))
+
+        if over:
+            hot.append(account)
+
+    if not checked:
+        return (name, True, "WARN", f"{date} 엔진 로그가 없다 — 판정 안 함")
+
+    if not findings:
+        return (name, True, "WARN", "장중 조회 초당 한도 초과 0건")
+
+    summary = "; ".join(findings)
+
+    if hot:
+        return (name, False, "WARN", f"시간당 {QUERY_RATE_LIMIT_HOURLY_WARN}건을 넘은 시간이 있다 — {summary}")
+
+    return (name, True, "WARN", summary)
+
+
 def thread_label_row(date: str) -> tuple:
     """로그 줄마다 찍은 스레드 이름이 붙었는지, 이름 없이 번호(T12345)로 찍힌 스레드가 있는지.
 
@@ -3516,6 +3647,8 @@ def global_rows(date: str) -> list:
         board_minute_row(date),
         scan_registration_row(date),
         rescan_duration_row(date),
+        watch_unsubscribe_row(date),
+        query_rate_limit_row(date),
         *vwappb_rows(date),
         thread_label_row(date),
         job_attach_row(date),

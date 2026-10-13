@@ -119,6 +119,12 @@ std::vector<WatchSpec> SurgeHoldStrategy::get_watch_specifications() const
     return specifications;
 }
 
+// 손절·익절은 자기 보유 종목의 체결만 본다 — 보유도 후보도 없는 날 빈 목록이 전 종목 틱 받기로 읽히지 않게 한다.
+bool SurgeHoldStrategy::wants_all_ticks_when_unlisted() const
+{
+    return false;
+}
+
 void SurgeHoldStrategy::rebuild_index()
 {
     index_of_symbol_.clear();

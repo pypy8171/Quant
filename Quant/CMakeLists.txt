@@ -791,6 +791,10 @@ target_link_libraries(bench_order_burst PRIVATE quant_engine)
 add_executable(test_app_config tests/test_app_config.cpp)
 target_link_libraries(test_app_config PRIVATE quant_engine)
 
+# ─── 테스트 타깃: KIS 초당 한도 버킷 공유 — 같은 (앱키, 모의 여부)는 한 버킷, 몫은 작은 쪽 (D-138) ──
+add_executable(test_kis_rate_share tests/test_kis_rate_share.cpp)
+target_link_libraries(test_kis_rate_share PRIVATE quant_engine)
+
 # ─── 테스트 타깃: 유니버스 횡단면 점수 — z-score·±2 절단·눌림 부호 반전·거래대금 결측 중앙값·가중합 (순수 함수, D-018) ──
 add_executable(test_universe_scoring tests/test_universe_scoring.cpp)
 target_link_libraries(test_universe_scoring PRIVATE quant_engine)
@@ -1064,6 +1068,7 @@ set(QUANT_ASSERT_TARGETS
     test_signal_dispatcher
     test_order_rate_limiter
     test_kis_rate_bucket
+    test_kis_rate_share
     test_bar_aggregator
     test_ops_protocol
     test_ops_server

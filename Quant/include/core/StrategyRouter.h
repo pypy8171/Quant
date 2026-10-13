@@ -34,7 +34,8 @@ public:
         {
             const auto specifications = strategy->get_watch_specifications();
             ids.clear();
-            bool unresolved = specifications.empty();
+            // 목록이 비었으면 전부 받는다 — 틱을 안 쓰는 전략(wants_all_ticks_when_unlisted가 false)은 빼고.
+            bool unresolved = specifications.empty() && strategy->wants_all_ticks_when_unlisted();
 
             for (const auto& watch_specification : specifications)
             {

@@ -14,6 +14,89 @@
 namespace engine_test
 {
 
+namespace
+{
+// 구독 목록을 비운 전략. wants_all이면 전 종목 틱을 받는 전략(바스켓처럼 남의 틱을 심장박동으로 쓴다), 아니면
+//  틱을 안 쓰는 전략(SwingTrend처럼 REST·시각만 쓴다).
+class UnlistedStrategy final : public StrategyBase
+{
+public:
+    UnlistedStrategy(std::string id, bool wants_all) : id_(std::move(id)), wants_all_(wants_all)
+    {
+    }
+
+    const std::string& id() const override
+    {
+        return id_;
+    }
+
+    std::string describe() const override
+    {
+        return id_;
+    }
+
+    bool wants_all_ticks_when_unlisted() const override
+    {
+        return wants_all_;
+    }
+
+private:
+    std::string id_;
+    bool        wants_all_ = true;
+};
+} // namespace
+
+// 구독 목록이 빈 전략이 있어도 구독 해지 판정(subscribed_route_mask)은 목록에 적힌 종목만 센다. 전부 받는 전략의
+//  샤드는 틱 배달(route_mask)에만 서고, 틱을 안 쓰는 전략의 샤드는 어디에도 서지 않는다. 10-12·13 실계좌에서
+//  SwingTrend의 빈 목록이 모든 종목을 "보는 전략 있음"으로 만들어 재스캔 이탈 종목이 하나도 안 풀렸다.
+int run_unlisted_route_case()
+{
+    std::cout << "case unlisted route\n";
+    const std::vector<std::string> tickers{"005930", "000660"};
+
+    auto  listed_owned    = std::make_unique<BuyEachOnce>(tickers);
+    auto* listed          = listed_owned.get();
+    auto  all_owned       = std::make_unique<UnlistedStrategy>("ALL", true);
+    auto* all_ticks       = all_owned.get();
+    auto  clock_owned     = std::make_unique<UnlistedStrategy>("CLOCK", false);
+    auto* clock_only      = clock_owned.get();
+
+    Engine engine(KisConfig{});
+    engine.set_zmq_enabled(false);
+    engine.set_strategy_shards(3);
+    engine.add_strategy(std::move(listed_owned));
+    engine.add_strategy(std::move(all_owned));
+    engine.add_strategy(std::move(clock_owned));
+    engine.set_feed_source(std::make_unique<FakeFeed>(1), 1'000'000.0);
+    engine.start();
+
+    CHECK(engine.is_running());
+    CHECK(engine.shard_count() == 3);
+    // 라운드로빈이라 셋이 서로 다른 샤드에 있다 — 같은 샤드면 마스크로 가를 수 없다.
+    CHECK(listed->shard_index() != all_ticks->shard_index() && all_ticks->shard_index() != clock_only->shard_index() &&
+          listed->shard_index() != clock_only->shard_index());
+
+    const shard::ShardMask listed_mask = shard::mask_of(listed->shard_index());
+    const shard::ShardMask all_mask    = shard::mask_of(all_ticks->shard_index());
+    const shard::ShardMask clock_mask  = shard::mask_of(clock_only->shard_index());
+
+    for (const auto symbol_id : listed->symbol_ids())
+    {
+        CHECK(engine.route_mask(symbol_id) == (listed_mask | all_mask));
+        CHECK(engine.subscribed_route_mask(symbol_id) == listed_mask);
+    }
+
+    // 목록에 아무도 안 적은 종목 — 틱은 전부 받는 전략에게 가지만 해지 판정에는 "보는 전략 없음"이다.
+    const symbol::SymbolId unlisted = engine.register_symbol("035720");
+    CHECK(unlisted != symbol::kNone);
+    CHECK(engine.route_mask(unlisted) == all_mask);
+    CHECK(engine.subscribed_route_mask(unlisted) == 0);
+    CHECK((engine.route_mask(unlisted) & clock_mask) == 0);
+
+    engine.stop();
+    return 0;
+}
+
 // 다종목 전략 하나 + 샤드 여럿. 샤드 수가 config 그대로 서고(1 폴백 없음), 종목 전부의 마스크가 그 전략의 샤드 하나이며,
 //  종목 수만큼 주문·보유가 잡히면 통과.
 int run_spanning_case(uint32_t lanes, uint32_t shards, const std::vector<std::string>& tickers)

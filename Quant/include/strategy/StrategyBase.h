@@ -123,6 +123,15 @@ public:
         return {};
     }
 
+    // 구독 목록이 비었을 때 모든 종목의 틱을 받을지. 기본은 받는다 — 다른 전략의 틱을 심장박동으로 쓰는
+    //  전략(TargetBasket)이 그렇다. 틱을 쓰지 않는 전략(REST와 시각만 쓰는 SwingTrend, 볼 종목이 없는 날의
+    //  SurgeHold)은 false를 돌려 라우트에 붙지 않는다. 어느 쪽이든 구독 해지 판정은 막지 않는다
+    //  (Engine::subscribed_route_mask).
+    virtual bool wants_all_ticks_when_unlisted() const
+    {
+        return true;
+    }
+
     // 이 전략이 활성화될 시장 국면. 기본값=전 국면(기존 전략 무변경 호환).
     // config "active_regimes"로 set_active_regimes() 오버라이드. Engine::apply_regime_selection 폴백이 참조.
     const std::vector<Regime>& active_regimes() const

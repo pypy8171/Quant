@@ -9,10 +9,10 @@
 - [(루트)](#루트) — 11개
 - [.vscode](#vscode) — 4개
 - [PYQuant](#pyquant) — 106개
-- [Quant](#quant) — 459개
+- [Quant](#quant) — 460개
 - [docs](#docs) — 151개
 - [linux_practice](#linux_practice) — 2개
-- [research](#research) — 549개
+- [research](#research) — 548개
 - [scripts](#scripts) — 54개
 - [strategies](#strategies) — 44개
 - [tools](#tools) — 3개
@@ -650,6 +650,7 @@
 - [test_heartbeat.cpp](../Quant/tests/test_heartbeat.cpp) — 심장박동 단위 테스트: 정상·의심·사망 전이와 사망 한 번만 가져가기를 시계 없이 검증(D-114 단계 2)
 - [test_kis_decode.cpp](../Quant/tests/test_kis_decode.cpp) — KIS REST 응답 디코더 단위 테스트(분봉·잔고·전광판, D-051·D-059)
 - [test_kis_rate_bucket.cpp](../Quant/tests/test_kis_rate_bucket.cpp) — 한도 버킷 단위 테스트: 한 초 최대치가 공표 한도 안인지, 첫 호출이 안 기다리는지, 시세 호출 요구량이 버킷 안인지
+- [test_kis_rate_share.cpp](../Quant/tests/test_kis_rate_share.cpp) — 같은 앱키 클라이언트가 프로세스 안에서 초당 한도 버킷 하나를 같이 쓰고, 몫이 다르면 작은 몫을 따르는지 시험 (D-162)
 - [test_latency_trace.cpp](../Quant/tests/test_latency_trace.cpp) — 구간 지연 CSV 기록기 단위 테스트
 - [test_ledger_reconciler.cpp](../Quant/tests/test_ledger_reconciler.cpp) — 잔고-원장 대조기 단위 테스트(D-038·D-061)
 - [test_ledger_snapshot.cpp](../Quant/tests/test_ledger_snapshot.cpp) — 장부 사본 단위 테스트: 지난 판 값이 안 남는지, 쓰는 중에 읽어도 반쪽 판이 안 나오는지 두 스레드로 검증(D-114 단계 2.5)

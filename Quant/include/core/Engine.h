@@ -354,6 +354,12 @@ public:
         return pipeline_.routes.mask(symbol_id);
     }
 
+    // 종목 id를 구독 목록에 직접 적은 전략의 샤드 마스크. 전부 받는 전략은 빠진다 — 구독 해지 판정이 이것을 본다.
+    shard::ShardMask subscribed_route_mask(symbol::SymbolId symbol_id) const
+    {
+        return pipeline_.routes.listed_mask(symbol_id);
+    }
+
     // 큐 수위·버린 건수 — control_thread가 1분마다 찍는 [큐 고수위] 로그와 같은 값을 그 주기를 기다리지 않고 준다.
     //  부하 하네스(bench_engine_load)가 구간마다 읽는다. 읽기 전용이라 어느 스레드에서 불러도 된다.
     using QueueStatistics = engine::QueueStatistics; // 몸통은 core/EnginePipeline.h

@@ -103,6 +103,7 @@ public:
     bool                       wants_clock() const override;
     void                       on_clock(std::vector<OrderSignal>& out) override;
     std::vector<WatchSpec>     get_watch_specifications() const override;
+    bool                       wants_all_ticks_when_unlisted() const override;
 
     bool load_plan();   // 파일을 읽어 plan_을 바꾼다. 실패면 직전 것을 유지하고 false
     void load_state();  // 상태 파일에서 보유를 복원한다(생성자 뒤 로더가 부른다). 못 읽으면 매수를 막는다

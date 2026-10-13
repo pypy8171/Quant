@@ -120,10 +120,15 @@ void Engine::rebuild_routes_locked()
     {
         const auto specifications = registered_strategy->get_watch_specifications();
 
-        // 구독을 안 밝힌 전략은 전부 받는다(Router와 같은 규칙) — 그 샤드는 모든 종목을 받는다.
+        // 구독을 안 밝힌 전략은 전부 받는다(Router와 같은 규칙) — 그 샤드는 모든 종목을 받는다. 틱을 안 쓰는
+        //  전략은 아무 라우트에도 붙지 않는다. 전부 받기는 Draft::all에만 적혀 구독 해지 판정에는 들어가지 않는다.
         if (specifications.empty())
         {
-            draft.add_all(registered_strategy->shard_index());
+            if (registered_strategy->wants_all_ticks_when_unlisted())
+            {
+                draft.add_all(registered_strategy->shard_index());
+            }
+
             continue;
         }
 
@@ -131,10 +136,11 @@ void Engine::rebuild_routes_locked()
         {
             const symbol::SymbolId id = register_symbol(watch_specification.ticker);
 
+            // 테이블이 찼다 — 틱을 놓치는 것보다 낫다. 나머지 종목도 계속 적어 그 종목들의 해지 판정이 맞게 한다.
             if (id == symbol::kNone)
             {
-                draft.add_all(registered_strategy->shard_index()); // 테이블이 찼다 — 틱을 놓치는 것보다 낫다
-                break;
+                draft.add_all(registered_strategy->shard_index());
+                continue;
             }
 
             draft.add(id, registered_strategy->shard_index());

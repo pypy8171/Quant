@@ -46,6 +46,18 @@ ShardMask RouteTable::mask(symbol::SymbolId id) const noexcept
     return snapshot->masks[id] | snapshot->all;
 }
 
+ShardMask RouteTable::listed_mask(symbol::SymbolId id) const noexcept
+{
+    const Snapshot* snapshot = current_.load(std::memory_order_acquire);
+
+    if (id == symbol::kNone || id >= snapshot->masks.size())
+    {
+        return 0;
+    }
+
+    return snapshot->masks[id];
+}
+
 void RouteTable::publish(std::unique_ptr<Snapshot> snapshot)
 {
     const Snapshot* published = snapshot.get();

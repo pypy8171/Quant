@@ -21,7 +21,7 @@ graph LR
   regime[regime]
   api -->|14| core
   api -->|8| utils
-  core -->|12| api
+  core -->|13| api
   core -->|20| ipc
   core -->|10| risk
   core -->|5| strategy
@@ -354,6 +354,7 @@ graph LR
   n_api_KisClient_h --> n_api_IMarketDataSource_h
   n_api_KisClient_h --> n_api_IOrderExecutor_h
   n_api_KisClient_h --> n_api_KisEndpoints_h
+  n_api_KisClient_h --> n_api_KisRateBucket_h
   n_api_KisClient_h --> n_api_KisResult_h
   n_api_KisClient_h --> n_api_KisTypes_h
   n_api_KisClient_h --> n_core_Types_h
@@ -554,6 +555,7 @@ graph LR
   n_core_EngineSetters_cpp --> n_utils_Logger_h
   n_core_EngineSetters_cpp --> n_utils_ThreadName_h
   n_core_EngineSetters_cpp --> n_utils_Utf8_h
+  n_core_EngineStartupSetup_cpp --> n_api_KisErrorCodes_h
   n_core_EngineStartupSetup_cpp --> n_core_Engine_h
   n_core_EngineStartupSetup_cpp --> n_core_KstTime_h
   n_core_EngineStartupSetup_cpp --> n_core_LatencyTrace_h

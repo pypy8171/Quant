@@ -12,6 +12,7 @@
 #include <ctime>
 #include <functional>
 #include <mutex>
+#include <expected>
 #include <optional>
 #include <stop_token>
 #include <string>
@@ -55,8 +56,16 @@ public:
     using TickSink      = std::function<void(TradeData)>;                   // 큐 push(값으로 넘겨 sink가 옮긴다). 가득 찼을 때 기다림은 호출자 몫
     using ResubscribeFn = std::function<bool(const WatchSpec&)>;            // WS 재구독 시도. true = 슬롯 확보
     using KeepGoingFn   = std::function<bool()>;                            // running_ — 종료 중이면 루프를 끊는다
-    // 여러 종목 현재가를 한 번에. 반환은 tickers와 같은 순서·길이(0 = 그 종목 없음), nullopt = 호출 실패.
-    using BatchQuoteFn  = std::function<std::optional<std::vector<double>>(const std::vector<std::string>& tickers)>;
+    // 묶음 호출이 왜 실패했나. RateLimited는 앱키 초당 한도 초과(EGW00201)다 — 그때는 한 종목씩으로 쪼개면 호출이
+    //  묶음 크기만큼 늘어 한도를 더 넘기므로, 그 바퀴를 거기서 끊고 다음 바퀴에 다시 묶음으로 받는다.
+    enum class BatchQuoteFailure
+    {
+        Failed,
+        RateLimited,
+    };
+    // 여러 종목 현재가를 한 번에. 반환은 tickers와 같은 순서·길이(0 = 그 종목 없음), 실패면 사유.
+    using BatchQuoteFn  = std::function<std::expected<std::vector<double>, BatchQuoteFailure>(
+        const std::vector<std::string>& tickers)>;
 
     // 조회 스레드가 한 바퀴마다 묻는 것들. 어느 것이든 비어 있으면 그 일을 하지 않는다.
     struct LoopSources
@@ -96,7 +105,7 @@ public:
     }
 
     // 넘침·폴백 조회를 batch_size 종목씩 묶어 한 번에 받는다. 묶음 호출이 실패한 묶음은 그 자리에서 한 종목씩
-    //  quote로 다시 받는다. 설정하지 않으면 전부 한 종목씩이다. 조회 스레드를 띄우기 전에 부른다. [why D-150]
+    //  quote로 다시 받는다(초당 한도 초과로 실패했으면 쪼개지 않고 다음 바퀴로 미룬다). 설정하지 않으면 전부 한 종목씩이다. 조회 스레드를 띄우기 전에 부른다. [why D-150]
     void set_batch_quote(BatchQuoteFn batch_quote, size_t batch_size);
 
     // 보유 보충은 모의 도메인(초당 한도가 낮다)에서도 돌아 300ms.
@@ -157,11 +166,13 @@ private:
         long long symbols         = 0; // 조회한 종목 수 합
         long long calls           = 0; // REST 호출 수 합(묶음 한 번 = 1)
         long long batch_failures  = 0; // 실패해 한 종목씩으로 돌아간 묶음 수
+        long long deferred_rounds = 0; // 초당 한도 초과로 남은 종목을 다음 바퀴로 미룬 바퀴 수
         long long elapsed_ms_sum  = 0; // 종목이 있던 바퀴만 더한다
         long long elapsed_ms_max  = 0;
         int       busy_rounds     = 0; // 종목이 하나라도 있던 바퀴
     };
     RoundStats                      round_statistics_;
     bool                            batch_failure_logged_ = false;
+    bool                            rate_limit_logged_    = false;
     std::jthread                    loop_thread_; // 마지막 멤버 — 소멸 때 가장 먼저 멈추고 회수된다
 };

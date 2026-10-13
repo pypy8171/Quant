@@ -126,6 +126,7 @@ private:
 // test_engine_pipeline.cpp
 int run_spanning_case(uint32_t lanes, uint32_t shards, const std::vector<std::string>& tickers);
 int run_case(uint32_t lanes, uint32_t shards, const std::vector<std::string>& tickers);
+int run_unlisted_route_case();
 // test_engine_order_path.cpp
 int run_stale_entry_case();
 int run_protective_claim_case();

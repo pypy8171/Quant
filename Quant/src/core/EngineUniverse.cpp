@@ -145,7 +145,9 @@ void Engine::publish_watch_priorities()
         const bool  pinned   = is_websocket_pinned(specification.ticker); // 설정이 고정한 종목은 보는 전략이 없어도 쥔다 [why D-138]
 
         // 떼어 낸 전략의 종목이 칸을 쥔 채 남으면 새 점수 상위가 칸을 못 받는다. 보는 전략도 보유·선점도 없으면 푼다.
-        if (!held && !reserved && !pinned && route_mask(symbol) == 0)
+        //  "보는 전략"은 구독 목록에 그 종목을 적은 전략만 센다. 전부 받는 전략까지 세면 그런 전략이 하나만 있어도
+        //  어떤 종목도 풀리지 않는다(10-12·13 실계좌 해지 0건, 넘침 최대 86종목).
+        if (!held && !reserved && !pinned && subscribed_route_mask(symbol) == 0)
         {
             {
                 std::lock_guard<std::mutex> specifications_lock(watch_specifications_mutex_);

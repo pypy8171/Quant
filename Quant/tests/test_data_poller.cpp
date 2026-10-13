@@ -189,6 +189,7 @@ int test_batch()
     std::vector<std::string>              single;
     std::vector<TradeData>                out;
     bool                                  fail_second = false;
+    bool                                  limit_second = false;
     DataPoller data_poller(
         [&](const std::string& ticker)
         {
@@ -201,13 +202,18 @@ int test_batch()
         });
     data_poller.set_universe_call_interval(std::chrono::milliseconds(0));
     data_poller.set_batch_quote(
-        [&](const std::vector<std::string>& tickers) -> std::optional<std::vector<double>>
+        [&](const std::vector<std::string>& tickers) -> std::expected<std::vector<double>, DataPoller::BatchQuoteFailure>
         {
             batches.push_back(tickers);
 
             if (fail_second && batches.size() == 2)
             {
-                return std::nullopt;
+                return std::unexpected(DataPoller::BatchQuoteFailure::Failed);
+            }
+
+            if (limit_second && batches.size() == 2)
+            {
+                return std::unexpected(DataPoller::BatchQuoteFailure::RateLimited);
             }
 
             std::vector<double> prices;
@@ -244,6 +250,22 @@ int test_batch()
     CHECK(batches.size() == 3 && single.size() == 30 && single.front() == "T30" && single.back() == "T59");
     CHECK(count == 64 && out.size() == 64 && out[29].ticker == "T30" && out[29].price == 7.0);
     CHECK(out[28].ticker == "T29" && out[28].price == 129.0 && out[59].ticker == "T60" && out[59].price == 160.0);
+
+    // 가운데 묶음이 초당 한도 초과로 실패하면 한 종목씩으로 쪼개지 않고(단건 0건) 그 바퀴를 끊는다 — 셋째 묶음도 안 부른다.
+    //  받은 첫 묶음 30종목만 틱이 되고, 나머지는 다음 바퀴가 다시 묶음으로 받는다.
+    batches.clear();
+    single.clear();
+    out.clear();
+    fail_second  = false;
+    limit_second = true;
+    count = data_poller.poll_universe(universe, kStartTime);
+    CHECK(batches.size() == 2 && single.empty());
+    CHECK(count == 29 && out.size() == 29 && out.back().ticker == "T29"); // T10은 0이라 틱 없음
+    limit_second = false;
+    batches.clear();
+    out.clear();
+    count = data_poller.poll_universe(universe, kStartTime);
+    CHECK(batches.size() == 3 && single.empty() && count == 64);
 
     // 넘침 경로도 재구독을 먼저 해 본 뒤 남은 종목만 묶는다. 실패 종목(0)은 틱이 없다.
     batches.clear();

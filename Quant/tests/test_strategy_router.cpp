@@ -34,7 +34,15 @@ int g_checks = 0;
 class FakeStrategy final : public StrategyBase
 {
 public:
-    FakeStrategy(std::string id, std::vector<std::string> tickers) : id_(std::move(id)), tickers_(std::move(tickers)) {}
+    FakeStrategy(std::string id, std::vector<std::string> tickers, bool wants_all = true)
+        : id_(std::move(id)), tickers_(std::move(tickers)), wants_all_(wants_all)
+    {
+    }
+
+    bool wants_all_ticks_when_unlisted() const override
+    {
+        return wants_all_;
+    }
 
     const std::string& id() const override
     {
@@ -82,6 +90,7 @@ public:
 private:
     std::string              id_;
     std::vector<std::string> tickers_;
+    bool                     wants_all_ = true;
 };
 
 std::vector<StrategyBase*> pointers(const std::vector<std::unique_ptr<FakeStrategy>>& values)
@@ -146,6 +155,28 @@ int main()
             seen.push_back(strategy->id());
         });
         CHECK(seen.size() == 1 && seen[0] == "C");
+    }
+
+    // 1b. 목록이 비었어도 틱을 안 쓰는 전략(SwingTrend·볼 종목 없는 SurgeHold)은 전부 받는 쪽에 들어가지 않는다.
+    {
+        symbol::SymbolTable                        table;
+        std::vector<std::unique_ptr<FakeStrategy>> strategies;
+        strategies.push_back(std::make_unique<FakeStrategy>("A", std::vector<std::string>{"005930"}));
+        strategies.push_back(std::make_unique<FakeStrategy>("CLOCK", std::vector<std::string>{}, false));
+
+        strategy::Router router;
+        router.rebuild(pointers(strategies), [&table](const std::string& ticker)
+        {
+            return table.intern(ticker);
+        });
+        CHECK(router.routes() == 1 && router.all_count() == 0);
+
+        int count = 0;
+        router.for_each(symbol::kNone, [&count](StrategyBase*)
+        {
+            ++count;
+        });
+        CHECK(count == 0);
     }
 
     // 2. 같은 종목을 두 번 적은 전략은 한 번만 들어간다. 재구성하면 이전 배정은 사라진다.

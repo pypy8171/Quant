@@ -69,6 +69,10 @@ public:
     // id의 틱을 받을 샤드들. 아무도 안 보는 종목이면 0 — 호출자가 기본 열(해시)로 보내 현재가 캐시는 채운다.
     [[nodiscard]] ShardMask mask(symbol::SymbolId id) const noexcept;
 
+    // id를 구독 목록에 직접 적은 전략의 샤드들. 전부 받는 샤드(all)는 뺀다 — 구독 해지 판정용이다. 전부 받는
+    //  전략이 하나라도 있으면 mask()는 모든 종목에서 0이 아니라, 재스캔에서 빠진 종목이 칸을 영영 못 놓는다.
+    [[nodiscard]] ShardMask listed_mask(symbol::SymbolId id) const noexcept;
+
     [[nodiscard]] size_t capacity() const noexcept
     {
         return current_.load(std::memory_order_acquire)->masks.size();

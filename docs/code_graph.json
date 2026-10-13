@@ -25,7 +25,7 @@
     {
       "from": "core",
       "to": "api",
-      "weight": 12
+      "weight": 13
     },
     {
       "from": "core",
@@ -496,6 +496,7 @@
       "api/IMarketDataSource.h",
       "api/IOrderExecutor.h",
       "api/KisEndpoints.h",
+      "api/KisRateBucket.h",
       "api/KisResult.h",
       "api/KisTypes.h",
       "core/Types.h"
@@ -786,6 +787,7 @@
       "utils/Utf8.h"
     ],
     "core/EngineStartupSetup.cpp": [
+      "api/KisErrorCodes.h",
       "core/Engine.h",
       "core/KstTime.h",
       "core/LatencyTrace.h",
@@ -1751,6 +1753,7 @@
     "api/KisErrorCodes.h": [
       "api/KisClient.cpp",
       "api/KisClientInternal.h",
+      "core/EngineStartupSetup.cpp",
       "core/OrderRateLimiter.cpp",
       "core/PaperExecutor.h",
       "ipc/OrderRouterBlockedSell.cpp",
@@ -1758,6 +1761,7 @@
       "ipc/OrderRouterSubmit.cpp"
     ],
     "api/KisRateBucket.h": [
+      "api/KisClient.h",
       "api/KisTransport.cpp"
     ],
     "api/KisRestDecode.h": [
@@ -2770,12 +2774,12 @@
       "in_degree": 9
     },
     {
-      "header": "universe/MaAlign.h",
+      "header": "api/KisErrorCodes.h",
       "in_degree": 8
     },
     {
-      "header": "api/KisErrorCodes.h",
-      "in_degree": 7
+      "header": "universe/MaAlign.h",
+      "in_degree": 8
     },
     {
       "header": "core/MarketSession.h",

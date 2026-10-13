@@ -51,6 +51,20 @@ int main()
         CHECK(app.risk.session_close_min == 15 * 60 + 30);
         CHECK(app.risk.after_open_min == 0 && app.risk.after_close_min == 0); // 모의는 애프터 창 없음
         CHECK(app.strategies.is_array() && app.strategies.empty());
+        CHECK(app.kis.rest_calls_per_second == 0.0); // 칸이 없으면 공표 한도 전부
+    }
+
+    // 1a. REST 초당 몫 — kis·quote_kis에 따로 읽힌다. 시세 키는 주문 키 몫을 물려받지 않는다.
+    {
+        json document                          = minimal_document();
+        document["kis"]["rest_calls_per_second"] = 14;
+        document["quote_kis"]                  = json::parse(R"({"app_key": "quote_key", "app_secret": "quote_secret", "rest_calls_per_second": 6})");
+        const AppConfig app                    = parse_config(document);
+        CHECK(app.kis.rest_calls_per_second == 14.0);
+        CHECK(app.quote_kis.has_value() && app.quote_kis->rest_calls_per_second == 6.0);
+
+        document["quote_kis"].erase("rest_calls_per_second");
+        CHECK(parse_config(document).quote_kis->rest_calls_per_second == 0.0);
     }
 
     // 1b. 실계좌면 애프터마켓 창 16:00~20:00이 기본으로 켜진다.
