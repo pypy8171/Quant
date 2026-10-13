@@ -654,7 +654,7 @@
       "file": "scripts/market_close_autodoc.py",
       "symbol": "render",
       "lines": 215,
-      "start": 253
+      "start": 254
     },
     {
       "file": "PYQuant/backtest/devscale_replay.py",
