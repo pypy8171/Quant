@@ -38,6 +38,7 @@ sys.path.insert(0, str(REPO / "scripts"))
 import _logdir  # noqa: E402
 from log_patterns import PNL_RE, PREV_PNL_RE  # noqa: E402
 import check_runtime_health  # noqa: E402
+from redact_publish import scrub  # noqa: E402  계좌번호 가림 정본
 
 JOURNAL_DIR = REPO / "strategies" / "DeviationScale" / "live"
 RUN_LOG = REPO / "logs" / "market_close_autodoc.log"
@@ -472,6 +473,9 @@ def render(ymd: str, log_facts: dict, led: dict, log_path, csv_path) -> str:
 
 def write_journal(path: Path, body: str, dry: bool) -> str:
     """기존 일지를 존중한다 — 마커가 없는 파일(사람이 쓴 것)은 건드리지 않는다."""
+    # 일지는 git에 올라간다. 건전성 판정 행이 계좌별 건수를 계좌번호로 찍으므로 쓰기 전에 가린다
+    #  (10-14 일지 4줄에 실계좌·모의계좌 번호가 그대로 실렸다).
+    body = scrub(body)
     if path.exists():
         old = path.read_text(encoding="utf-8")
         if AUTO_BEGIN not in old:

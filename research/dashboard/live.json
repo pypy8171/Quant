@@ -1,7 +1,15 @@
 {
   "schema": "quant.live/v1",
-  "generated": "2026-10-13 21:11",
+  "generated": "2026-10-14 20:02",
   "journals": [
+    {
+      "date": "2026-10-14",
+      "strategy": "DeviationScale",
+      "path": "strategies/DeviationScale/live/2026-10-14.md",
+      "title": "라이브 모의 매매 일지 — 2026-10-14 (수)",
+      "strat_line": "DeviationScale (DEVSCALE) 정배열눌림 지정가 분할 매수 + ITB 청산 관리(전일 보유분).",
+      "summary": ""
+    },
     {
       "date": "2026-10-13",
       "strategy": "DeviationScale",
@@ -2484,6 +2492,43 @@
       "realized_pnl": 0,
       "buy_notional": 18280000,
       "sell_notional": 0
+    },
+    {
+      "date": "2026-10-14",
+      "path": "Quant/build_win/logs/trades_20261014.csv",
+      "total": 59,
+      "by_status": {
+        "REJECTED": 25,
+        "CANCELLED": 20,
+        "ACCEPTED": 13,
+        "FILLED": 1
+      },
+      "by_strategy": {
+        "SWING_TREND": 20,
+        "DEVSCALE_004490": 11,
+        "ITB_402340": 9,
+        "DEVSCALE_005880": 6,
+        "DEVSCALE_084110": 4,
+        "DEVSCALE_033340": 2,
+        "DEVSCALE_192400": 2,
+        "DEVSCALE_138040": 2,
+        "LIMIT_TRIM": 1,
+        "DEVSCALE_089860": 1,
+        "DEVSCALE_161390": 1
+      },
+      "by_side": {
+        "BUY": 49,
+        "SELL": 10
+      },
+      "n_tickers": 19,
+      "accepted": 13,
+      "rejected": 25,
+      "cancelled": 20,
+      "filled": 1,
+      "fill_events": 4,
+      "realized_pnl": -873505,
+      "buy_notional": 0,
+      "sell_notional": 17444000
     }
   ],
   "order_log_live_account": [
@@ -2847,6 +2892,36 @@
       "accepted": 0,
       "rejected": 42,
       "cancelled": 29,
+      "filled": 0,
+      "fill_events": 0,
+      "realized_pnl": 0,
+      "buy_notional": 0,
+      "sell_notional": 0
+    },
+    {
+      "date": "2026-10-14",
+      "path": "Quant/build_win/logs_live/trades_20261014.csv",
+      "total": 43,
+      "by_status": {
+        "REJECTED": 26,
+        "CANCELLED": 15,
+        "ACCEPTED": 2
+      },
+      "by_strategy": {
+        "SWING_TREND": 13,
+        "DEVSCALE_004490": 13,
+        "DEVSCALE_084110": 6,
+        "DEVSCALE_089860": 5,
+        "DEVSCALE_161390": 4,
+        "DEVSCALE_192400": 2
+      },
+      "by_side": {
+        "BUY": 43
+      },
+      "n_tickers": 16,
+      "accepted": 2,
+      "rejected": 26,
+      "cancelled": 15,
       "filled": 0,
       "fill_events": 0,
       "realized_pnl": 0,

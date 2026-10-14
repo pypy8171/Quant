@@ -1,0 +1,245 @@
+{
+ "date": "2026-10-14",
+ "snapshot_time": "2026-10-14T08:57:01",
+ "market_median_change": 0.0,
+ "candidates": [
+  {
+   "code": "096770",
+   "name": "SK이노베이션",
+   "nxt_change": 3.19,
+   "nxt_value_eok": 284.5,
+   "via": "정유",
+   "krx_change": 4.08,
+   "value_rank": 11,
+   "change_rank": 161,
+   "leader": true
+  },
+  {
+   "code": "010950",
+   "name": "S-Oil",
+   "nxt_change": 4.17,
+   "nxt_value_eok": 45.1,
+   "via": "정유",
+   "krx_change": 2.65,
+   "value_rank": 88,
+   "change_rank": 296,
+   "leader": false
+  },
+  {
+   "code": "078930",
+   "name": "GS",
+   "nxt_change": 2.21,
+   "nxt_value_eok": 3.3,
+   "via": "정유",
+   "krx_change": 1.01,
+   "value_rank": 141,
+   "change_rank": 708,
+   "leader": false
+  },
+  {
+   "code": "084010",
+   "name": "대한제강",
+   "nxt_change": 15.7,
+   "nxt_value_eok": 275.9,
+   "via": "철강 주요종목",
+   "krx_change": 13.77,
+   "value_rank": 137,
+   "change_rank": 21,
+   "leader": false
+  },
+  {
+   "code": "460860",
+   "name": "동국제강",
+   "nxt_change": 4.25,
+   "nxt_value_eok": 54.7,
+   "via": "철강 주요종목",
+   "krx_change": -0.11,
+   "value_rank": 430,
+   "change_rank": 1442,
+   "leader": false
+  },
+  {
+   "code": "001430",
+   "name": "세아베스틸지주",
+   "nxt_change": 4.29,
+   "nxt_value_eok": 9.0,
+   "via": "철강 주요종목",
+   "krx_change": 0.12,
+   "value_rank": 313,
+   "change_rank": 1251,
+   "leader": false
+  },
+  {
+   "code": "002710",
+   "name": "TCC스틸",
+   "nxt_change": 7.82,
+   "nxt_value_eok": 170.9,
+   "via": "철강",
+   "krx_change": 8.5,
+   "value_rank": 158,
+   "change_rank": 45,
+   "leader": false
+  },
+  {
+   "code": "000500",
+   "name": "가온전선",
+   "nxt_change": 3.04,
+   "nxt_value_eok": 128.6,
+   "via": "전기장비",
+   "krx_change": 2.5,
+   "value_rank": 103,
+   "change_rank": 322,
+   "leader": false
+  },
+  {
+   "code": "298040",
+   "name": "효성중공업",
+   "nxt_change": 2.23,
+   "nxt_value_eok": 111.8,
+   "via": "전기장비",
+   "krx_change": -0.79,
+   "value_rank": 35,
+   "change_rank": 1818,
+   "leader": false
+  },
+  {
+   "code": "062040",
+   "name": "산일전기",
+   "nxt_change": 2.61,
+   "nxt_value_eok": 66.9,
+   "via": "전기장비",
+   "krx_change": 0.47,
+   "value_rank": 81,
+   "change_rank": 985,
+   "leader": false
+  },
+  {
+   "code": "229640",
+   "name": "LS에코에너지",
+   "nxt_change": 2.5,
+   "nxt_value_eok": 15.2,
+   "via": "전기장비",
+   "krx_change": 8.76,
+   "value_rank": 182,
+   "change_rank": 42,
+   "leader": false
+  },
+  {
+   "code": "382900",
+   "name": "범한퓨얼셀",
+   "nxt_change": 5.04,
+   "nxt_value_eok": 110.7,
+   "via": "고체산화물 연료전지(SOFC)",
+   "krx_change": 3.84,
+   "value_rank": 567,
+   "change_rank": 179,
+   "leader": false
+  },
+  {
+   "code": "336260",
+   "name": "두산퓨얼셀",
+   "nxt_change": 4.2,
+   "nxt_value_eok": 70.8,
+   "via": "고체산화물 연료전지(SOFC)",
+   "krx_change": 1.97,
+   "value_rank": 151,
+   "change_rank": 421,
+   "leader": false
+  },
+  {
+   "code": "059090",
+   "name": "미코",
+   "nxt_change": 4.29,
+   "nxt_value_eok": 33.3,
+   "via": "고체산화물 연료전지(SOFC)",
+   "krx_change": -2.45,
+   "value_rank": 271,
+   "change_rank": 2278,
+   "leader": false
+  },
+  {
+   "code": "089890",
+   "name": "코세스",
+   "nxt_change": 2.04,
+   "nxt_value_eok": 4.9,
+   "via": "고체산화물 연료전지(SOFC)",
+   "krx_change": 1.26,
+   "value_rank": 373,
+   "change_rank": 631,
+   "leader": false
+  },
+  {
+   "code": "090460",
+   "name": "비에이치",
+   "nxt_change": 2.41,
+   "nxt_value_eok": 18.5,
+   "via": "갤럭시 부품주",
+   "krx_change": -0.75,
+   "value_rank": 349,
+   "change_rank": 1796,
+   "leader": false
+  },
+  {
+   "code": "190510",
+   "name": "나무가",
+   "nxt_change": 2.84,
+   "nxt_value_eok": 7.5,
+   "via": "갤럭시 부품주",
+   "krx_change": 0.9,
+   "value_rank": 895,
+   "change_rank": 763,
+   "leader": false
+  },
+  {
+   "code": "089010",
+   "name": "켐트로닉스",
+   "nxt_change": 2.51,
+   "nxt_value_eok": 7.1,
+   "via": "갤럭시 부품주",
+   "krx_change": 5.03,
+   "value_rank": 378,
+   "change_rank": 110,
+   "leader": false
+  },
+  {
+   "code": "271940",
+   "name": "일진하이솔루스",
+   "nxt_change": 3.08,
+   "nxt_value_eok": 17.8,
+   "via": "수소에너지(수소차/연료전지 등)",
+   "krx_change": 3.73,
+   "value_rank": 1235,
+   "change_rank": 186,
+   "leader": false
+  },
+  {
+   "code": "078600",
+   "name": "대주전자재료",
+   "nxt_change": 4.32,
+   "nxt_value_eok": 75.5,
+   "via": "2차전지(전고체)",
+   "krx_change": 5.97,
+   "value_rank": 51,
+   "change_rank": 82,
+   "leader": true
+  }
+ ],
+ "hit_rate": 0.1,
+ "premarket_leading_industries": [
+  "석유와가스",
+  "철강",
+  "전기장비"
+ ],
+ "day_top10_industries_by_median": [
+  "해운사",
+  "석유와가스",
+  "전기제품",
+  "조선",
+  "도로와철도운송",
+  "무선통신서비스",
+  "기타금융",
+  "가정용품",
+  "교육서비스",
+  "디스플레이패널"
+ ]
+}

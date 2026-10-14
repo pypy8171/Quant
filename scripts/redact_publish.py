@@ -79,8 +79,12 @@ ACCOUNT_NUMBERS = sorted({value for value, kind in _CONFIG_VALUES.items() if kin
 
 
 def _digits_pattern(value):
-    """숫자 낱말은 앞뒤가 숫자·소수점이 아닐 때만 — 더 긴 숫자열 안에 우연히 박힌 것은 그 값이 아니다."""
-    return re.compile(rf"(?<![\d.]){re.escape(value)}(?![\d.])")
+    """숫자 낱말은 앞뒤가 숫자·소수(점+숫자)가 아닐 때만 — 더 긴 숫자열 안에 우연히 박힌 것은 그 값이 아니다.
+
+    점 하나만으로는 끊지 않는다. 파일 이름 `pnl_baseline_<날짜>_<계좌>.txt`의 `.txt` 앞 계좌번호를 놓쳐
+    10-14 운영 대시보드에 모의계좌 번호가 그대로 실렸다.
+    """
+    return re.compile(rf"(?<!\d)(?<!\d\.){re.escape(value)}(?!\d|\.\d)")
 
 
 _ACCOUNT_LITERALS = [_digits_pattern(account) for account in ACCOUNT_NUMBERS]
