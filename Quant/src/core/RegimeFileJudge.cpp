@@ -98,6 +98,25 @@ Outcome RegimeFileJudge::step(const Observation& observation, const KstClock& cl
         set_scale(out, kRegimeScaleFull);
     }
 
+    // 기동 첫 폴링에 쓸 판정이 없으면(파일 없음·낡음·읽기 실패·판정 보류) 진입을 정지한 채 시작한다.
+    //  막 뜬 엔진의 "현 halt 유지"는 진입 허용이라, 첫 신선한 판정이 들어올 때까지 진입이 열려 있었다.
+    //  10-15 실계좌 재기동 16:32:27–16:32:59에 RISK_OFF −11인데 030000 매수 26주가 나갔다.
+    //  신선한 판정이 오면 아래 전이 비교가 파일 값으로 풀거나 유지한다.
+    const bool usable = observation.state == FileState::kFresh && observation.snapshot.valid;
+
+    if (!first_step_done_)
+    {
+        first_step_done_ = true;
+
+        if (!usable && !halt_on_)
+        {
+            out.entry_halt = true;
+            out.log_boot_hold = true;
+            halt_on_ = true;
+            set_scale(out, 0.0);
+        }
+    }
+
     switch (observation.state)
     {
     case FileState::kMissing:

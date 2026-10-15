@@ -87,6 +87,7 @@ struct Outcome
     std::optional<Regime> selection;
     bool log_expiry          = false;    // 시간 상자 만료 — 하루 1회
     bool log_stale           = false;    // stale 진입 1회
+    bool log_boot_hold       = false;    // 기동 첫 폴링에 쓸 판정이 없어 진입을 정지한 채 시작(값은 entry_halt)
     bool log_halt_transition = false;    // entry_halt 전이(값은 entry_halt)
     bool log_liquidation_on          = false;    // force_liquidate 켜짐 1회
     bool log_liquidation_off         = false;    // force_liquidate 꺼짐 1회
@@ -146,5 +147,6 @@ private:
     int  expire_yday_     = -1;
     bool expired_         = false; // 오늘 이미 만료시켰나(로그 1회화 겸용)
     bool liquidation_warned_      = false; // force_liquidate 전이 로그 1회화
+    bool first_step_done_         = false; // 기동 뒤 첫 폴링을 지났나(첫 판정 전 진입 정지는 그 한 번만)
 };
 } // namespace regime_file

@@ -236,6 +236,34 @@ int test_force_liquidate()
     return 0;
 }
 
+// 기동 첫 폴링에 쓸 판정이 없으면 진입을 정지한 채 시작하고, 신선한 판정이 오면 파일 값으로 간다.
+int test_boot_hold()
+{
+    RegimeFileJudge stale_boot;
+    Outcome outcome = stale_boot.step(stale(3720), at(452));
+    CHECK(outcome.log_boot_hold && outcome.log_stale && outcome.entry_halt && *outcome.entry_halt && stale_boot.halt_on());
+    CHECK(quiet(stale_boot.step(stale(3722), at(452))) && stale_boot.halt_on()); // 정지 요청은 한 번만
+    outcome = stale_boot.step(fresh(true, false, false), at(453));
+    CHECK(outcome.entry_halt && !*outcome.entry_halt && outcome.log_halt_transition && !stale_boot.halt_on());
+
+    RegimeFileJudge missing_boot;
+    Observation missing;
+    outcome = missing_boot.step(missing, at(10));
+    CHECK(outcome.log_boot_hold && outcome.entry_halt && *outcome.entry_halt);
+    outcome = missing_boot.step(fresh(true, true, false), at(11)); // 파일도 정지 → 전이 없음
+    CHECK(!outcome.entry_halt && !outcome.log_halt_transition && missing_boot.halt_on());
+
+    RegimeFileJudge invalid_boot;
+    CHECK(invalid_boot.step(fresh(false, false, false), at(10)).log_boot_hold && invalid_boot.halt_on());
+
+    // 첫 판정이 신선·유효하면 정지하지 않는다.
+    RegimeFileJudge fresh_boot;
+    outcome = fresh_boot.step(fresh(true, false, false), at(10));
+    CHECK(!outcome.entry_halt && !outcome.log_boot_hold && !fresh_boot.halt_on());
+    CHECK(!fresh_boot.step(stale(700), at(11)).entry_halt && !fresh_boot.halt_on()); // 뒤의 낡음은 그대로 유지
+    return 0;
+}
+
 int test_stale_sec_setter()
 {
     RegimeFileJudge judge;
@@ -251,7 +279,7 @@ int test_stale_sec_setter()
 int main()
 {
     if (test_parse_snapshot() || test_halt_transition() || test_missing_stale_invalid_keep_gate() || test_time_box() ||
-        test_force_liquidate() || test_stale_sec_setter() || test_entry_scale() || test_selection())
+        test_force_liquidate() || test_stale_sec_setter() || test_entry_scale() || test_selection() || test_boot_hold())
     {
         return 1;
     }

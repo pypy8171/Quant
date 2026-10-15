@@ -249,6 +249,11 @@ void Engine::poll_regime_file()
                  "s) — 보조 프로세스 중단 의심, 게이트 신규 변경 보류(현 halt 유지)");
     }
 
+    if (out.log_boot_hold)
+    {
+        LOG_WARN("[Regime] 기동 첫 국면 판정 없음(파일 없음·낡음·판정 보류) — 신선한 판정이 올 때까지 신규진입 정지");
+    }
+
     // 신규진입 정지를 내는 곳은 이 함수뿐이라 소유권이 단순하다.
     if (out.entry_halt)
     {
