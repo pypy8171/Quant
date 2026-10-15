@@ -1230,7 +1230,7 @@ graph LR
 | `scripts/exit_ev.py` | `_logdir`, `backtest.costs` |
 | `scripts/exit_ev_dashboard.py` | `_logdir`, `exit_ev`, `gen_tuning_sheet` |
 | `scripts/extract_swap_what_if.py` | `_logdir` |
-| `scripts/market_close_autodoc.py` | `_logdir`, `check_runtime_health`, `log_patterns` |
+| `scripts/market_close_autodoc.py` | `_logdir`, `check_runtime_health`, `log_patterns`, `redact_publish` |
 | `scripts/market_close_collect.py` | `_logdir`, `log_patterns` |
 | `scripts/notify_trades.py` | `_logdir`, `dashboard_server`, `kis.client`, `log_patterns` |
 | `scripts/parse_quant_log.py` | `_logdir`, `check_runtime_health` |

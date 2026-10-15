@@ -150,6 +150,9 @@ Changes parse_naver_index(std::string_view body, std::time_t now_utc)
         const auto status      = child(row, "marketStatus");
         const auto traded_at   = child(row, "localTradedAt");
         const bool open        = status != nullptr && status->is_string() && status->get<std::string>() == "OPEN";
+        // 개장 전 동시호가(PREOPEN, 08:30~09:00)에는 등락이 예상체결가 기준이고 거래 시각도 오늘로 온다.
+        //  이 값을 오늘 등락으로 세면 개장 전에 표가 깎였다(10-15 08:53 코스피 -9.43%·코스닥 -9.25%, 개장 전 진입 중단).
+        const bool preopen     = status != nullptr && status->is_string() && status->get<std::string>() == "PREOPEN";
         // 마감(CLOSE)은 개장 전과 장 마감 뒤에 같이 온다. 마감 뒤의 등락은 오늘 것인데 0으로 지워 애프터마켓
         //  내내 코스피·코스닥 표가 빠졌다(10-01 15:47~ 0.000%). 마지막 거래 날짜로 둘을 가른다.
         const bool traded_today = traded_at != nullptr && traded_at->is_string() &&
@@ -158,15 +161,19 @@ Changes parse_naver_index(std::string_view body, std::time_t now_utc)
         change.price  = price;
         change.source = "naver";
 
-        if (open || traded_today)
+        if (open || (traded_today && !preopen))
         {
             change.percent = percent;
         }
         else
         {
-            change.percent          = 0.0; // 개장 전 — 오늘은 아직 안 움직였다. 받은 값은 어제 등락이다
-            change.previous_percent = percent;
-            change.premarket    = true;
+            change.percent   = 0.0; // 개장 전 — 오늘은 아직 안 움직였다
+            change.premarket = true;
+
+            if (!preopen)
+            {
+                change.previous_percent = percent; // 동시호가 전에 받은 값은 어제 등락이다
+            }
         }
 
         indexes[*indicator] = change;

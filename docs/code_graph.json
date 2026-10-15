@@ -3202,7 +3202,8 @@
       "scripts/market_close_autodoc.py": [
         "_logdir",
         "check_runtime_health",
-        "log_patterns"
+        "log_patterns",
+        "redact_publish"
       ],
       "scripts/market_close_collect.py": [
         "_logdir",
@@ -3435,7 +3436,8 @@
       "redact_publish": [
         "PYQuant/dashboard/build_dashboard.py",
         "scripts/build_plain_dashboard.py",
-        "scripts/build_study_site.py"
+        "scripts/build_study_site.py",
+        "scripts/market_close_autodoc.py"
       ],
       "report.account": [
         "PYQuant/main.py"

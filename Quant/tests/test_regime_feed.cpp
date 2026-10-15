@@ -54,6 +54,12 @@ void check_naver_index()
     const Change next_morning = parse_naver_index(closed, kMorning0924).at(Indicator::Kospi);
     assert(near(*next_morning.percent, 0.0) && near(*next_morning.previous_percent, 1.95) && next_morning.premarket);
 
+    // 개장 전 동시호가: 거래 시각이 오늘이어도 예상체결가 등락이라 0으로 둔다(10-15 08:53 코스피 -9.43%).
+    const std::string preopen = R"({"datas":[{"itemCode":"KOSPI","marketStatus":"PREOPEN","fluctuationsRatioRaw":"-6.18",
+        "closePriceRaw":"5637.59","localTradedAt":"2026-09-23T08:58:56+09:00"}]})";
+    const Change auction = parse_naver_index(preopen, kEvening0923).at(Indicator::Kospi);
+    assert(near(*auction.percent, 0.0) && !auction.previous_percent && auction.premarket);
+
     assert(parse_naver_index("", kEvening0923).empty());
     assert(parse_naver_index("<html>", kEvening0923).empty());
 }
