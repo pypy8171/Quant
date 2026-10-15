@@ -901,16 +901,20 @@ def surge_signal_repeats(log: Path) -> tuple[list[str], str]:
 
 
 SWING_PLAN_RE = re.compile(r"\[SWING_\w+\] 계획 읽음 as_of=(\S+) generated_at=.*? 후보 (\d+)")
+SWING_DAY_START_RE = re.compile(r"\[SWING_\w+\] 하루 시작 \d{8} 계획 as_of=(\S+)")
 SWING_EVENT_RE = re.compile(r"\[SWING_\w+\] (?:\[dry-run\] )?(매수 주문|매수 체결|매수 미체결 취소|손절선 올림|손절 매도|청산 완료|보유 복원) (\d{6})")
 SWING_PROBLEM_RE = re.compile(r"\[SWING_\w+\] (계획 파일 없음|계획 오래됨|계획 파일 파싱 실패|계획 파일 검증 실패|손절 판단 못 함|상태 파일 읽기 실패|"
                               r"상태 파일 쓰기 실패|상태 파일을 못 읽어)")
 
 
-def swing_trend_row(log: Path, swing_lines: list) -> tuple:
+def swing_trend_row(date: str, log: Path, swing_lines: list) -> tuple:
     """SWING_TREND(스윙 추세 슬리브, D-160) 판정 한 줄 — 계획 읽음·후보 수와 매수 주문·체결·손절 매도 건수.
 
     설정에 없고 로그 줄도 없으면 배포 전으로 보고 판정하지 않는다. 설정에 있는데 줄이 없으면 미로드로 실패.
     계획 파일 없음·오래됨·검증 실패, 매도 창에서 현재가를 못 받음, 상태 파일 읽기·쓰기 실패가 하나라도 있으면 실패.
+    기동 때 읽은 계획의 기준일이 직전 거래일(같은 폴더의 앞 원장 날짜)보다 앞이어도 실패 — 밤 계획 생성
+    (예약작업 Quant Study42 Plan)이 돌지 않은 날이다. 엔진의 stale_days 안이면 경고 없이 낡은 계획으로 산다
+    (10-13·10-14 밤 생성이 numba 없는 시스템 파이썬으로 실패해 10-15 아침 as_of=10-12 로 기동).
     """
     name = "SWING_TREND 계획·매수·손절"
 
@@ -923,7 +927,11 @@ def swing_trend_row(log: Path, swing_lines: list) -> tuple:
     counts: dict[str, int] = {}
     problems: list[str] = []
 
+    day_start_as_of = None
+
     for _, line in swing_lines:
+        if day_start_as_of is None and (found := SWING_DAY_START_RE.search(line)):
+            day_start_as_of = found.group(1)
         if found := SWING_PLAN_RE.search(line):
             plan = (found.group(1), int(found.group(2)))
         if found := SWING_EVENT_RE.search(line):
@@ -933,6 +941,11 @@ def swing_trend_row(log: Path, swing_lines: list) -> tuple:
 
     if plan is None:
         problems.append("계획 읽음 줄 없음")
+
+    previous_date = previous_ledger_date(date, log.parent)
+
+    if day_start_as_of and previous_date and day_start_as_of < previous_date:
+        problems.append(f"기동 계획 as_of={day_start_as_of} 가 직전 거래일 {previous_date} 보다 낡음(밤 계획 생성 실패)")
 
     detail = (f"계획 as_of={plan[0]} 후보 {plan[1]}" if plan else "계획 없음") + ", " + ", ".join(
         f"{what} {counts.get(what, 0)}" for what in ("보유 복원", "매수 주문", "매수 체결", "매수 미체결 취소", "손절선 올림", "손절 매도", "청산 완료"))
@@ -4632,7 +4645,7 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
     ]
 
     rows.extend(surge_hold_rows(date, log, surge_lines, signals, itb_attached, fills))
-    rows.append(swing_trend_row(log, swing_lines))
+    rows.append(swing_trend_row(date, log, swing_lines))
 
     if include_global:
         rows.extend(global_rows(date))
