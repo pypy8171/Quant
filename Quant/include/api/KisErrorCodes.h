@@ -27,6 +27,9 @@ inline constexpr const char* kMarketClosed = "APBK0918";
 inline constexpr const char* kSorUnavailable = "APBK3009";
 // 주문가능금액을 초과 — 실측 응답 msg1 "주문가능금액을 초과 했습니다"(2026-10-13 실계좌 005440·161000·009900·004100).
 inline constexpr const char* kOverOrderableCash = "APBK0952";
+// 시장가 호가 불가 — 실측 응답 msg1 "시장가호가불가로 주문이 불가합니다"(2026-10-15 실계좌 정규장 111710·214330
+//  강제청산 시장가 매도, 20분 동안 2,180회 거부). 같은 종목을 지정가로 내면 받는지는 이 수정으로 처음 본다.
+inline constexpr const char* kMarketOrderRefused = "APBK1943";
 // 자체 코드 — 장부 저널에 INTENT를 못 적어 KIS로 보내지 않았다. 적히지 않은 주문은 나가지 않는다. [why D-113]
 inline constexpr const char* kLedgerWriteFailed = "E_LEDGER";
 } // namespace kis_error

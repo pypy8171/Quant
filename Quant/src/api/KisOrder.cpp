@@ -3,6 +3,7 @@
 #include "KisClientInternal.h"
 
 #include <mutex>
+#include <unordered_set>
 
 #include "core/KstTime.h"
 #include "core/MarketSession.h"
@@ -119,6 +120,24 @@ bool KisClient::krx_only(const std::string& ticker)
     return krx_only_tickers_.contains(ticker);
 }
 
+// 정규장 시장가를 KIS가 받지 않는다고 답한 종목(APBK1943). 이 프로세스 동안 시장가 신호를 지정가로 바꿔 낸다 —
+//  같은 시장가를 다시 내면 같은 거부만 쌓인다(10-15 실계좌 2,180회). 계좌가 달라도 종목 성질이라 함께 쓴다.
+//  KisClient 멤버로 두지 않은 것은 장중 배포에서 헤더 배치를 바꾸지 않으려고서다 — 멤버로 옮기는 일은 [todo].
+static std::mutex                      g_limit_only_mutex;
+static std::unordered_set<std::string> g_limit_only_tickers;
+
+static void remember_limit_only(const std::string& ticker)
+{
+    std::lock_guard<std::mutex> lock(g_limit_only_mutex);
+    g_limit_only_tickers.insert(ticker);
+}
+
+static bool limit_only(const std::string& ticker)
+{
+    std::lock_guard<std::mutex> lock(g_limit_only_mutex);
+    return g_limit_only_tickers.contains(ticker);
+}
+
 void KisClient::remember_order_route(const std::string& kis_order_no, OrderRoute route)
 {
     if (kis_order_no.empty() || route.exchange.empty())
@@ -227,6 +246,15 @@ OrderAck KisClient::submit_order_acknowledgement(const OrderSignal& signal)
     {
         const MarketSession session        = market_session_now();
         const char*         order_division = kis_order_division(signal.type, session);
+        // 앞서 시장가를 APBK1943으로 거부한 종목은 정규장에서도 지정가 00으로 낸다(단가는 아래 분기가 채운다).
+        const bool market_refused = signal.type == OrderType::MARKET && session == MarketSession::Regular &&
+                                    limit_only(signal.ticker);
+
+        if (market_refused)
+        {
+            order_division = "00";
+        }
+
         int                 order_price    = signal.type == OrderType::LIMIT ? static_cast<int>(signal.price) : 0;
 
         if (session == MarketSession::ClosingAuction)
@@ -235,7 +263,7 @@ OrderAck KisClient::submit_order_acknowledgement(const OrderSignal& signal)
             // 근거: 주문구분 06·단가 0은 D-097(2026-09-23 실측 절에서 06이 남아 있음을 확인). "단가를 실으면 거부"는
             //  공식 샘플에 없고 거부를 본 실측 기록도 찾지 못했다(2026-09-27).
         }
-        else if (krx::market_order_unavailable(session) && signal.type == OrderType::MARKET)
+        else if ((krx::market_order_unavailable(session) || market_refused) && signal.type == OrderType::MARKET)
         {
             // 애프터마켓 접속매매는 지정가(41)만, NXT 프리마켓은 지정가(00)만 받는다.
             //  근거: 실측 — D-097 "2026-09-23 실측"(03은 APBK1943, SOR 00은 APBK3009로 거부, 41+KRX로 접수),
@@ -248,7 +276,7 @@ OrderAck KisClient::submit_order_acknowledgement(const OrderSignal& signal)
             const double reference_price = pre_market && signal.reference_price > 0.0 ? signal.reference_price
                                                                                        : get_current_price(signal.ticker);
             order_price             = offhours_limit_price(reference_price, signal.side);
-            const char* window_name = pre_market ? "프리마켓" : "애프터마켓";
+            const char* window_name = pre_market ? "프리마켓" : market_refused ? "시장가 거부 종목" : "애프터마켓";
 
             if (order_price <= 0)
             {
@@ -319,6 +347,12 @@ OrderAck KisClient::submit_order_acknowledgement(const OrderSignal& signal)
 
     if (document["rt_cd"].get_ref<const std::string&>() != "0")
     {
+        // 시장가가 APBK1943으로 거부되면 그 종목은 세션 동안 지정가로 낸다 — 다음 재시도부터 바뀐다.
+        if (!is_us && signal.type == OrderType::MARKET && kis_reject_code(document) == kis_error::kMarketOrderRefused)
+        {
+            remember_limit_only(signal.ticker);
+        }
+
         LOG_ERROR("[KIS] 주문 오류: " + document.value("msg1", std::string("")));
         return OrderAck::fail(kis_reject_code(document));
     }
