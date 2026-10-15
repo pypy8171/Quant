@@ -51,6 +51,11 @@ struct AppConfig
     int                    load_test_session_hhmmss = 0; // 체결에 찍을 장중 시각 시작점. 0이면 실제 시계
     // 기동 때 종목 순번표를 적을 파일. 인젝터가 이것을 읽어 순번을 맞춘다. 비면 안 적는다
     std::string            load_test_universe_out;
+    // 유안타 시세 입력부(yuanta::YuantaFeed). 켜면 KIS WS 대신 32비트 연결 프로그램(PYQuant/tools/yuanta_bridge.py
+    //  serve)이 ZMQ로 보낸 체결을 받는다. 주문은 모의 체결기로만 간다 — KIS로는 아무것도 나가지 않는다.
+    //  현금은 replay_cash 를 같이 쓴다. 부하시험과 같이 켜지 못한다. [why D-163]
+    bool                   yuanta_feed_enabled = false;
+    std::string            yuanta_feed_endpoint = "tcp://127.0.0.1:5700";
     // 체결을 엔진이 TimescaleDB ticks 표에 바로 넣는다. 끄면 예전처럼 파이썬 적재기가 ZMQ로 받아 넣는다. [why D-148]
     db::DbConfig           database;
     std::string            regime_file;

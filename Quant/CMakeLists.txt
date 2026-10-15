@@ -161,6 +161,7 @@ set(HEADER_IMPL_SOURCES
   src/exchange/MatchingEngine.cpp
   src/exchange/OrderWire.cpp
   src/exchange/ZmqOrderFeed.cpp
+  src/api/YuantaFeed.cpp
   src/ipc/FillChannel.cpp
   src/ipc/FillKey.cpp
   src/ipc/Heartbeat.cpp
@@ -766,6 +767,10 @@ target_include_directories(test_matching_engine PRIVATE ${CMAKE_CURRENT_SOURCE_D
 add_executable(test_zmq_order_feed tests/test_zmq_order_feed.cpp)
 target_include_directories(test_zmq_order_feed PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
+# ─── 테스트 타겟: 유안타 시세 입력부 — 체결 전문 읽기·구독 종목 거르기·구독 추가/해지 (D-163) ──
+add_executable(test_yuanta_feed tests/test_yuanta_feed.cpp)
+target_include_directories(test_yuanta_feed PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
 # ─── 테스트 타겟: FeedMux 종목 배정·소스별 스레드 → mux 스레드 하나·증분/넘침·체결통보 첫 소스 (헤더 전용, D-071) ──
 add_executable(test_feed_mux tests/test_feed_mux.cpp)
 target_include_directories(test_feed_mux PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -1093,6 +1098,7 @@ set(QUANT_ASSERT_TARGETS
     test_paper_executor
     test_matching_engine
     test_zmq_order_feed
+    test_yuanta_feed
     test_feed_mux
     test_feed_supervisor
     test_session_end

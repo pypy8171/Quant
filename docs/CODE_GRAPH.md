@@ -19,9 +19,9 @@ graph LR
   utils[utils]
   exchange[exchange]
   regime[regime]
-  api -->|14| core
-  api -->|8| utils
-  core -->|13| api
+  api -->|16| core
+  api -->|10| utils
+  core -->|14| api
   core -->|20| ipc
   core -->|10| risk
   core -->|5| strategy
@@ -60,10 +60,10 @@ graph LR
 
 | 헤더 | 유입 수 |
 |---|---|
-| `utils/Logger.h` | 80 |
+| `utils/Logger.h` | 81 |
 | `core/Types.h` | 60 |
 | `core/KstTime.h` | 44 |
-| `utils/ThreadName.h` | 32 |
+| `utils/ThreadName.h` | 33 |
 | `core/SymbolTable.h` | 27 |
 | `core/Engine.h` | 24 |
 | `strategy/StrategyBase.h` | 17 |
@@ -96,6 +96,8 @@ graph LR
     n_api_WebSocketClient_cpp["api/WebSocketClient.cpp"]
     n_api_WsSocketPosix_cpp["api/WsSocketPosix.cpp"]
     n_api_WsSocketWin_cpp["api/WsSocketWin.cpp"]
+    n_api_YuantaFeed_cpp["api/YuantaFeed.cpp"]
+    n_api_YuantaFeed_h["api/YuantaFeed.h"]
   end
   subgraph core
     n_core_AppConfig_cpp["core/AppConfig.cpp"]
@@ -394,6 +396,11 @@ graph LR
   n_api_WebSocketClient_cpp --> n_utils_ThreadName_h
   n_api_WsSocketPosix_cpp --> n_utils_Logger_h
   n_api_WsSocketWin_cpp --> n_utils_Logger_h
+  n_api_YuantaFeed_cpp --> n_api_YuantaFeed_h
+  n_api_YuantaFeed_cpp --> n_core_LatencyTrace_h
+  n_api_YuantaFeed_cpp --> n_utils_Logger_h
+  n_api_YuantaFeed_cpp --> n_utils_ThreadName_h
+  n_api_YuantaFeed_h --> n_core_IFeedSource_h
   n_core_AppConfig_cpp --> n_core_AppConfig_h
   n_core_AppConfig_cpp --> n_utils_JsonNode_h
   n_core_AppConfig_cpp --> n_utils_Logger_h
@@ -478,6 +485,7 @@ graph LR
   n_core_Engine_h --> n_strategy_StrategyBase_h
   n_core_Engine_h --> n_universe_MarketBoard_h
   n_core_Engine_h --> n_utils_GenerationCopy_h
+  n_core_EngineConfigure_cpp --> n_api_YuantaFeed_h
   n_core_EngineConfigure_cpp --> n_core_AppConfig_h
   n_core_EngineConfigure_cpp --> n_core_Engine_h
   n_core_EngineConfigure_cpp --> n_utils_Logger_h
@@ -1230,7 +1238,7 @@ graph LR
 | `scripts/exit_ev.py` | `_logdir`, `backtest.costs` |
 | `scripts/exit_ev_dashboard.py` | `_logdir`, `exit_ev`, `gen_tuning_sheet` |
 | `scripts/extract_swap_what_if.py` | `_logdir` |
-| `scripts/market_close_autodoc.py` | `_logdir`, `check_runtime_health`, `log_patterns` |
+| `scripts/market_close_autodoc.py` | `_logdir`, `check_runtime_health`, `log_patterns`, `redact_publish` |
 | `scripts/market_close_collect.py` | `_logdir`, `log_patterns` |
 | `scripts/notify_trades.py` | `_logdir`, `dashboard_server`, `kis.client`, `log_patterns` |
 | `scripts/parse_quant_log.py` | `_logdir`, `check_runtime_health` |

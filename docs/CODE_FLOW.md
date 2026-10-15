@@ -78,8 +78,8 @@ flowchart LR
    `Quant/src/core/AppConfig.cpp:204` · `AppConfig parse_config(const json& document)` · 시험 [test_app_config](../Quant/tests/test_app_config.cpp)
 5. [`run_trade`](../Quant/src/main.cpp#L259) — `set_role` → `configure` → (전략 쪽만) `load_strategies` → `start` → (전략 쪽·설정 있을 때만) RegimeFeed 스레드 → `is_running` 대기 → `stop`  
    `Quant/src/main.cpp:259` · `static int run_trade(const AppConfig& app, ProcessRole role)`
-6. [`Engine::configure`](../Quant/src/core/EngineConfigure.cpp#L200) — AppConfig 값을 엔진 세터로 — 채널(ZMQ·운영단말)·국면별 전략 집합·시세 전용 KIS·리스크. 끝에서 `bind_layout`으로 역할에 맞는 공유 배치를 다시 깐다  
-   `Quant/src/core/EngineConfigure.cpp:200` · `void Engine::configure(const AppConfig& app)`
+6. [`Engine::configure`](../Quant/src/core/EngineConfigure.cpp#L219) — AppConfig 값을 엔진 세터로 — 채널(ZMQ·운영단말)·국면별 전략 집합·시세 전용 KIS·리스크. 끝에서 `bind_layout`으로 역할에 맞는 공유 배치를 다시 깐다  
+   `Quant/src/core/EngineConfigure.cpp:219` · `void Engine::configure(const AppConfig& app)`
 7. [`Engine::bind_layout_on_region`](../Quant/src/core/EngineLayout.cpp#L163) — 주문은 구역을 만들고 이전 판을 물려받았는지 적는다. 전략·시세는 30초까지 붙기를 다시 시도하고 상대의 `boot_generation`을 기억한다(재기동 감지용). `both`는 `bind_layout_on_heap`  
    `Quant/src/core/EngineLayout.cpp:163` · `bool Engine::bind_layout_on_region(size_t needed)`
 8. [`ipc::SharedRegion::create`](../Quant/src/ipc/SharedRegion.cpp#L187) — 이름 있는 공유메모리 생성. 같은 이름이 남아 있으면 주인·참가자 생사를 보고 둘 다 죽었을 때만 물려받고 세대 번호를 올린다. 붙는 쪽은 `attach`  

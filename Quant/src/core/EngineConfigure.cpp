@@ -1,6 +1,7 @@
 // Engine::configure — AppConfig의 typed 값을 Engine 세터에 옮긴다. 값 해석(json→typed·검증)은 core/AppConfig.cpp가
 //  이미 끝냈고 여기서는 배선만 한다. 단계마다 이름 있는 함수 하나, configure()는 그 호출 목록이다
 //  (정본 docs/guides/MAINTENANCE_AUTOMATION.md 4절 "초기화 위치"). start() 전에만 부른다.
+#include "api/YuantaFeed.h"
 #include "core/AppConfig.h"
 #include "core/Engine.h"
 #include "exchange/ZmqOrderFeed.h"
@@ -117,6 +118,24 @@ void configure_channels(Engine& engine, const AppConfig& app)
                                app.replay_cash);
         LOG_INFO("[Engine] 부하시험 주문 수신단: " + app.load_test_bind_address + " 포트 " +
                  std::to_string(app.load_test_base_port) + " 부터 " + std::to_string(app.load_test_lanes) + "개");
+    }
+
+    // 유안타 시세 입력부. 부하시험 갈래와 같은 자리에 들어간다 — 주문은 모의 체결기로만 가고 KIS·인증·실주문
+    //  경로는 만들어지지 않는다. 유안타 주문을 붙이기 전까지 실주문이 나갈 길을 여기서 막아 둔다. [why D-163]
+    if (app.yuanta_feed_enabled)
+    {
+        engine.set_broker_offline(true, app.replay_cash);
+    }
+
+    if (app.yuanta_feed_enabled && engine.runs_feed_side())
+    {
+        yuanta::YuantaFeed::Options yuanta_options;
+        yuanta_options.endpoint = app.yuanta_feed_endpoint;
+
+        // 부하시험 갈래와 같은 까닭으로 구독 목록부터 깐다 — 갈라 띄운 시세 프로세스에는 전략이 없다.
+        engine.seed_watch_specifications(strategy_tickers(app.strategies));
+        engine.set_feed_source(std::make_unique<yuanta::YuantaFeed>(yuanta_options), app.replay_cash);
+        LOG_INFO("[Engine] 유안타 시세 입력부: " + app.yuanta_feed_endpoint);
     }
 
     engine.set_regime_file(app.regime_file, app.regime_stale_sec);

@@ -237,6 +237,16 @@ AppConfig parse_config(const json& document)
     app.load_test_session_hhmmss      = load_test_node.value("session_start_hhmmss", 0);
     app.load_test_universe_out        = load_test_node.value("universe_out", std::string());
 
+    const json& yuanta_feed_node      = jsonx::object_or_empty(document, "yuanta_feed");
+    app.yuanta_feed_enabled           = yuanta_feed_node.value("enabled", false);
+    app.yuanta_feed_endpoint          = yuanta_feed_node.value("endpoint", app.yuanta_feed_endpoint);
+
+    // 둘 다 피드 소스를 갈아 끼운다 — 같이 켜면 나중 것이 앞의 것을 조용히 덮는다. [why D-163]
+    if (app.yuanta_feed_enabled && app.load_test_enabled)
+    {
+        throw std::runtime_error("yuanta_feed 와 load_test 는 같이 켤 수 없다");
+    }
+
     const json& database_node              = jsonx::object_or_empty(document, "database");
     db::DbConfig& database                 = app.database;
     database.enabled                       = database_node.value("enabled", false);

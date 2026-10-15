@@ -7682,3 +7682,30 @@ KIS가 계속 거부하는 매도도 60초마다 다시 나간다. 덮개 점검
 - 프로세스 사이에 공유 메모리로 버킷 하나 두기: 두 엔진은 따로 기동·종료하므로 수명 관리가 복잡해진다. 고정 몫으로 충분하다.
 
 **연결**: D-138 · `Quant/include/api/KisRateBucket.h` · `Quant/src/api/KisTransport.cpp` · `Quant/src/core/Engine.cpp` · `Quant/src/core/EngineUniverse.cpp` · `Quant/src/core/DataPoller.cpp` · `scripts/check_runtime_health.py` · [docs/market_close/2026-10-13.md](market_close/2026-10-13.md)
+
+### D-163 유안타 시세는 32비트 연결 프로그램이 ZMQ로 보내고, 엔진은 시세 창구 하나를 더해 받는다 — 주문은 아직 모의 체결기 (2026-10-15)
+
+**문제**: KIS 실시간 구독은 앱키 하나에 약 40칸이라 전 시장 피드(D-071)를 받을 수 없다. 유안타 티레이더 오픈API는 10-15 16:31
+모의 서버 실측에서 국내 주식 4,308종목을 거부 없이 등록했고(2.3초), 장 마감 뒤 30초 동안 415종목·1,661건을 받았다(받은 종목 수가
+10초마다 209 → 314 → 415로 늘어 상한은 아직 안 보였다, `_private/yuanta/limit_20261015_1632.json`). 다만 유안타 DLL은 32비트라
+64비트 엔진 안에서 부를 수 없다.
+
+**결정**:
+1. 32비트 파이썬 연결 프로그램 `PYQuant/tools/yuanta_bridge.py serve`가 전 종목 체결(AUTO11)을 구독해 48바이트 전문으로 묶고
+   ZMQ PUB(`tcp://127.0.0.1:5700`)로 보낸다. 전문 모양의 정본은 `Quant/include/api/YuantaFeed.h`다.
+2. 엔진은 `yuanta::YuantaFeed`(feed::IFeedSource)로 받는다. 연결 프로그램은 전 종목을 보내고 구독 목록 밖은 엔진이 접는다.
+   칸 개념이 없어 칸 배정은 하지 않는다.
+3. config `"yuanta_feed": {"enabled": true}`일 때만 켠다(기본 꺼짐). 켜면 주문은 모의 체결기로 간다(`set_broker_offline`) —
+   유안타 주문 창구는 다음 단계다. 부하시험(`load_test`)과는 같이 켤 수 없다(둘 다 시세 창구를 갈아 끼운다).
+4. 연결 프로그램은 `YOA_UnInitial`을 부르지 않는다. 10-15 실측에서 DLL 안 access violation으로 죽었다
+   (`_private/yuanta/crash_20261015_163120.log`). 프로세스가 끝나면 접속도 닫힌다.
+
+**근거**: 위 실측 하나와 단위 테스트(`test_yuanta_feed` 30건)뿐이다. 장중 수신 범위, `time2` 형식, `nowvol` 부호는 아직 재지 않았다 —
+매수·매도 구분은 그때까지 체결가와 매도·매수 호가를 비교해 정한다.
+
+**버린 대안**:
+- 엔진을 32비트로 빌드: 엔진 전체가 메모리·의존 라이브러리 제약을 받는다.
+- COM 프로세스 밖 서버(DCOM)로 64비트에서 부르기: 이벤트 받기가 복잡하고, 실패하면 원인을 보기 어렵다.
+- 연결 프로그램이 엔진 구독 목록을 받아 그 종목만 등록: 제어 통로가 하나 더 생긴다. 전 종목을 받아도 초당 수십 건이라 엔진에서 접는 쪽이 단순하다.
+
+**연결**: D-071 · D-128 · `PYQuant/tools/yuanta_bridge.py` · `Quant/include/api/YuantaFeed.h` · `Quant/src/api/YuantaFeed.cpp` · `Quant/src/core/EngineConfigure.cpp` · `Quant/src/core/AppConfig.cpp` · `Quant/tests/test_yuanta_feed.cpp`

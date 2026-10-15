@@ -8,11 +8,11 @@
 
 - [(루트)](#루트) — 11개
 - [.vscode](#vscode) — 4개
-- [PYQuant](#pyquant) — 106개
-- [Quant](#quant) — 460개
+- [PYQuant](#pyquant) — 107개
+- [Quant](#quant) — 463개
 - [docs](#docs) — 151개
 - [linux_practice](#linux_practice) — 2개
-- [research](#research) — 552개
+- [research](#research) — 551개
 - [scripts](#scripts) — 54개
 - [strategies](#strategies) — 45개
 - [tools](#tools) — 3개
@@ -207,6 +207,7 @@
 - [sweep.py](../PYQuant/tools/sweep.py) — 전략 파라미터 강건성 스윕 도구
 - [universe_feed.py](../PYQuant/tools/universe_feed.py) — 시총·거래대금 유니버스 피드 생성기
 - [walkforward.py](../PYQuant/tools/walkforward.py) — 전진검증 표본외 성과 검증 도구
+- [yuanta_bridge.py](../PYQuant/tools/yuanta_bridge.py) — 유안타 오픈API 연결 프로그램(32비트 파이썬) — 실시간 등록 한도 실측, 전 종목 체결을 ZMQ로 엔진에 내보내기(D-163)
 
 ## Quant
 
@@ -241,6 +242,7 @@
 - [KisTypes.h](../Quant/include/api/KisTypes.h) — KIS 잔고·선물 전광판·순위·투자자 수급 응답 값 타입(D-059, 순위·수급 4개는 2026-10-10에 KisClient 밖으로)
 - [KisWebSocket.h](../Quant/include/api/KisWebSocket.h) — KIS 실시간 WebSocket 클라이언트 선언(D-049)
 - [KisWsDecode.h](../Quant/include/api/KisWsDecode.h) — KIS 실시간 채널 레코드 디코더 순수 함수(D-037·D-042)
+- [YuantaFeed.h](../Quant/include/api/YuantaFeed.h) — 유안타 시세 입력부 선언 — 연결 프로그램이 ZMQ로 보낸 체결 전문을 받아 엔진 시세 창구로 올린다(D-163)
 
 ### Quant/include/core/
 
@@ -409,6 +411,7 @@
 - [WsSocket.h](../Quant/src/api/WsSocket.h) — 플랫폼 소켓 인터페이스 경계(D-049)
 - [WsSocketPosix.cpp](../Quant/src/api/WsSocketPosix.cpp) — POSIX 소켓+RFC 6455 프레이밍, libcurl·OpenSSL 구현(D-049)
 - [WsSocketWin.cpp](../Quant/src/api/WsSocketWin.cpp) — WinHTTP 소켓 및 Windows 전용 HTTP·AES 구현(D-049)
+- [YuantaFeed.cpp](../Quant/src/api/YuantaFeed.cpp) — YuantaFeed.h 구현 — 수신 스레드·전문 해석·구독 종목 거르기
 
 ### Quant/src/core/
 
@@ -720,6 +723,7 @@
 - [test_websocket_slot_plan.cpp](../Quant/tests/test_websocket_slot_plan.cpp) — 구독 칸 배정 단위 테스트 — 우선순위·빈 칸·보유 보호·유지 시간·순위 차·교체 상한(D-132)
 - [test_ws_decode.cpp](../Quant/tests/test_ws_decode.cpp) — KIS 실시간 채널 디코더 단위 테스트(D-037)
 - [test_ws_frame.cpp](../Quant/tests/test_ws_frame.cpp) — WS 다건 프레임 분리·분봉 커서 시각 산술 단위 테스트
+- [test_yuanta_feed.cpp](../Quant/tests/test_yuanta_feed.cpp) — 유안타 시세 입력부 단위 테스트 — 전문 해석·구독 밖 종목 거르기·깨진 전문 버리기
 - [test_zmq_order_feed.cpp](../Quant/tests/test_zmq_order_feed.cpp) — 부하시험 수신단 단위 테스트 — 전문 해석·종목 순번·체결 발행
 - [tsan.supp](../Quant/tests/tsan.supp) — TSAN 회차가 지울 보고 목록 — 지금은 libzmq 한 줄(계측 없이 링크되는 라이브러리라 자기 안의 fd 동기화가 TSAN에 안 보인다). `scripts/tsan_round.sh`가 읽는다
 
@@ -1544,7 +1548,6 @@
 - [daily_stop_grid.py](../research/studies/38_trend_stop_intraday/daily_stop_grid.py) — 스터디 38 일봉 손절 시험 — 2010-01-04 – 2026-10-08 전체를 한 번에, 보통주 전 종목(daily_panel.py).
 - [ma_exit.py](../research/studies/38_trend_stop_intraday/ma_exit.py) — 스터디 38 — 이평선으로 추세가 깨진 자리를 판정해 파는 청산(사용자 정의, 2026-10-11).
 - [slot_test.py](../research/studies/38_trend_stop_intraday/slot_test.py) — 스터디 38 — 슬롯 제한 계좌 시험: 같은 매수 신호에 청산만 바꿔 2010–2026 계좌 곡선을 낸다(2026-10-11).
-- [unarmed_floor_test.py](../research/studies/38_trend_stop_intraday/unarmed_floor_test.py) — (설명 필요)
 - [verify_sample.py](../research/studies/38_trend_stop_intraday/verify_sample.py) — 스터디 38 대조 — daily_stop_grid.py(numba)의 매매 목록을 원 일봉 파일에서 순수 파이썬으로 따로 계산한 것과 맞춘다.
 
 ### research/studies/38_trend_support_realtime/

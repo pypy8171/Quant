@@ -206,6 +206,31 @@ int main()
         CHECK(parse_config(minimal_document()).strategies.empty());
     }
 
+    // 유안타 시세 입력부 — 기본은 꺼짐이고, 부하시험과 같이 켜면 던진다(둘 다 피드 소스를 갈아 끼운다). [why D-163]
+    {
+        CHECK(!parse_config(minimal_document()).yuanta_feed_enabled);
+
+        json document = minimal_document();
+        document["yuanta_feed"] = {{"enabled", true}, {"endpoint", "tcp://127.0.0.1:5701"}};
+        const AppConfig app = parse_config(document);
+        CHECK(app.yuanta_feed_enabled);
+        CHECK(app.yuanta_feed_endpoint == "tcp://127.0.0.1:5701");
+
+        document["load_test"] = {{"enabled", true}};
+        bool thrown = false;
+
+        try
+        {
+            parse_config(document);
+        }
+        catch (const std::runtime_error&)
+        {
+            thrown = true;
+        }
+
+        CHECK(thrown);
+    }
+
     std::cout << "test_app_config OK (" << g_checks << " checks)\n";
     return 0;
 }

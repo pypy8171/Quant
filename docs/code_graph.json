@@ -15,17 +15,17 @@
     {
       "from": "api",
       "to": "core",
-      "weight": 14
+      "weight": 16
     },
     {
       "from": "api",
       "to": "utils",
-      "weight": 8
+      "weight": 10
     },
     {
       "from": "core",
       "to": "api",
-      "weight": 13
+      "weight": 14
     },
     {
       "from": "core",
@@ -186,6 +186,7 @@
     "api/KisTypes.h": "api",
     "api/KisWebSocket.h": "api",
     "api/KisWsDecode.h": "api",
+    "api/YuantaFeed.h": "api",
     "core/AppConfig.h": "core",
     "core/BarAggregator.h": "core",
     "core/CommandLine.h": "core",
@@ -324,6 +325,7 @@
     "api/WsSocket.h": "api",
     "api/WsSocketPosix.cpp": "api",
     "api/WsSocketWin.cpp": "api",
+    "api/YuantaFeed.cpp": "api",
     "core/AppConfig.cpp": "core",
     "core/BarAggregator.cpp": "core",
     "core/CommandLine.cpp": "core",
@@ -567,6 +569,15 @@
     "api/WsSocketWin.cpp": [
       "utils/Logger.h"
     ],
+    "api/YuantaFeed.cpp": [
+      "api/YuantaFeed.h",
+      "core/LatencyTrace.h",
+      "utils/Logger.h",
+      "utils/ThreadName.h"
+    ],
+    "api/YuantaFeed.h": [
+      "core/IFeedSource.h"
+    ],
     "core/AppConfig.cpp": [
       "core/AppConfig.h",
       "utils/JsonNode.h",
@@ -674,6 +685,7 @@
       "utils/GenerationCopy.h"
     ],
     "core/EngineConfigure.cpp": [
+      "api/YuantaFeed.h",
       "core/AppConfig.h",
       "core/Engine.h",
       "utils/Logger.h"
@@ -1794,6 +1806,10 @@
       "api/KisWebSocketParse.cpp",
       "api/KisWsDecode.cpp"
     ],
+    "api/YuantaFeed.h": [
+      "api/YuantaFeed.cpp",
+      "core/EngineConfigure.cpp"
+    ],
     "core/AppConfig.h": [
       "core/AppConfig.cpp",
       "core/EngineConfigure.cpp",
@@ -1878,6 +1894,7 @@
     ],
     "core/IFeedSource.h": [
       "api/KisWebSocket.h",
+      "api/YuantaFeed.h",
       "core/EngineFeedState.h",
       "core/FeedMux.h",
       "core/IFeedSource.cpp",
@@ -1931,6 +1948,7 @@
       "universe/UniverseScoring.cpp"
     ],
     "core/LatencyTrace.h": [
+      "api/YuantaFeed.cpp",
       "core/ControlPlane.cpp",
       "core/Engine.cpp",
       "core/Engine.h",
@@ -2570,6 +2588,7 @@
       "api/WebSocketClient.cpp",
       "api/WsSocketPosix.cpp",
       "api/WsSocketWin.cpp",
+      "api/YuantaFeed.cpp",
       "core/AppConfig.cpp",
       "core/ControlPlane.cpp",
       "core/DataPoller.cpp",
@@ -2660,6 +2679,7 @@
     ],
     "utils/ThreadName.h": [
       "api/WebSocketClient.cpp",
+      "api/YuantaFeed.cpp",
       "core/DataPoller.cpp",
       "core/Engine.cpp",
       "core/EngineControlThread.cpp",
@@ -2707,7 +2727,7 @@
   "hubs": [
     {
       "header": "utils/Logger.h",
-      "in_degree": 80
+      "in_degree": 81
     },
     {
       "header": "core/Types.h",
@@ -2719,7 +2739,7 @@
     },
     {
       "header": "utils/ThreadName.h",
-      "in_degree": 32
+      "in_degree": 33
     },
     {
       "header": "core/SymbolTable.h",
@@ -2738,12 +2758,12 @@
       "in_degree": 15
     },
     {
-      "header": "core/WakeGate.h",
+      "header": "core/LatencyTrace.h",
       "in_degree": 15
     },
     {
-      "header": "core/LatencyTrace.h",
-      "in_degree": 14
+      "header": "core/WakeGate.h",
+      "in_degree": 15
     },
     {
       "header": "risk/OrderGate.h",
@@ -2782,7 +2802,7 @@
       "in_degree": 8
     },
     {
-      "header": "core/MarketSession.h",
+      "header": "core/IFeedSource.h",
       "in_degree": 7
     }
   ],
@@ -2881,6 +2901,7 @@
       "PYQuant/tools/sweep.py",
       "PYQuant/tools/universe_feed.py",
       "PYQuant/tools/walkforward.py",
+      "PYQuant/tools/yuanta_bridge.py",
       "scripts/_logdir.py",
       "scripts/backfill_fills_db.py",
       "scripts/backfill_studies.py",
@@ -3202,7 +3223,8 @@
       "scripts/market_close_autodoc.py": [
         "_logdir",
         "check_runtime_health",
-        "log_patterns"
+        "log_patterns",
+        "redact_publish"
       ],
       "scripts/market_close_collect.py": [
         "_logdir",
@@ -3435,7 +3457,8 @@
       "redact_publish": [
         "PYQuant/dashboard/build_dashboard.py",
         "scripts/build_plain_dashboard.py",
-        "scripts/build_study_site.py"
+        "scripts/build_study_site.py",
+        "scripts/market_close_autodoc.py"
       ],
       "report.account": [
         "PYQuant/main.py"
