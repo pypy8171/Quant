@@ -92,6 +92,7 @@ public:
     std::vector<OrderGate::HeldPos> scan_sleeve_positions() const; // 바스켓 소유 종목을 뺀 보유분 [why D-109]
 
     // 강제청산 재발주 — liquidation_interval_마다 보유 전량(미체결 매도 제외) 시장가 매도. force_liquidate 동안 매 루프 부른다.
+    //  미체결에는 아직 접수 전인 자기 매도도 센다(kInFlightSellWindow 동안).
     void force_liquidate(Clock::time_point now);
 
     // 종목당 명목 한도 초과분 정리 — trim_at 이후 한 번만. 매 루프 부른다.
@@ -127,6 +128,13 @@ private:
     // 종목당 한 번 로그 — id 인덱스 비트. 처음이면 true. 배열은 종목 테이블 용량으로 한 번 잡는다.
     static bool mark_once(std::vector<uint8_t>& flags, symbol::SymbolId symbol);
 
+    // 강제청산·초과 정리가 빼는 미체결 매도 — 사본의 reserved_sell과 자기가 낸 매도 기억 중 큰 값.
+    //  기억이 유효 기간을 넘겼으면 여기서 지운다.
+    int pending_sell(symbol::SymbolId symbol, Clock::time_point now);
+
+    // 방금 낸 시스템 매도를 기억한다 — 지금 미체결로 보는 양에 quantity를 더하고 낸 시각을 새로 찍는다.
+    void remember_sell(symbol::SymbolId symbol, int quantity, Clock::time_point now);
+
     OrderGate&                 gate_;
     const ipc::LedgerSnapshot& ledger_;
     Sink                       sink_;
@@ -147,6 +155,22 @@ private:
     // 사본 한 판을 통째로 받아 오는 자리(강제청산·한도 정리). 이 스레드 전용이라 재사용해 매번 새로 잡지 않는다.
     mutable std::vector<symbol::SymbolId> snapshot_ids_;
     mutable std::vector<ipc::LedgerRow>   snapshot_rows_;
+
+    // 자기가 낸 강제청산·초과 정리 매도. 사본의 reserved_sell은 주문 스레드가 게이트를 통과시킨 뒤에야 오르므로,
+    //  주문 스레드가 밀리면 2초 뒤 다음 주기가 미체결 0으로 보고 같은 수량을 또 낸다(10-15 모의 068270: 3번 내고
+    //  2번은 보유 0으로 거부). 접수 전 그 사이를 이 기억으로 메운다. 계좌 키는 없다 — 사본 한 판이 한 계좌다. [inv]
+    struct InFlightSell
+    {
+        int               quantity = 0; // 주, 낸 뒤 미체결로 보는 총량(0=기억 없음)
+        Clock::time_point sent_at;      // 마지막으로 낸 시각
+    };
+
+    // 기억의 유효 기간 — 버킷 대기·왕복 지연으로 접수까지 6초 걸린 것(10-15)보다 넉넉히 둔다. 이만큼 지나면 접수돼
+    //  reserved_sell에 실렸거나, 체결로 보유가 줄었거나, 거부돼 주문 스레드의 재시도가 끝났다. 거부된 뒤 다시 내는 것이
+    //  이만큼 늦어지는 것은 감수한다 — 같은 매도를 겹쳐 내 거부와 큐 적체(실계좌 393건)를 만드는 쪽이 더 나쁘다.
+    static constexpr std::chrono::seconds kInFlightSellWindow{30};
+
+    std::vector<InFlightSell> in_flight_sells_; // 종목 id 인덱스, 종목 테이블 용량으로 한 번 잡는다
 
     Clock::time_point         last_liquidation_;
     std::chrono::milliseconds liquidation_interval_{2000}; // deduplicate 윈도우(1s)보다 길어야 재발주가 통과한다

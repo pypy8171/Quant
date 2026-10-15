@@ -2,6 +2,7 @@
 //  대신해 Engine 없이 순번 부여, 비활성 전략·청산 관리 티커 차단, 강제청산 잔량 계산과 스로틀, 한도 초과분
 //  정리의 1회성, 전략 활성 플래그(국면·유니버스 AND), 유니버스 이탈·복귀 판정과 등록 상한 교체 후보
 //  선택(core/UniverseExit.h)을 고정한다. OrderGate·Logger를 링크한다.
+//  접수 전인 자기 강제청산 매도를 미체결로 세는 것도 본다.
 //  바스켓 슬롯 제외 종목은 강제청산·초과분 정리가 건드리지 않는 것도 본다.
 //  교체 진입은 주문 쪽으로 옮겼다 — tests/test_displacement_desk.cpp. [why D-114]
 //  관련 결정: D-038(순번), D-063(분리), D-077(유니버스 이탈), D-087(등록층 점수 교체), D-109(바스켓 슬리브).
@@ -344,13 +345,41 @@ int test_force_liquidation_throttle()
     CHECK(rig.out.size() == 1 && rig.out[0].strategy_id == "FORCE_LIQ" && rig.out[0].quantity == 10);
     rig.dispatcher.force_liquidate(rig.start_time + std::chrono::seconds(3));
     CHECK(rig.out.size() == 1);
-    rig.dispatcher.force_liquidate(rig.start_time + std::chrono::seconds(4));
-    CHECK(rig.out.size() == 2 && rig.out[1].sequence == 2);
 
-    // 간격을 줄이면 그만큼 자주.
+    // 간격을 줄이면 그만큼 자주 — 새 보유 B로 본다(A는 낸 매도가 아직 미체결로 잡혀 있다).
     rig.dispatcher.set_liquidation_interval(std::chrono::milliseconds(500));
-    rig.dispatcher.force_liquidate(rig.start_time + std::chrono::milliseconds(4500));
-    CHECK(rig.out.size() == 3);
+    rig.gate.ledger().seed_position("", "B", 5, 200.0);
+    rig.publish();
+    rig.dispatcher.force_liquidate(rig.start_time + std::chrono::milliseconds(3500));
+    CHECK(rig.out.size() == 2 && rig.out[1].ticker == "B" && rig.out[1].quantity == 5 && rig.out[1].sequence == 2);
+    return 0;
+}
+
+// 낸 강제청산 매도가 아직 접수 전이면(사본 reserved_sell=0) 다음 주기에 같은 매도를 다시 내지 않는다.
+//  유효 기간이 지나면 남은 보유를 다시 낸다(10-15 모의 068270: 2초 간격 3번 내고 2번은 보유 0으로 거부).
+int test_force_liquidation_in_flight()
+{
+    Rig rig(open_config());
+    rig.gate.ledger().seed_position("", "A", 10, 100.0);
+    rig.publish();
+
+    rig.dispatcher.force_liquidate(rig.start_time + std::chrono::seconds(2));
+    CHECK(rig.out.size() == 1 && rig.out[0].quantity == 10);
+    rig.dispatcher.force_liquidate(rig.start_time + std::chrono::seconds(4));
+    rig.dispatcher.force_liquidate(rig.start_time + std::chrono::seconds(6));
+    CHECK(rig.out.size() == 1);
+
+    // 일부만 체결돼 보유가 4로 줄어도 기억(10)이 크니 더 내지 않는다.
+    rig.gate.ledger().seed_position("", "A", 4, 100.0);
+    rig.publish();
+    rig.dispatcher.force_liquidate(rig.start_time + std::chrono::seconds(8));
+    CHECK(rig.out.size() == 1);
+
+    // 첫 매도 뒤 유효 기간(30초)이 지나면 남은 보유 4를 다시 낸다. 그 뒤 주기는 다시 기억으로 막힌다.
+    rig.dispatcher.force_liquidate(rig.start_time + std::chrono::seconds(32));
+    CHECK(rig.out.size() == 2 && rig.out[1].quantity == 4 && rig.out[1].reason.find("미체결매도=0") != std::string::npos);
+    rig.dispatcher.force_liquidate(rig.start_time + std::chrono::seconds(34));
+    CHECK(rig.out.size() == 2);
     return 0;
 }
 
@@ -396,8 +425,9 @@ int test_sleeve_scan_skips_basket()
     rig.dispatcher.trim_excess_once(rig.start_time + std::chrono::seconds(20));
     CHECK(rig.out.size() == 1 && rig.out[0].ticker == "A" && rig.out[0].quantity == 10);
 
+    // 정리 매도 10이 아직 접수 전이어도 미체결로 세어 나머지 10만 낸다.
     rig.dispatcher.force_liquidate(rig.start_time + std::chrono::seconds(22));
-    CHECK(rig.out.size() == 2 && rig.out[1].ticker == "A" && rig.out[1].strategy_id == "FORCE_LIQ");
+    CHECK(rig.out.size() == 2 && rig.out[1].ticker == "A" && rig.out[1].strategy_id == "FORCE_LIQ" && rig.out[1].quantity == 10);
     return 0;
 }
 } // namespace
@@ -411,7 +441,8 @@ int main()
     }
 
     if (test_stamp() || test_strategy_gate() || test_manual_sell_halt() || test_universe_exit_judge() || test_universe_evict_pick() ||
-        test_force_liquidation_orders() || test_trim_orders() || test_force_liquidation_throttle() || test_trim_once() ||
+        test_force_liquidation_orders() || test_trim_orders() || test_force_liquidation_throttle() ||
+        test_force_liquidation_in_flight() || test_trim_once() ||
         test_sleeve_scan_skips_basket())
     {
         return 1;

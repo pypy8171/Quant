@@ -248,12 +248,12 @@ flowchart LR
 
 66. [`Engine::strategy_thread_fn`](../Quant/src/core/EngineStrategyThread.cpp#L273) — 루프 한 바퀴: 박동 → 응답 링 비우기 → 주문 쪽 박동 감시 → 제어 전달(`relay`) → 늦은 응답 → 강제청산·보호주문 → `pipeline_.shard_out` 비우기(`from_strategy`) → 잠  
    `Quant/src/core/EngineStrategyThread.cpp:273` · `void Engine::strategy_thread_fn(std::stop_token stop_token)`
-67. [`dispatch::SignalDispatcher::from_strategy`](../Quant/src/core/SignalDispatcher.cpp#L152) — 비활성 전략의 신규 매수·청산 관리 종목의 신규 매수 차단 → `submit`. 판정 함수는 `set_exit_managed_check`으로 엔진이 준다  
-   `Quant/src/core/SignalDispatcher.cpp:152` · `void SignalDispatcher::from_strategy(bool active, bool exit_manager, const OrderSignal& signal)` · 시험 [test_signal_dispatcher](../Quant/tests/test_signal_dispatcher.cpp)
-68. [`dispatch::SignalDispatcher::submit`](../Quant/src/core/SignalDispatcher.cpp#L202) — `seq` stamp(D-038) → 슬롯이 찼으면 교체 계획(최약체 매도 뒤 매수 보류) → 싱크  
-   `Quant/src/core/SignalDispatcher.cpp:202` · `void SignalDispatcher::submit(OrderSignal signal)` · 시험 [test_signal_dispatcher](../Quant/tests/test_signal_dispatcher.cpp)
-69. [`dispatch::SignalDispatcher::force_liquidate`](../Quant/src/core/SignalDispatcher.cpp#L246) — 보유 전량 시장가 매도를 2초 간격 재발주. `reference_price`가 여기서 찍히는지 본다  
-   `Quant/src/core/SignalDispatcher.cpp:246` · `void SignalDispatcher::force_liquidate(Clock::time_point now)` · 시험 [test_signal_dispatcher](../Quant/tests/test_signal_dispatcher.cpp)
+67. [`dispatch::SignalDispatcher::from_strategy`](../Quant/src/core/SignalDispatcher.cpp#L182) — 비활성 전략의 신규 매수·청산 관리 종목의 신규 매수 차단 → `submit`. 판정 함수는 `set_exit_managed_check`으로 엔진이 준다  
+   `Quant/src/core/SignalDispatcher.cpp:182` · `void SignalDispatcher::from_strategy(bool active, bool exit_manager, const OrderSignal& signal)` · 시험 [test_signal_dispatcher](../Quant/tests/test_signal_dispatcher.cpp)
+68. [`dispatch::SignalDispatcher::submit`](../Quant/src/core/SignalDispatcher.cpp#L232) — `seq` stamp(D-038) → 슬롯이 찼으면 교체 계획(최약체 매도 뒤 매수 보류) → 싱크  
+   `Quant/src/core/SignalDispatcher.cpp:232` · `void SignalDispatcher::submit(OrderSignal signal)` · 시험 [test_signal_dispatcher](../Quant/tests/test_signal_dispatcher.cpp)
+69. [`dispatch::SignalDispatcher::force_liquidate`](../Quant/src/core/SignalDispatcher.cpp#L276) — 보유 전량 시장가 매도를 2초 간격 재발주. `reference_price`가 여기서 찍히는지 본다  
+   `Quant/src/core/SignalDispatcher.cpp:276` · `void SignalDispatcher::force_liquidate(Clock::time_point now)` · 시험 [test_signal_dispatcher](../Quant/tests/test_signal_dispatcher.cpp)
 70. [`ipc::to_request`](../Quant/src/ipc/OrderChannel.cpp#L129) — `OrderSignal` → 고정 크기 `OrderRequest`(문자열 필드는 잘리면 센다). 보낸 순번은 `PendingRequests`가 응답과 짝짓는다  
    `Quant/src/ipc/OrderChannel.cpp:129` · `OrderRequest to_request(const OrderSignal& signal, bool* truncated) noexcept` · 시험 [test_order_channel](../Quant/tests/test_order_channel.cpp)
 

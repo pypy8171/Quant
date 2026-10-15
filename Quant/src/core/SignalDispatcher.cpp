@@ -113,7 +113,7 @@ SignalDispatcher::SignalDispatcher(OrderGate& gate, const ipc::LedgerSnapshot& l
     : gate_(gate), ledger_(ledger), sink_(std::move(sink)), force_liquidation_index_(system_ids.force_liquidation),
       limit_trim_index_(system_ids.limit_trim),
       guard_logged_(gate.ledger().symbols().capacity(), 0), sell_halt_logged_(gate.ledger().symbols().capacity(), 0),
-      last_liquidation_(now), trim_at_(now + std::chrono::seconds(20))
+      in_flight_sells_(gate.ledger().symbols().capacity()), last_liquidation_(now), trim_at_(now + std::chrono::seconds(20))
 {
 }
 
@@ -139,6 +139,36 @@ bool SignalDispatcher::mark_once(std::vector<uint8_t>& flags, symbol::SymbolId s
 
     flags[symbol] = 1;
     return true;
+}
+
+int SignalDispatcher::pending_sell(symbol::SymbolId symbol, Clock::time_point now)
+{
+    const int reserved_sell = ledger_.row(symbol).reserved_sell;
+
+    if (symbol >= in_flight_sells_.size())
+    {
+        return reserved_sell; // 테이블 밖 번호(kNone 포함)는 기억하지 않는다
+    }
+
+    InFlightSell& in_flight = in_flight_sells_[symbol];
+
+    if (in_flight.quantity > 0 && now - in_flight.sent_at >= kInFlightSellWindow)
+    {
+        in_flight = InFlightSell{};
+    }
+
+    return std::max(reserved_sell, in_flight.quantity);
+}
+
+void SignalDispatcher::remember_sell(symbol::SymbolId symbol, int quantity, Clock::time_point now)
+{
+    if (symbol >= in_flight_sells_.size() || quantity <= 0)
+    {
+        return;
+    }
+
+    const int already_pending = pending_sell(symbol, now);
+    in_flight_sells_[symbol]  = InFlightSell{already_pending + quantity, now};
 }
 
 void SignalDispatcher::emit(OrderSignal signal)
@@ -245,8 +275,8 @@ std::vector<OrderGate::HeldPos> SignalDispatcher::scan_sleeve_positions() const
 
 void SignalDispatcher::force_liquidate(Clock::time_point now)
 {
-    // entry_halt가 함께 켜져 SELL만 통과한다. 대량은 fat-finger·초당 한도에 일부 막힐 수 있으나 다음 주기에
-    //  잔량이 다시 나가 미완료로 남지 않는다(G3-2).
+    // entry_halt가 함께 켜져 SELL만 통과한다. 대량은 fat-finger·초당 한도에 일부 막힐 수 있으나 낸 매도의 기억이
+    //  유효 기간(kInFlightSellWindow)을 넘기면 잔량이 다시 나가 미완료로 남지 않는다(G3-2).
     if (now - last_liquidation_ < liquidation_interval_)
     {
         return;
@@ -256,13 +286,16 @@ void SignalDispatcher::force_liquidate(Clock::time_point now)
 
     for (auto& liquidation_signal : dispatch::force_liquidation_orders(
              scan_sleeve_positions(),
-             [this](const std::string&, symbol::SymbolId symbol)
+             [this, now](const std::string&, symbol::SymbolId symbol)
              {
-                 return ledger_.row(symbol).reserved_sell;
+                 return pending_sell(symbol, now);
              },
              force_liquidation_index_))
     {
+        const symbol::SymbolId symbol   = liquidation_signal.symbol_id;
+        const int              quantity = liquidation_signal.quantity;
         submit(std::move(liquidation_signal));
+        remember_sell(symbol, quantity, now);
     }
 }
 
@@ -280,14 +313,17 @@ void SignalDispatcher::trim_excess_once(Clock::time_point now)
 
     for (auto& trim_signal : dispatch::trim_orders(
              scan_sleeve_positions(), ledger_.globals().max_notional_per_ticker,
-             [this](const std::string&, symbol::SymbolId symbol)
+             [this, now](const std::string&, symbol::SymbolId symbol)
              {
-                 return ledger_.row(symbol).reserved_sell;
+                 return pending_sell(symbol, now);
              },
              limit_trim_index_))
     {
         LOG_WARN("[Engine] 한도 초과분 정리 " + label(trim_signal.ticker) + " 매도 " + std::to_string(trim_signal.quantity) + "주 — " +
                  trim_signal.reason);
+        const symbol::SymbolId symbol   = trim_signal.symbol_id;
+        const int              quantity = trim_signal.quantity;
         submit(std::move(trim_signal));
+        remember_sell(symbol, quantity, now); // 한 번뿐이지만 곧 이어지는 강제청산이 이 매도를 다시 내지 않게
     }
 }
