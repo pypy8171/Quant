@@ -10,11 +10,11 @@
 - [.vscode](#vscode) — 4개
 - [PYQuant](#pyquant) — 106개
 - [Quant](#quant) — 460개
-- [docs](#docs) — 151개
+- [docs](#docs) — 153개
 - [linux_practice](#linux_practice) — 2개
-- [research](#research) — 552개
+- [research](#research) — 555개
 - [scripts](#scripts) — 54개
-- [strategies](#strategies) — 45개
+- [strategies](#strategies) — 46개
 - [tools](#tools) — 3개
 
 ## (루트)
@@ -830,6 +830,8 @@
 - [2026-10-08.md](market_close/2026-10-08.md) — 10-08 매매 사후검토
 - [2026-10-12.md](market_close/2026-10-12.md) — 10-12 매매 사후검토
 - [2026-10-13.md](market_close/2026-10-13.md) — 10-13 매매 사후검토
+- [2026-10-14.md](market_close/2026-10-14.md) — 10-14 매매 사후검토
+- [2026-10-15.md](market_close/2026-10-15.md) — 10-15 매매 사후검토
 - [README.md](market_close/README.md) — 장 마감 리뷰 색인
 
 ### docs/premarket/
@@ -1344,6 +1346,8 @@
 - [2026-10-13_eval.json](../research/studies/27_premarket_leaders/daily/2026-10-13_eval.json) — 10-13 장 전 주도 후보의 장중 성적 평가
 - [2026-10-14.jsonl](../research/studies/27_premarket_leaders/daily/2026-10-14.jsonl) — 10-14 장 전 주도 후보 기록
 - [2026-10-14_eval.json](../research/studies/27_premarket_leaders/daily/2026-10-14_eval.json) — 10-14 장 전 주도 후보의 장중 성적 평가
+- [2026-10-15.jsonl](../research/studies/27_premarket_leaders/daily/2026-10-15.jsonl) — 10-15 장 전 주도 후보 기록
+- [2026-10-15_eval.json](../research/studies/27_premarket_leaders/daily/2026-10-15_eval.json) — 10-15 장 전 주도 후보의 장중 성적 평가
 
 ### research/studies/28_devscale_zone_width/
 
@@ -1507,6 +1511,7 @@
 - [2026-10-12.jsonl](../research/studies/35_surge_box_breakout/live/2026-10-12.jsonl) — 2026-10-12 급등 박스 돌파 관측 일지(급등 수·신호·보유·누적 성과)
 - [2026-10-13.jsonl](../research/studies/35_surge_box_breakout/live/2026-10-13.jsonl) — 2026-10-13 급등 박스 돌파 관측 일지(급등 수·신호·보유·누적 성과)
 - [2026-10-14.jsonl](../research/studies/35_surge_box_breakout/live/2026-10-14.jsonl) — 2026-10-14 급등 박스 돌파 관측 일지(급등 수·신호·보유·누적 성과)
+- [2026-10-15.jsonl](../research/studies/35_surge_box_breakout/live/2026-10-15.jsonl) — 2026-10-15 급등 박스 돌파 관측 일지(급등 수·신호·보유·누적 성과)
 - [ledger.tsv](../research/studies/35_surge_box_breakout/live/ledger.tsv) — daily_watch.py 규칙별 매매 원장(신호일·매수·청산·수익률, 기록 열은 실시간/따라잡기)
 - [summary.txt](../research/studies/35_surge_box_breakout/live/summary.txt) — daily_watch.py 규칙별 누적 성적과 백테스트 대비·판정 요약
 
@@ -1828,6 +1833,7 @@
 - [2026-10-12.md](../strategies/DeviationScale/live/2026-10-12.md) — 10-12 라이브 매매일지
 - [2026-10-13.md](../strategies/DeviationScale/live/2026-10-13.md) — 10-13 라이브 매매일지
 - [2026-10-14.md](../strategies/DeviationScale/live/2026-10-14.md) — 10-14 라이브 매매일지
+- [2026-10-15.md](../strategies/DeviationScale/live/2026-10-15.md) — 10-15 라이브 매매일지
 
 ### strategies/DeviationScale/reviews/
 

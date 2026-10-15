@@ -3,6 +3,205 @@
  "_comment": "실증 사후검토(post-mortem) 데이터 계약. build_dashboard.py render_reviews()가 이 파일만 읽어 '리뷰' 탭을 렌더한다. *_html 필드는 신뢰된 인라인 HTML(작성자=본인), 그 외는 이스케이프. 새 리뷰는 reviews 배열에 append.",
  "reviews": [
   {
+   "id": "2026-10-15_session_review",
+   "strategy": "FORCE_LIQ · SWING_TREND",
+   "eyebrow": "세션 리뷰 · 10-15 · 원장/로그 자동 집계",
+   "headline_html": "10-15 세션 정리 — 전일대비 −2,002,891원",
+   "verdict_html": "원장 100이벤트(접수 11 · 체결 35 · 거부 46), 재기동 3회. 전일 종가 대비 종료 손익은 −2,002,891원이다. 세션 시작을 0으로 잡은 잔고 대조 카운터로는 −2,002,891원인데, 재기동마다 기준이 옮겨가고 간밤 갭이 빠지므로 하루의 성과는 앞의 값으로 읽는다. 여기까지는 원장·로그에서 기계로 뽑은 사실이고, 원인과 다음 조치는 아래 항목에 사람이 적는다.",
+   "meta_html": [
+    "근거 로그 <span class=\"mono\">quant_trader.log</span> · 원장 <span class=\"mono\">100</span>이벤트",
+    "재기동 <span class=\"mono\">3</span>회 · 접수 <span class=\"mono\">11</span> / 체결 <span class=\"mono\">35</span> / 거부 <span class=\"mono\">46</span>",
+    "전략별 이벤트 <span class=\"mono\">FORCE_LIQ 82</span> · <span class=\"mono\">SWING_TREND 10</span>"
+   ],
+   "doc_path": "strategies/DeviationScale/live/2026-10-15.md",
+   "log_path": "Quant/build_win/logs/quant_trader.log",
+   "incidents": [
+    {
+     "sev": "거부",
+     "when": "10-15 종일",
+     "title": "주문 거부 12건 — 같은 시장가 매도 진행 중 [ORD-N 미체결 N주] — 중복 발주 생략",
+     "desc_html": "원장 REJECTED 사유 상위. 정규화 문구 <span class=\"mono\">같은 시장가 매도 진행 중 [ORD-N 미체결 N주] — 중복 발주 생략</span>.",
+     "evidence": "Quant/build_win/logs/trades_20261015.csv · REJECTED 12건",
+     "impact_html": "강제청산 매도 재신호를 라우터가 막은 것이다(의도대로). 원인은 접수 전 같은 매도를 다시 내는 2초 주기(T-01)."
+    },
+    {
+     "sev": "거부",
+     "when": "10-15 종일",
+     "title": "주문 거부 10건 — ENTRY_HALT 활성 — 신규 진입 정지(청산은 허용)",
+     "desc_html": "원장 REJECTED 사유 상위. 정규화 문구 <span class=\"mono\">ENTRY_HALT 활성 — 신규 진입 정지(청산은 허용)</span>.",
+     "evidence": "Quant/build_win/logs/trades_20261015.csv · REJECTED 10건",
+     "impact_html": "국면 −10·−11로 신규 진입이 정지됐다. SWING_TREND 09:00 매수가 막혔다(의도대로)."
+    },
+    {
+     "sev": "거부",
+     "when": "10-15 종일",
+     "title": "주문 거부 6건 — 같은 시장가 매도 진행 중 [ORD-N 미체결 15주] — 중복 발주 생략",
+     "desc_html": "원장 REJECTED 사유 상위. 정규화 문구 <span class=\"mono\">같은 시장가 매도 진행 중 [ORD-N 미체결 15주] — 중복 발주 생략</span>.",
+     "evidence": "Quant/build_win/logs/trades_20261015.csv · REJECTED 6건",
+     "impact_html": "위와 같은 재신호 생략이다. 068270 15주."
+    },
+    {
+     "sev": "로그",
+     "when": "10-15 종일",
+     "title": "ERROR/WARN 144건 — [WinHTTP] HTTP N  url=https://openapi.koreainves",
+     "desc_html": "로그 상위 경고. <span class=\"mono\">[WinHTTP] HTTP N  url=https://openapi.koreainvestment.com:N/uapi/domestic-stock/</span>.",
+     "evidence": "Quant/build_win/logs/quant_trader.log · 144건",
+     "impact_html": "실계좌 앱키 도메인 초당 한도 초과다. 한 앱키를 두 엔진이 나눠 쓴다(T-03). 재시도로 대부분 받아 왔다."
+    },
+    {
+     "sev": "로그",
+     "when": "10-15 종일",
+     "title": "ERROR/WARN 135건 — [KIS] 조회 (초당 한도) — 재시도 2/2, 버킷이 찰 때까지 약 Nms 기다린다",
+     "desc_html": "로그 상위 경고. <span class=\"mono\">[KIS] 조회 (초당 한도) — 재시도 2/2, 버킷이 찰 때까지 약 Nms 기다린다  url=https://openapi.koreainves</span>.",
+     "evidence": "Quant/build_win/logs/quant_trader.log · 135건",
+     "impact_html": "같은 원인의 재시도 경고다."
+    },
+    {
+     "sev": "로그",
+     "when": "10-15 종일",
+     "title": "ERROR/WARN 80건 — [WinHTTP] HTTP N  url=https://openapivts.koreain",
+     "desc_html": "로그 상위 경고. <span class=\"mono\">[WinHTTP] HTTP N  url=https://openapivts.koreainvestment.com:N/uapi/domestic-sto</span>.",
+     "evidence": "Quant/build_win/logs/quant_trader.log · 80건",
+     "impact_html": "모의 도메인 조회 실패다. 매매 영향은 확인되지 않았다."
+    }
+   ],
+   "pnl": {
+    "title_html": "10-15 세션 당일손익 <span class=\"u\">KRW · 잔고 대조 폴링에서 시작·고점·저점·마감 4점</span>",
+    "series": [
+     {
+      "t": "09:02",
+      "v": -1481900
+     },
+     {
+      "t": "09:08",
+      "v": -1061975
+     },
+     {
+      "t": "14:58",
+      "v": -2532911
+     },
+     {
+      "t": "15:31",
+      "v": -2002891
+     }
+    ],
+    "floor": -2532911,
+    "ceil": -1061975,
+    "gridlines": [
+     0,
+     -1300000,
+     -2600000
+    ],
+    "last_label": "세션손익",
+    "note_html": "고점 <b class=\"pos\">−1,061,975</b>@09:08 · 저점 <b class=\"neg\">−2,532,911</b>@14:58 · 마감 <b>−2,002,891</b>@15:31. 폴링 306건 중 4점만 표시했다(연속 곡선 아님)."
+   },
+   "axes": [
+    {
+     "n": "AXIS 1",
+     "title": "급락일 강제청산",
+     "tag": "오늘의 본질",
+     "tag_cls": "crit",
+     "items": [
+      {
+       "kind": "des",
+       "text_html": "국면 점수 장전 −10, 09:20 −11로 진입 정지·강제청산. 모의는 11종목을 09:21–09:28에 팔아 원장 실현 −1,796,440원, 하루 −2,002,891원"
+      },
+      {
+       "kind": "des",
+       "text_html": "실계좌는 6종목 청산과 030000 왕복으로 원장 실현 −58,218원, 하루 −42,759원(19:59)"
+      }
+     ]
+    },
+    {
+     "n": "AXIS 2",
+     "title": "장중에 고친 것",
+     "tag": "해결",
+     "tag_cls": "info",
+     "items": [
+      {
+       "kind": "fix",
+       "text_html": "시장가를 받지 않는 종목(<span class=\"mono\">APBK1943</span> 2,442건)은 지정가로 바꿔 낸다(31cefa0)"
+      },
+      {
+       "kind": "fix",
+       "text_html": "개장 전 예상체결가 등락을 오늘 등락으로 세지 않는다(d4475a5)"
+      },
+      {
+       "kind": "fix",
+       "text_html": "재기동 직후 국면 판정 전에는 신규 진입을 막는다 — 030000 26주가 이 틈에 나갔다(4bb4ee2)"
+      },
+      {
+       "kind": "fix",
+       "text_html": "SwingTrend 계획이 직전 거래일보다 낡으면 상태점검 실패(eac6ec2)"
+      }
+     ]
+    },
+    {
+     "n": "AXIS 3",
+     "title": "강제청산 매도 재신호",
+     "tag": "수정 중",
+     "tag_cls": "info",
+     "items": [
+      {
+       "kind": "bug",
+       "text_html": "미체결 매도를 주문 스레드가 게이트를 통과시킨 뒤에야 세서, 접수 전에 같은 매도가 다시 나갔다(모의 068270 <span class=\"mono\">40240000</span> 2건·실계좌 195940 <span class=\"mono\">APBK0400</span> 1건)"
+      }
+     ]
+    }
+   ],
+   "improvements": {
+    "section_sub": "다음 거래일 전까지. 근거는 docs/market_close/2026-10-15.md",
+    "lanes": [
+     {
+      "prio": "P1",
+      "title": "강제청산 주문",
+      "count_note": "1건",
+      "items": [
+       {
+        "id": "T-01",
+        "cat": "주문",
+        "eff": "S",
+        "title": "청산 매도를 접수 전에도 미체결로 센다",
+        "prob_html": "2초 주기가 접수 전 같은 매도를 다시 냈다. 실계좌 주문 큐 최고 393.",
+        "fix_html": "디스패처가 자기가 낸 청산 매도를 종목별로 잠시 기억한다. 워크트리에서 수정 중."
+       }
+      ]
+     },
+     {
+      "prio": "P2",
+      "title": "운영",
+      "count_note": "2건",
+      "items": [
+       {
+        "id": "T-02",
+        "cat": "운영",
+        "eff": "S",
+        "title": "실계좌 상시 기동 예약작업",
+        "prob_html": "실계좌 기동 예약이 날마다 손으로 만드는 일회성이라 10-15 분이 없었다.",
+        "fix_html": "시간표에 넣을지 사용자 결정."
+       },
+       {
+        "id": "T-03",
+        "cat": "배관",
+        "eff": "M",
+        "title": "두 엔진의 조회 한도 분담 점검",
+        "prob_html": "초당 한도로 되보낸 요청 모의 206·실계좌 290건.",
+        "fix_html": "분담 비율이 실제 호출량과 맞는지 잰다."
+       }
+      ]
+     }
+    ]
+   },
+   "gate": [
+    {
+     "html": "<b>리스크 한도 동결</b> — 강제청산 기준 −11이 이 날 이득이었는지는 다음 날 종가와 비교한 뒤 판단한다."
+    },
+    {
+     "html": "<b>체결통보 매칭</b> — 16:32 재기동 뒤 111710 체결이 통보로 맞춰졌다."
+    }
+   ]
+  },
+  {
    "id": "2026-10-14_session_review",
    "strategy": "DEVSCALE · SWING_TREND",
    "eyebrow": "세션 리뷰 · 10-14 · 원장/로그 자동 집계",
@@ -22,7 +221,7 @@
      "title": "주문 거부 19건 — 총노출 한도 초과 (N > N = 자본 N×0.95) — 신규 매수 정지(청산 허용)",
      "desc_html": "원장 REJECTED 사유 상위. 정규화 문구 <span class=\"mono\">총노출 한도 초과 (N > N = 자본 N×0.95) — 신규 매수 정지(청산 허용)</span>.",
      "evidence": "Quant/build_win/logs/trades_20261014.csv · REJECTED 19건",
-     "impact_html": ""
+     "impact_html": "노출 한도가 막은 거부다. D-161의 10분 쉼으로 10-13보다 줄었다(계좌마다 10분에 1건 꼴)."
     },
     {
      "sev": "로그",
@@ -30,7 +229,7 @@
      "title": "ERROR/WARN 148건 — [WinHTTP] HTTP N  url=https://openapi.koreainves",
      "desc_html": "로그 상위 경고. <span class=\"mono\">[WinHTTP] HTTP N  url=https://openapi.koreainvestment.com:N/uapi/domestic-stock/</span>.",
      "evidence": "Quant/build_win/logs/quant_trader.log · 148건",
-     "impact_html": ""
+     "impact_html": "실계좌 앱키 도메인 초당 한도 초과다. D-162 뒤 10-13의 1,863건·2,077건에서 크게 줄었다."
     },
     {
      "sev": "로그",
@@ -38,7 +237,7 @@
      "title": "ERROR/WARN 143건 — [KIS] 조회 (초당 한도) — 재시도 2/2, 버킷이 찰 때까지 약 Nms 기다린다",
      "desc_html": "로그 상위 경고. <span class=\"mono\">[KIS] 조회 (초당 한도) — 재시도 2/2, 버킷이 찰 때까지 약 Nms 기다린다  url=https://openapi.koreainves</span>.",
      "evidence": "Quant/build_win/logs/quant_trader.log · 143건",
-     "impact_html": ""
+     "impact_html": "같은 원인의 재시도 경고다."
     },
     {
      "sev": "로그",
@@ -46,7 +245,7 @@
      "title": "ERROR/WARN 109건 — [WinHTTP] HTTP N  url=https://openapivts.koreain",
      "desc_html": "로그 상위 경고. <span class=\"mono\">[WinHTTP] HTTP N  url=https://openapivts.koreainvestment.com:N/uapi/domestic-sto</span>.",
      "evidence": "Quant/build_win/logs/quant_trader.log · 109건",
-     "impact_html": ""
+     "impact_html": "모의 도메인 조회 실패다. 매매 영향은 확인되지 않았다."
     },
     {
      "sev": "공백",
@@ -54,7 +253,7 @@
      "title": "주문 이벤트 공백 84.8분",
      "desc_html": "접수·체결·거부가 한 건도 없는 최장 구간. 신호 고갈인지 배관 정지인지는 로그로 갈라야 한다.",
      "evidence": "Quant/build_win/logs/trades_20261014.csv",
-     "impact_html": ""
+     "impact_html": "장 시작 전 구간이다. 09:00 뒤 최장 공백은 70분(12:35–13:45)이고 노출 한도로 매수가 막힌 시간과 겹친다."
     }
    ],
    "pnl": {
@@ -87,7 +286,101 @@
     ],
     "last_label": "세션손익",
     "note_html": "고점 <b class=\"pos\">+1,269,540</b>@09:17 · 저점 <b class=\"neg\">−198,548</b>@15:05 · 마감 <b>+269,892</b>@15:32. 폴링 321건 중 4점만 표시했다(연속 곡선 아님)."
-   }
+   },
+   "axes": [
+    {
+     "n": "AXIS 1",
+     "title": "낡은 SwingTrend 계획",
+     "tag": "오늘의 본질",
+     "tag_cls": "crit",
+     "items": [
+      {
+       "kind": "bug",
+       "text_html": "밤 계획 생성이 10-13 밤에 실패해 두 계좌 모두 10-12 계획으로 기동했다(모의 매수 접수 9건, 실계좌 2건). 체결 0건. 10-15에 고쳤다(eac6ec2)"
+      }
+     ]
+    },
+    {
+     "n": "AXIS 2",
+     "title": "D-161·D-162 첫날",
+     "tag": "의도대로",
+     "tag_cls": "info",
+     "items": [
+      {
+       "kind": "des",
+       "text_html": "SOR 불가 종목 2건은 KRX로 다시 내 접수됐고, 주문가능금액 초과(<span class=\"mono\">APBK0952</span>)는 0건"
+      },
+      {
+       "kind": "des",
+       "text_html": "모의 402340 평단 하드스톱 매도 20주, 원장 실현 −873,505원. 하루는 모의 +269,892원·실계좌 +8,770원"
+      }
+     ]
+    },
+    {
+     "n": "AXIS 3",
+     "title": "남은 결함",
+     "tag": "고칠 것 후보",
+     "tag_cls": "info",
+     "items": [
+      {
+       "kind": "bug",
+       "text_html": "모의 한도 초과분 정리 매도가 07:35 매매 창 밖이라 거부되고 다시 나가지 않았다"
+      },
+      {
+       "kind": "bug",
+       "text_html": "실계좌 한도 클램프가 69주→1주, 133주→1주로 깎아 냈다(최소 기준은 사용자 판단)"
+      }
+     ]
+    }
+   ],
+   "improvements": {
+    "section_sub": "다음 거래일 전까지. 근거는 docs/market_close/2026-10-14.md",
+    "lanes": [
+     {
+      "prio": "P1",
+      "title": "주문",
+      "count_note": "2건",
+      "items": [
+       {
+        "id": "T-01",
+        "cat": "주문",
+        "eff": "S",
+        "title": "매매 창 밖 정리 매도를 창 안에서 다시 낸다",
+        "prob_html": "07:35 정리 매도가 거부되고 그 뒤 다시 나가지 않았다.",
+        "fix_html": "Quant/src/core/EngineStrategyThread.cpp 쪽에서 매매 창이 열릴 때 다시 낸다."
+       },
+       {
+        "id": "T-02",
+        "cat": "리스크",
+        "eff": "S",
+        "title": "클램프 최소 수량 기준",
+        "prob_html": "69주·133주가 1주로 깎여 나갔다.",
+        "fix_html": "너무 작게 깎이면 내지 않는 기준을 둘지 사용자 결정."
+       }
+      ]
+     },
+     {
+      "prio": "P2",
+      "title": "로그",
+      "count_note": "1건",
+      "items": [
+       {
+        "id": "T-03",
+        "cat": "배관",
+        "eff": "S",
+        "title": "버린 재시도에 전략 답 보내기",
+        "prob_html": "`주문 답 판정` 경고가 4,425건으로 부풀었다.",
+        "fix_html": "청산 완료로 버린 재시도도 전략에 결과를 돌려준다."
+       }
+      ]
+     }
+    ]
+   },
+   "gate": [
+    {
+     "html": "<b>리스크 한도 동결</b> — 노출 한도 거부는 의도대로 줄었다. 한도 값은 그대로 둔다."
+    }
+   ]
   },
   {
    "id": "2026-10-13_session_review",

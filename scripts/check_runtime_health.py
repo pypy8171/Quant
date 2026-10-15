@@ -1840,7 +1840,9 @@ def restart_verify_row(date: str) -> tuple:
 
     if failed or unknown:
         worst = (failed or unknown)[-1]
-        reasons = "; ".join(log["detail"] for log in worst["logs"] if log["detail"])[:160]
+        # 덤프 경로는 파일 이름만 남긴다 — 사용자 폴더 이름이 cp949로 깨진 채 일지·발행물에 실렸다(10-15).
+        reasons = "; ".join(re.sub(r"dump=\S*[\\/]", "dump=", log["detail"])
+                            for log in worst["logs"] if log["detail"])[:160]
         return (name, False, "FAIL" if failed else "WARN", f"{detail} (마지막 {worst['time'][11:]} {reasons})")
 
     return (name, True, "FAIL", detail)
