@@ -22,6 +22,7 @@ param(
   [string]$Open   = "07:30",   # 이 시각 전에는 기동하지 않는다(08:00 NXT 개장 전 일봉 캐시 데우기 여유, D-147)
   [string]$Until  = "15:35",   # 워치독에 그대로 넘기는 마감 시각. 실계좌 전환 때 20:05(애프터마켓 20:00 + 여유, D-097·T-18)
   [double]$Hours  = 7,         # -Open 부터 5분마다 몇 시간 도는지. 모의 8.25(15:45까지), 실계좌 12.75(20:15까지). scripts\market_close_timetable.ps1 -Apply 가 넘긴다
+  [switch]$NoBuild,            # 하루 루프에 그대로 넘긴다. 실계좌 감시견은 모의 감시견(07:30)이 빌드한 exe를 쓴다 — 같은 빌드 폴더를 둘이 동시에 빌드하지 않게
   [switch]$Install,            # 평일 5분 주기 예약작업 등록
   [switch]$Uninstall,
   [switch]$DryRun
@@ -63,6 +64,12 @@ if ($Uninstall) {
 if ($Install) {
   # 창이 보여야 사람이 눈으로 확인할 수 있다 → 로그온 세션에서 실행한다.
   $arg = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -Config `"$Config`" -Open $Open -Until $Until -Hours $Hours"
+
+  if ($NoBuild)
+  {
+    $arg += " -NoBuild"
+  }
+
   $act = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $arg -WorkingDirectory $Repo
   $trg = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday, Tuesday, Wednesday, Thursday, Friday -At $Open
   # 주간 트리거에는 반복 설정이 없다. 1회 트리거에서 Repetition만 떼어 붙인다.
@@ -142,10 +149,29 @@ if ($leftover_trader.Count -gt 0) {
   if (-not $DryRun) { $leftover_trader | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2 }
 }
 
+# 실계좌 중지 표시는 진입점 auto_trade_live.ps1 이 본다. 이 가드는 하루 루프를 바로 띄우므로 같은 검사를 여기서도 한다.
+#  [why 10-15: 실계좌를 날마다 만들던 일회성 예약 대신 상시 가드로 띄우면서 이 검사를 건너뛰게 됐다]
+$isPaper = $true
+try { $isPaper = [bool](Get-Content $Config -Raw -Encoding UTF8 | ConvertFrom-Json).kis.is_paper } catch { }
+$haltFile = Join-Path $Repo "_private\state\live_halt.txt"
+
+if (-not $isPaper -and (Test-Path $haltFile))
+{
+  Say "실계좌 중지 표시가 있다($haltFile) — 띄우지 않는다." "WARN"
+  exit 0
+}
+
 Say "워치독 없음 — 하루 루프를 기동한다(config=$Config until=$Until)."
 if ($DryRun) { Say "(dry) 기동 생략"; exit 0 }
-Start-Process powershell -ArgumentList @(
+$dayArgs = @(
   "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $Day,
   "-Config", $Config, "-Until", $Until
-) -WorkingDirectory $Repo | Out-Null
+)
+
+if ($NoBuild)
+{
+  $dayArgs += "-NoBuild"
+}
+
+Start-Process powershell -ArgumentList $dayArgs -WorkingDirectory $Repo | Out-Null
 Say "기동 요청 완료."

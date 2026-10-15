@@ -98,6 +98,15 @@ else
 # 감시견 시작 시각. 엔진이 떠서 08:00(NXT 개장) 전에 전 종목 일봉을 미리 받아 두게 07:30으로 당긴다(D-147).
 $guardOpen = '07:30'
 
+# 실계좌 감시견은 모의 감시견과 따로 평일마다 돈다(config instance=live → 예약작업 이름 QuantAutoTradeGuard_live, D-122).
+#  모의 감시견이 07:30에 빌드한 exe를 -NoBuild로 쓰고 10분 뒤 연다 — 빌드 폴더 하나를 둘이 동시에 빌드하지 않게.
+#  [why 10-15: 날마다 손으로 만들던 일회성 예약이 빠진 날 실계좌가 뜨지 않았다]
+$liveGuardName = 'QuantAutoTradeGuard_live'
+$liveGuardConfig = 'Quant\config\config_live.json'
+$liveGuardOpen = '07:40'
+$liveGuardUntil = '20:05'     # 애프터마켓 20:00 + 여유(D-097)
+$liveGuardHours = 12.5        # 07:40 부터 → 20:10 까지
+
 $fix = @{
     'Quant Premarket Leaders' = 'py research\studies\27_premarket_leaders\premarket_leaders.py snapshot (08:57까지 5분마다)'
     'Quant Basket Targets'  = 'py PYQuant\main.py basket --no-momentum --value-share 1.0'
@@ -117,6 +126,7 @@ $fix = @{
 if ($Lines)
 {
     "{0}`t{1}`t{2}" -f 'QuantAutoTradeGuard', ('{0}~ 5분마다, -Until {1}, {2}h' -f $guardOpen, $until, $guardHours), 'powershell -File scripts\market_close_timetable.ps1 -Apply'
+    "{0}`t{1}`t{2}" -f $liveGuardName, ('{0}~ 5분마다, -Until {1}, {2}h, -NoBuild' -f $liveGuardOpen, $liveGuardUntil, $liveGuardHours), 'powershell -File scripts\market_close_timetable.ps1 -Apply'
 
     foreach ($name in $plan.Keys)
     {
@@ -144,6 +154,12 @@ $guardUntil = if ($guard -and $guard.Actions[0].Arguments -match '-Until\s+(\S+)
 $guardStart = if ($guard) { ([datetime]$guard.Triggers[0].StartBoundary).ToString('HH:mm') } else { $null }
 $guardDuration = if ($guard) { [Xml.XmlConvert]::ToTimeSpan($guard.Triggers[0].Repetition.Duration).TotalHours } else { $null }
 
+$liveGuard = Get-ScheduledTask -TaskName $liveGuardName -ErrorAction SilentlyContinue
+$liveGuardArgs = if ($liveGuard) { [string]$liveGuard.Actions[0].Arguments } else { '' }
+$liveGuardStart = if ($liveGuard) { ([datetime]$liveGuard.Triggers[0].StartBoundary).ToString('HH:mm') } else { $null }
+$liveGuardActualUntil = if ($liveGuardArgs -match '-Until\s+(\S+)') { $Matches[1] } else { $null }
+$liveGuardDuration = if ($liveGuard) { [Xml.XmlConvert]::ToTimeSpan($liveGuard.Triggers[0].Repetition.Duration).TotalHours } else { $null }
+
 Write-Host ("[market_close_timetable] 계좌 모드 {0} (config={1})" -f $modeLabel, $Config)
 $drift = 0
 
@@ -157,6 +173,11 @@ foreach ($name in $plan.Keys)
 $guardOk = ($guardStart -eq $guardOpen) -and ($guardUntil -eq $until) -and ($guardDuration -eq $guardHours)
 $mark = if ($guardOk) { '  ' } else { '!!'; $drift++ }
 Write-Host ("  {0} {1,-24} 예정 {2}~ -Until {3} {4}h  실제 {5}~ -Until {6} {7}h" -f $mark, 'QuantAutoTradeGuard', $guardOpen, $until, $guardHours, $guardStart, $guardUntil, $guardDuration)
+
+$liveGuardOk = ($liveGuardStart -eq $liveGuardOpen) -and ($liveGuardActualUntil -eq $liveGuardUntil) -and ($liveGuardDuration -eq $liveGuardHours) -and
+    ($liveGuardArgs -like '*config_live.json*') -and ($liveGuardArgs -like '*-NoBuild*')
+$mark = if ($liveGuardOk) { '  ' } else { '!!'; $drift++ }
+Write-Host ("  {0} {1,-24} 예정 {2}~ -Until {3} {4}h -NoBuild  실제 {5}~ -Until {6} {7}h" -f $mark, $liveGuardName, $liveGuardOpen, $liveGuardUntil, $liveGuardHours, $liveGuardStart, $liveGuardActualUntil, $liveGuardDuration)
 
 if (-not $Apply)
 {
@@ -193,6 +214,12 @@ if (-not $guardOk)
 {
     & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'auto_trade_guard.ps1') -Install -Config $Config -Open $guardOpen -Until $until -Hours $guardHours
     Write-Host ("  감시견 재등록 {0}~ -Until {1} {2}h" -f $guardOpen, $until, $guardHours)
+}
+
+if (-not $liveGuardOk)
+{
+    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'auto_trade_guard.ps1') -Install -Config $liveGuardConfig -Open $liveGuardOpen -Until $liveGuardUntil -Hours $liveGuardHours -NoBuild
+    Write-Host ("  실계좌 감시견 재등록 {0}~ -Until {1} {2}h -NoBuild" -f $liveGuardOpen, $liveGuardUntil, $liveGuardHours)
 }
 
 Write-Host "[market_close_timetable] 적용 끝 — .claude/hooks/cron-gate.ps1 는 이 스크립트의 -Lines 를 읽으므로 따로 고칠 것 없다"
