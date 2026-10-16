@@ -1,0 +1,210 @@
+{
+  "study": "44_value_basket_drawdown_guard/stop_regime_drawdown_233",
+  "period": "2016-03-31~2026-09-01",
+  "sample": {
+    "trading_days": 2556,
+    "months": 125,
+    "rebalances": 42,
+    "holding_segments": 1260,
+    "universe_size_median": 528
+  },
+  "sample_n": 2556,
+  "trials_prior": 233,
+  "cost_level": "mid",
+  "cost_spec": {
+    "commission_percent": 0.015,
+    "sell_tax_percent": 0.2,
+    "slippage_ticks": 1,
+    "impact_percent": 0.05
+  },
+  "sharpe": 0.6144628660843554,
+  "mdd": 48.35934455408278,
+  "t_stat": 3.7961276595319484,
+  "grade": "B",
+  "verdict": {
+    "overall": "바스켓 단위 제한 라이브 후보(리스크 한도 변경, 사용자 결정)",
+    "one_line": "기준(손절 없음) 연 12.20%·샤프 0.61·최대 낙폭 48.4%. 개선 칸 S 9/108·A 12/70·B 14/54, 채택 후보 1칸(A_ma150_th0.60_x0.5).",
+    "candidates": [
+      "A_ma150_th0.60_x0.5"
+    ],
+    "improved_cells": {
+      "S": 9,
+      "A": 12,
+      "B": 14
+    },
+    "candidate_branches": [
+      "A"
+    ]
+  },
+  "candidates_alternative_take_profit_order": 1,
+  "candidates_alternative_list": [
+    "A_ma150_th0.60_x0.5"
+  ],
+  "baseline": {
+    "annual_return": 0.12195518759456125,
+    "sharpe": 0.6144628660843554,
+    "max_drawdown_percent": 48.35934455408278,
+    "calmar": 0.25218536090408006,
+    "turnover_annual": 1.3042242453479396,
+    "cost_annual": 0.007403788204969068,
+    "excess_annual": 0.15426232238756338,
+    "excess_t": 3.7961276595319484
+  },
+  "best_by_branch": {
+    "S": [
+      {
+        "cell": "S_L0.1_Tnone_cash",
+        "annual_return": 0.12759269908244986,
+        "sharpe": 0.7156048118068759,
+        "max_drawdown_percent": 34.51113582888185,
+        "calmar": 0.36971457478275593,
+        "improved": true,
+        "candidate": false
+      },
+      {
+        "cell": "S_L0.075_Tnone_cash",
+        "annual_return": 0.11940697153848845,
+        "sharpe": 0.7067255746123684,
+        "max_drawdown_percent": 32.62419285904995,
+        "calmar": 0.3660074352011592,
+        "improved": true,
+        "candidate": false
+      },
+      {
+        "cell": "S_L0.05_Tnone_cash",
+        "annual_return": 0.10575796249215297,
+        "sharpe": 0.7028596260437715,
+        "max_drawdown_percent": 30.928332597300468,
+        "calmar": 0.3419452444112163,
+        "improved": true,
+        "candidate": false
+      }
+    ],
+    "A": [
+      {
+        "cell": "A_ma150_th0.55_x0.5",
+        "annual_return": 0.11620188573111867,
+        "sharpe": 0.6937333943505042,
+        "max_drawdown_percent": 39.087962414468784,
+        "calmar": 0.297283047141146,
+        "improved": true,
+        "candidate": false
+      },
+      {
+        "cell": "A_ma150_th0.55_x0",
+        "annual_return": 0.10450745958460694,
+        "sharpe": 0.6846841265565476,
+        "max_drawdown_percent": 32.43132714450953,
+        "calmar": 0.3222423156441797,
+        "improved": true,
+        "candidate": false
+      },
+      {
+        "cell": "A_ma100_th0.60_x0.5",
+        "annual_return": 0.10973978803239004,
+        "sharpe": 0.6845180412570246,
+        "max_drawdown_percent": 35.01496672753965,
+        "calmar": 0.31340823164649334,
+        "improved": true,
+        "candidate": false
+      }
+    ],
+    "B": [
+      {
+        "cell": "B_N0.05_x0.5_rebound_10",
+        "annual_return": 0.11158660765989681,
+        "sharpe": 0.7215346569217624,
+        "max_drawdown_percent": 31.600465649437854,
+        "calmar": 0.3531169726984129,
+        "improved": true,
+        "candidate": false
+      },
+      {
+        "cell": "B_N0.3_x0_rebound_5",
+        "annual_return": 0.1374024109199561,
+        "sharpe": 0.6848544614724694,
+        "max_drawdown_percent": 37.75857052113506,
+        "calmar": 0.36389727954093537,
+        "improved": true,
+        "candidate": false
+      },
+      {
+        "cell": "B_N0.25_x0_rebound_5",
+        "annual_return": 0.13503919171803003,
+        "sharpe": 0.6782739716150188,
+        "max_drawdown_percent": 38.18077807463528,
+        "calmar": 0.35368370821060063,
+        "improved": true,
+        "candidate": false
+      }
+    ]
+  },
+  "reconciliation": {
+    "daily": {
+      "annual_return": 0.12195518759456125,
+      "sharpe": 0.6144628660843554,
+      "max_drawdown_percent": 48.35934455408278,
+      "excess_annual": 0.15426232238756338,
+      "excess_t": 3.7961276595319484
+    },
+    "monthly": {
+      "annual_return": 0.11851762191051818,
+      "sharpe": 0.6037906694401948,
+      "max_drawdown_percent": 36.995734441863696,
+      "excess_annual": 0.15426232238756338,
+      "excess_t": 3.7961276595319484,
+      "benchmark_annual_return": -0.04509596681201922
+    },
+    "study23": {
+      "net_annual_return": 0.11929053605158768,
+      "sharpe": 0.6054400778627437,
+      "max_drawdown_percent": 37.33827566074499,
+      "excess_annual": 0.1558524191946215,
+      "excess_t": 3.8501393565279187,
+      "benchmark_annual_return": -0.045879398327151266
+    },
+    "study22": {
+      "net_annual_return": 0.12729814682694673,
+      "sharpe": 0.63725643685362,
+      "max_drawdown_percent": 39.66638362992258,
+      "excess_annual": 0.12985762258688507,
+      "excess_t": 3.0047085372100946
+    },
+    "no_buffer": {
+      "annual_return": 0.08235498891023285,
+      "sharpe": 0.45434833195164925,
+      "max_drawdown_percent": 49.67908717678849,
+      "excess_annual": 0.11853791749838086,
+      "excess_t": 2.988593534012293
+    },
+    "note": "월 수익으로 다시 잰 기준 칸은 연 11.85%·샤프 0.60·낙폭 37.0%, 스터디 23은 연 11.93%·샤프 0.61·낙폭 37.3%다. 이 하네스는 분기 사이 달에 리밸하지 않고 일별로 들고 가며, 22·23은 매월 첫 거래일에 그날 봉이 없는 보유 종목을 현금으로 돌린다(여기는 분기 리밸 날에만). 일별 샤프·낙폭은 월 단위보다 낙폭이 크게 잡힌다(월 사이 저점까지 본다)."
+  },
+  "live_parameters": {
+    "top_n": 30,
+    "value_weight": 0.7,
+    "turnover_floor_krw": 3000000000,
+    "rebalance_months": 3,
+    "buffer_rank": 60
+  },
+  "benchmark": "같은 달 유니버스 동일가중(체결일 종가 → 다음 달 체결일 종가), 비용 없음",
+  "dividends": "제외(일봉에 배당 없음, 보수적)",
+  "seed": 20261016,
+  "git_commit": "7d0a1f0",
+  "data_fingerprint": {
+    "PYQuant/data/fin/fin_point_in_time.parquet": {
+      "size": 16256419,
+      "sha256_size_mtime": "1f2156565b956c84"
+    },
+    "PYQuant/data/fin/shares_point_in_time.parquet": {
+      "size": 518390,
+      "sha256_size_mtime": "c7182c4da35d9b86"
+    },
+    "PYQuant/data/bars_all_pit_v2.parquet": {
+      "size": 259973212,
+      "sha256_size_mtime": "1f7f4e94cb84a023"
+    }
+  },
+  "generated_at": "2026-10-16T10:14:18",
+  "rerun_command": "py research/studies/44_value_basket_drawdown_guard/run_drawdown_guard.py",
+  "elapsed_seconds": 42.0
+}

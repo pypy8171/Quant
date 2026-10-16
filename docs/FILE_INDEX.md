@@ -1707,6 +1707,13 @@
 - [run_command.txt](../research/studies/43_devscale_real_rules/results/round_d/run_command.txt) — 스터디 43-D 실행 명령
 - [run_info.json](../research/studies/43_devscale_real_rules/results/round_d/run_info.json) — 스터디 43-D 실행 정보(조합 수·통과선·걸린 시간)
 
+### research/studies/44_value_basket_drawdown_guard/
+
+- [PREREG.md](../research/studies/44_value_basket_drawdown_guard/PREREG.md) — 스터디 44 사전등록 — 가치 바스켓 손절·국면 연동·낙폭 한도 233칸, 판정 기준
+- [README.md](../research/studies/44_value_basket_drawdown_guard/README.md) — 스터디 44 결과 — 손절 없음 기준 대비 개선 칸·채택 후보 1칸(국면 연동)과 연도별 표
+- [metrics.json](../research/studies/44_value_basket_drawdown_guard/metrics.json) — 스터디 44 칸별 지표(연 수익률·샤프·최대 낙폭·칼마·회전·비용·t)
+- [run_drawdown_guard.py](../research/studies/44_value_basket_drawdown_guard/run_drawdown_guard.py) — 스터디 44 실행기 — 일별 순자산으로 233칸을 한 번에 돌린다
+
 ### research/studies/test_replay/
 
 - [build_test_replay.py](../research/studies/test_replay/build_test_replay.py) — 시험 매매 리플레이 생성기 — 시험 4개 매매를 캔들 차트·근거 계산식으로 그리고 원장 가격을 일봉과 대조
