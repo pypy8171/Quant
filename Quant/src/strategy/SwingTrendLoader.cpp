@@ -9,6 +9,7 @@
 #include "strategy/SwingTrendStrategy.h"
 #include "utils/Logger.h"
 
+#include <format>
 #include <map>
 #include <memory>
 #include <string>
@@ -74,6 +75,17 @@ void load_swing_trend(LoadPass& context, const nlohmann::json& node)
     read_or_keep(node, "daily_lookback", parameters.daily_lookback);
     read_or_keep(node, "exit_retry_sec", parameters.exit_retry_sec);
     read_or_keep(node, "max_exit_attempts", parameters.max_exit_attempts);
+    read_or_keep(node, "buy_trigger_percent", parameters.buy_trigger_percent);
+    read_or_keep(node, "buy_disarm_percent", parameters.buy_disarm_percent);
+
+    // 취소선이 발주선 이하면 내자마자 취소하는 왕복이 생긴다 — 둘 다 기본값으로 돌린다.
+    if (parameters.buy_disarm_percent <= parameters.buy_trigger_percent)
+    {
+        LOG_WARN(std::format("[Main] SWING_TREND buy_disarm_percent {} ≤ buy_trigger_percent {} — 기본값 {}·{}로 돌린다", parameters.buy_disarm_percent,
+                             parameters.buy_trigger_percent, SwingTrendStrategy::Params{}.buy_disarm_percent, SwingTrendStrategy::Params{}.buy_trigger_percent));
+        parameters.buy_trigger_percent = SwingTrendStrategy::Params{}.buy_trigger_percent;
+        parameters.buy_disarm_percent  = SwingTrendStrategy::Params{}.buy_disarm_percent;
+    }
 
     if (parameters.notional_krw <= 0)
     {

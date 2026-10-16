@@ -70,6 +70,7 @@ json position_json(const SwingTrendStrategy::Position& position)
                 {"status", SwingTrendStrategy::status_text(position.status)},
                 {"order_number", position.order_number},
                 {"cancel_sent", position.cancel_sent},
+                {"rearm_on_cancel", position.rearm_on_cancel},
                 {"exit_attempts", position.exit_attempts},
                 {"last_exit_at", static_cast<int64_t>(position.last_exit_at)},
                 {"exit_reason", position.exit_reason}};
@@ -93,6 +94,7 @@ std::optional<SwingTrendStrategy::Position> position_from(const json& node)
     position.quantity      = node.value("quantity", 0);
     position.order_number  = node.value("order_number", uint64_t{0});
     position.cancel_sent   = node.value("cancel_sent", false);
+    position.rearm_on_cancel = node.value("rearm_on_cancel", false);
     position.exit_attempts = node.value("exit_attempts", 0);
     position.last_exit_at  = static_cast<std::time_t>(node.value("last_exit_at", int64_t{0}));
     position.exit_reason   = node.value("exit_reason", std::string());
@@ -215,6 +217,7 @@ void SwingTrendStrategy::load_state()
 
         day_ = document->value("day", std::string());
         attempted_today_.clear();
+        armed_today_.clear();
         const auto attempted = document->find("attempted");
 
         if (attempted != document->end() && attempted->is_array())
@@ -224,6 +227,20 @@ void SwingTrendStrategy::load_state()
                 if (ticker.is_string())
                 {
                     attempted_today_.insert(ticker.get<std::string>());
+                }
+            }
+        }
+
+        // 같은 날 재기동이면 매수 대기를 이어 간다(날이 바뀌었으면 roll_day가 비운다).
+        const auto armed = document->find("armed");
+
+        if (armed != document->end() && armed->is_array())
+        {
+            for (const auto& ticker : *armed)
+            {
+                if (ticker.is_string())
+                {
+                    armed_today_.insert(ticker.get<std::string>());
                 }
             }
         }
@@ -298,6 +315,7 @@ bool SwingTrendStrategy::save_state()
     document["strategy"]  = id_;
     document["day"]       = day_;
     document["attempted"] = json(std::vector<std::string>(attempted_today_.begin(), attempted_today_.end()));
+    document["armed"]     = json(std::vector<std::string>(armed_today_.begin(), armed_today_.end()));
     document["positions"] = json::array();
 
     for (const auto& position : positions_)
@@ -341,9 +359,36 @@ void SwingTrendStrategy::track_fills()
             position.quantity       = account_position;
             position.status         = Status::Open;
             position.missing_checks = 0;
+            position.rearm_on_cancel = false;
             changed                 = true;
             LOG_INFO(std::format("[{}] 매수 체결 {} {}주 매수가 {} 손절선 {}", id_, position.ticker, position.quantity, position.entry_price,
                                  position.stop));
+        }
+
+        // 멀어져 취소한 매수 — 미체결 선점이 풀렸으면 지우고, 매수 창 안이고 계획에 남아 있으면 다시 대기로 둔다.
+        //  선점이 풀리기 전에는 기다린다(풀리기 전에 다시 내면 같은 종목 매수가 둘이 된다).
+        if (position.status == Status::Pending && position.rearm_on_cancel && account_position == 0)
+        {
+            const auto ledger = ledger_sellable(parameters_.account, position.ticker);
+
+            if (!ledger || ledger->reserved <= 0)
+            {
+                const bool rearm = entry_day && hhmm < parameters_.buy_cancel_hhmm && plan_entry(position.ticker) != nullptr;
+
+                if (rearm)
+                {
+                    armed_today_.insert(position.ticker);
+                    LOG_INFO(std::format("[{}] 매수 대기 복귀 {} — 취소가 풀려 현재가가 다시 다가오기를 기다린다", id_, position.ticker));
+                }
+                else
+                {
+                    LOG_INFO(std::format("[{}] 매수 미체결 정리 {} — 장부 보유 0", id_, position.ticker));
+                }
+
+                iterator = positions_.erase(iterator);
+                changed  = true;
+                continue;
+            }
         }
 
         // 매수가 끝내 안 잡혔다 — 취소 시각이 지났고 미체결 선점까지 0이면 지운다.

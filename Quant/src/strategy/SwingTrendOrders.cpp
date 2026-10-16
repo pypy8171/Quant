@@ -1,4 +1,4 @@
-// strategy/SwingTrendOrders.cpp — 스윙 추세 슬리브의 주문: 시가 확인 뒤 지정가 매수, 15:19 미체결 취소, 손절선 올리기, 종가 동시호가 손절 매도.
+// strategy/SwingTrendOrders.cpp — 스윙 추세 슬리브의 주문: 시가 확인 뒤 매수 대기, 현재가가 다가오면 지정가 매수·멀어지면 취소, 15:19 미체결 취소, 손절선 올리기, 종가 동시호가 손절 매도.
 //  스레드: 샤드 스레드(on_clock 안). prefetch 결과는 snapshot_mutex_를 쥐고 읽는다. 관련 결정: D-160.
 #include "strategy/SwingTrendStrategy.h"
 #include "strategy/SurgeHoldPlan.h"
@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <ctime>
 #include <format>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -51,6 +52,8 @@ bool SwingTrendStrategy::plan_usable()
     return true;
 }
 
+// 매수 창 안에서 두 단계를 돈다. ① 시가를 안 후보를 판정해 대기에 넣고 ② 대기 종목의 현재가가 발주선 이하로 다가오면 지정가를 낸다.
+//  아침에 지정가를 걸어 두면 체결 없이 현금·노출 한도를 하루 종일 묶는다(2026-10-16 모의 39,804,640원·실계좌 4,313,040원, 체결 0건).
 void SwingTrendStrategy::run_buys(std::vector<OrderSignal>& out)
 {
     const int hhmm = kst_hhmm(clock_());
@@ -61,6 +64,7 @@ void SwingTrendStrategy::run_buys(std::vector<OrderSignal>& out)
     }
 
     // 국면 목록에서 빠졌거나 계좌 신규매수가 막혔으면(수동 정지 등 — 국면 중단은 ignores_regime_halt로 빠진다) 판단을 미룬다(종목을 판단 끝으로 표시하지 않는다 — 풀리면 그때 산다).
+    //  대기 종목도 이때는 지정가를 내지 않고 기다린다.
     if (!is_active() || entry_halted())
     {
         if (!inactive_logged_)
@@ -89,49 +93,58 @@ void SwingTrendStrategy::run_buys(std::vector<OrderSignal>& out)
 
     for (const auto& [entry, open_price] : ready)
     {
-        if (!buy_entry(*entry, open_price, out))
-        {
-            return;
-        }
+        arm_entry(*entry, open_price);
     }
+
+    run_armed_buys(out);
 }
 
-// 후보 하나를 판단하고, 통과하면 상태 파일에 먼저 적은 뒤 지정가 매수를 낸다. 상태 파일 쓰기에 실패해 오늘 매수를 멈췄으면 false.
-bool SwingTrendStrategy::buy_entry(const swing_trend::PlanEntry& entry, double open_price, std::vector<OrderSignal>& out)
+// 지금 이 종목에 새 매수를 내면 안 되는 이유. 비어 있으면 낼 수 있다. 시가 판정 때와 발주 직전에 같이 쓴다.
+std::string SwingTrendStrategy::entry_block_reason(const std::string& ticker) const
+{
+    const auto ledger = ledger_sellable(parameters_.account, ticker);
+    const bool ours   = std::any_of(positions_.begin(), positions_.end(), [&ticker](const Position& position)
+    {
+        return position.ticker == ticker;
+    });
+
+    if (std::find(parameters_.excluded_tickers.begin(), parameters_.excluded_tickers.end(), ticker) != parameters_.excluded_tickers.end())
+    {
+        return "다른 슬리브(바스켓·급등) 소유";
+    }
+
+    if (ours)
+    {
+        return "이 전략이 이미 보유";
+    }
+
+    if (confirmed_position(parameters_.account, ticker) > 0)
+    {
+        return "계좌가 이미 보유(다른 전략)";
+    }
+
+    if (ledger && ledger->reserved != 0)
+    {
+        return "다른 미체결 주문 있음";
+    }
+
+    return {};
+}
+
+// 후보 하나를 시가로 판정한다. 통과하면 주문 없이 대기에 넣는다. 결과와 무관하게 오늘 판단을 끝낸 종목으로 적는다.
+void SwingTrendStrategy::arm_entry(const swing_trend::PlanEntry& entry, double open_price)
 {
     attempted_today_.insert(entry.ticker);
     dirty_ = true;
 
-    const auto ledger   = ledger_sellable(parameters_.account, entry.ticker);
-    const int  quantity = swing_trend::buy_quantity(parameters_.notional_krw, entry.entry_price);
-    const bool ours     = std::any_of(positions_.begin(), positions_.end(), [&entry](const Position& position)
-    {
-        return position.ticker == entry.ticker;
-    });
-    std::string skip;
+    const int   quantity = swing_trend::buy_quantity(parameters_.notional_krw, entry.entry_price);
+    std::string skip     = entry_block_reason(entry.ticker);
 
-    if (std::find(parameters_.excluded_tickers.begin(), parameters_.excluded_tickers.end(), entry.ticker) !=
-        parameters_.excluded_tickers.end())
-    {
-        skip = "다른 슬리브(바스켓·급등) 소유";
-    }
-    else if (ours)
-    {
-        skip = "이 전략이 이미 보유";
-    }
-    else if (confirmed_position(parameters_.account, entry.ticker) > 0)
-    {
-        skip = "계좌가 이미 보유(다른 전략)";
-    }
-    else if (ledger && ledger->reserved != 0)
-    {
-        skip = "다른 미체결 주문 있음";
-    }
-    else if (!swing_trend::should_buy(open_price, entry.entry_price))
+    if (skip.empty() && !swing_trend::should_buy(open_price, entry.entry_price))
     {
         skip = std::format("시가 {:.0f} ≤ 매수가 {} — 오늘은 사지 않음", open_price, entry.entry_price);
     }
-    else if (quantity <= 0)
+    else if (skip.empty() && quantity <= 0)
     {
         skip = std::format("수량 0(금액 {} / 매수가 {})", parameters_.notional_krw, entry.entry_price);
     }
@@ -139,16 +152,26 @@ bool SwingTrendStrategy::buy_entry(const swing_trend::PlanEntry& entry, double o
     if (!skip.empty())
     {
         LOG_INFO(std::format("[{}] 매수 건너뜀 {} {} — {}", id_, entry.ticker, entry.name, skip));
-        return true;
+        return;
     }
 
-    const std::string reason = std::format("SWING 되돌림 지정가 매수 시가 {:.0f} 매수가 {} 손절선 {} 신호일 {}", open_price, entry.entry_price,
-                                           entry.cancel_below, entry.signal_date);
+    armed_today_.insert(entry.ticker);
+    const double trigger_line = static_cast<double>(entry.entry_price) * (1.0 + parameters_.buy_trigger_percent / 100.0);
+    LOG_INFO(std::format("[{}] 매수 대기 시작 {} {} 매수가 {} 발주선 {:.0f} 시가 {:.0f}", id_, entry.ticker, entry.name, entry.entry_price,
+                         trigger_line, open_price));
+}
+
+// 상태 파일에 먼저 적은 뒤 매수가 지정가를 낸다. 쓰기에 실패하면 내지 않고 오늘 매수를 멈춘다(buys_stopped_today_).
+void SwingTrendStrategy::place_buy(const swing_trend::PlanEntry& entry, double price, std::vector<OrderSignal>& out)
+{
+    const int         quantity = swing_trend::buy_quantity(parameters_.notional_krw, entry.entry_price);
+    const std::string reason   = std::format("SWING 되돌림 지정가 매수 현재가 {:.0f} 매수가 {} 손절선 {} 신호일 {}", price, entry.entry_price,
+                                             entry.cancel_below, entry.signal_date);
 
     if (parameters_.dry_run)
     {
         LOG_INFO(std::format("[{}] [dry-run] 매수 주문 {} {} {}주 — {}", id_, entry.ticker, entry.name, quantity, reason));
-        return true;
+        return;
     }
 
     // 상태 파일에 먼저 적고 낸다 — 내고 죽으면 재기동이 같은 매수를 다시 내지 않는다.
@@ -169,15 +192,138 @@ bool SwingTrendStrategy::buy_entry(const swing_trend::PlanEntry& entry, double o
         positions_.pop_back();
         buys_stopped_today_ = true;
         LOG_ERROR("[" + id_ + "] 상태 파일 쓰기 실패로 " + entry.ticker + " 매수를 내지 않고 오늘 매수를 멈춘다");
-        return false;
+        return;
     }
 
     OrderSignal signal = make_order(entry.ticker, OrderSide::BUY, OrderType::LIMIT, quantity, static_cast<double>(entry.entry_price), reason);
     signal.client_order_number = positions_.back().order_number;
     out.push_back(std::move(signal));
-    LOG_INFO(std::format("[{}] 매수 주문 {} {} {}주 지정가 {} 시가 {:.0f} 손절선 {}", id_, entry.ticker, entry.name, quantity, entry.entry_price,
-                         open_price, entry.cancel_below));
-    return true;
+    LOG_INFO(std::format("[{}] 매수 주문 {} {} {}주 지정가 {} 현재가 {:.0f} 손절선 {}", id_, entry.ticker, entry.name, quantity, entry.entry_price,
+                         price, entry.cancel_below));
+}
+
+// 대기 종목 가운데 받은 지 오래되지 않은 현재가가 발주선 이하인 것에 지정가를 낸다. 발주 직전에 보유·미체결을 다시 본다.
+void SwingTrendStrategy::run_armed_buys(std::vector<OrderSignal>& out)
+{
+    const std::vector<std::string> armed(armed_today_.begin(), armed_today_.end());
+
+    for (const auto& ticker : armed)
+    {
+        const swing_trend::PlanEntry* entry = plan_entry(ticker);
+
+        if (entry == nullptr)
+        {
+            armed_today_.erase(ticker);
+            dirty_ = true;
+            LOG_INFO(std::format("[{}] 매수 대기 해제 {} — 계획에서 빠짐", id_, ticker));
+            continue;
+        }
+
+        const auto price = fresh_quote(ticker);
+
+        if (!price || !swing_trend::near_entry(*price, entry->entry_price, parameters_.buy_trigger_percent))
+        {
+            continue;
+        }
+
+        armed_today_.erase(ticker);
+        dirty_ = true;
+        const std::string skip = entry_block_reason(ticker);
+
+        if (!skip.empty())
+        {
+            LOG_INFO(std::format("[{}] 매수 건너뜀 {} {} — {}", id_, ticker, entry->name, skip));
+            continue;
+        }
+
+        place_buy(*entry, *price, out);
+
+        if (buys_stopped_today_)
+        {
+            return;
+        }
+    }
+}
+
+// 매수 창 안에서 체결 0주인 오늘 매수가 취소선 위로 멀어지면 취소한다. 미체결 선점이 풀리면 track_fills가 다시 대기로 둔다.
+//  재기동 전 exe가 낸 오늘 매수도 같은 규칙을 탄다. 부분 체결이 있으면 취소하지 않는다(15:19 취소가 맡는다).
+void SwingTrendStrategy::run_far_cancels(std::vector<OrderSignal>& out)
+{
+    const int hhmm = kst_hhmm(clock_());
+
+    if (parameters_.dry_run || hhmm < parameters_.buy_start_hhmm || hhmm >= parameters_.buy_cancel_hhmm)
+    {
+        return;
+    }
+
+    for (auto& position : positions_)
+    {
+        if (position.entry_date != day_ || position.status != Status::Pending || position.order_number == 0 || position.cancel_sent ||
+            position.quantity > 0 || confirmed_position(parameters_.account, position.ticker) > 0)
+        {
+            continue;
+        }
+
+        const auto ledger = ledger_sellable(parameters_.account, position.ticker);
+        const auto price  = fresh_quote(position.ticker);
+
+        if (!ledger || ledger->reserved <= 0 || !price || !swing_trend::far_from_entry(*price, position.entry_price, parameters_.buy_disarm_percent))
+        {
+            continue;
+        }
+
+        OrderSignal signal = make_order(position.ticker, OrderSide::BUY, OrderType::LIMIT, 0, 0.0, "SWING 매수 멀어져 취소");
+        signal.action                       = OrderAction::CANCEL;
+        signal.original_client_order_number = position.order_number;
+        out.push_back(std::move(signal));
+        position.cancel_sent     = true;
+        position.rearm_on_cancel = true;
+        dirty_                   = true;
+        const double disarm_line = static_cast<double>(position.entry_price) * (1.0 + parameters_.buy_disarm_percent / 100.0);
+        LOG_INFO(std::format("[{}] 멀어져 매수 취소 {} 현재가 {:.0f} 취소선 {:.0f} — 선점 {}주 {}원을 푼다", id_, position.ticker, *price,
+                             disarm_line, ledger->reserved, static_cast<int64_t>(ledger->reserved) * position.entry_price));
+    }
+}
+
+// 15:19부터는 새 매수를 내지 않으므로 남은 대기를 푼다.
+void SwingTrendStrategy::release_armed()
+{
+    if (armed_today_.empty() || kst_hhmm(clock_()) < parameters_.buy_cancel_hhmm)
+    {
+        return;
+    }
+
+    LOG_INFO(std::format("[{}] 매수 대기 해제 {}종목 — 매수 창이 끝나 내지 않음", id_, armed_today_.size()));
+    armed_today_.clear();
+    dirty_ = true;
+}
+
+const swing_trend::PlanEntry* SwingTrendStrategy::plan_entry(const std::string& ticker) const
+{
+    if (!plan_)
+    {
+        return nullptr;
+    }
+
+    const auto found = std::find_if(plan_->entries.begin(), plan_->entries.end(), [&ticker](const swing_trend::PlanEntry& entry)
+    {
+        return entry.ticker == ticker;
+    });
+    return found == plan_->entries.end() ? nullptr : &*found;
+}
+
+// 매수 창에서 받은 현재가. 받은 지 kQuoteMaxAgeSec를 넘었거나 없으면 nullopt(낡은 값으로 내거나 취소하지 않는다).
+std::optional<double> SwingTrendStrategy::fresh_quote(const std::string& ticker) const
+{
+    std::lock_guard<std::mutex> lock(snapshot_mutex_);
+    const auto                  found = snapshot_.quotes.find(ticker);
+
+    if (found == snapshot_.quotes.end() || found->second.price <= 0.0 || clock_() - found->second.fetched_at > kQuoteMaxAgeSec)
+    {
+        return std::nullopt;
+    }
+
+    return found->second.price;
 }
 
 // 15:19부터 안 잡힌 매수 잔량은 취소 주문을 낸다. 취소 확인 신호는 전략에 오지 않으므로, 장부의 미체결 선점이
@@ -191,7 +337,9 @@ void SwingTrendStrategy::run_unfilled_cancels(std::vector<OrderSignal>& out)
 
     for (auto& position : positions_)
     {
-        if (position.entry_date != day_ || position.order_number == 0 || position.cancel_sent || position.status == Status::Exiting)
+        // 멀어져 낸 취소(rearm_on_cancel)가 15:19까지 안 풀렸으면 한 번 더 취소한다 — 그 취소가 거부됐을 수 있다.
+        if (position.entry_date != day_ || position.order_number == 0 || (position.cancel_sent && !position.rearm_on_cancel) ||
+            position.status == Status::Exiting)
         {
             continue;
         }
@@ -207,8 +355,9 @@ void SwingTrendStrategy::run_unfilled_cancels(std::vector<OrderSignal>& out)
         signal.action                       = OrderAction::CANCEL;
         signal.original_client_order_number = position.order_number;
         out.push_back(std::move(signal));
-        position.cancel_sent = true;
-        dirty_               = true;
+        position.cancel_sent     = true;
+        position.rearm_on_cancel = false;
+        dirty_                   = true;
         LOG_INFO(std::format("[{}] 매수 미체결 취소 {} — 선점 {}주가 남아 취소 주문을 낸다", id_, position.ticker, ledger->reserved));
     }
 }

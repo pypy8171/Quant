@@ -1,4 +1,4 @@
-// strategy/SwingTrendStrategy.cpp — 스윙 추세 슬리브 본체: 생성·소유 종목 게시·하루 넘김·초 단위 순서(on_clock)·REST 미리 받기.
+// strategy/SwingTrendStrategy.cpp — 스윙 추세 슬리브 본체: 생성·소유 종목 게시·하루 넘김·초 단위 순서(on_clock)·REST 미리 받기(시가·대기 종목 현재가·일봉).
 //  계획·상태 파일과 체결 반영은 SwingTrendState.cpp, 매수·취소·손절 매도는 SwingTrendOrders.cpp에 있다.
 //  스레드: prefetch_once만 prefetch::Pool 스레드, 나머지는 샤드 스레드. 관련 결정: D-160.
 #include "strategy/SwingTrendStrategy.h"
@@ -9,6 +9,7 @@
 #include <chrono>
 #include <ctime>
 #include <format>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -55,8 +56,9 @@ const char* SwingTrendStrategy::status_text(Status status)
 
 std::string SwingTrendStrategy::describe() const
 {
-    return std::format("SwingTrend({} 종목당 {}원 저점 창 {}일 {}) 계획 {}", parameters_.label, parameters_.notional_krw,
-                       parameters_.pivot_window, parameters_.dry_run ? "dry-run" : "실주문", parameters_.plan_file);
+    return std::format("SwingTrend({} 종목당 {}원 저점 창 {}일 발주선 +{}% 취소선 +{}% {}) 계획 {}", parameters_.label, parameters_.notional_krw,
+                       parameters_.pivot_window, parameters_.buy_trigger_percent, parameters_.buy_disarm_percent,
+                       parameters_.dry_run ? "dry-run" : "실주문", parameters_.plan_file);
 }
 
 std::string SwingTrendStrategy::kst_date() const
@@ -136,11 +138,13 @@ void SwingTrendStrategy::publish_owned()
 
     owned_scratch_ = held_tickers();
 
-    // 오늘 아직 판단하지 않은 후보도 넣는다 — 체결되는 순간부터 슬롯 계산 밖이어야 장중 전략의 강제청산 대상이 되지 않는다.
+    // 오늘 아직 판단하지 않은 후보와 매수 대기 종목도 넣는다 — 체결되는 순간부터 슬롯 계산 밖이어야 장중 전략의 강제청산 대상이 되지 않는다.
     //  계좌가 이미 든 후보는 넣지 않는다(사지 않고, 넣으면 다른 슬리브 보유가 슬롯 밖으로 빠진다).
     for (const auto& ticker : candidate_tickers())
     {
-        if (attempted_today_.count(ticker) == 0 && confirmed_position(parameters_.account, ticker) == 0)
+        const bool undecided = attempted_today_.count(ticker) == 0 || armed_today_.count(ticker) > 0;
+
+        if (undecided && confirmed_position(parameters_.account, ticker) == 0)
         {
             owned_scratch_.push_back(ticker);
         }
@@ -220,6 +224,7 @@ void SwingTrendStrategy::roll_day()
     if (new_day)
     {
         attempted_today_.clear();
+        armed_today_.clear();
 
         // 어제 다 못 판 매도 — 주문은 밤사이 사라지므로 Open으로 되돌려 오늘 창에서 다시 판단한다.
         for (auto& position : positions_)
@@ -244,6 +249,7 @@ void SwingTrendStrategy::publish_requests()
     std::vector<std::string> want_open;
     std::vector<std::string> want_bars;
     std::vector<std::string> want_price;
+    std::vector<std::string> want_quote;
     const int                hhmm = kst_hhmm(clock_());
 
     if (plan_ && hhmm < parameters_.buy_cancel_hhmm)
@@ -253,6 +259,21 @@ void SwingTrendStrategy::publish_requests()
             if (attempted_today_.count(ticker) == 0)
             {
                 want_open.push_back(ticker);
+            }
+        }
+    }
+
+    // 매수 창 안에서는 대기 종목(근접 발주)과 체결 0주 오늘 매수(멀어짐 취소)의 현재가를 받는다.
+    if (hhmm >= parameters_.buy_start_hhmm && hhmm < parameters_.buy_cancel_hhmm)
+    {
+        want_quote.assign(armed_today_.begin(), armed_today_.end());
+
+        for (const auto& position : positions_)
+        {
+            if (position.status == Status::Pending && position.entry_date == day_ && position.order_number != 0 && !position.cancel_sent &&
+                position.quantity == 0)
+            {
+                want_quote.push_back(position.ticker);
             }
         }
     }
@@ -279,18 +300,20 @@ void SwingTrendStrategy::publish_requests()
         snapshot_.day = day_;
         snapshot_.opens.clear();
         snapshot_.prices.clear();
+        snapshot_.quotes.clear();
     }
 
     snapshot_.want_open.swap(want_open);
     snapshot_.want_bars.swap(want_bars);
     snapshot_.want_price.swap(want_price);
+    snapshot_.want_quote.swap(want_quote);
 }
 
 void SwingTrendStrategy::prefetch_once()
 {
     const std::time_t now = clock_();
 
-    if (!kis_ || !is_weekday(now))
+    if (!is_weekday(now) || (!kis_ && !quote_source_.open && !quote_source_.prices))
     {
         return;
     }
@@ -300,6 +323,7 @@ void SwingTrendStrategy::prefetch_once()
     std::vector<std::string> want_open;
     std::vector<std::string> want_bars;
     std::vector<std::string> want_price;
+    std::vector<std::string> want_quote;
     {
         std::lock_guard<std::mutex> lock(snapshot_mutex_);
 
@@ -320,6 +344,16 @@ void SwingTrendStrategy::prefetch_once()
                 }
             }
         }
+
+        // 한 패스에 묶음 조회 1회(최대 kMultiPriceMax종목). 넘치면 다음 패스가 이어서 돈다.
+        const size_t quote_count = snapshot_.want_quote.size();
+
+        for (size_t offset = 0; offset < quote_count && offset < KisClient::kMultiPriceMax; ++offset)
+        {
+            want_quote.push_back(snapshot_.want_quote[(quote_cursor_ + offset) % quote_count]);
+        }
+
+        quote_cursor_ = quote_count == 0 ? 0 : (quote_cursor_ + want_quote.size()) % quote_count;
 
         for (const auto& ticker : snapshot_.want_bars)
         {
@@ -343,13 +377,29 @@ void SwingTrendStrategy::prefetch_once()
     // REST는 잠금 밖에서 부른다 — 한 조회가 샤드 스레드의 on_clock을 막지 않게.
     for (const auto& ticker : want_open)
     {
-        const double open = kis_->get_fundamentals(ticker).open;
+        double open = 0.0;
+
+        if (quote_source_.open)
+        {
+            open = quote_source_.open(ticker);
+        }
+        else if (kis_)
+        {
+            open = kis_->get_fundamentals(ticker).open;
+        }
 
         if (open > 0.0)
         {
             std::lock_guard<std::mutex> lock(snapshot_mutex_);
             snapshot_.opens[ticker] = open;
         }
+    }
+
+    fetch_quotes(want_quote);
+
+    if (!kis_)
+    {
+        return; // 시험 출처만 있다 — 일봉·매도 창 현재가는 KisClient로만 받는다
     }
 
     for (const auto& ticker : want_bars)
@@ -391,6 +441,47 @@ void SwingTrendStrategy::prefetch_once()
     }
 }
 
+// 대기·미체결 종목 현재가를 묶음 조회 한 번으로 받는다(prefetch 스레드). 실패하면 이번 패스는 버린다 — 낡은 값은 fresh_quote가 거른다.
+void SwingTrendStrategy::fetch_quotes(const std::vector<std::string>& wanted)
+{
+    if (wanted.empty())
+    {
+        return;
+    }
+
+    std::optional<std::vector<double>> prices;
+
+    if (quote_source_.prices)
+    {
+        prices = quote_source_.prices(wanted);
+    }
+    else if (kis_)
+    {
+        auto result = kis_->get_current_prices(wanted);
+
+        if (result)
+        {
+            prices = std::move(*result);
+        }
+    }
+
+    if (!prices || prices->size() != wanted.size())
+    {
+        return;
+    }
+
+    const std::time_t           fetched_at = clock_();
+    std::lock_guard<std::mutex> lock(snapshot_mutex_);
+
+    for (size_t index = 0; index < wanted.size(); ++index)
+    {
+        if ((*prices)[index] > 0.0)
+        {
+            snapshot_.quotes[wanted[index]] = Quote{(*prices)[index], fetched_at};
+        }
+    }
+}
+
 void SwingTrendStrategy::on_clock(std::vector<OrderSignal>& out)
 {
     roll_day();
@@ -405,7 +496,9 @@ void SwingTrendStrategy::on_clock(std::vector<OrderSignal>& out)
     track_fills();
     update_stops();
     run_buys(out);
+    run_far_cancels(out);
     run_unfilled_cancels(out);
+    release_armed();
     run_sells(out);
     publish_requests();
     publish_owned();
@@ -419,4 +512,9 @@ void SwingTrendStrategy::on_clock(std::vector<OrderSignal>& out)
 void SwingTrendStrategy::set_clock(Clock clock)
 {
     clock_ = std::move(clock);
+}
+
+void SwingTrendStrategy::set_quote_source(QuoteSource source)
+{
+    quote_source_ = std::move(source);
 }

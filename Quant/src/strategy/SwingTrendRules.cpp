@@ -151,6 +151,18 @@ bool should_buy(double open_price, int64_t entry_price)
     return entry_price > 0 && open_price > static_cast<double>(entry_price);
 }
 
+bool near_entry(double price, int64_t entry_price, double trigger_percent)
+{
+    const double trigger_line = static_cast<double>(entry_price) * (1.0 + trigger_percent / 100.0);
+    return entry_price > 0 && price > 0.0 && price <= trigger_line;
+}
+
+bool far_from_entry(double price, int64_t entry_price, double disarm_percent)
+{
+    const double disarm_line = static_cast<double>(entry_price) * (1.0 + disarm_percent / 100.0);
+    return entry_price > 0 && price > 0.0 && price > disarm_line;
+}
+
 int buy_quantity(int64_t notional_krw, int64_t entry_price)
 {
     if (entry_price <= 0 || notional_krw <= 0)

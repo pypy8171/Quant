@@ -35,6 +35,14 @@ std::optional<Plan> parse_plan(const nlohmann::json& document, std::string& reas
 //  시가를 모르면(0 이하) 사지 않는다.
 bool should_buy(double open_price, int64_t entry_price);
 
+// [formula] 근접 발주선 = 매수가 × (1 + trigger_percent/100). 현재가가 이 선 이하로 내려오면 매수가 지정가 주문을 낸다.
+//  현재가나 매수가를 모르면(0 이하) 내지 않는다.
+bool near_entry(double price, int64_t entry_price, double trigger_percent);
+
+// [formula] 취소선 = 매수가 × (1 + disarm_percent/100). 체결 0주 매수 주문은 현재가가 이 선 위로 멀어지면 취소한다.
+//  현재가나 매수가를 모르면(0 이하) 취소하지 않는다.
+bool far_from_entry(double price, int64_t entry_price, double disarm_percent);
+
 // [formula] 수량 = floor(종목당 금액 / 매수가). 매수가가 0 이하면 0.
 int buy_quantity(int64_t notional_krw, int64_t entry_price);
 

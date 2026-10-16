@@ -957,6 +957,66 @@ def swing_trend_row(date: str, log: Path, swing_lines: list) -> tuple:
     return (name, True, "WARN", detail)
 
 
+SWING_NEAR_EVENT_RE = re.compile(r"\[SWING_\w+\] (매수 대기 시작|매수 주문|멀어져 매수 취소|매수 대기 복귀|매수 체결|매수 미체결 정리|매수 대기 해제) (\d{6})?")
+SWING_ORDER_AMOUNT_RE = re.compile(r"\[SWING_\w+\] 매수 주문 (\d{6}) .*?(\d+)주 지정가 (\d+)")
+SWING_FAR_CANCEL_CHURN = 3   # 한 종목이 하루에 멀어져 취소를 이만큼 하면 발주선·취소선 간격이 좁다고 본다(손으로 고른 값)
+
+
+def swing_near_order_row(swing_lines: list) -> tuple:
+    """SWING 근접 발주(D-160 후속, 2026-10-16) 판정 한 줄 — 매수 대기 시작 종목 수, 근접 발주 수, 멀어져 취소한 수,
+    대기 복귀 수, 체결 수, 미체결 매수가 묶은 최대 금액.
+
+    묶인 금액은 '매수 주문'의 수량×지정가를 더하고, 체결·미체결 정리·대기 복귀(선점이 풀린 때)에 뺀 값의 하루 최댓값이다.
+    매수 주문은 있는데 '매수 대기 시작'이 하나도 없으면 아침에 지정가를 걸어 두던 이전 exe로 보고 실패로 둔다(10-16 모의
+    39,804,640원·실계좌 4,313,040원이 하루 종일 묶였다). 한 종목이 멀어져 취소를 SWING_FAR_CANCEL_CHURN 번 넘게 하면 경고.
+    """
+    name = "SWING 근접 발주"
+
+    if not swing_lines:
+        return (name, True, "INFO", "SWING 로그 줄 없음 — 판정 안 함")
+
+    armed: set[str] = set()
+    counts: dict[str, int] = {}
+    far_cancels: dict[str, int] = {}
+    outstanding: dict[str, int] = {}
+    tied = 0
+    tied_max = 0
+
+    for _, line in swing_lines:
+        found = SWING_NEAR_EVENT_RE.search(line)
+
+        if not found:
+            continue
+
+        what, ticker = found.group(1), found.group(2)
+        counts[what] = counts.get(what, 0) + 1
+
+        if what == "매수 대기 시작" and ticker:
+            armed.add(ticker)
+        elif what == "멀어져 매수 취소" and ticker:
+            far_cancels[ticker] = far_cancels.get(ticker, 0) + 1
+        elif what == "매수 주문" and (amount := SWING_ORDER_AMOUNT_RE.search(line)):
+            ordered = int(amount.group(2)) * int(amount.group(3))
+            tied += ordered - outstanding.get(amount.group(1), 0)
+            outstanding[amount.group(1)] = ordered
+            tied_max = max(tied_max, tied)
+        elif what in ("매수 체결", "매수 미체결 정리", "매수 대기 복귀") and ticker in outstanding:
+            tied -= outstanding.pop(ticker)
+
+    detail = (f"대기 시작 {len(armed)}종목, 근접 발주 {counts.get('매수 주문', 0)}, 멀어져 취소 {counts.get('멀어져 매수 취소', 0)}, "
+              f"대기 복귀 {counts.get('매수 대기 복귀', 0)}, 체결 {counts.get('매수 체결', 0)}, 미체결 매수 최대 {tied_max:,}원")
+
+    if counts.get("매수 주문", 0) > 0 and not armed:
+        return (name, False, "FAIL", detail + " — 매수 대기 줄 없이 매수 주문(아침 지정가를 걸어 두는 이전 exe)")
+
+    churn = sorted(ticker for ticker, count in far_cancels.items() if count >= SWING_FAR_CANCEL_CHURN)
+
+    if churn:
+        return (name, False, "WARN", detail + f" — 멀어져 취소 {SWING_FAR_CANCEL_CHURN}회 이상: " + ", ".join(churn))
+
+    return (name, True, "INFO", detail)
+
+
 def surge_hold_rows(date: str, log: Path, surge_lines: list, signals: list, itb_attached: list, fills: list) -> list:
     """SURGE_HOLD(급등 뒤 되돌림 보유, D-157) 판정 아홉 줄. 줄은 collect() 가 모은 그날의 SURGE·면제 로그 줄이다.
 
@@ -4648,6 +4708,7 @@ def collect(date: str, log: Path, since: int = 0, include_global: bool = True):
 
     rows.extend(surge_hold_rows(date, log, surge_lines, signals, itb_attached, fills))
     rows.append(swing_trend_row(date, log, swing_lines))
+    rows.append(swing_near_order_row(swing_lines))
 
     if include_global:
         rows.extend(global_rows(date))

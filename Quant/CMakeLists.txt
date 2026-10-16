@@ -627,6 +627,10 @@ if(UNIX)
     target_link_libraries(test_swing_trend_rules PRIVATE pthread)
 endif()
 
+# 스윙 추세 슬리브 본체(strategy/SwingTrendStrategy) — 시가 판정 뒤 매수 대기, 현재가 근접 발주·멀어짐 취소·재기동·15:19 (D-160 후속)
+add_executable(test_swing_trend_strategy tests/test_swing_trend_strategy.cpp)
+target_link_libraries(test_swing_trend_strategy PRIVATE quant_engine)
+
 # ─── 테스트 타겟: SPSC RingBuffer 검증 ───────────────────────────────────
 add_executable(test_ringbuffer tests/test_ringbuffer.cpp)
 target_include_directories(test_ringbuffer PRIVATE
@@ -1080,6 +1084,7 @@ set(QUANT_ASSERT_TARGETS
     test_target_basket_strategy
     test_surge_hold
     test_swing_trend_rules
+    test_swing_trend_strategy
     test_ringbuffer
     test_ringbuffer_stress
     test_pipeline_stress

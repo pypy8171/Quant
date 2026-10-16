@@ -9,10 +9,10 @@
 - [(루트)](#루트) — 11개
 - [.vscode](#vscode) — 4개
 - [PYQuant](#pyquant) — 106개
-- [Quant](#quant) — 460개
+- [Quant](#quant) — 461개
 - [docs](#docs) — 153개
 - [linux_practice](#linux_practice) — 2개
-- [research](#research) — 555개
+- [research](#research) — 554개
 - [scripts](#scripts) — 54개
 - [strategies](#strategies) — 46개
 - [tools](#tools) — 3개
@@ -707,6 +707,7 @@
 - [test_strategy_shard.cpp](../Quant/tests/test_strategy_shard.cpp) — 전략 샤드 단위 테스트(열 소비 순서·다건 발주)
 - [test_surge_hold.cpp](../Quant/tests/test_surge_hold.cpp) — 계획 파싱·계획 날짜·손절·익절·건너뜀(약세장·겹침·같은 신호·보유 4·하루 3)·체결 재계산·재기동·만기·백스톱·dry_run·같은 계획 재매수·창 밖 손절·매도 재개·갭 하락·미체결 취소·상태 파일 깨짐 고정
 - [test_swing_trend_rules.cpp](../Quant/tests/test_swing_trend_rules.cpp) — 스윙 추세 판정 단위 시험 — 계획 검증·매수 조건·손절선·매도 창·계획 날짜 경계
+- [test_swing_trend_strategy.cpp](../Quant/tests/test_swing_trend_strategy.cpp) — SWING 근접 발주 시험(대기·근접 발주·멀어져 취소·재대기·부분 체결·재기동·15:19 해제·신규매수 차단)
 - [test_symbol_table.cpp](../Quant/tests/test_symbol_table.cpp) — 종목 id 테이블 단위 테스트(부여 순서·동시성)
 - [test_target_basket_plan.cpp](../Quant/tests/test_target_basket_plan.cpp) — 비중표 파싱 실패 6종·밴드·채우기·DROP·두 슬리브 합산·liquidate_all·순자산 계산 고정
 - [test_target_basket_strategy.cpp](../Quant/tests/test_target_basket_strategy.cpp) — 원장·시각 주입으로 집행 창·두 레그·예산·재기동 중복 방지·창 끝·dry_run 고정
@@ -1549,7 +1550,6 @@
 - [daily_stop_grid.py](../research/studies/38_trend_stop_intraday/daily_stop_grid.py) — 스터디 38 일봉 손절 시험 — 2010-01-04 – 2026-10-08 전체를 한 번에, 보통주 전 종목(daily_panel.py).
 - [ma_exit.py](../research/studies/38_trend_stop_intraday/ma_exit.py) — 스터디 38 — 이평선으로 추세가 깨진 자리를 판정해 파는 청산(사용자 정의, 2026-10-11).
 - [slot_test.py](../research/studies/38_trend_stop_intraday/slot_test.py) — 스터디 38 — 슬롯 제한 계좌 시험: 같은 매수 신호에 청산만 바꿔 2010–2026 계좌 곡선을 낸다(2026-10-11).
-- [unarmed_floor_test.py](../research/studies/38_trend_stop_intraday/unarmed_floor_test.py) — (설명 필요)
 - [verify_sample.py](../research/studies/38_trend_stop_intraday/verify_sample.py) — 스터디 38 대조 — daily_stop_grid.py(numba)의 매매 목록을 원 일봉 파일에서 순수 파이썬으로 따로 계산한 것과 맞춘다.
 
 ### research/studies/38_trend_support_realtime/

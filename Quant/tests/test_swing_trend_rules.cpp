@@ -37,6 +37,20 @@ int test_should_buy()
     return 0;
 }
 
+int test_near_and_far()
+{
+    CHECK(near_entry(10100.0, 10000, 1.0));    // 발주선(10100) 위 아님 — 낸다
+    CHECK(near_entry(9900.0, 10000, 1.0));     // 매수가 아래로 내려왔다
+    CHECK(!near_entry(10101.0, 10000, 1.0));   // 발주선 위
+    CHECK(!near_entry(0.0, 10000, 1.0));       // 현재가 모름
+    CHECK(!near_entry(9900.0, 0, 1.0));        // 매수가 없음
+    CHECK(far_from_entry(10201.0, 10000, 2.0));   // 취소선(10200) 위
+    CHECK(!far_from_entry(10200.0, 10000, 2.0));  // 같은 값은 두고 본다
+    CHECK(!far_from_entry(0.0, 10000, 2.0));      // 현재가 모름
+    CHECK(!far_from_entry(10500.0, 0, 2.0));      // 매수가 없음
+    return 0;
+}
+
 int test_buy_quantity()
 {
     CHECK(buy_quantity(500000, 10000) == 50);
@@ -171,7 +185,7 @@ int test_parse_plan()
 
 int main()
 {
-    if (test_should_buy() != 0 || test_buy_quantity() != 0 || test_is_extreme_low() != 0 || test_raised_stop() != 0 ||
+    if (test_should_buy() != 0 || test_near_and_far() != 0 || test_buy_quantity() != 0 || test_is_extreme_low() != 0 || test_raised_stop() != 0 ||
         test_entry_bar_index() != 0 || test_should_sell() != 0 || test_plan_stale() != 0 || test_parse_plan() != 0)
     {
         return 1;
