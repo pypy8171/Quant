@@ -1178,5 +1178,354 @@
         "anchor": "https://claude.ai/artifact/QhTHvFN4koDdWmKbYKuYUn#support"
       }
     ]
+  },
+  {
+    "number": "38",
+    "title": "추세 손절 — 추세가 꺾인 자리에서 파는 규칙(DevScale 매도)",
+    "series": "추세",
+    "period": "2010–2026 한 번에",
+    "status": "진행 중 — SMA60 종가 이탈 매도는 D-158로 채택, 분봉 대조가 남음",
+    "question": "DevScale로 산 종목을 평단 −6.5% 손절·+3% 익절 대신 추세가 꺾인 자리(이동평균 종가 이탈)에서 팔면 나은가.",
+    "method": "일봉 패널로 손절 선 격자(38-1), 무작위 1,000회 대조(38-2), 같은 구간 대조(38-4), 칸 25 계좌에서 매수 순서를 섞은 20회(38-5), 미무장 보유 출구 시험(10-12)을 차례로 돌렸다.",
+    "data": "일봉 전 종목, 같은 구간 대조 매수 130,649건, 칸 25 계좌 시험.",
+    "result": "칸 25 계좌 20회 중앙값: 지금 규칙 0.05배(연 −16.2%, 최대 낙폭 −96%, 29,162건), 매수 뒤 SMA60 위에 한 번 선 다음 종가 이탈 시 다음 날 시가 매도 2.52배(연 5.68%, 최대 낙폭 −45.9%, 3,241건, 건당 +1.01%). 미무장 보유에 기한·바닥을 둔 변형 7개는 1.85–2.61배로 기준보다 뚜렷이 낫지 않았다.",
+    "verdict": "SMA60 무장 뒤 종가 이탈, 다음 날 시가 매도를 DevScale 매도 규칙으로 채택했다(D-158, 10-11).",
+    "why": "같은 매수에서 지금 규칙은 계좌가 거의 사라졌고 SMA60 매도만 연 수익이 플러스였다. 다만 38-2 무작위 대조에서 고르기 효과를 빼면 95% 문턱에 못 미쳐(백분위 94.3) 확정이라 하기는 어렵다.",
+    "followup": "분봉 대조(매수일 익절 순서·종가 판정 체결가), 선 길이·폭 격자 넓히기. SMA60 아래에서 산 종목이 안 팔리는 엔진 빈틈은 D-159 예정.",
+    "files": [
+      "research/studies/38_trend_stop_intraday/daily_panel.py",
+      "research/studies/38_trend_stop_intraday/daily_stop_grid.py",
+      "research/studies/38_trend_stop_intraday/verify_sample.py",
+      "research/studies/38_trend_stop_intraday/control_test.py",
+      "research/studies/38_trend_stop_intraday/ma_exit.py",
+      "research/studies/38_trend_stop_intraday/slot_test.py",
+      "research/studies/38_trend_stop_intraday/unarmed_floor_test.py",
+      "research/studies/38_trend_stop_intraday/build_dashboard.py",
+      "research/studies/38_trend_stop_intraday/build_minute_pairs.py",
+      "research/studies/38_trend_stop_intraday/data/control_ma_variants.csv",
+      "research/studies/38_trend_stop_intraday/data/slot_summary.csv",
+      "research/studies/38_trend_stop_intraday/data/unarmed_floor_summary.csv",
+      "research/studies/38_trend_stop_intraday/data/unarmed_floor_years.csv"
+    ],
+    "verdict_tag": "진행 중",
+    "headline": {
+      "n": 3241,
+      "mean": 1.01,
+      "t": null,
+      "early": null,
+      "late": null,
+      "split": null
+    },
+    "pages": [
+      {
+        "url": "https://claude.ai/artifact/3im9FYJGuTbiptyFPkzKBU#flow-s38",
+        "kind": "리포트",
+        "label": "추세 손절 시험"
+      }
+    ],
+    "questions": [
+      {
+        "q": "SMA60 종가 이탈 다음 날 시가에 팔면 지금 규칙보다 나은가",
+        "verdict_tag": "채택",
+        "headline": {
+          "n": 3241,
+          "mean": 1.01,
+          "t": null,
+          "early": null,
+          "late": null,
+          "split": null
+        },
+        "anchor": "https://claude.ai/artifact/3im9FYJGuTbiptyFPkzKBU#slot"
+      },
+      {
+        "q": "SMA60 위에 서지 못한 보유분에 기한·바닥을 두면 나은가",
+        "verdict_tag": "기각",
+        "headline": {
+          "n": null,
+          "mean": null,
+          "t": null,
+          "early": null,
+          "late": null,
+          "split": null
+        },
+        "anchor": "https://claude.ai/artifact/3im9FYJGuTbiptyFPkzKBU#flow-s38"
+      }
+    ]
+  },
+  {
+    "number": "38",
+    "title": "추세 지지 실시간 — 이평선 지지 반등 매수와 거래대금 구간 바구니",
+    "series": "추세",
+    "period": "2010–2026 한 번에(시가총액 대조는 2016–)",
+    "status": "진행 중 — 11회차에서 2–5억 구간 20일 보유 2칸이 통과선을 넘음",
+    "question": "상승 추세 종목이 이평선 지지에서 반등할 때 사면 돈이 되는가. 갈라져 나온 질문: 거래대금 2–5억 구간 종목을 고르게 담은 바구니가 크기를 맞춘 대조보다 나은가.",
+    "method": "조합 전수 시험과 비교군·바구니 대조를 11회차까지 돌렸다. 11회차는 편향 감사 지적(정지·폐지 처리, 비용, 크기 맞춤 대조)을 고친 뒤 실행 전에 고정한 16칸(보유 20·60일 × 구간 2–5억·5–10억 × 대조 2종 × 매매 방식 2종)만 판정했다. 통과선 4.16.",
+    "data": "무수정 일봉 3,190종목(PYQuant/data/bars_all_pit_v2.parquet, 2026-10-08까지), KIND 상장폐지 사유, 연도별 증권거래세, 주문 금액 100만.",
+    "result": "8회차: 대조를 빼면 손익은 보유 기간이 가르고(1–20일 −2 – −3.5%p, 61일 초과 +25.5%p) 청산 격자는 전부 음수. 11회차: 20일 보유·2–5억·시가총액 대조 칸이 회차당 대조 초과 +0.59%p, t 4.83(131회차, 플러스 해 10/11)로 통과선 4.16을 넘었다. 5–10억 칸(t 3.83)과 60일 보유 칸은 못 넘었다.",
+    "verdict": "아직 판정 전. 이평선 지지 매수 자체는 대조 대비 이익을 못 보였고, 갈라져 나온 2–5억 바구니만 통과했다.",
+    "why": "통과한 칸은 주문 금액 100만 기준이라 금액을 키우면 충격 비용이 커질 수 있고, 옆 구간(5–10억)과 60일 보유는 통과선 아래다.",
+    "followup": "2–5억 바구니를 주문 금액별로 다시 보고, 원래 질문(추세가 꺾인 자리 손절)과 따로 정리한다.",
+    "files": [
+      "research/studies/38_trend_support_realtime/common.py",
+      "research/studies/38_trend_support_realtime/trade_test.py",
+      "research/studies/38_trend_support_realtime/round11_test.py",
+      "research/studies/38_trend_support_realtime/build_dashboard.py",
+      "research/studies/38_trend_support_realtime/results/round8/diagnosis_hold.csv",
+      "research/studies/38_trend_support_realtime/results/round8/exit_grid.csv",
+      "research/studies/38_trend_support_realtime/results/round11/round11_metrics.json",
+      "research/studies/38_trend_support_realtime/results/round11/multiple_comparison.json",
+      "research/studies/38_trend_support_realtime/results/round11/cell_table.csv"
+    ],
+    "verdict_tag": "진행 중",
+    "headline": {
+      "n": 131,
+      "mean": 0.59,
+      "t": 4.83,
+      "early": null,
+      "late": null,
+      "split": null
+    },
+    "pages": [
+      {
+        "url": "https://claude.ai/artifact/PVDxkcSk77yHEVVza9GMuS",
+        "kind": "리포트",
+        "label": "추세 지지 매매 점검"
+      }
+    ]
+  },
+  {
+    "number": "39",
+    "title": "DevScale 매도 규칙 대 추세 — 지수를 이기는 청산이 있는가",
+    "series": "DevScale",
+    "period": "2010–2026 한 번에",
+    "status": "결과 — 6회차까지 기각",
+    "question": "DevScale 매수에 청산 규칙을 바꿔 붙이면 지수를 이길 수 있는가.",
+    "method": "청산 252조합(1회차)에서 시작해 감사 결함 수정(2–3회차), 시장별 지수 대조(4회차), 매수 후보 C1–C5 2,016조합(5회차), C5 252조합 재판정(6회차)을 차례로 했다.",
+    "data": "일봉 전 종목, DevScale 일봉 근사 매수.",
+    "result": "지금 규칙은 117,332건 건당 −0.65%, t −12.21(지수 대비 연 −36.0%p). 3회차 63조합 중 코스피를 이긴 조합 0, 5회차 2,016조합 통과 0. 손익을 나누면 밤사이 +2.5%, 장중 −2.6%, 비용 0.79%. 6회차 지수 대비 가장 높은 t 2.86으로 통과선 4.07 아래.",
+    "verdict": "청산 규칙만 바꿔서는 지수를 이기지 못한다.",
+    "why": "벌이는 밤사이 보유에서 나오고 장중 매매와 비용이 그만큼을 까먹는다. 호가 비용 0을 가정해도 t 3.34로 통과선 3.5에 못 미쳤다.",
+    "followup": "없음. 보유 기간이 길수록 낫다는 결과(61일 이상 +46%)는 38·43에서 이어 봤다.",
+    "files": [
+      "research/studies/39_devscale_exit_vs_trend/ENTRY_CANDIDATES.md",
+      "research/studies/39_devscale_exit_vs_trend/run_exit_test.py",
+      "research/studies/39_devscale_exit_vs_trend/run_round6.py",
+      "research/studies/39_devscale_exit_vs_trend/build_dashboard_tabs.py",
+      "research/studies/39_devscale_exit_vs_trend/results/round4/first_table_a.csv",
+      "research/studies/39_devscale_exit_vs_trend/results/round5/judge_table.csv",
+      "research/studies/39_devscale_exit_vs_trend/results/round5/diagnosis_decomposition.csv",
+      "research/studies/39_devscale_exit_vs_trend/results/round6/a_judge_c5_252.csv",
+      "research/studies/39_devscale_exit_vs_trend/results/round6/b_breakeven.csv"
+    ],
+    "verdict_tag": "기각",
+    "headline": {
+      "n": 117332,
+      "mean": -0.65,
+      "t": -12.21,
+      "early": null,
+      "late": null,
+      "split": null
+    },
+    "pages": [
+      {
+        "url": "https://claude.ai/artifact/3im9FYJGuTbiptyFPkzKBU#flow-s39",
+        "kind": "리포트",
+        "label": "DevScale 청산 대 추세"
+      }
+    ]
+  },
+  {
+    "number": "40",
+    "title": "DevScale 매수 자리 — 이평선에 닿을 때 사기",
+    "series": "DevScale",
+    "period": "2010–2026 한 번에",
+    "status": "진행 중 — 5일선 매도를 언제부터 할지 사용자 결정 대기",
+    "question": "DevScale을 이평선(5·10·20·60일)에 닿는 날 사고 추세 거름·매도 규칙을 붙이면 전 종목을 들고만 있는 것보다 나은가.",
+    "method": "칸 25 계좌, 무작위 선택 20번 중앙값으로 비교했다. 40-1 이평선 닿음 매수, 40-2 추세 거름 × 매도 규칙, 40-3 전환 자리 9조합, 40-4 전환·분할 매도 22규칙.",
+    "data": "일봉 전 종목. 기준선은 전 종목을 똑같이 들고 있기(비용 없음) 3.52배.",
+    "result": "40-1: A 2.63배, A2 3.42배, T20 3.00배, T60 1.97배. 40-2 최고는 20일선 닿음 + 구름대 위 + SMA60 매도 3.38배(연 7.5%, 4,266건, 건당 +0.97%)로 기준선 3.52배에 못 미침. 40-3 전환 자리는 건당 −0.59 – +0.01%, 40-4 22규칙은 모두 건당 마이너스.",
+    "verdict": "아직 판정 전. 어떤 조합도 전 종목 보유 기준선을 넘지 못했다.",
+    "why": "5일선 몫의 49–55%가 매수 당일 종가에 팔렸다(그 건 −1.40%, 아닌 건 +2.63%). 매수 직후 5일선 이탈로 파는 것이 손실의 큰 몫이다.",
+    "followup": "5일선 이탈 매도를 매수 뒤 종가가 그 선 위에 한 번 선 다음부터 할지 사용자 결정 뒤 다시 돌린다.",
+    "files": [
+      "research/studies/40_devscale_entry_touch/entry_touch.py",
+      "research/studies/40_devscale_entry_touch/trend_filter.py",
+      "research/studies/40_devscale_entry_touch/turn_points.py",
+      "research/studies/40_devscale_entry_touch/turn_split.py",
+      "research/studies/40_devscale_entry_touch/build_dashboard.py",
+      "research/studies/40_devscale_entry_touch/build_problem_dashboard.py",
+      "research/studies/40_devscale_entry_touch/build_split_dashboard.py",
+      "research/studies/40_devscale_entry_touch/data/summary.csv",
+      "research/studies/40_devscale_entry_touch/data/candidates.csv",
+      "research/studies/40_devscale_entry_touch/data/filter/summary_inverse_sma20_sma60.csv",
+      "research/studies/40_devscale_entry_touch/data/split/account.csv"
+    ],
+    "verdict_tag": "진행 중",
+    "headline": {
+      "n": 4266,
+      "mean": 0.97,
+      "t": null,
+      "early": null,
+      "late": null,
+      "split": null
+    },
+    "pages": [
+      {
+        "url": "https://claude.ai/artifact/3im9FYJGuTbiptyFPkzKBU#flow-s40",
+        "kind": "리포트",
+        "label": "DevScale 매수 자리"
+      }
+    ]
+  },
+  {
+    "number": "41",
+    "title": "종목군 바구니 — 신고가·저가주 바구니 5,520조합",
+    "series": "종목군",
+    "period": "2010–2026 한 번에",
+    "status": "결과 — 기각",
+    "question": "종목군(신고가·가격대 등) × 보유 수 × 교체 주기 × 체결 시점 × 버퍼를 바꾼 바구니 중 지수를 넉넉히 이기는 것이 있는가.",
+    "method": "1단계 표로 후보를 좁히고 2단계에서 5,520칸을 부호 뒤집기 1,000회 통과선으로 판정했다. 판정 값은 코스피·코스닥, 월·연 t 중 가장 낮은 t.",
+    "data": "일봉 전 종목, 연도별 비용.",
+    "result": "통과선 4.53에 5,520칸 중 통과 0, 가장 낮은 t가 2 이상인 칸도 0. 최고 칸(250일 신고가·저가주·20종목·월간·같은 날 종가·1.5N 버퍼)은 연 20.10%, 지수 대비 +11.86%p, t 1.74. DevScale 근사 칸은 연 −11.40%, 지수 대비 −20.27%p, t −4.50.",
+    "verdict": "채택하지 않는다.",
+    "why": "최고 칸의 초과 +11.9%p 중 +8.9%p는 저가주라는 종목군 몫이고, 추세를 벗어난 종목을 계속 들고 있던 건이 손실의 76%였다. 비용 0이면 t 3 이상 칸이 46개라 회전 비용(연 회전율 중앙값 약 16)이 큰 몫이다.",
+    "followup": "없음.",
+    "files": [
+      "research/studies/41_universe_basket/README.md",
+      "research/studies/41_universe_basket/basket.py",
+      "research/studies/41_universe_basket/build_inputs.py",
+      "research/studies/41_universe_basket/run_stage_a.py",
+      "research/studies/41_universe_basket/run_stage_b.py",
+      "research/studies/41_universe_basket/problem_trades.py",
+      "research/studies/41_universe_basket/results/stage_b_metrics.json",
+      "research/studies/41_universe_basket/results/stage_b_judge.csv",
+      "research/studies/41_universe_basket/results/stage_b_years.csv",
+      "research/studies/41_universe_basket/results/stage_b_failure.csv",
+      "research/studies/41_universe_basket/results/stage_a_table.csv",
+      "research/studies/41_universe_basket/results/choices_log.csv",
+      "research/studies/41_universe_basket/results/run_command.txt"
+    ],
+    "verdict_tag": "기각",
+    "headline": {
+      "n": null,
+      "mean": null,
+      "t": 1.74,
+      "early": null,
+      "late": null,
+      "split": null
+    },
+    "pages": [
+      {
+        "url": "https://claude.ai/artifact/3im9FYJGuTbiptyFPkzKBU#flow-s41",
+        "kind": "리포트",
+        "label": "종목군 바구니"
+      },
+      {
+        "url": "https://claude.ai/artifact/3im9FYJGuTbiptyFPkzKBU#problems41",
+        "kind": "리포트",
+        "label": "41 문제 종목"
+      }
+    ]
+  },
+  {
+    "number": "42",
+    "title": "고점·저점 추세 — 직전 고점 돌파 뒤 되돌림 매수 계좌 시험",
+    "series": "추세",
+    "period": "2010–2026 한 번에",
+    "status": "결과 — 기각(42-5)",
+    "question": "상승 추세 종목이 20일선으로 되돌릴 때 사는 스윙 규칙이 계좌 단위로 지수를 이기는가.",
+    "method": "42-1–42-3에서 되돌림 매수에 거름 4개를 붙였고, 42-5에서 48조합 계좌 시험·무작위 대조 20회·이웃 문턱 243칸·무작위 순서 960회를 돌렸다. 통과선 3.50(전체 680계열)·3.06.",
+    "data": "일봉 전 종목, 1호가 비용, 고정 500만 또는 복리.",
+    "result": "대표 조합(칸 100, 고정 500만, 거래대금 순): 연 6.66%, 최대 낙폭 −26.7%, 코스피 대비 −3.36%p, 코스닥 대비 +1.01%p, 가장 낮은 t −0.81, 3,012건, 건당 평균 +6.34%·중앙값 −7.54%. 48조합 모두 통과선 미달. 가장 높은 조합(칸 20 복리) 연 11.37%는 상위 7건을 빼면 1.99%.",
+    "verdict": "채택하지 않는다.",
+    "why": "건당 평균은 소수 큰 수익 건이 만들고 중앙값은 마이너스다. 이웃 문턱 243칸 모두 코스피 대비 음수, 무작위 순서 960회 중 t 통과 0.",
+    "followup": "10-12에 시작한 실매매를 내릴지는 메인 세션이 정한다.",
+    "files": [
+      "research/studies/42_swing_trend/README.md",
+      "research/studies/42_swing_trend/swing_trend.py",
+      "research/studies/42_swing_trend/feature_buckets.py",
+      "research/studies/42_swing_trend/filter_rule.py",
+      "research/studies/42_swing_trend/candidates.py",
+      "research/studies/42_swing_trend/account_test.py",
+      "research/studies/42_swing_trend/build_dashboard42.py",
+      "research/studies/42_swing_trend/data/filter_steps.csv",
+      "research/studies/42_swing_trend/results/main_table.csv",
+      "research/studies/42_swing_trend/results/judge.csv",
+      "research/studies/42_swing_trend/results/family_bars.csv",
+      "research/studies/42_swing_trend/results/controls.csv",
+      "research/studies/42_swing_trend/results/index_reference.csv",
+      "research/studies/42_swing_trend/results/order_random.csv",
+      "research/studies/42_swing_trend/results/neighbors.csv",
+      "research/studies/42_swing_trend/live/plan.json"
+    ],
+    "verdict_tag": "기각",
+    "headline": {
+      "n": 3012,
+      "mean": 6.34,
+      "t": -0.81,
+      "early": null,
+      "late": null,
+      "split": null
+    },
+    "pages": [
+      {
+        "url": "https://claude.ai/artifact/3im9FYJGuTbiptyFPkzKBU#flow-s42",
+        "kind": "리포트",
+        "label": "스윙 추세"
+      },
+      {
+        "url": "https://claude.ai/artifact/3im9FYJGuTbiptyFPkzKBU#swing-steps",
+        "kind": "리포트",
+        "label": "42 거름 단계"
+      }
+    ]
+  },
+  {
+    "number": "43",
+    "title": "DevScale 실제 규칙 — 매수 순서·칸 수·매도 규칙 919조합",
+    "series": "DevScale",
+    "period": "2010–2026 한 번에",
+    "status": "결과 — 기각",
+    "question": "실제 DevScale 규칙(D-158 매도 포함)을 매수 순서·칸 수·금액 방식·손절·익절과 함께 바꿔 보면 지수를 넉넉히 이기는 조합이 있는가.",
+    "method": "1·2단계 414조합(통과선 4.10, 1단계만 3.10)과 43-D 505조합(통과선 4.23)을 판정했다. 무작위 대조와 무작위 순서를 같이 돌렸다.",
+    "data": "일봉 전 종목, 0호가·1호가 비용, 코스피 연 8.61%.",
+    "result": "414조합 통과 0, 가장 높은 '가장 낮은 t' 1.07. 43-D 505조합 통과 0. 실제 설정(D158)은 연 4.90%, 최대 낙폭 −61.8%, 코스피 대비 −3.92%p, 가장 낮은 t −1.04, 2,488건, 무작위 대조 20회 중 19승. 옛 규칙(−6.5% 손절·+3% 익절)은 연 −34 – −45%.",
+    "verdict": "채택하지 않는다. D-158 매도는 옛 규칙보다 훨씬 낫지만 지수를 넘지 못한다.",
+    "why": "익절은 모든 조합에서 해로웠고, 넓은 손절과 손절 없음의 차이는 매수 순서 우연 안이다(무작위 순서 중앙값 연 2.45%).",
+    "followup": "1분봉으로 09:00–09:30 스캔 종목군을 재현해 일봉 근사와 맞춰 본다.",
+    "files": [
+      "research/studies/43_devscale_real_rules/README.md",
+      "research/studies/43_devscale_real_rules/harness.py",
+      "research/studies/43_devscale_real_rules/run_stages.py",
+      "research/studies/43_devscale_real_rules/round_d.py",
+      "research/studies/43_devscale_real_rules/reproduce.py",
+      "research/studies/43_devscale_real_rules/build_dashboard_tabs.py",
+      "research/studies/43_devscale_real_rules/results/stage1_table.csv",
+      "research/studies/43_devscale_real_rules/results/stage2_table.csv",
+      "research/studies/43_devscale_real_rules/results/judge.csv",
+      "research/studies/43_devscale_real_rules/results/family_bars.csv",
+      "research/studies/43_devscale_real_rules/results/controls.csv",
+      "research/studies/43_devscale_real_rules/results/order_random.csv",
+      "research/studies/43_devscale_real_rules/results/exit_reasons.csv",
+      "research/studies/43_devscale_real_rules/results/round_d/judge.csv",
+      "research/studies/43_devscale_real_rules/results/round_d/grid_table.csv",
+      "research/studies/43_devscale_real_rules/results/round_d/years.csv"
+    ],
+    "verdict_tag": "기각",
+    "headline": {
+      "n": 2488,
+      "mean": null,
+      "t": -1.04,
+      "early": null,
+      "late": null,
+      "split": null
+    },
+    "pages": [
+      {
+        "url": "https://claude.ai/artifact/3im9FYJGuTbiptyFPkzKBU#flow-s43",
+        "kind": "리포트",
+        "label": "DevScale 실제 규칙"
+      }
+    ]
   }
 ]

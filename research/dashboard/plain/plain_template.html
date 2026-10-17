@@ -215,7 +215,7 @@ details.data>summary{display:block;padding:10px 4px}
 <div class="wrap">
 
 <header>
-  <span class="eyebrow">/*ASOF*/ 기준 · 백테스트 7건 · 부하 시험 5가지</span>
+  <span class="eyebrow">/*ASOF*/ 기준 · 고른 백테스트 열두 건 · 부하 시험 5가지</span>
   <h1>시험 결과 쉽게 읽기</h1>
   <p class="lede">무엇을 기준으로 시험했는지, 결과가 어땠는지를 먼저 적고 자세한 숫자는 항목을 눌러 펼치게 했습니다.</p>
   <div class="tabs" role="tablist" aria-label="결과 종류">
@@ -230,7 +230,7 @@ details.data>summary{display:block;padding:10px 4px}
   <div class="box lead">
     <span class="label">한 줄 요약</span>
     <span class="big">유명한 신호는 그냥 들고 있기를 못 이겼고, 거래를 줄인 가치 전략과 눌림목 청산선이 살아남아 모의매매에 올라갔습니다.</span>
-    <span class="note">지금까지 돌린 백테스트 25건 중 이야기 하나로 이어지는 7건만 골라 순서대로 놓았습니다. 백테스트는 "이 규칙대로 과거에 사고팔았다면 돈을 벌었을까?"를 컴퓨터로 되짚어 보는 시험이고, 실제 돈은 쓰지 않습니다.</span>
+    <span class="note">지금까지 백테스트를 44건 돌렸고, 그중 이야기 하나로 이어지는 12건만 골라 순서대로 놓았습니다. 백테스트는 "이 규칙대로 과거에 사고팔았다면 돈을 벌었을까?"를 컴퓨터로 되짚어 보는 시험이고, 실제 돈은 쓰지 않습니다.</span>
   </div>
 
   <h3>어떤 기준으로 시험했나</h3>
@@ -244,13 +244,13 @@ details.data>summary{display:block;padding:10px 4px}
   <h3>결과 한눈에</h3>
   <div class="tally">
     <span class="pill pass">쓸 만함 2</span>
-    <span class="pill part">부분 확인 1</span>
-    <span class="pill fail">탈락 4</span>
+    <span class="pill part">부분 확인 2</span>
+    <span class="pill fail">탈락 8</span>
   </div>
-  <div class="stack" role="img" aria-label="7건 중 쓸 만함 2, 부분 확인 1, 탈락 4">
-    <i style="width:28.6%;background:var(--pass)"></i>
-    <i style="width:14.3%;background:var(--part)"></i>
-    <i style="width:57.1%;background:var(--fail)"></i>
+  <div class="stack" role="img" aria-label="12건 중 쓸 만함 2, 부분 확인 2, 탈락 8">
+    <i style="width:16.7%;background:var(--pass)"></i>
+    <i style="width:16.7%;background:var(--part)"></i>
+    <i style="width:66.6%;background:var(--fail)"></i>
   </div>
   <ol class="story">
     <li><b>유명한 신호 세 개는 그냥 들고 있기를 못 이겼다</b> — 11번</li>
@@ -259,6 +259,8 @@ details.data>summary{display:block;padding:10px 4px}
     <li><b>경기·물가·금리를 섞은 복잡한 모델은 도움이 안 됐다</b> — 20번</li>
     <li><b>그럴듯해도 사건 수가 적으면 쓰지 않는다</b> — 12번</li>
     <li><b>살아남은 규칙을 실제 운영(모의매매)에 올렸다</b> — 24번</li>
+    <li><b>2010–2026 전체로 다시 재니 매수·매도 규칙을 바꿔도 지수를 못 이겼다</b> — 39·41·42·43번</li>
+    <li><b>그중 옛 규칙보다 훨씬 나은 60일선 매도 규칙만 실매매에 바꿔 넣었다</b> — 38번</li>
   </ol>
   <p class="note">"부분 확인"은 돈 버는 방법이 아니라 "하락폭을 줄이는 장치가 효과가 있는가" 같은 보조 질문에 답이 나온 경우입니다. 각 줄을 누르면 시험 방법·합격 기준·핵심 숫자가 펼쳐집니다.</p>
 
@@ -301,7 +303,47 @@ details.data>summary{display:block;padding:10px 4px}
         <dt>시험 방법</dt><dd>최근 1년치 1분 단위 주가, 상위 100종목. 한 번 사고팔 때마다 비용 0.23%(수수료 0.015%×2 + 파는 쪽 세금 0.20%)를 빼고, 파는 규칙 조합 200가지 넘게(넓은 격자 189개 + 촘촘한 격자 20개 + 당일 청산 격자)를 비교.</dd>
         <dt>합격 기준</dt><dd>따로 적힌 기준은 없습니다. 비용을 빼도 이익이고, 설정을 조금 바꿔도 비슷하게 좋은 규칙을 골랐습니다.</dd>
         <dt>결과</dt><dd>그날 안에 다 파는 방식은 <b>어떤 설정이든 손해</b>. 하룻밤을 넘기고 +3%에 팔고 −6.5%에 손절하면 <b>1년에 약 279만 원 이익</b>(평균 832만 원 투입).</dd>
-        <dt>그래서</dt><dd>2026-09-21 모의계좌에 반영. 1년치 한 번만 본 결과라 매일 확인 중입니다.</dd>
+        <dt>그래서</dt><dd>2026-09-21 모의계좌에 반영. 1년치 한 번만 본 결과라 매일 확인 중입니다. 뒤에 2010–2026 전체로 다시 재 보니 이 규칙은 해마다 손해였습니다(43번).</dd>
+      </dl>
+    </details>
+    <details>
+      <summary><span class="no">39</span><span class="q"><em class="step-tag">7 · 전체 기간으로 다시 재니 지수를 못 이겼다</em>눌림목 매매에서 파는 규칙만 바꾸면 지수를 이길까?<small>원래 이름: DevScale 청산 대 추세</small></span><span class="pill fail">탈락</span></summary>
+      <dl class="detail">
+        <dt>시험 방법</dt><dd>실제 매수 규칙을 일봉으로 따라 하고(2010–2026, 매매 117,332건), 같은 매수에 파는 규칙 조합을 여섯 차례(63개 → 2,016개) 붙여 지수와 비교.</dd>
+        <dt>결과</dt><dd>지금 규칙은 한 번 사고팔 때 평균 −0.65%(지수보다 1년에 36.0%포인트 못함). <b>지수를 이긴 조합은 0개</b>. 밤사이에는 +2.5% 벌고 장중에 −2.6% 잃었으며, 한 번 사고팔 때 비용이 약 0.79%로 신호가 주는 이점(0.3–0.5%포인트)보다 컸습니다.</dd>
+        <dt>그래서</dt><dd>파는 규칙만 바꿔서는 안 된다고 보고 매수 자리(40번)와 종목 고르기(41번)로 넘어갔습니다.</dd>
+      </dl>
+    </details>
+    <details>
+      <summary><span class="no">41</span><span class="q"><em class="step-tag">7 · 전체 기간으로 다시 재니 지수를 못 이겼다</em>어떤 종목 묶음을 어떤 신호로 사면 지수를 이길까? 5,520가지를 한 번에<small>원래 이름: 종목군 바구니</small></span><span class="pill fail">탈락</span></summary>
+      <dl class="detail">
+        <dt>시험 방법</dt><dd>종목 묶음 23개 × 사는 신호 10개 × 운용 방식 24개 = 5,520가지를 2010–2026 전체로 돌리고, 아무렇게나 고른 묶음과 비교. 많이 시험한 만큼 합격선을 높였습니다(t 4.53).</dd>
+        <dt>결과</dt><dd><b>합격 0개</b>. 가장 좋은 조합(1년 최고가 근처의 싼 주식 20개, 매달 교체)은 1년에 20.1%로 지수보다 11.9%포인트 더 벌었지만 t 1.74로 우연과 구별되지 않았습니다. 눌림목 매매를 따라 한 조합은 지수보다 1년에 20.3%포인트 못했습니다.</dd>
+        <dt>그래서</dt><dd>비용을 0으로 두면 46개가 t 3을 넘어, 자주 사고파는 비용이 승패를 갈랐다고 기록했습니다.</dd>
+      </dl>
+    </details>
+    <details>
+      <summary><span class="no">42</span><span class="q"><em class="step-tag">7 · 전체 기간으로 다시 재니 지수를 못 이겼다</em>저점·고점이 함께 높아진 종목이 직전 고점으로 되돌아올 때 사면?<small>원래 이름: 고점·저점 추세 매수(SwingTrend)</small></span><span class="pill fail">탈락</span></summary>
+      <dl class="detail">
+        <dt>시험 방법</dt><dd>직전 고점을 넘은 뒤 다시 그 값까지 내려올 때 사고, 직전 저점 아래로 닫히면 팝니다. 나쁜 매수를 거르는 조건 4개를 붙이고, 칸 수·금액 방식 48가지를 계좌로 굴렸습니다(2010–2026).</dd>
+        <dt>결과</dt><dd>대표 조합(100칸, 칸당 500만 원)은 1년에 6.66%로 <b>코스피보다 3.36%포인트 낮았고</b>, 최대 하락 −26.7%. 매매 3,012건의 평균은 +6.34%지만 가운데 값은 −7.54%로 소수의 큰 이익에 기댔습니다. 48가지 모두 합격선 미달.</dd>
+        <dt>그래서</dt><dd>채택하지 않았습니다.</dd>
+      </dl>
+    </details>
+    <details>
+      <summary><span class="no">43</span><span class="q"><em class="step-tag">7 · 전체 기간으로 다시 재니 지수를 못 이겼다</em>실제로 쓰는 눌림목 규칙을 그대로 계좌로 굴리면?<small>원래 이름: DevScale 실제 규칙</small></span><span class="pill fail">탈락</span></summary>
+      <dl class="detail">
+        <dt>시험 방법</dt><dd>엔진의 실제 매수 규칙을 일봉으로 재현하고, 매수 순서·칸 수·파는 규칙을 바꾼 919가지(414 + 엔진 실제 설정 둘레 505)를 2010–2026 계좌로 굴려 지수·무작위 종목과 비교.</dd>
+        <dt>결과</dt><dd><b>합격 0개</b>. 지금 실제 설정은 1년에 4.90%로 코스피(8.61%)보다 낮았고 최대 하락 −61.8%. 옛 규칙(−6.5% 손절·+3% 익절)은 해마다 34–45% 손해였습니다.</dd>
+        <dt>그래서</dt><dd>새 파는 규칙(38번)은 옛 규칙보다 훨씬 낫지만 지수를 넘지 못한다고 기록했습니다.</dd>
+      </dl>
+    </details>
+    <details>
+      <summary><span class="no">38</span><span class="q"><em class="step-tag">8 · 옛 규칙보다 나은 매도 규칙만 바꿔 넣었다</em>추세가 꺾인 자리에서 팔면 −6.5% 손절보다 나을까?<small>원래 이름: 추세 손절</small></span><span class="pill part">부분 확인</span></summary>
+      <dl class="detail">
+        <dt>시험 방법</dt><dd>매수는 그대로 두고 파는 규칙만 추세가 깨진 사건(며칠 최저가·확정 저점·이동평균선)으로 바꿔 2010–2026 전 종목으로 비교. 25칸 계좌를 매수 순서를 섞어 20번 돌려 가운데 값을 봤습니다.</dd>
+        <dt>결과</dt><dd>옛 규칙은 돈이 0.05배로 줄었고(최대 하락 −96%), <b>사고 나서 60일 평균선 위에 한 번 선 뒤 종가가 그 아래로 내려가면 다음 날 아침에 파는 규칙은 2.52배</b>(1년에 5.68%, 최대 하락 −45.9%, 3,241건).</dd>
+        <dt>그래서</dt><dd>2026-10-11부터 모의·실계좌 매도 규칙을 이것으로 바꿨습니다(D-158). 다만 지수를 이기지는 못해 "부분 확인"으로 두었습니다. 같은 이름의 다른 갈래(이동평균선에서 반등할 때 사기)와 매수 자리 시험(40번)은 아직 진행 중입니다.</dd>
       </dl>
     </details>
   </div>
