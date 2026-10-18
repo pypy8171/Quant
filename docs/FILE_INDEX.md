@@ -12,9 +12,9 @@
 - [Quant](#quant) — 461개
 - [docs](#docs) — 153개
 - [linux_practice](#linux_practice) — 2개
-- [research](#research) — 554개
+- [research](#research) — 569개
 - [scripts](#scripts) — 54개
-- [strategies](#strategies) — 46개
+- [strategies](#strategies) — 47개
 - [tools](#tools) — 3개
 
 ## (루트)
@@ -1087,6 +1087,8 @@
 - [README.md](../research/studies/08_crisis_response/README.md) — 위기 대응 방어법 인과 백테스트 요약
 - [backtest_crisis_response.py](../research/studies/08_crisis_response/backtest_crisis_response.py) — 위기 대응 방어법 5종 백테스트 스크립트
 - [metrics.json](../research/studies/08_crisis_response/metrics.json) — 위기 인과 대응 5법 지표 데이터
+- [same_period_m1.json](../research/studies/08_crisis_response/same_period_m1.json) — M1 추세 규칙을 코스피·S&P500 같은 기간(1990-10–2026-10)으로 다시 돌린 결과
+- [same_period_m1.py](../research/studies/08_crisis_response/same_period_m1.py) — M1(200일선 추세 규칙)을 한국·미국 지수에 같은 평가 기간으로 맞춰 돌리는 스크립트
 
 ### research/studies/09_crisis_strategies/
 
@@ -1349,6 +1351,8 @@
 - [2026-10-14_eval.json](../research/studies/27_premarket_leaders/daily/2026-10-14_eval.json) — 10-14 장 전 주도 후보의 장중 성적 평가
 - [2026-10-15.jsonl](../research/studies/27_premarket_leaders/daily/2026-10-15.jsonl) — 10-15 장 전 주도 후보 기록
 - [2026-10-15_eval.json](../research/studies/27_premarket_leaders/daily/2026-10-15_eval.json) — 10-15 장 전 주도 후보의 장중 성적 평가
+- [2026-10-16.jsonl](../research/studies/27_premarket_leaders/daily/2026-10-16.jsonl) — 10-16 장 전 주도 후보 기록
+- [2026-10-16_eval.json](../research/studies/27_premarket_leaders/daily/2026-10-16_eval.json) — 10-16 장 전 주도 후보의 장중 성적 평가
 
 ### research/studies/28_devscale_zone_width/
 
@@ -1513,6 +1517,7 @@
 - [2026-10-13.jsonl](../research/studies/35_surge_box_breakout/live/2026-10-13.jsonl) — 2026-10-13 급등 박스 돌파 관측 일지(급등 수·신호·보유·누적 성과)
 - [2026-10-14.jsonl](../research/studies/35_surge_box_breakout/live/2026-10-14.jsonl) — 2026-10-14 급등 박스 돌파 관측 일지(급등 수·신호·보유·누적 성과)
 - [2026-10-15.jsonl](../research/studies/35_surge_box_breakout/live/2026-10-15.jsonl) — 2026-10-15 급등 박스 돌파 관측 일지(급등 수·신호·보유·누적 성과)
+- [2026-10-16.jsonl](../research/studies/35_surge_box_breakout/live/2026-10-16.jsonl) — 2026-10-16 급등 박스 돌파 관측 일지(급등 수·신호·보유·누적 성과)
 - [ledger.tsv](../research/studies/35_surge_box_breakout/live/ledger.tsv) — daily_watch.py 규칙별 매매 원장(신호일·매수·청산·수익률, 기록 열은 실시간/따라잡기)
 - [summary.txt](../research/studies/35_surge_box_breakout/live/summary.txt) — daily_watch.py 규칙별 누적 성적과 백테스트 대비·판정 요약
 
@@ -1550,6 +1555,7 @@
 - [daily_stop_grid.py](../research/studies/38_trend_stop_intraday/daily_stop_grid.py) — 스터디 38 일봉 손절 시험 — 2010-01-04 – 2026-10-08 전체를 한 번에, 보통주 전 종목(daily_panel.py).
 - [ma_exit.py](../research/studies/38_trend_stop_intraday/ma_exit.py) — 스터디 38 — 이평선으로 추세가 깨진 자리를 판정해 파는 청산(사용자 정의, 2026-10-11).
 - [slot_test.py](../research/studies/38_trend_stop_intraday/slot_test.py) — 스터디 38 — 슬롯 제한 계좌 시험: 같은 매수 신호에 청산만 바꿔 2010–2026 계좌 곡선을 낸다(2026-10-11).
+- [unarmed_floor_test.py](../research/studies/38_trend_stop_intraday/unarmed_floor_test.py) — SMA60 청산에서 한 번도 무장하지 못한 보유에만 손실 하한·기한을 붙이는 계좌 시험
 - [verify_sample.py](../research/studies/38_trend_stop_intraday/verify_sample.py) — 스터디 38 대조 — daily_stop_grid.py(numba)의 매매 목록을 원 일봉 파일에서 순수 파이썬으로 따로 계산한 것과 맞춘다.
 
 ### research/studies/38_trend_support_realtime/
@@ -1714,6 +1720,14 @@
 - [metrics.json](../research/studies/44_value_basket_drawdown_guard/metrics.json) — 스터디 44 칸별 지표(연 수익률·샤프·최대 낙폭·칼마·회전·비용·t)
 - [run_drawdown_guard.py](../research/studies/44_value_basket_drawdown_guard/run_drawdown_guard.py) — 스터디 44 실행기 — 일별 순자산으로 233칸을 한 번에 돌린다
 
+### research/studies/45_crisis_regime/
+
+- [PREREG.md](../research/studies/45_crisis_regime/PREREG.md) — 스터디 45 사전등록: 위기 판정 기준 다시 만들기와 같은 위기 상태 뒤 결과 차이 검정
+- [macro_conditions.py](../research/studies/45_crisis_regime/macro_conditions.py) — 금리·유가·VIX·환율 수준별 코스피 하락장 비율 서술 표
+- [macro_wide.py](../research/studies/45_crisis_regime/macro_wide.py) — 구간 20개 고점 날의 거시 지표 28개를 한 표로
+- [metrics.json](../research/studies/45_crisis_regime/metrics.json) — 판정 규칙별 위기 탐지·지연과 검정 결과
+- [run_crisis_regime.py](../research/studies/45_crisis_regime/run_crisis_regime.py) — 스터디 45 본 실행(판정 비교 A·결과 차이 검정 B)
+
 ### research/studies/test_replay/
 
 - [build_test_replay.py](../research/studies/test_replay/build_test_replay.py) — 시험 매매 리플레이 생성기 — 시험 4개 매매를 캔들 차트·근거 계산식으로 그리고 원장 가격을 일봉과 대조
@@ -1841,6 +1855,7 @@
 - [2026-10-13.md](../strategies/DeviationScale/live/2026-10-13.md) — 10-13 라이브 매매일지
 - [2026-10-14.md](../strategies/DeviationScale/live/2026-10-14.md) — 10-14 라이브 매매일지
 - [2026-10-15.md](../strategies/DeviationScale/live/2026-10-15.md) — 10-15 라이브 매매일지
+- [2026-10-16.md](../strategies/DeviationScale/live/2026-10-16.md) — 10-16 라이브 매매일지
 
 ### strategies/DeviationScale/reviews/
 

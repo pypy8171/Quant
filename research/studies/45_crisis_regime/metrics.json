@@ -1,0 +1,412 @@
+{
+  "detect": [
+    {
+      "rule": "S",
+      "missed_crisis": 5,
+      "missed_strict": 5,
+      "carried_crisis": 0,
+      "crisis_count": 10,
+      "entry_dd_median": -29.8,
+      "entry_lag_median": 104.0,
+      "exit_lag_median": 11.5,
+      "exit_rebound_median": 16.45,
+      "false_days_per_year": 1.2,
+      "adjust_days_per_year": 0.0,
+      "on_share": 2.0,
+      "entries_per_year": 0.39,
+      "cagr": 5.28,
+      "mdd": -77.0,
+      "bh_cagr": 6.85,
+      "bh_mdd": -72.1,
+      "neg_2017_days": 0,
+      "neg_2021_days": 0
+    },
+    {
+      "rule": "B1",
+      "missed_crisis": 0,
+      "missed_strict": 1,
+      "carried_crisis": 1,
+      "crisis_count": 10,
+      "entry_dd_median": -21.0,
+      "entry_lag_median": 50.5,
+      "exit_lag_median": 28.0,
+      "exit_rebound_median": 20.55,
+      "false_days_per_year": 16.1,
+      "adjust_days_per_year": 6.6,
+      "on_share": 25.4,
+      "entries_per_year": 0.62,
+      "cagr": 7.44,
+      "mdd": -60.6,
+      "bh_cagr": 6.85,
+      "bh_mdd": -72.1,
+      "neg_2017_days": 0,
+      "neg_2021_days": 0
+    },
+    {
+      "rule": "v0",
+      "missed_crisis": 0,
+      "missed_strict": 0,
+      "carried_crisis": 0,
+      "crisis_count": 10,
+      "entry_dd_median": -16.35,
+      "entry_lag_median": 55.5,
+      "exit_lag_median": 25.0,
+      "exit_rebound_median": 17.8,
+      "false_days_per_year": 16.5,
+      "adjust_days_per_year": 7.9,
+      "on_share": 24.9,
+      "entries_per_year": 1.68,
+      "cagr": 6.38,
+      "mdd": -66.0,
+      "bh_cagr": 6.85,
+      "bh_mdd": -72.1,
+      "neg_2017_days": 0,
+      "neg_2021_days": 22
+    }
+  ],
+  "levels": {
+    "state-10": {
+      "line": -0.1,
+      "events": 96,
+      "r60_std": 12.39,
+      "null_std_median": 12.83,
+      "null_std_p95": 14.91,
+      "p": 0.6462,
+      "tau": {
+        "q": 125.07,
+        "q_null_p95": 108.33,
+        "p_by_null": {
+          "global": 0.0565,
+          "within": 0.006,
+          "chi2": 0.021
+        },
+        "p": 0.0565,
+        "p_min": 0.006,
+        "tau60": 3.47,
+        "power": {
+          "5": 0.982,
+          "10": 1.0,
+          "15": 1.0,
+          "20": 1.0
+        }
+      },
+      "mode": "state",
+      "best_fixed": "현금",
+      "kendall_w": 0.1,
+      "oracle_gap": 8.15,
+      "winner_differs": 46,
+      "selector": {
+        "selector_mean": -0.68,
+        "fixed_mean": -3.1,
+        "selector_wins": 41,
+        "fixed_wins": 51
+      }
+    },
+    "state-15": {
+      "line": -0.15,
+      "events": 27,
+      "r60_std": 18.17,
+      "null_std_median": 14.68,
+      "null_std_p95": 19.49,
+      "p": 0.1074,
+      "tau": {
+        "q": 32.17,
+        "q_null_p95": 35.3,
+        "p_by_null": {
+          "global": 0.197,
+          "within": 0.0895,
+          "chi2": 0.1875
+        },
+        "p": 0.197,
+        "p_min": 0.0895,
+        "tau60": 3.4,
+        "power": {
+          "5": 0.486,
+          "10": 0.986,
+          "15": 1.0,
+          "20": 1.0
+        }
+      },
+      "mode": "state",
+      "best_fixed": "보유",
+      "kendall_w": 0.089,
+      "oracle_gap": 6.41,
+      "winner_differs": 11,
+      "selector": {
+        "selector_mean": 2.0,
+        "fixed_mean": 6.59,
+        "selector_wins": 0,
+        "fixed_wins": 3
+      }
+    },
+    "state-20": {
+      "line": -0.2,
+      "events": 14,
+      "r60_std": 20.17,
+      "null_std_median": 16.25,
+      "null_std_p95": 23.75,
+      "p": 0.1744,
+      "tau": {
+        "q": 22.29,
+        "q_null_p95": 21.81,
+        "p_by_null": {
+          "global": 0.1035,
+          "within": 0.046,
+          "chi2": 0.051
+        },
+        "p": 0.1035,
+        "p_min": 0.046,
+        "tau60": 6.83,
+        "power": {
+          "5": 0.256,
+          "10": 0.754,
+          "15": 0.976,
+          "20": 0.992
+        }
+      },
+      "mode": "state",
+      "best_fixed": "보유",
+      "kendall_w": 0.066,
+      "oracle_gap": 8.12,
+      "winner_differs": 7,
+      "selector": {
+        "selector_mean": -1.66,
+        "fixed_mean": 8.41,
+        "selector_wins": 0,
+        "fixed_wins": 4
+      },
+      "confirmed_winner_differs": 2,
+      "confirmed_count": 6
+    },
+    "state-25": {
+      "line": -0.25,
+      "events": 8,
+      "r60_std": 19.73,
+      "null_std_median": 16.02,
+      "null_std_p95": 26.72,
+      "p": 0.2498,
+      "tau": {
+        "q": 6.9,
+        "q_null_p95": 14.62,
+        "p_by_null": {
+          "global": 0.412,
+          "within": 0.4,
+          "chi2": 0.4398
+        },
+        "p": 0.4398,
+        "p_min": 0.4,
+        "tau60": 0.0,
+        "power": {
+          "5": 0.126,
+          "10": 0.38,
+          "15": 0.714,
+          "20": 0.874
+        }
+      },
+      "mode": "state",
+      "best_fixed": "20일선 추세",
+      "kendall_w": 0.141,
+      "oracle_gap": 9.85,
+      "winner_differs": 6,
+      "selector": {
+        "selector_mean": -11.47,
+        "fixed_mean": -5.59,
+        "selector_wins": 0,
+        "fixed_wins": 2
+      }
+    },
+    "gap-10": {
+      "line": -0.1,
+      "events": 28,
+      "r60_std": 11.4,
+      "null_std_median": 12.13,
+      "null_std_p95": 15.67,
+      "p": 0.6414,
+      "tau": {
+        "q": 35.73,
+        "q_null_p95": 36.7,
+        "p_by_null": {
+          "global": 0.18,
+          "within": 0.059,
+          "chi2": 0.1213
+        },
+        "p": 0.18,
+        "p_min": 0.059,
+        "tau60": 3.45,
+        "power": {
+          "5": 0.688,
+          "10": 1.0,
+          "15": 1.0,
+          "20": 1.0
+        }
+      },
+      "mode": "gap",
+      "best_fixed": "보유",
+      "kendall_w": 0.1,
+      "oracle_gap": 6.94,
+      "winner_differs": 16,
+      "selector": {
+        "selector_mean": -4.34,
+        "fixed_mean": -0.47,
+        "selector_wins": 0,
+        "fixed_wins": 5
+      }
+    },
+    "gap-15": {
+      "line": -0.15,
+      "events": 23,
+      "r60_std": 18.84,
+      "null_std_median": 13.44,
+      "null_std_p95": 18.66,
+      "p": 0.0454,
+      "tau": {
+        "q": 31.12,
+        "q_null_p95": 31.09,
+        "p_by_null": {
+          "global": 0.124,
+          "within": 0.05,
+          "chi2": 0.0938
+        },
+        "p": 0.124,
+        "p_min": 0.05,
+        "tau60": 4.18,
+        "power": {
+          "5": 0.508,
+          "10": 0.988,
+          "15": 0.998,
+          "20": 1.0
+        }
+      },
+      "mode": "gap",
+      "best_fixed": "보유",
+      "kendall_w": 0.063,
+      "oracle_gap": 5.6,
+      "winner_differs": 10,
+      "selector": {
+        "selector_mean": 5.74,
+        "fixed_mean": 8.08,
+        "selector_wins": 0,
+        "fixed_wins": 5
+      }
+    },
+    "gap-20": {
+      "line": -0.2,
+      "events": 17,
+      "r60_std": 13.45,
+      "null_std_median": 14.17,
+      "null_std_p95": 19.52,
+      "p": 0.6053,
+      "tau": {
+        "q": 28.59,
+        "q_null_p95": 26.29,
+        "p_by_null": {
+          "global": 0.057,
+          "within": 0.027,
+          "chi2": 0.0268
+        },
+        "p": 0.057,
+        "p_min": 0.0268,
+        "tau60": 6.58,
+        "power": {
+          "5": 0.306,
+          "10": 0.888,
+          "15": 0.992,
+          "20": 1.0
+        }
+      },
+      "mode": "gap",
+      "best_fixed": "보유",
+      "kendall_w": 0.066,
+      "oracle_gap": 6.04,
+      "winner_differs": 8,
+      "selector": {
+        "selector_mean": 9.7,
+        "fixed_mean": 12.55,
+        "selector_wins": 0,
+        "fixed_wins": 5
+      }
+    },
+    "gap-25": {
+      "line": -0.25,
+      "events": 12,
+      "r60_std": 17.2,
+      "null_std_median": 15.81,
+      "null_std_p95": 23.82,
+      "p": 0.3642,
+      "tau": {
+        "q": 8.26,
+        "q_null_p95": 19.96,
+        "p_by_null": {
+          "global": 0.718,
+          "within": 0.64,
+          "chi2": 0.6895
+        },
+        "p": 0.718,
+        "p_min": 0.64,
+        "tau60": 0.0,
+        "power": {
+          "5": 0.19,
+          "10": 0.708,
+          "15": 0.942,
+          "20": 0.976
+        }
+      },
+      "mode": "gap",
+      "best_fixed": "20일선 추세",
+      "kendall_w": 0.021,
+      "oracle_gap": 8.58,
+      "winner_differs": 8,
+      "selector": {
+        "selector_mean": -3.69,
+        "fixed_mean": -1.29,
+        "selector_wins": 1,
+        "fixed_wins": 4
+      }
+    },
+    "fresh-20": {
+      "line": -0.2,
+      "events": 10,
+      "r60_std": 11.76,
+      "null_std_median": 11.23,
+      "null_std_p95": 16.23,
+      "p": 0.4254,
+      "tau": {
+        "q": 15.99,
+        "q_null_p95": 17.42,
+        "p_by_null": {
+          "global": 0.0785,
+          "within": 0.0695,
+          "chi2": 0.0671
+        },
+        "p": 0.0785,
+        "p_min": 0.0671,
+        "tau60": 6.2,
+        "power": {
+          "5": 0.248,
+          "10": 0.756,
+          "15": 0.944,
+          "20": 0.986
+        }
+      },
+      "mode": "fresh",
+      "best_fixed": "보유",
+      "kendall_w": 0.16,
+      "oracle_gap": 3.45,
+      "winner_differs": 4,
+      "selector": {
+        "selector_mean": 7.93,
+        "fixed_mean": 9.85,
+        "selector_wins": 0,
+        "fixed_wins": 1
+      }
+    }
+  },
+  "verdict": {
+    "prereg": "차이는 보이나 우연과 구별되지 않는다",
+    "audit": "차이는 보이나 우연과 구별되지 않는다"
+  },
+  "seed": 20261016,
+  "data_start": "1995-05-02",
+  "data_end": "2026-08-14",
+  "S_start": "1995-05-02"
+}
