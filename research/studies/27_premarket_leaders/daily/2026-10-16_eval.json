@@ -1,0 +1,247 @@
+{
+ "date": "2026-10-16",
+ "snapshot_time": "2026-10-16T08:57:01",
+ "market_median_change": 2.26,
+ "candidates": [
+  {
+   "code": "005930",
+   "name": "삼성전자",
+   "nxt_change": 2.86,
+   "nxt_value_eok": 7929.0,
+   "via": "반도체와반도체장비",
+   "krx_change": 2.62,
+   "value_rank": 2,
+   "change_rank": 1193,
+   "leader": false
+  },
+  {
+   "code": "000660",
+   "name": "SK하이닉스",
+   "nxt_change": 3.25,
+   "nxt_value_eok": 7844.5,
+   "via": "반도체와반도체장비",
+   "krx_change": 0.79,
+   "value_rank": 1,
+   "change_rank": 1922,
+   "leader": false
+  },
+  {
+   "code": "402340",
+   "name": "SK스퀘어",
+   "nxt_change": 4.31,
+   "nxt_value_eok": 493.3,
+   "via": "반도체와반도체장비",
+   "krx_change": 2.48,
+   "value_rank": 5,
+   "change_rank": 1246,
+   "leader": false
+  },
+  {
+   "code": "042700",
+   "name": "한미반도체",
+   "nxt_change": 3.69,
+   "nxt_value_eok": 272.6,
+   "via": "반도체와반도체장비",
+   "krx_change": 9.26,
+   "value_rank": 21,
+   "change_rank": 98,
+   "leader": true
+  },
+  {
+   "code": "131970",
+   "name": "두산테스나",
+   "nxt_change": 4.48,
+   "nxt_value_eok": 252.3,
+   "via": "반도체와반도체장비",
+   "krx_change": -5.06,
+   "value_rank": 44,
+   "change_rank": 2605,
+   "leader": false
+  },
+  {
+   "code": "007660",
+   "name": "이수페타시스",
+   "nxt_change": 3.53,
+   "nxt_value_eok": 147.4,
+   "via": "반도체와반도체장비",
+   "krx_change": 3.22,
+   "value_rank": 77,
+   "change_rank": 973,
+   "leader": false
+  },
+  {
+   "code": "356860",
+   "name": "티엘비",
+   "nxt_change": 4.74,
+   "nxt_value_eok": 102.2,
+   "via": "반도체와반도체장비",
+   "krx_change": 0.38,
+   "value_rank": 140,
+   "change_rank": 2081,
+   "leader": false
+  },
+  {
+   "code": "031980",
+   "name": "피에스케이홀딩스",
+   "nxt_change": 8.26,
+   "nxt_value_eok": 90.8,
+   "via": "반도체와반도체장비",
+   "krx_change": 7.45,
+   "value_rank": 54,
+   "change_rank": 185,
+   "leader": true
+  },
+  {
+   "code": "003160",
+   "name": "디아이",
+   "nxt_change": 3.39,
+   "nxt_value_eok": 80.1,
+   "via": "반도체와반도체장비",
+   "krx_change": 9.76,
+   "value_rank": 109,
+   "change_rank": 86,
+   "leader": false
+  },
+  {
+   "code": "058470",
+   "name": "리노공업",
+   "nxt_change": 3.72,
+   "nxt_value_eok": 79.5,
+   "via": "반도체와반도체장비",
+   "krx_change": 5.36,
+   "value_rank": 82,
+   "change_rank": 411,
+   "leader": true
+  },
+  {
+   "code": "039030",
+   "name": "이오테크닉스",
+   "nxt_change": 3.78,
+   "nxt_value_eok": 72.3,
+   "via": "반도체 장비",
+   "krx_change": 5.91,
+   "value_rank": 89,
+   "change_rank": 330,
+   "leader": true
+  },
+  {
+   "code": "131290",
+   "name": "티에스이",
+   "nxt_change": 5.16,
+   "nxt_value_eok": 60.0,
+   "via": "반도체 장비",
+   "krx_change": 9.58,
+   "value_rank": 116,
+   "change_rank": 90,
+   "leader": false
+  },
+  {
+   "code": "095610",
+   "name": "테스",
+   "nxt_change": 3.73,
+   "nxt_value_eok": 51.1,
+   "via": "반도체 장비",
+   "krx_change": 2.84,
+   "value_rank": 131,
+   "change_rank": 1107,
+   "leader": false
+  },
+  {
+   "code": "089970",
+   "name": "브이엠",
+   "nxt_change": 2.68,
+   "nxt_value_eok": 50.7,
+   "via": "반도체 장비",
+   "krx_change": 5.35,
+   "value_rank": 133,
+   "change_rank": 415,
+   "leader": false
+  },
+  {
+   "code": "319660",
+   "name": "피에스케이",
+   "nxt_change": 4.56,
+   "nxt_value_eok": 48.5,
+   "via": "반도체 장비",
+   "krx_change": 9.79,
+   "value_rank": 88,
+   "change_rank": 84,
+   "leader": true
+  },
+  {
+   "code": "281820",
+   "name": "케이씨텍",
+   "nxt_change": 3.92,
+   "nxt_value_eok": 33.1,
+   "via": "반도체 장비",
+   "krx_change": 6.23,
+   "value_rank": 169,
+   "change_rank": 298,
+   "leader": false
+  },
+  {
+   "code": "095340",
+   "name": "ISC",
+   "nxt_change": 2.1,
+   "nxt_value_eok": 20.3,
+   "via": "HBM(고대역폭메모리)",
+   "krx_change": 9.02,
+   "value_rank": 123,
+   "change_rank": 106,
+   "leader": false
+  },
+  {
+   "code": "039440",
+   "name": "에스티아이",
+   "nxt_change": 4.28,
+   "nxt_value_eok": 16.0,
+   "via": "HBM(고대역폭메모리)",
+   "krx_change": 14.5,
+   "value_rank": 196,
+   "change_rank": 38,
+   "leader": false
+  },
+  {
+   "code": "009150",
+   "name": "삼성전기",
+   "nxt_change": 5.59,
+   "nxt_value_eok": 3331.8,
+   "via": "반도체 기판(FC-BGA/PCB/MLB 등)",
+   "krx_change": 2.15,
+   "value_rank": 3,
+   "change_rank": 1359,
+   "leader": false
+  },
+  {
+   "code": "222800",
+   "name": "심텍",
+   "nxt_change": 5.72,
+   "nxt_value_eok": 445.3,
+   "via": "반도체 기판(FC-BGA/PCB/MLB 등)",
+   "krx_change": 1.93,
+   "value_rank": 28,
+   "change_rank": 1465,
+   "leader": false
+  }
+ ],
+ "hit_rate": 0.25,
+ "premarket_leading_industries": [
+  "반도체와반도체장비",
+  "전기장비",
+  "전자장비와기기",
+  "비철금속",
+  "전기제품"
+ ],
+ "day_top10_industries_by_median": [
+  "인터넷과카탈로그소매",
+  "건강관리기술",
+  "생물공학",
+  "우주항공과국방",
+  "건강관리업체및서비스",
+  "반도체와반도체장비",
+  "자동차",
+  "양방향미디어와서비스",
+  "출판",
+  "화장품"
+ ]
+}
