@@ -4509,9 +4509,12 @@ sleeve_scan_skips_basket. ctest 40/40. 실집행 판정은 `scripts/check_runtim
 
 **배경**: D-071의 N×M 행렬은 열(샤드)을 종목 해시로 골랐다. 전략 상태는 종목이 아니라 전략 객체에 붙어 있으므로, 한 전략이
 보는 종목이 여러 열로 흩어지면 그 객체를 스레드 둘이 만지게 된다. 그래서 `owner_shard`가 "걸치는 전략"을 찾으면 샤드를 1로
-내렸다. 종목당 전략 인스턴스 하나이던 DevScale·ITB 시절에는 안 걸렸지만, D-101 뒤 살아 있는 전략은 `VALUE_CONTRARY`
+내렸다. 종목당 전략 인스턴스 하나인 DevScale·ITB는 안 걸렸지만, 당시(09-20) 살아 있던 전략은 `VALUE_CONTRARY`
 하나가 유니버스 수십 종목을 보는 구조라 config에 `strategy_shards`를 몇으로 적어도 언제나 1이었다. 샤딩 단위와 상태 단위가 어긋난
 설계였다 — 코드 리뷰 대화에서 사용자가 짚었다.
+(2026-10-14 덧붙임) DevScale은 지금도 종목마다 `DeviationScaleStrategy` 객체 하나다(`Quant/src/strategy/DevScaleLoader.cpp`
+`DevScaleSleeve::make`). 그래서 `strategy_shards`를 올리면 종목 객체가 샤드에 나뉘어 종목 단위로 갈린다. 계좌 전체가 함께 쓰는
+빈 슬롯·현금은 전략 객체가 아니라 주문 스레드의 `OrderGate`가 센다.
 
 **결정**:
 - 열은 전략 단위다. 전략은 등록 순 라운드로빈으로 샤드 하나를 받고(`StrategyBase::shard_index`), 그 샤드 스레드만 `on_trade`

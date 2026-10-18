@@ -17,6 +17,7 @@
 | 작업 이름 | 모의 (is_paper=true) | 실계좌 (is_paper=false) | 실행 |
 |---|---|---|---|
 | `QuantAutoTradeGuard` | 07:30~ 5분마다, -Until 15:35, 8.25h | 07:30~ 5분마다, -Until 20:05, 12.75h | `powershell -File scripts\market_close_timetable.ps1 -Apply` |
+| `QuantAutoTradeGuard_live` | 07:40~ 5분마다, -Until 20:05, 12.5h, -NoBuild | 07:40~ 5분마다, -Until 20:05, 12.5h, -NoBuild | `powershell -File scripts\market_close_timetable.ps1 -Apply` |
 | `Quant Premarket Leaders` | 08:02 | 08:02 | `py research\studies\27_premarket_leaders\premarket_leaders.py snapshot (08:57까지 5분마다)` |
 | `Quant Basket Targets` | 08:40 | 08:40 | `py PYQuant\main.py basket --no-momentum --value-share 1.0` |
 | `Quant Premarket Leaders Eval` | 15:45 | 15:45 | `py research\studies\27_premarket_leaders\premarket_leaders.py evaluate` |
@@ -117,6 +118,7 @@ PC가 꺼져 있어도 돈다는 점이 OS 예약작업과 다르다. 대신 이
 | `handoff-due.ps1` | Stop | 인계할 때가 되면 exit 2로 턴을 되돌려 `/handoff`를 밟게 한다. 갈래가 둘이다 — ①작업 경계: 이 턴에 HEAD가 바뀌었고(커밋 직후) 문맥이 100K를 넘었다. ②압축 임박: 경계가 아니어도 문맥이 140K를 넘었다(커밋을 하지 않는 세션은 ①이 오지 않아 자동 압축까지 가므로). ②는 압축 구간마다 한 번만 알린다. 판정은 `session_board.py --due`(세션별 직전 HEAD와 알린 이력을 `_private/session_board.state.json`에 둠) |
 | `resume-work.ps1` | SessionStart | 압축 직후(`source=compact`)와 무인일 때 인계 파일의 '남은 것'을 가리켜 하던 일을 잇게 한다. 사람이 없으면 `/clear`를 칠 수 없어 자동 압축이 곧 문맥 초기화이므로, 압축 다음 턴이 무엇을 하던 중이었는지 알 길이 이 파일뿐이다. 세션 이름은 짧은 해시라 며칠 전 세션과 겹치므로 **한 시간 안에 갱신된 자기 파일만** 집는다(옛 인계를 이어받아 엉뚱한 일을 하는 것을 막는다) |
 | `output-gate.ps1` | Stop | 채팅으로 나가는 문장도 `check_plain_language.py`로 검사한다 — 파일은 lexicon-gate가 막는데 대화에는 게이트가 없어 금지어가 새던 것을 막는다 |
+| `cite-gate.ps1` (본체 `cite_gate.py`) | Stop | 응답이 '경로:줄'·'경로#L줄'로 근거를 댔는데 그 줄을 이 세션에서 Read·grep -n·sed -n으로 열어 본 적이 없으면 exit 2. 서브에이전트 보고는 확인으로 치지 않는다 — 열어 보지 않은 줄 번호를 근거로 구조를 단정해 틀린 설명을 한 일(2026-10-14, `DevScaleLoader.cpp:293`)이 계기다 |
 | `handoff-list.ps1` | SessionStart | 아직 보관되지 않은 `_private/HANDOFF_*.md`를 나이·첫 줄과 함께 보여 새 세션이 이어받을 것을 고르게 한다 |
 | `precompact-handoff.ps1` | PreCompact | 압축 직전에 `session_board.py --skeleton`으로 `_private/HANDOFF_<세션이름>.md` 뼈대를 만들고 기계적 사실(브랜치·HEAD·미커밋·현황판 줄·문맥·턴·최근 요청)만 채운다. 파일이 있으면 그 절만 갱신 |
 

@@ -7,6 +7,11 @@
         "run": "powershell -File scripts\\market_close_timetable.ps1 -Apply"
       },
       {
+        "name": "QuantAutoTradeGuard_live",
+        "at": "07:40~ 5분마다, -Until 20:05, 12.5h, -NoBuild",
+        "run": "powershell -File scripts\\market_close_timetable.ps1 -Apply"
+      },
+      {
         "name": "Quant Premarket Leaders",
         "at": "08:02",
         "run": "py research\\studies\\27_premarket_leaders\\premarket_leaders.py snapshot (08:57까지 5분마다)"
@@ -76,6 +81,11 @@
       {
         "name": "QuantAutoTradeGuard",
         "at": "07:30~ 5분마다, -Until 20:05, 12.75h",
+        "run": "powershell -File scripts\\market_close_timetable.ps1 -Apply"
+      },
+      {
+        "name": "QuantAutoTradeGuard_live",
+        "at": "07:40~ 5분마다, -Until 20:05, 12.5h, -NoBuild",
         "run": "powershell -File scripts\\market_close_timetable.ps1 -Apply"
       },
       {
@@ -217,7 +227,7 @@
   "ordergate_rejects": {
     "file": "Quant/include/risk/OrderGate.h",
     "pattern": "GateReject",
-    "count": 19
+    "count": 20
   },
   "build_targets": {
     "file": "Quant/CMakeLists.txt",
@@ -252,6 +262,7 @@
       "test_target_basket_strategy",
       "test_surge_hold",
       "test_swing_trend_rules",
+      "test_swing_trend_strategy",
       "test_ringbuffer",
       "test_ringbuffer_stress",
       "test_pipeline_stress",
@@ -277,6 +288,7 @@
       "bench_engine_load",
       "bench_order_burst",
       "test_app_config",
+      "test_kis_rate_share",
       "test_universe_scoring",
       "test_market_board",
       "test_regime_feed",
@@ -351,6 +363,7 @@
       "test_target_basket_strategy",
       "test_surge_hold",
       "test_swing_trend_rules",
+      "test_swing_trend_strategy",
       "test_ringbuffer",
       "test_ringbuffer_stress",
       "test_pipeline_stress",
@@ -366,6 +379,7 @@
       "test_feed_mux",
       "test_engine",
       "test_app_config",
+      "test_kis_rate_share",
       "test_universe_scoring",
       "test_market_board",
       "test_regime_feed",
@@ -395,7 +409,7 @@
       "test_heartbeat",
       "test_logger"
     ],
-    "count": 68
+    "count": 70
   },
   "harness": {
     "commands": [
@@ -443,6 +457,7 @@
       "stock-study"
     ],
     "hooks": [
+      "cite-gate.ps1",
       "cron-gate.ps1",
       "dashboard-refresh.ps1",
       "docs-gate.ps1",
@@ -466,7 +481,7 @@
       "commands": 17,
       "agents": 20,
       "skills": 1,
-      "hooks": 18,
+      "hooks": 19,
       "hook_wirings": 13
     },
     "settings_hooks": [
@@ -641,8 +656,8 @@
     {
       "file": "scripts/check_runtime_health.py",
       "symbol": "collect",
-      "lines": 906,
-      "start": 3602
+      "lines": 907,
+      "start": 3810
     },
     {
       "file": "PYQuant/backtest/devscale_replay_rescue.py",
@@ -654,7 +669,7 @@
       "file": "scripts/market_close_autodoc.py",
       "symbol": "render",
       "lines": 215,
-      "start": 254
+      "start": 255
     },
     {
       "file": "PYQuant/backtest/devscale_replay.py",
@@ -684,7 +699,13 @@
       "file": "Quant/src/api/KisAuth.cpp",
       "symbol": "KisClient::issue_token",
       "lines": 172,
-      "start": 110
+      "start": 111
+    },
+    {
+      "file": "Quant/src/api/KisOrder.cpp",
+      "symbol": "KisClient::submit_order_acknowledgement",
+      "lines": 170,
+      "start": 217
     },
     {
       "file": "PYQuant/dashboard/build_dashboard.py",
@@ -696,7 +717,7 @@
       "file": "scripts/check_runtime_health.py",
       "symbol": "surge_hold_rows",
       "lines": 166,
-      "start": 947
+      "start": 1020
     },
     {
       "file": "Quant/src/ipc/SharedLayout.cpp",
@@ -750,7 +771,13 @@
       "file": "Quant/src/core/AppConfig.cpp",
       "symbol": "parse_config",
       "lines": 132,
-      "start": 201
+      "start": 204
+    },
+    {
+      "file": "Quant/src/strategy/SwingTrendStrategy.cpp",
+      "symbol": "SwingTrendStrategy::prefetch_once",
+      "lines": 131,
+      "start": 312
     },
     {
       "file": "scripts/summarize_trading_day.py",
@@ -769,12 +796,6 @@
       "symbol": "main",
       "lines": 126,
       "start": 598
-    },
-    {
-      "file": "Quant/src/api/KisOrder.cpp",
-      "symbol": "KisClient::submit_order_acknowledgement",
-      "lines": 126,
-      "start": 186
     },
     {
       "file": "Quant/src/ipc/SharedRegion.cpp",
@@ -852,7 +873,7 @@
       "file": "scripts/check_runtime_health.py",
       "symbol": "journal_mirror_row",
       "lines": 109,
-      "start": 2939
+      "start": 3145
     },
     {
       "file": "Quant/src/api/KisMarket.cpp",
@@ -891,16 +912,16 @@
       "start": 144
     },
     {
+      "file": "Quant/src/core/RegimeFileJudge.cpp",
+      "symbol": "RegimeFileJudge::step",
+      "lines": 104,
+      "start": 85
+    },
+    {
       "file": "Quant/src/ipc/OrderRouterReconcile.cpp",
       "symbol": "OrderRouter::run_stale_cancels",
       "lines": 104,
       "start": 697
-    },
-    {
-      "file": "Quant/src/strategy/SwingTrendStrategy.cpp",
-      "symbol": "SwingTrendStrategy::prefetch_once",
-      "lines": 104,
-      "start": 283
     },
     {
       "file": "Quant/src/universe/UniverseScoring.cpp",
@@ -913,6 +934,12 @@
       "symbol": "build_payload",
       "lines": 102,
       "start": 420
+    },
+    {
+      "file": "Quant/src/strategy/SwingTrendState.cpp",
+      "symbol": "SwingTrendStrategy::load_state",
+      "lines": 101,
+      "start": 161
     },
     {
       "file": "Quant/src/universe/UniverseItb.cpp",
@@ -975,10 +1002,16 @@
       "start": 11
     },
     {
+      "file": "Quant/src/strategy/SwingTrendState.cpp",
+      "symbol": "SwingTrendStrategy::track_fills",
+      "lines": 95,
+      "start": 345
+    },
+    {
       "file": "scripts/check_runtime_health.py",
       "symbol": "vwappb_rows",
       "lines": 95,
-      "start": 3380
+      "start": 3586
     },
     {
       "file": "Quant/src/strategy/SurgeHoldPlan.cpp",
@@ -1050,7 +1083,7 @@
       "file": "scripts/check_runtime_health.py",
       "symbol": "shared_region_exit_row",
       "lines": 89,
-      "start": 1858
+      "start": 1933
     },
     {
       "file": "Quant/src/regime/RegimeFeed.cpp",
@@ -1083,12 +1116,6 @@
       "start": 293
     },
     {
-      "file": "Quant/src/strategy/SwingTrendState.cpp",
-      "symbol": "SwingTrendStrategy::load_state",
-      "lines": 86,
-      "start": 159
-    },
-    {
       "file": "Quant/src/api/KisWebSocketParse.cpp",
       "symbol": "KisWebSocket::handle_data_frame",
       "lines": 85,
@@ -1113,12 +1140,6 @@
       "start": 195
     },
     {
-      "file": "Quant/src/core/RegimeFileJudge.cpp",
-      "symbol": "RegimeFileJudge::step",
-      "lines": 85,
-      "start": 85
-    },
-    {
       "file": "Quant/src/api/KisUniverse.cpp",
       "symbol": "KisClient::fetch_universe_by_pbr",
       "lines": 84,
@@ -1128,7 +1149,7 @@
       "file": "Quant/src/core/DataPoller.cpp",
       "symbol": "DataPoller::poll_overflow",
       "lines": 84,
-      "start": 269
+      "start": 287
     },
     {
       "file": "Quant/src/ipc/OrderRouterSubmit.cpp",
@@ -1141,6 +1162,12 @@
       "symbol": "Engine::log_sector_strength",
       "lines": 83,
       "start": 477
+    },
+    {
+      "file": "Quant/src/core/EngineRegime.cpp",
+      "symbol": "Engine::poll_regime_file",
+      "lines": 83,
+      "start": 225
     },
     {
       "file": "Quant/src/ipc/DbManager.cpp",
@@ -1191,16 +1218,10 @@
       "start": 411
     },
     {
-      "file": "Quant/src/strategy/SwingTrendOrders.cpp",
-      "symbol": "SwingTrendStrategy::buy_entry",
-      "lines": 82,
-      "start": 100
-    },
-    {
       "file": "scripts/check_runtime_health.py",
       "symbol": "order_answer_row",
       "lines": 82,
-      "start": 1952
+      "start": 2027
     },
     {
       "file": "Quant/src/core/EngineControlThread.cpp",
