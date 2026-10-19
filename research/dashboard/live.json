@@ -1,7 +1,15 @@
 {
   "schema": "quant.live/v1",
-  "generated": "2026-10-16 21:10",
+  "generated": "2026-10-19 21:10",
   "journals": [
+    {
+      "date": "2026-10-19",
+      "strategy": "DeviationScale",
+      "path": "strategies/DeviationScale/live/2026-10-19.md",
+      "title": "라이브 모의 매매 일지 — 2026-10-19 (월)",
+      "strat_line": "DeviationScale (DEVSCALE) 정배열눌림 지정가 분할 매수 + ITB 청산 관리(전일 보유분).",
+      "summary": ""
+    },
     {
       "date": "2026-10-16",
       "strategy": "DeviationScale",
@@ -2608,6 +2616,41 @@
       "realized_pnl": 0,
       "buy_notional": 6822560,
       "sell_notional": 0
+    },
+    {
+      "date": "2026-10-19",
+      "path": "Quant/build_win/logs/trades_20261019.csv",
+      "total": 47,
+      "by_status": {
+        "ACCEPTED": 27,
+        "CANCELLED": 9,
+        "FILLED": 5,
+        "REJECTED": 3,
+        "KEEP": 3
+      },
+      "by_strategy": {
+        "SWING_TREND": 17,
+        "DEVSCALE_021240": 8,
+        "DEVSCALE_004370": 8,
+        "DEVSCALE_068270": 3,
+        "": 3,
+        "DEVSCALE_003200": 3,
+        "DEVSCALE_011370": 3,
+        "DEVSCALE_035900": 2
+      },
+      "by_side": {
+        "BUY": 44,
+        "NONE": 3
+      },
+      "n_tickers": 8,
+      "accepted": 27,
+      "rejected": 3,
+      "cancelled": 9,
+      "filled": 5,
+      "fill_events": 22,
+      "realized_pnl": 0,
+      "buy_notional": 7970650,
+      "sell_notional": 0
     }
   ],
   "order_log_live_account": [
@@ -3065,6 +3108,34 @@
       "fill_events": 3,
       "realized_pnl": 0,
       "buy_notional": 1344100,
+      "sell_notional": 0
+    },
+    {
+      "date": "2026-10-19",
+      "path": "Quant/build_win/logs_live/trades_20261019.csv",
+      "total": 13,
+      "by_status": {
+        "REJECTED": 8,
+        "CANCELLED": 3,
+        "ACCEPTED": 1,
+        "FILLED": 1
+      },
+      "by_strategy": {
+        "DEVSCALE_035900": 8,
+        "DEVSCALE_003200": 3,
+        "SWING_TREND": 2
+      },
+      "by_side": {
+        "BUY": 13
+      },
+      "n_tickers": 3,
+      "accepted": 1,
+      "rejected": 8,
+      "cancelled": 3,
+      "filled": 1,
+      "fill_events": 1,
+      "realized_pnl": 0,
+      "buy_notional": 62730,
       "sell_notional": 0
     }
   ]
