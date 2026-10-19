@@ -317,11 +317,29 @@ def describe(record: Record) -> str:
     return f"{record.ticker} {record.quantity} {record.price} {record.reason}"
 
 
+def format_log_line(record: Record) -> str:
+    time_text = f"{record.wall_time:%H:%M:%S.%f}"[:12]
+    kind = KIND_KOREAN.get(record.kind, record.kind)
+    return f"{time_text} #{record.sequence:<5} [{kind}] {describe(record)}"
+
+
 def print_log(records: list[Record]) -> None:
     for record in records:
-        time_text = f"{record.wall_time:%H:%M:%S.%f}"[:12]
-        kind = KIND_KOREAN.get(record.kind, record.kind)
-        print(f"{time_text} #{record.sequence:<5} [{kind}] {describe(record)}")
+        print(format_log_line(record))
+
+
+# 요약본에서 빼는 종류 — 잔고 대조·현금·당일 손익은 하루 수천 줄이라 주문 흐름을 가린다.
+SNAPSHOT_KINDS = {"ADJUST", "CASH", "DAILY_PNL"}
+
+
+def write_text_logs(path: Path, records: list[Record]) -> tuple[Path, Path]:
+    """저널 옆에 사람이 읽는 글자 파일 둘을 쓴다: 전체(.txt)와 주문·체결만(_주문체결.txt)."""
+    full_path = path.with_suffix(".txt")
+    orders_path = path.with_name(f"{path.stem}_주문체결.txt")
+    full_path.write_text("".join(format_log_line(record) + "\n" for record in records), encoding="utf-8")
+    orders_path.write_text("".join(format_log_line(record) + "\n" for record in records
+                                   if record.kind not in SNAPSHOT_KINDS), encoding="utf-8")
+    return full_path, orders_path
 
 
 def print_records(records: list[Record]) -> None:
@@ -402,6 +420,7 @@ def main() -> int:
     parser.add_argument("--open-intents", action="store_true", help="결말 못 본 주문만")
     parser.add_argument("--csv", help="CSV로 내보낼 경로")
     parser.add_argument("--table", action="store_true", help="한글 로그 대신 열 맞춘 표로")
+    parser.add_argument("--text", action="store_true", help="저널 옆에 .txt(전체)·_주문체결.txt를 쓴다")
     arguments = parser.parse_args()
 
     path = Path(arguments.journal)
@@ -414,6 +433,12 @@ def main() -> int:
     print(f"{path} — {len(result.records)}건 (헤더 날짜 {result.header_date}, "
           f"마지막 sequence {result.records[-1].sequence if result.records else 0}"
           + (", 꼬리 잘림" if result.truncated else "") + ")")
+
+    if arguments.text:
+        for written in write_text_logs(path, result.records):
+            print(f"→ {written}")
+
+        return 0
 
     # 재구성은 거르기 전 전체 레코드로 한다 — 중간을 빼면 보유·선점이 안 맞는다.
     if arguments.positions:

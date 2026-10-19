@@ -292,6 +292,13 @@ def ledger_summary(journal_directory: Path, date_yyyymmdd: str) -> dict:
         return {"path": path.relative_to(REPO).as_posix(), "exists": True, "error": str(error)}
 
     records = result.records
+
+    # 바이너리 옆에 사람이 읽는 글자 파일을 남긴다 — 실패해도 리포트는 계속 만든다.
+    try:
+        ledger_dump.write_text_logs(path, records)
+    except OSError as error:
+        print(f"[원장] 글자 파일을 못 썼다: {error}", file=sys.stderr)
+
     kinds = Counter(record.kind for record in records)
     fills = [record for record in records if record.kind == "FILL"]
     positions = ledger_dump.rebuild_positions(records)
