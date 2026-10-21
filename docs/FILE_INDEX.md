@@ -10,11 +10,11 @@
 - [.vscode](#vscode) — 4개
 - [PYQuant](#pyquant) — 106개
 - [Quant](#quant) — 461개
-- [docs](#docs) — 153개
+- [docs](#docs) — 154개
 - [linux_practice](#linux_practice) — 2개
-- [research](#research) — 572개
+- [research](#research) — 578개
 - [scripts](#scripts) — 54개
-- [strategies](#strategies) — 48개
+- [strategies](#strategies) — 50개
 - [tools](#tools) — 3개
 
 ## (루트)
@@ -764,6 +764,7 @@
 - [GLOSSARY.md](GLOSSARY.md) — 전략 약어 용어집
 - [HARNESS.md](HARNESS.md) — 하네스·루프 엔지니어링 문서
 - [OPTIMIZATION_REVIEW.md](OPTIMIZATION_REVIEW.md) — 코드 전수 최적화 리뷰
+- [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) — 저장소 한 장 안내(전체 파이프라인·주문 한 건의 여정·스레드·큐·공유메모리·문법·기법, 코드 줄 링크)
 - [REALTIME_READINESS_REVIEW.md](REALTIME_READINESS_REVIEW.md) — 외부 리뷰 항목 검증 문서
 - [RUNBOOK.md](RUNBOOK.md) — 운영 명령 복붙용 정본. gen_runbook.py 가 RUNBOOK.html(gitignore)로 렌더, 절 머리 도장으로 인용 스크립트 변경을 잡는다
 - [STYLE_GUIDE.md](STYLE_GUIDE.md) — 문서 문체 규칙집
@@ -1355,6 +1356,10 @@
 - [2026-10-16_eval.json](../research/studies/27_premarket_leaders/daily/2026-10-16_eval.json) — 10-16 장 전 주도 후보의 장중 성적 평가
 - [2026-10-19.jsonl](../research/studies/27_premarket_leaders/daily/2026-10-19.jsonl) — 10-19 장 전 주도 후보 기록
 - [2026-10-19_eval.json](../research/studies/27_premarket_leaders/daily/2026-10-19_eval.json) — 10-19 장 전 주도 후보의 장중 성적 평가
+- [2026-10-20.jsonl](../research/studies/27_premarket_leaders/daily/2026-10-20.jsonl) — 10-20 장 전 주도 후보 기록
+- [2026-10-20_eval.json](../research/studies/27_premarket_leaders/daily/2026-10-20_eval.json) — 10-20 장 전 주도 후보의 장중 성적 평가
+- [2026-10-21.jsonl](../research/studies/27_premarket_leaders/daily/2026-10-21.jsonl) — 10-21 장 전 주도 후보 기록
+- [2026-10-21_eval.json](../research/studies/27_premarket_leaders/daily/2026-10-21_eval.json) — 10-21 장 전 주도 후보의 장중 성적 평가
 
 ### research/studies/28_devscale_zone_width/
 
@@ -1521,6 +1526,8 @@
 - [2026-10-15.jsonl](../research/studies/35_surge_box_breakout/live/2026-10-15.jsonl) — 2026-10-15 급등 박스 돌파 관측 일지(급등 수·신호·보유·누적 성과)
 - [2026-10-16.jsonl](../research/studies/35_surge_box_breakout/live/2026-10-16.jsonl) — 2026-10-16 급등 박스 돌파 관측 일지(급등 수·신호·보유·누적 성과)
 - [2026-10-19.jsonl](../research/studies/35_surge_box_breakout/live/2026-10-19.jsonl) — 2026-10-19 급등 박스 돌파 관측 일지(급등 수·신호·보유·누적 성과)
+- [2026-10-20.jsonl](../research/studies/35_surge_box_breakout/live/2026-10-20.jsonl) — 2026-10-20 급등 박스 돌파 관측 일지(급등 수·신호·보유·누적 성과)
+- [2026-10-21.jsonl](../research/studies/35_surge_box_breakout/live/2026-10-21.jsonl) — 2026-10-21 급등 박스 돌파 관측 일지(급등 수·신호·보유·누적 성과)
 - [ledger.tsv](../research/studies/35_surge_box_breakout/live/ledger.tsv) — daily_watch.py 규칙별 매매 원장(신호일·매수·청산·수익률, 기록 열은 실시간/따라잡기)
 - [summary.txt](../research/studies/35_surge_box_breakout/live/summary.txt) — daily_watch.py 규칙별 누적 성적과 백테스트 대비·판정 요약
 
@@ -1860,6 +1867,8 @@
 - [2026-10-15.md](../strategies/DeviationScale/live/2026-10-15.md) — 10-15 라이브 매매일지
 - [2026-10-16.md](../strategies/DeviationScale/live/2026-10-16.md) — 10-16 라이브 매매일지
 - [2026-10-19.md](../strategies/DeviationScale/live/2026-10-19.md) — 10-19 라이브 매매일지
+- [2026-10-20.md](../strategies/DeviationScale/live/2026-10-20.md) — 10-20 라이브 매매일지
+- [2026-10-21.md](../strategies/DeviationScale/live/2026-10-21.md) — 10-21 라이브 매매일지
 
 ### strategies/DeviationScale/reviews/
 

@@ -3,6 +3,171 @@
  "_comment": "실증 사후검토(post-mortem) 데이터 계약. build_dashboard.py render_reviews()가 이 파일만 읽어 '리뷰' 탭을 렌더한다. *_html 필드는 신뢰된 인라인 HTML(작성자=본인), 그 외는 이스케이프. 새 리뷰는 reviews 배열에 append.",
  "reviews": [
   {
+   "id": "2026-10-21_session_review",
+   "strategy": "DEVSCALE · BASKET_MAIN",
+   "eyebrow": "세션 리뷰 · 10-21 · 원장/로그 자동 집계",
+   "headline_html": "10-21 세션 정리 — 전일대비 −254,280원",
+   "verdict_html": "원장 17이벤트(접수 5 · 체결 8 · 거부 0), 재기동 1회. 전일 종가 대비 종료 손익은 −254,280원이다. 세션 시작을 0으로 잡은 잔고 대조 카운터로는 −254,280원인데, 재기동마다 기준이 옮겨가고 간밤 갭이 빠지므로 하루의 성과는 앞의 값으로 읽는다. 여기까지는 원장·로그에서 기계로 뽑은 사실이고, 원인과 다음 조치는 아래 항목에 사람이 적는다.",
+   "meta_html": [
+    "근거 로그 <span class=\"mono\">quant_trader.log</span> · 원장 <span class=\"mono\">17</span>이벤트",
+    "재기동 <span class=\"mono\">1</span>회 · 접수 <span class=\"mono\">5</span> / 체결 <span class=\"mono\">8</span> / 거부 <span class=\"mono\">0</span>",
+    "전략별 이벤트 <span class=\"mono\">DEVSCALE_011200 9</span> · <span class=\"mono\">BASKET_MAIN 4</span>"
+   ],
+   "doc_path": "strategies/DeviationScale/live/2026-10-21.md",
+   "log_path": "Quant/build_win/logs/quant_trader.log",
+   "incidents": [
+    {
+     "sev": "로그",
+     "when": "10-21 종일",
+     "title": "ERROR/WARN 119건 — [WinHTTP] HTTP N  url=https://openapi.koreainves",
+     "desc_html": "로그 상위 경고. <span class=\"mono\">[WinHTTP] HTTP N  url=https://openapi.koreainvestment.com:N/uapi/domestic-stock/</span>.",
+     "evidence": "Quant/build_win/logs/quant_trader.log · 119건",
+     "impact_html": ""
+    },
+    {
+     "sev": "로그",
+     "when": "10-21 종일",
+     "title": "ERROR/WARN 116건 — [KIS] 조회 (초당 한도) — 재시도 2/2, 버킷이 찰 때까지 약 Nms 기다린다",
+     "desc_html": "로그 상위 경고. <span class=\"mono\">[KIS] 조회 (초당 한도) — 재시도 2/2, 버킷이 찰 때까지 약 Nms 기다린다  url=https://openapi.koreainves</span>.",
+     "evidence": "Quant/build_win/logs/quant_trader.log · 116건",
+     "impact_html": ""
+    },
+    {
+     "sev": "로그",
+     "when": "10-21 종일",
+     "title": "ERROR/WARN 105건 — [Engine] 유니버스 재스캔 결과 없음 — 이탈 판정 건너뜀(소유 8종목, 다음 결",
+     "desc_html": "로그 상위 경고. <span class=\"mono\">[Engine] 유니버스 재스캔 결과 없음 — 이탈 판정 건너뜀(소유 8종목, 다음 결과까지 유지)</span>.",
+     "evidence": "Quant/build_win/logs/quant_trader.log · 105건",
+     "impact_html": ""
+    },
+    {
+     "sev": "공백",
+     "when": "09:59~14:40",
+     "title": "주문 이벤트 공백 280.5분",
+     "desc_html": "접수·체결·거부가 한 건도 없는 최장 구간. 신호 고갈인지 배관 정지인지는 로그로 갈라야 한다.",
+     "evidence": "Quant/build_win/logs/trades_20261021.csv",
+     "impact_html": ""
+    }
+   ],
+   "pnl": {
+    "title_html": "10-21 세션 당일손익 <span class=\"u\">KRW · 잔고 대조 폴링에서 시작·고점·저점·마감 4점</span>",
+    "series": [
+     {
+      "t": "09:02",
+      "v": -56330
+     },
+     {
+      "t": "09:09",
+      "v": 189515
+     },
+     {
+      "t": "10:07",
+      "v": -555540
+     },
+     {
+      "t": "15:31",
+      "v": -254280
+     }
+    ],
+    "floor": -555540,
+    "ceil": 189515,
+    "gridlines": [
+     300000,
+     0,
+     -300000,
+     -600000
+    ],
+    "last_label": "세션손익",
+    "note_html": "고점 <b class=\"pos\">+189,515</b>@09:09 · 저점 <b class=\"neg\">−555,540</b>@10:07 · 마감 <b>−254,280</b>@15:31. 폴링 319건 중 4점만 표시했다(연속 곡선 아님)."
+   }
+  },
+  {
+   "id": "2026-10-20_session_review",
+   "strategy": "DEVSCALE · SWING_TREND",
+   "eyebrow": "세션 리뷰 · 10-20 · 원장/로그 자동 집계",
+   "headline_html": "10-20 세션 정리 — 전일대비 −1,660,915원",
+   "verdict_html": "원장 50이벤트(접수 3 · 체결 0 · 거부 25), 재기동 1회. 전일 종가 대비 종료 손익은 −1,660,915원이다. 세션 시작을 0으로 잡은 잔고 대조 카운터로는 −1,660,915원인데, 재기동마다 기준이 옮겨가고 간밤 갭이 빠지므로 하루의 성과는 앞의 값으로 읽는다. 여기까지는 원장·로그에서 기계로 뽑은 사실이고, 원인과 다음 조치는 아래 항목에 사람이 적는다.",
+   "meta_html": [
+    "근거 로그 <span class=\"mono\">quant_trader.log</span> · 원장 <span class=\"mono\">50</span>이벤트",
+    "재기동 <span class=\"mono\">1</span>회 · 접수 <span class=\"mono\">3</span> / 체결 <span class=\"mono\">0</span> / 거부 <span class=\"mono\">25</span>",
+    "전략별 이벤트 <span class=\"mono\">DEVSCALE_006280 19</span> · <span class=\"mono\">SWING_TREND 3</span> · <span class=\"mono\">DEVSCALE_035900 2</span> · <span class=\"mono\">DEVSCALE_026960 2</span>"
+   ],
+   "doc_path": "strategies/DeviationScale/live/2026-10-20.md",
+   "log_path": "Quant/build_win/logs/quant_trader.log",
+   "incidents": [
+    {
+     "sev": "거부",
+     "when": "10-20 종일",
+     "title": "주문 거부 24건 — 일일 손실 한도 초과 (현재 -N원 / 한도 -N원)",
+     "desc_html": "원장 REJECTED 사유 상위. 정규화 문구 <span class=\"mono\">일일 손실 한도 초과 (현재 -N원 / 한도 -N원)</span>.",
+     "evidence": "Quant/build_win/logs/trades_20261020.csv · REJECTED 24건",
+     "impact_html": ""
+    },
+    {
+     "sev": "로그",
+     "when": "10-20 종일",
+     "title": "ERROR/WARN 90건 — [WinHTTP] HTTP N  url=https://openapi.koreainves",
+     "desc_html": "로그 상위 경고. <span class=\"mono\">[WinHTTP] HTTP N  url=https://openapi.koreainvestment.com:N/uapi/domestic-stock/</span>.",
+     "evidence": "Quant/build_win/logs/quant_trader.log · 90건",
+     "impact_html": ""
+    },
+    {
+     "sev": "로그",
+     "when": "10-20 종일",
+     "title": "ERROR/WARN 86건 — [KIS] 조회 (초당 한도) — 재시도 2/2, 버킷이 찰 때까지 약 Nms 기다린다",
+     "desc_html": "로그 상위 경고. <span class=\"mono\">[KIS] 조회 (초당 한도) — 재시도 2/2, 버킷이 찰 때까지 약 Nms 기다린다  url=https://openapi.koreainves</span>.",
+     "evidence": "Quant/build_win/logs/quant_trader.log · 86건",
+     "impact_html": ""
+    },
+    {
+     "sev": "로그",
+     "when": "10-20 종일",
+     "title": "ERROR/WARN 65건 — [WinHTTP] HTTP N  url=https://openapivts.koreain",
+     "desc_html": "로그 상위 경고. <span class=\"mono\">[WinHTTP] HTTP N  url=https://openapivts.koreainvestment.com:N/uapi/domestic-sto</span>.",
+     "evidence": "Quant/build_win/logs/quant_trader.log · 65건",
+     "impact_html": ""
+    },
+    {
+     "sev": "공백",
+     "when": "10:57~12:06",
+     "title": "주문 이벤트 공백 68.8분",
+     "desc_html": "접수·체결·거부가 한 건도 없는 최장 구간. 신호 고갈인지 배관 정지인지는 로그로 갈라야 한다.",
+     "evidence": "Quant/build_win/logs/trades_20261020.csv",
+     "impact_html": ""
+    }
+   ],
+   "pnl": {
+    "title_html": "10-20 세션 당일손익 <span class=\"u\">KRW · 잔고 대조 폴링에서 시작·고점·저점·마감 4점</span>",
+    "series": [
+     {
+      "t": "09:00",
+      "v": -174275
+     },
+     {
+      "t": "09:04",
+      "v": -104930
+     },
+     {
+      "t": "14:33",
+      "v": -1945865
+     },
+     {
+      "t": "15:31",
+      "v": -1660915
+     }
+    ],
+    "floor": -1945865,
+    "ceil": -104930,
+    "gridlines": [
+     0,
+     -1000000,
+     -2000000
+    ],
+    "last_label": "세션손익",
+    "note_html": "고점 <b class=\"pos\">−104,930</b>@09:04 · 저점 <b class=\"neg\">−1,945,865</b>@14:33 · 마감 <b>−1,660,915</b>@15:31. 폴링 318건 중 4점만 표시했다(연속 곡선 아님)."
+   }
+  },
+  {
    "id": "2026-10-19_session_review",
    "strategy": "DEVSCALE · SWING_TREND",
    "eyebrow": "세션 리뷰 · 10-19 · 원장/로그 자동 집계",

@@ -1,0 +1,247 @@
+{
+ "date": "2026-10-21",
+ "snapshot_time": "2026-10-21T08:57:00",
+ "market_median_change": 0.0,
+ "candidates": [
+  {
+   "code": "005930",
+   "name": "삼성전자",
+   "nxt_change": 3.31,
+   "nxt_value_eok": 5982.1,
+   "via": "반도체와반도체장비",
+   "krx_change": 5.67,
+   "value_rank": 2,
+   "change_rank": 117,
+   "leader": true
+  },
+  {
+   "code": "000660",
+   "name": "SK하이닉스",
+   "nxt_change": 3.03,
+   "nxt_value_eok": 4739.6,
+   "via": "반도체와반도체장비",
+   "krx_change": 5.81,
+   "value_rank": 1,
+   "change_rank": 113,
+   "leader": true
+  },
+  {
+   "code": "402340",
+   "name": "SK스퀘어",
+   "nxt_change": 2.56,
+   "nxt_value_eok": 346.5,
+   "via": "반도체와반도체장비",
+   "krx_change": 5.13,
+   "value_rank": 5,
+   "change_rank": 133,
+   "leader": true
+  },
+  {
+   "code": "131970",
+   "name": "두산테스나",
+   "nxt_change": 3.13,
+   "nxt_value_eok": 96.7,
+   "via": "반도체와반도체장비",
+   "krx_change": 9.57,
+   "value_rank": 40,
+   "change_rank": 45,
+   "leader": true
+  },
+  {
+   "code": "007660",
+   "name": "이수페타시스",
+   "nxt_change": 2.92,
+   "nxt_value_eok": 42.8,
+   "via": "반도체와반도체장비",
+   "krx_change": 0.0,
+   "value_rank": 76,
+   "change_rank": 1201,
+   "leader": false
+  },
+  {
+   "code": "000990",
+   "name": "DB하이텍",
+   "nxt_change": 2.29,
+   "nxt_value_eok": 35.2,
+   "via": "반도체와반도체장비",
+   "krx_change": 3.18,
+   "value_rank": 109,
+   "change_rank": 250,
+   "leader": false
+  },
+  {
+   "code": "356860",
+   "name": "티엘비",
+   "nxt_change": 2.08,
+   "nxt_value_eok": 35.1,
+   "via": "반도체와반도체장비",
+   "krx_change": 1.3,
+   "value_rank": 217,
+   "change_rank": 597,
+   "leader": false
+  },
+  {
+   "code": "281820",
+   "name": "케이씨텍",
+   "nxt_change": 2.86,
+   "nxt_value_eok": 34.5,
+   "via": "반도체와반도체장비",
+   "krx_change": 9.89,
+   "value_rank": 101,
+   "change_rank": 42,
+   "leader": false
+  },
+  {
+   "code": "095610",
+   "name": "테스",
+   "nxt_change": 2.47,
+   "nxt_value_eok": 26.6,
+   "via": "반도체와반도체장비",
+   "krx_change": 2.39,
+   "value_rank": 155,
+   "change_rank": 355,
+   "leader": false
+  },
+  {
+   "code": "042700",
+   "name": "한미반도체",
+   "nxt_change": 3.3,
+   "nxt_value_eok": 156.8,
+   "via": "반도체 장비",
+   "krx_change": 1.55,
+   "value_rank": 26,
+   "change_rank": 529,
+   "leader": false
+  },
+  {
+   "code": "058470",
+   "name": "리노공업",
+   "nxt_change": 2.22,
+   "nxt_value_eok": 29.7,
+   "via": "반도체 장비",
+   "krx_change": -0.15,
+   "value_rank": 89,
+   "change_rank": 1418,
+   "leader": false
+  },
+  {
+   "code": "031980",
+   "name": "피에스케이홀딩스",
+   "nxt_change": 2.46,
+   "nxt_value_eok": 25.5,
+   "via": "반도체 장비",
+   "krx_change": 2.74,
+   "value_rank": 108,
+   "change_rank": 306,
+   "leader": false
+  },
+  {
+   "code": "089970",
+   "name": "브이엠",
+   "nxt_change": 2.16,
+   "nxt_value_eok": 23.6,
+   "via": "반도체 장비",
+   "krx_change": -2.48,
+   "value_rank": 134,
+   "change_rank": 2387,
+   "leader": false
+  },
+  {
+   "code": "183300",
+   "name": "코미코",
+   "nxt_change": 4.51,
+   "nxt_value_eok": 15.0,
+   "via": "반도체 장비",
+   "krx_change": 11.16,
+   "value_rank": 190,
+   "change_rank": 33,
+   "leader": false
+  },
+  {
+   "code": "319660",
+   "name": "피에스케이",
+   "nxt_change": 2.47,
+   "nxt_value_eok": 14.4,
+   "via": "반도체 장비",
+   "krx_change": 3.21,
+   "value_rank": 136,
+   "change_rank": 248,
+   "leader": false
+  },
+  {
+   "code": "089890",
+   "name": "코세스",
+   "nxt_change": 3.11,
+   "nxt_value_eok": 14.1,
+   "via": "반도체 장비",
+   "krx_change": 6.52,
+   "value_rank": 241,
+   "change_rank": 90,
+   "leader": false
+  },
+  {
+   "code": "295310",
+   "name": "에이치브이엠",
+   "nxt_change": 6.24,
+   "nxt_value_eok": 128.6,
+   "via": "반도체 재료/부품",
+   "krx_change": 2.81,
+   "value_rank": 185,
+   "change_rank": 297,
+   "leader": false
+  },
+  {
+   "code": "000150",
+   "name": "두산",
+   "nxt_change": 2.67,
+   "nxt_value_eok": 61.7,
+   "via": "반도체 재료/부품",
+   "krx_change": 4.55,
+   "value_rank": 38,
+   "change_rank": 151,
+   "leader": true
+  },
+  {
+   "code": "078350",
+   "name": "한양디지텍",
+   "nxt_change": 4.55,
+   "nxt_value_eok": 17.8,
+   "via": "반도체 재료/부품",
+   "krx_change": 12.85,
+   "value_rank": 148,
+   "change_rank": 24,
+   "leader": false
+  },
+  {
+   "code": "059090",
+   "name": "미코",
+   "nxt_change": 2.99,
+   "nxt_value_eok": 11.1,
+   "via": "반도체 재료/부품",
+   "krx_change": 5.77,
+   "value_rank": 345,
+   "change_rank": 115,
+   "leader": false
+  }
+ ],
+ "hit_rate": 0.25,
+ "premarket_leading_industries": [
+  "반도체와반도체장비",
+  "통신장비",
+  "전자장비와기기",
+  "생물공학",
+  "화학"
+ ],
+ "day_top10_industries_by_median": [
+  "전기장비",
+  "반도체와반도체장비",
+  "전기유틸리티",
+  "양방향미디어와서비스",
+  "전자제품",
+  "건설",
+  "조선",
+  "레저용장비와제품",
+  "석유와가스",
+  "디스플레이장비및부품"
+ ]
+}

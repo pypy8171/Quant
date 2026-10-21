@@ -1,0 +1,120 @@
+{
+ "date": "2026-10-20",
+ "snapshot_time": "2026-10-20T08:57:00",
+ "market_median_change": -1.77,
+ "candidates": [
+  {
+   "code": "437730",
+   "name": "삼현",
+   "nxt_change": 6.69,
+   "nxt_value_eok": 315.8,
+   "via": "로봇(산업용/협동로봇 등)",
+   "krx_change": 3.04,
+   "value_rank": 154,
+   "change_rank": 74,
+   "leader": false
+  },
+  {
+   "code": "058610",
+   "name": "에스피지",
+   "nxt_change": 2.96,
+   "nxt_value_eok": 143.6,
+   "via": "로봇(산업용/협동로봇 등)",
+   "krx_change": -2.01,
+   "value_rank": 173,
+   "change_rank": 1408,
+   "leader": false
+  },
+  {
+   "code": "270660",
+   "name": "에브리봇",
+   "nxt_change": 21.35,
+   "nxt_value_eok": 124.2,
+   "via": "로봇(산업용/협동로봇 등)",
+   "krx_change": 9.22,
+   "value_rank": 291,
+   "change_rank": 23,
+   "leader": false
+  },
+  {
+   "code": "117730",
+   "name": "티로보틱스",
+   "nxt_change": 9.86,
+   "nxt_value_eok": 119.1,
+   "via": "로봇(산업용/협동로봇 등)",
+   "krx_change": 3.02,
+   "value_rank": 395,
+   "change_rank": 76,
+   "leader": false
+  },
+  {
+   "code": "277810",
+   "name": "레인보우로보틱스",
+   "nxt_change": 2.38,
+   "nxt_value_eok": 73.0,
+   "via": "로봇(산업용/협동로봇 등)",
+   "krx_change": -1.72,
+   "value_rank": 138,
+   "change_rank": 1290,
+   "leader": false
+  },
+  {
+   "code": "466100",
+   "name": "클로봇",
+   "nxt_change": 3.1,
+   "nxt_value_eok": 44.4,
+   "via": "로봇(산업용/협동로봇 등)",
+   "krx_change": -1.7,
+   "value_rank": 424,
+   "change_rank": 1283,
+   "leader": false
+  },
+  {
+   "code": "090360",
+   "name": "로보스타",
+   "nxt_change": 3.32,
+   "nxt_value_eok": 34.4,
+   "via": "로봇(산업용/협동로봇 등)",
+   "krx_change": -2.22,
+   "value_rank": 388,
+   "change_rank": 1495,
+   "leader": false
+  },
+  {
+   "code": "459510",
+   "name": "나우로보틱스",
+   "nxt_change": 2.64,
+   "nxt_value_eok": 25.7,
+   "via": "로봇(산업용/협동로봇 등)",
+   "krx_change": 0.23,
+   "value_rank": 842,
+   "change_rank": 353,
+   "leader": false
+  },
+  {
+   "code": "475400",
+   "name": "씨메스로보틱스",
+   "nxt_change": 5.81,
+   "nxt_value_eok": 13.0,
+   "via": "지능형로봇/인공지능(AI)",
+   "krx_change": 2.45,
+   "value_rank": 686,
+   "change_rank": 100,
+   "leader": false
+  }
+ ],
+ "hit_rate": 0.0,
+ "premarket_leading_industries": [],
+ "day_top10_industries_by_median": [
+  "양방향미디어와서비스",
+  "창업투자",
+  "가정용품",
+  "게임엔터테인먼트",
+  "교육서비스",
+  "가구",
+  "판매업체",
+  "부동산",
+  "광고",
+  "방송과엔터테인먼트"
+ ]
+}
