@@ -1,0 +1,45 @@
+{
+ "date": "2026-10-26",
+ "snapshot_time": "2026-10-26T08:57:01",
+ "market_median_change": -1.82,
+ "candidates": [
+  {
+   "code": "328130",
+   "name": "루닛",
+   "nxt_change": 13.36,
+   "nxt_value_eok": 239.0,
+   "via": "건강관리기술",
+   "krx_change": 30.0,
+   "value_rank": 41,
+   "change_rank": 1,
+   "leader": true
+  },
+  {
+   "code": "338220",
+   "name": "뷰노",
+   "nxt_change": 15.57,
+   "nxt_value_eok": 74.4,
+   "via": "건강관리기술",
+   "krx_change": 29.95,
+   "value_rank": 176,
+   "change_rank": 3,
+   "leader": false
+  }
+ ],
+ "hit_rate": 0.5,
+ "premarket_leading_industries": [
+  "건강관리기술"
+ ],
+ "day_top10_industries_by_median": [
+  "건강관리기술",
+  "생명보험",
+  "창업투자",
+  "컴퓨터와주변기기",
+  "디스플레이패널",
+  "건축제품",
+  "광고",
+  "해운사",
+  "식품과기본식료품소매",
+  "운송인프라"
+ ]
+}

@@ -1,6 +1,6 @@
-<!-- drift-check: snapshot 2026-10-16 -->
+<!-- drift-check: snapshot 2026-10-23 -->
 
-# 주간 유지관리 리포트 — 2026-10-16
+# 주간 유지관리 리포트 — 2026-10-23
 
 빨간 항목: 20
 
@@ -33,30 +33,43 @@
 | 폴더 | 크기 | 마지막 수정 | 비고 |
 |---|---|---|---|
 | `research/studies/38_trend_support_realtime` | 2507.2 MB | 2026-10-11 | 100MB 이상 |
-| `PYQuant/data/cache` | 1737.3 MB | 2026-10-16 | 100MB 이상 |
-| `research/studies/38_trend_stop_intraday` | 1685.0 MB | 2026-10-16 | 100MB 이상 |
-| `PYQuant/data/ticks_raw` | 1633.1 MB | 2026-10-16 | 100MB 이상 |
-| `.vs` | 1561.2 MB | 2026-10-14 | 100MB 이상 |
-| `PYQuant/data/ticks_raw_live` | 1355.0 MB | 2026-10-16 | 100MB 이상 |
-| `Quant/build_win` | 883.8 MB | 2026-10-16 | 100MB 이상 |
+| `PYQuant/data/ticks_raw` | 2081.2 MB | 2026-10-23 | 100MB 이상 |
+| `PYQuant/data/ticks_raw_live` | 2007.1 MB | 2026-10-23 | 100MB 이상 |
+| `.vs` | 1745.2 MB | 2026-10-19 | 100MB 이상 |
+| `PYQuant/data/cache` | 1737.7 MB | 2026-10-23 | 100MB 이상 |
+| `research/studies/38_trend_stop_intraday` | 1685.1 MB | 2026-10-23 | 100MB 이상 |
+| `Quant/build_win` | 1027.9 MB | 2026-10-23 | 100MB 이상 |
 | `PYQuant/.venv-win` | 732.8 MB | 2026-10-10 | 100MB 이상 |
-| `out/build/x64-release` | 724.5 MB | 2026-10-15 | 100MB 이상 |
-| `PYQuant/data/minute` | 529.0 MB | 2026-10-16 | 100MB 이상 |
-| `PYQuant/.venv` | 515.3 MB | 2026-09-08 | 100MB 이상 · 38일째 그대로 |
+| `out/build/x64-release` | 724.5 MB | 2026-10-23 | 100MB 이상 |
+| `PYQuant/data/minute` | 541.5 MB | 2026-10-23 | 100MB 이상 |
+| `PYQuant/.venv` | 515.3 MB | 2026-09-08 | 100MB 이상 · 45일째 그대로 |
 | `research/studies/24_devscale_exit_lines` | 392.1 MB | 2026-09-25 | 100MB 이상 |
-| `research/studies/35_surge_box_breakout` | 349.3 MB | 2026-10-16 | 100MB 이상 |
+| `research/studies/35_surge_box_breakout` | 349.4 MB | 2026-10-23 | 100MB 이상 |
 | `research/studies/39_devscale_exit_vs_trend` | 301.3 MB | 2026-10-11 | 100MB 이상 |
-| `research/studies/15_impulse_pullback` | 277.6 MB | 2026-09-19 | 100MB 이상 |
+| `research/studies/15_impulse_pullback` | 277.6 MB | 2026-09-19 | 100MB 이상 · 34일째 그대로 |
 | `research/studies/12_base_breakout` | 195.4 MB | 2026-09-26 | 100MB 이상 |
 | `research/studies/41_universe_basket` | 157.9 MB | 2026-10-11 | 100MB 이상 |
+| `PYQuant/data/themes` | 149.6 MB | 2026-10-23 | 100MB 이상 |
 | `research/studies/33_post_surge_pullback` | 143.7 MB | 2026-10-12 | 100MB 이상 |
 | `research/studies/30_strong_stock_strategies` | 126.9 MB | 2026-10-12 | 100MB 이상 |
-| `PYQuant/data/themes` | 124.5 MB | 2026-10-16 | 100MB 이상 |
-| `PYQuant/.index_cache` | 5.7 MB | 2026-08-25 | 52일째 그대로 |
-| `research/studies/06_bear_market` | 3.5 MB | 2026-09-06 | 39일째 그대로 |
-| `research/studies/raw` | 0.3 MB | 2026-08-09 | 67일째 그대로 |
-| `PYQuant/data/index_intraday` | 0.0 MB | 2026-08-25 | 52일째 그대로 |
-| **합계** | **15942.6 MB** | | 24개 |
+| `PYQuant/data/fin` | 92.0 MB | 2026-09-20 | 33일째 그대로 |
+| `PYQuant/.datagokr_cache` | 54.7 MB | 2026-09-23 | 30일째 그대로 |
+| `research/studies/25_devscale_open_dev_rescue` | 28.4 MB | 2026-09-21 | 32일째 그대로 |
+| `research/studies/16_trendx_execution` | 13.8 MB | 2026-09-19 | 33일째 그대로 |
+| `research/studies/14_hold_axis` | 4.8 MB | 2026-09-19 | 33일째 그대로 |
+| `research/studies/06_bear_market` | 3.5 MB | 2026-09-06 | 46일째 그대로 |
+| `research/studies/20_macro_overlay` | 2.7 MB | 2026-09-20 | 33일째 그대로 |
+| `research/studies/21_macro_overlay_hold` | 2.6 MB | 2026-09-20 | 33일째 그대로 |
+| `research/studies/13_trendx_gate` | 0.5 MB | 2026-09-20 | 33일째 그대로 |
+| `research/studies/18_factor_harness` | 0.4 MB | 2026-09-20 | 33일째 그대로 |
+| `research/studies/23_value_tilt_liquidity_floor` | 0.4 MB | 2026-09-20 | 33일째 그대로 |
+| `research/studies/raw` | 0.3 MB | 2026-08-09 | 74일째 그대로 |
+| `PYQuant/data/universe` | 0.2 MB | 2026-09-20 | 33일째 그대로 |
+| `research/studies/07_crisis_regimes` | 0.0 MB | 2026-09-20 | 33일째 그대로 |
+| `PYQuant/data/consensus` | 0.0 MB | 2026-09-20 | 33일째 그대로 |
+| `PYQuant/data/index_intraday` | 0.0 MB | 2026-08-25 | 59일째 그대로 |
+| `PYQuant/.pytest_cache` | 0.0 MB | 2026-09-20 | 33일째 그대로 |
+| **합계** | **17603.9 MB** | | 37개 |
 
 ## 4. 주석 밀도
 
@@ -372,7 +385,7 @@
 | `Quant/src/core/DataPoller.cpp` | 13 | 430 | 3% |
 | `Quant/src/exchange/ZmqOrderFeed.cpp` | 21 | 701 | 3% |
 | `Quant/src/ipc/SharedStrategyDictionary.cpp` | 4 | 136 | 3% |
-| `PYQuant/tools/ledger_dump.py` | 13 | 455 | 3% |
+| `PYQuant/tools/ledger_dump.py` | 14 | 480 | 3% |
 | `PYQuant/tools/pit_universe_backfill.py` | 3 | 105 | 3% |
 | `Quant/src/ipc/SharedSymbolDictionary.cpp` | 4 | 141 | 3% |
 | `Quant/src/strategy/VwapPullbackLoader.cpp` | 18 | 635 | 3% |
@@ -381,12 +394,12 @@
 | `Quant/src/strategy/SwingTrendState.cpp` | 12 | 439 | 3% |
 | `Quant/src/ipc/MarketFeedChannel.cpp` | 10 | 369 | 3% |
 | `PYQuant/backtest/devscale_replay_rescue.py` | 20 | 760 | 3% |
+| `scripts/daily_trade_report.py` | 16 | 609 | 3% |
 | `scripts/build_plain_dashboard.py` | 5 | 194 | 3% |
 | `scripts/build_review_entry.py` | 7 | 274 | 3% |
 | `scripts/deploy_trader.py` | 8 | 316 | 3% |
 | `Quant/src/core/LatencyTrace.cpp` | 7 | 278 | 3% |
 | `Quant/src/core/BarAggregator.cpp` | 11 | 439 | 3% |
-| `scripts/daily_trade_report.py` | 15 | 602 | 2% |
 | `PYQuant/tools/bench_market_open.py` | 11 | 448 | 2% |
 | `PYQuant/backtest/devscale_replay.py` | 18 | 736 | 2% |
 | `Quant/src/strategy/FixedIntervalStrategy.cpp` | 2 | 83 | 2% |
@@ -731,8 +744,8 @@
 
 ## 6. `.claude/` 변경(해시 매니페스트)
 
-파일 88개. 매니페스트는 `logs/claude_manifest.json`. 이전 생성일: 2026-10-09
+파일 88개. 매니페스트는 `logs/claude_manifest.json`. 이전 생성일: 2026-10-16
 
-- 추가 2개: `.claude/hooks/cite-gate.ps1`, `.claude/hooks/cite_gate.py`
+- 추가 0개
 - 삭제 0개
-- 변경 5개: `.claude/PROJECT_FACTS.md`, `.claude/commit-gate.state`, `.claude/hooks/stop-gates.ps1`, `.claude/settings.json`, `.claude/sync-gate.state`
+- 변경 2개: `.claude/commit-gate.state`, `.claude/sync-gate.state`
