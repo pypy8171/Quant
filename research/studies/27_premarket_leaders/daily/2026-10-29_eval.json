@@ -1,0 +1,20 @@
+{
+ "date": "2026-10-29",
+ "snapshot_time": "2026-10-29T08:57:01",
+ "market_median_change": -1.35,
+ "candidates": [],
+ "hit_rate": null,
+ "premarket_leading_industries": [],
+ "day_top10_industries_by_median": [
+  "은행",
+  "손해보험",
+  "생명보험",
+  "기타금융",
+  "증권",
+  "음료",
+  "전문소매",
+  "창업투자",
+  "가구",
+  "무역회사와판매업체"
+ ]
+}

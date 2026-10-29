@@ -1,0 +1,247 @@
+{
+ "date": "2026-10-27",
+ "snapshot_time": "2026-10-27T08:57:01",
+ "market_median_change": 0.68,
+ "candidates": [
+  {
+   "code": "000660",
+   "name": "SK하이닉스",
+   "nxt_change": 4.86,
+   "nxt_value_eok": 5068.7,
+   "via": "반도체와반도체장비",
+   "krx_change": 5.18,
+   "value_rank": 1,
+   "change_rank": 193,
+   "leader": true
+  },
+  {
+   "code": "005930",
+   "name": "삼성전자",
+   "nxt_change": 3.52,
+   "nxt_value_eok": 4362.8,
+   "via": "반도체와반도체장비",
+   "krx_change": 4.23,
+   "value_rank": 2,
+   "change_rank": 276,
+   "leader": true
+  },
+  {
+   "code": "402340",
+   "name": "SK스퀘어",
+   "nxt_change": 6.76,
+   "nxt_value_eok": 617.8,
+   "via": "반도체와반도체장비",
+   "krx_change": 7.67,
+   "value_rank": 4,
+   "change_rank": 78,
+   "leader": true
+  },
+  {
+   "code": "042700",
+   "name": "한미반도체",
+   "nxt_change": 3.8,
+   "nxt_value_eok": 151.0,
+   "via": "반도체와반도체장비",
+   "krx_change": 4.02,
+   "value_rank": 18,
+   "change_rank": 311,
+   "leader": true
+  },
+  {
+   "code": "131970",
+   "name": "두산테스나",
+   "nxt_change": 3.98,
+   "nxt_value_eok": 76.1,
+   "via": "반도체와반도체장비",
+   "krx_change": 1.78,
+   "value_rank": 91,
+   "change_rank": 804,
+   "leader": false
+  },
+  {
+   "code": "007660",
+   "name": "이수페타시스",
+   "nxt_change": 3.11,
+   "nxt_value_eok": 49.3,
+   "via": "반도체와반도체장비",
+   "krx_change": 6.59,
+   "value_rank": 89,
+   "change_rank": 118,
+   "leader": true
+  },
+  {
+   "code": "003160",
+   "name": "디아이",
+   "nxt_change": 3.88,
+   "nxt_value_eok": 47.6,
+   "via": "반도체와반도체장비",
+   "krx_change": 4.71,
+   "value_rank": 157,
+   "change_rank": 229,
+   "leader": false
+  },
+  {
+   "code": "356860",
+   "name": "티엘비",
+   "nxt_change": 4.13,
+   "nxt_value_eok": 26.3,
+   "via": "반도체와반도체장비",
+   "krx_change": 8.69,
+   "value_rank": 175,
+   "change_rank": 62,
+   "leader": false
+  },
+  {
+   "code": "281820",
+   "name": "케이씨텍",
+   "nxt_change": 3.7,
+   "nxt_value_eok": 22.8,
+   "via": "반도체와반도체장비",
+   "krx_change": 6.37,
+   "value_rank": 224,
+   "change_rank": 127,
+   "leader": false
+  },
+  {
+   "code": "089890",
+   "name": "코세스",
+   "nxt_change": 5.2,
+   "nxt_value_eok": 22.7,
+   "via": "반도체와반도체장비",
+   "krx_change": 10.86,
+   "value_rank": 169,
+   "change_rank": 45,
+   "leader": false
+  },
+  {
+   "code": "058470",
+   "name": "리노공업",
+   "nxt_change": 2.88,
+   "nxt_value_eok": 29.9,
+   "via": "반도체 장비",
+   "krx_change": 4.07,
+   "value_rank": 103,
+   "change_rank": 300,
+   "leader": false
+  },
+  {
+   "code": "425420",
+   "name": "티에프이",
+   "nxt_change": 7.64,
+   "nxt_value_eok": 24.2,
+   "via": "반도체 장비",
+   "krx_change": 23.9,
+   "value_rank": 96,
+   "change_rank": 7,
+   "leader": true
+  },
+  {
+   "code": "031980",
+   "name": "피에스케이홀딩스",
+   "nxt_change": 3.8,
+   "nxt_value_eok": 21.3,
+   "via": "반도체 장비",
+   "krx_change": 7.29,
+   "value_rank": 146,
+   "change_rank": 91,
+   "leader": false
+  },
+  {
+   "code": "131290",
+   "name": "티에스이",
+   "nxt_change": 5.19,
+   "nxt_value_eok": 19.7,
+   "via": "반도체 장비",
+   "krx_change": 7.88,
+   "value_rank": 153,
+   "change_rank": 74,
+   "leader": false
+  },
+  {
+   "code": "095610",
+   "name": "테스",
+   "nxt_change": 3.23,
+   "nxt_value_eok": 19.7,
+   "via": "반도체 장비",
+   "krx_change": 5.61,
+   "value_rank": 108,
+   "change_rank": 157,
+   "leader": false
+  },
+  {
+   "code": "319660",
+   "name": "피에스케이",
+   "nxt_change": 5.14,
+   "nxt_value_eok": 18.6,
+   "via": "반도체 장비",
+   "krx_change": 5.6,
+   "value_rank": 158,
+   "change_rank": 159,
+   "leader": false
+  },
+  {
+   "code": "222800",
+   "name": "심텍",
+   "nxt_change": 5.5,
+   "nxt_value_eok": 184.2,
+   "via": "소캠(SOCAMM)",
+   "krx_change": 9.23,
+   "value_rank": 20,
+   "change_rank": 55,
+   "leader": true
+  },
+  {
+   "code": "007810",
+   "name": "코리아써키트",
+   "nxt_change": 6.48,
+   "nxt_value_eok": 160.4,
+   "via": "소캠(SOCAMM)",
+   "krx_change": 13.4,
+   "value_rank": 43,
+   "change_rank": 28,
+   "leader": true
+  },
+  {
+   "code": "095340",
+   "name": "ISC",
+   "nxt_change": 4.13,
+   "nxt_value_eok": 7.6,
+   "via": "소캠(SOCAMM)",
+   "krx_change": 7.61,
+   "value_rank": 68,
+   "change_rank": 81,
+   "leader": true
+  },
+  {
+   "code": "039030",
+   "name": "이오테크닉스",
+   "nxt_change": 3.3,
+   "nxt_value_eok": 12.9,
+   "via": "HBM(고대역폭메모리)",
+   "krx_change": 4.22,
+   "value_rank": 106,
+   "change_rank": 279,
+   "leader": false
+  }
+ ],
+ "hit_rate": 0.45,
+ "premarket_leading_industries": [
+  "반도체와반도체장비",
+  "전자장비와기기",
+  "전기장비",
+  "석유와가스",
+  "통신장비"
+ ],
+ "day_top10_industries_by_median": [
+  "반도체와반도체장비",
+  "전기장비",
+  "전기제품",
+  "가정용품",
+  "전자장비와기기",
+  "무역회사와판매업체",
+  "무선통신서비스",
+  "레저용장비와제품",
+  "증권",
+  "조선"
+ ]
+}

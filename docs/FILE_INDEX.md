@@ -12,9 +12,9 @@
 - [Quant](#quant) — 461개
 - [docs](#docs) — 154개
 - [linux_practice](#linux_practice) — 2개
-- [research](#research) — 587개
+- [research](#research) — 596개
 - [scripts](#scripts) — 54개
-- [strategies](#strategies) — 53개
+- [strategies](#strategies) — 56개
 - [tools](#tools) — 3개
 
 ## (루트)
@@ -1366,6 +1366,12 @@
 - [2026-10-23_eval.json](../research/studies/27_premarket_leaders/daily/2026-10-23_eval.json) — 10-23 장 전 주도 후보의 장중 성적 평가
 - [2026-10-26.jsonl](../research/studies/27_premarket_leaders/daily/2026-10-26.jsonl) — 10-26 장 전 주도 후보 기록
 - [2026-10-26_eval.json](../research/studies/27_premarket_leaders/daily/2026-10-26_eval.json) — 10-26 장 전 주도 후보의 장중 성적 평가
+- [2026-10-27.jsonl](../research/studies/27_premarket_leaders/daily/2026-10-27.jsonl) — 10-27 장 전 주도 후보 기록
+- [2026-10-27_eval.json](../research/studies/27_premarket_leaders/daily/2026-10-27_eval.json) — 10-27 장 전 주도 후보의 장중 성적 평가
+- [2026-10-28.jsonl](../research/studies/27_premarket_leaders/daily/2026-10-28.jsonl) — 10-28 장 전 주도 후보 기록
+- [2026-10-28_eval.json](../research/studies/27_premarket_leaders/daily/2026-10-28_eval.json) — 10-28 장 전 주도 후보의 장중 성적 평가
+- [2026-10-29.jsonl](../research/studies/27_premarket_leaders/daily/2026-10-29.jsonl) — 10-29 장 전 주도 후보 기록
+- [2026-10-29_eval.json](../research/studies/27_premarket_leaders/daily/2026-10-29_eval.json) — 10-29 장 전 주도 후보의 장중 성적 평가
 
 ### research/studies/28_devscale_zone_width/
 
@@ -1537,6 +1543,9 @@
 - [2026-10-22.jsonl](../research/studies/35_surge_box_breakout/live/2026-10-22.jsonl) — 2026-10-22 급등 박스 돌파 관측 일지(급등 수·신호·보유·누적 성과)
 - [2026-10-23.jsonl](../research/studies/35_surge_box_breakout/live/2026-10-23.jsonl) — 2026-10-23 급등 박스 돌파 관측 일지(급등 수·신호·보유·누적 성과)
 - [2026-10-26.jsonl](../research/studies/35_surge_box_breakout/live/2026-10-26.jsonl) — 2026-10-26 급등 박스 돌파 관측 일지(급등 수·신호·보유·누적 성과)
+- [2026-10-27.jsonl](../research/studies/35_surge_box_breakout/live/2026-10-27.jsonl) — 2026-10-27 급등 박스 돌파 관측 일지(급등 수·신호·보유·누적 성과)
+- [2026-10-28.jsonl](../research/studies/35_surge_box_breakout/live/2026-10-28.jsonl) — 2026-10-28 급등 박스 돌파 관측 일지(급등 수·신호·보유·누적 성과)
+- [2026-10-29.jsonl](../research/studies/35_surge_box_breakout/live/2026-10-29.jsonl) — 2026-10-29 급등 박스 돌파 관측 일지(급등 수·신호·보유·누적 성과)
 - [ledger.tsv](../research/studies/35_surge_box_breakout/live/ledger.tsv) — daily_watch.py 규칙별 매매 원장(신호일·매수·청산·수익률, 기록 열은 실시간/따라잡기)
 - [summary.txt](../research/studies/35_surge_box_breakout/live/summary.txt) — daily_watch.py 규칙별 누적 성적과 백테스트 대비·판정 요약
 
@@ -1881,6 +1890,9 @@
 - [2026-10-22.md](../strategies/DeviationScale/live/2026-10-22.md) — 10-22 라이브 매매일지
 - [2026-10-23.md](../strategies/DeviationScale/live/2026-10-23.md) — 10-23 라이브 매매일지
 - [2026-10-26.md](../strategies/DeviationScale/live/2026-10-26.md) — 10-26 라이브 매매일지
+- [2026-10-27.md](../strategies/DeviationScale/live/2026-10-27.md) — 10-27 라이브 매매일지
+- [2026-10-28.md](../strategies/DeviationScale/live/2026-10-28.md) — 10-28 라이브 매매일지
+- [2026-10-29.md](../strategies/DeviationScale/live/2026-10-29.md) — 10-29 라이브 매매일지
 
 ### strategies/DeviationScale/reviews/
 
