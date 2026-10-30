@@ -62,15 +62,17 @@ if ($Uninstall) {
 }
 
 if ($Install) {
-  # 창이 보여야 사람이 눈으로 확인할 수 있다 → 로그온 세션에서 실행한다.
-  $arg = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -Config `"$Config`" -Open $Open -Until $Until -Hours $Hours"
+  # 5분마다 도는 가드는 창 없이 띄운다 — conhost --headless 가 숨은 콘솔을 만들어 준다. 가드가 띄우는 하루 루프 창은
+  #  Start-Process 라 따로 보인다. scripts\market_close_timetable.ps1 이 이 방식에서 벗어난 작업을 어긋남으로 센다.
+  #  [why 10-30: 매매 아침 5분마다 콘솔 창이 떴다(사용자 지시)]
+  $arg = "--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -Config `"$Config`" -Open $Open -Until $Until -Hours $Hours"
 
   if ($NoBuild)
   {
     $arg += " -NoBuild"
   }
 
-  $act = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $arg -WorkingDirectory $Repo
+  $act = New-ScheduledTaskAction -Execute "conhost.exe" -Argument $arg -WorkingDirectory $Repo
   $trg = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday, Tuesday, Wednesday, Thursday, Friday -At $Open
   # 주간 트리거에는 반복 설정이 없다. 1회 트리거에서 Repetition만 떼어 붙인다.
   $trg.Repetition = (New-ScheduledTaskTrigger -Once -At $Open `

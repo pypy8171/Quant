@@ -508,7 +508,7 @@ Start-Sleep -Seconds 5; Start-Sleep -Milliseconds 200
 **cmdlet(등록)** — `scripts/auto_trade_guard.ps1 -Install`:
 
 ```powershell
-$act = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $arg -WorkingDirectory $Repo
+$act = New-ScheduledTaskAction -Execute "conhost.exe" -Argument "--headless powershell.exe $arg" -WorkingDirectory $Repo
 $trg = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday, Tuesday, Wednesday, Thursday, Friday -At $Open
 $trg.Repetition = (New-ScheduledTaskTrigger -Once -At $Open -RepetitionInterval (New-TimeSpan -Minutes 5) `
                                             -RepetitionDuration (New-TimeSpan -Hours $Hours)).Repetition
@@ -520,7 +520,11 @@ Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
 
 주간 트리거에는 반복 설정이 없어서 1회 트리거의 `.Repetition`만 떼어 붙인다(이 꼼수는 주석에 남아 있다).
 `-MultipleInstances IgnoreNew`는 앞 회차가 아직 돌면 새 회차를 건너뛴다. `-ExecutionTimeLimit`은 멈춘 회차를 강제 종료한다.
-로그온 세션에서 실행해야 창이 보인다(`-LogonType`을 지정하지 않으면 현재 사용자·대화형).
+예약작업은 창 없이 돈다 — `conhost.exe --headless`가 숨은 콘솔을 만들고, 그 아래 자식(`py`→`python`)도 같은 콘솔을 물려받는다.
+`powershell -WindowStyle Hidden`은 숨기기 전에 창이 잠깐 뜨고, `pythonw`는 자식으로 띄운 `python.exe`마다 창이 뜬다.
+대신 conhost는 자식의 종료 코드를 넘기지 않아 작업 결과가 늘 0이다(10-30 실측) — 실패는 각 스크립트의 로그로 본다.
+창을 띄우는 방식으로 걸린 작업은 `market_close_timetable.ps1`이 어긋남으로 세고(`-Windows`로 목록, `-Apply`로 감싼다),
+세션 시작 훅 `cron-gate.ps1`과 `check_runtime_health.py`의 "예약작업 창 없이 실행" 행이 알린다.
 
 **조회·변경** — `scripts/market_close_timetable.ps1`:
 

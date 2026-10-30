@@ -1,6 +1,6 @@
 {
   "schema": "quant.live/v1",
-  "generated": "2026-10-29 20:03",
+  "generated": "2026-10-30 21:10",
   "journals": [
     {
       "date": "2026-10-29",
@@ -3692,6 +3692,30 @@
       "realized_pnl": 0,
       "buy_notional": 0,
       "sell_notional": 0
+    },
+    {
+      "date": "2026-10-30",
+      "path": "Quant/build_win/logs_live/trades_20261030.csv",
+      "total": 8,
+      "by_status": {
+        "ACCEPTED": 4,
+        "FILLED": 4
+      },
+      "by_strategy": {
+        "FORCE_LIQ": 8
+      },
+      "by_side": {
+        "SELL": 8
+      },
+      "n_tickers": 4,
+      "accepted": 4,
+      "rejected": 0,
+      "cancelled": 0,
+      "filled": 4,
+      "fill_events": 4,
+      "realized_pnl": 1634,
+      "buy_notional": 0,
+      "sell_notional": 212050
     }
   ]
 }

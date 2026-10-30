@@ -4,6 +4,7 @@
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/market_close_timetable.ps1 -Apply          # schtasks 시각 변경 + 감시견 재등록
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/market_close_timetable.ps1 -Lines          # "이름<TAB>HH:MM<TAB>대응" (cron-gate 훅이 읽는다)
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/market_close_timetable.ps1 -Lines -Mode live   # config 안 읽고 그 모드 시간표만 (gen_facts·허브 생성기가 두 모드를 뽑는다)
+#   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/market_close_timetable.ps1 -Windows        # 창을 띄우는 작업만 "이름<TAB>실행 파일" (cron-gate 훅이 읽는다)
 # 규칙:
 #   - 모의(is_paper=true): KIS 모의 서버가 15:30 뒤 주문을 거부한다(T-18, 2026-09-18 실측). 매매 끝 15:30, 마감 루틴 16:00대.
 #   - 실계좌(is_paper=false): 애프터마켓 16:00~20:00(D-097)까지 매매, 마감 루틴 20:30 시작. 실계좌 애프터마켓 주문은
@@ -11,11 +12,14 @@
 #   - 계좌 모드는 감시견 예약작업(QuantAutoTradeGuard)이 넘기는 config의 kis.is_paper 로 읽는다. 최상위·quote_kis 의 is_paper 는
 #     시세 계정이라 보지 않는다(scripts/auto_trade_day.ps1 와 같은 이유).
 #   - 클로드를 부르는 두 작업(claude_stock_study·claude_dashboard_sync)은 세션 사용량 한도(17시 리셋) 때문에 모의에서도 20:30 뒤다.
+#   - 시간표의 작업과 두 감시견은 창 없이 돈다 — conhost --headless 로 감싸거나 pythonw. 그 밖의 실행 방식은 어긋남으로 세고
+#     -Apply 가 conhost --headless 로 감싼다. [why 10-30: 매매 아침 5분마다 콘솔 창이 떴다(사용자 지시)]
 #   - 순서는 고정: 바스켓 비중표(08:40, 장 전) → 장 마감 AutoDoc → Maintain Daily → Minute Backfill → Daily Bars(바스켓 비중표가 읽는 일봉) → Study35 Watch(그 일봉으로 스터디 35 기록) → stock_study → dashboard_sync → Maintain Weekly(금).
 param(
     [string]$Config = $null,
     [switch]$Apply,
     [switch]$Lines,
+    [switch]$Windows,
     [ValidateSet('', 'paper', 'live')][string]$Mode = ''
 )
 
@@ -123,6 +127,47 @@ $fix = @{
     'Quant Maintain Weekly' = 'py ..\quant-devtools\maintain.py --weekly'
 }
 
+# ── 창 없이 도는지 ──
+# conhost --headless 는 숨은 콘솔을 만들고 그 아래 자식도 같은 콘솔을 물려받는다. pythonw 는 콘솔이 없다.
+#  powershell -WindowStyle Hidden 은 숨기기 전에 창이 잠깐 떠서 창을 띄우는 쪽으로 센다.
+$windowCheckNames = @($plan.Keys) + @('QuantAutoTradeGuard', $liveGuardName)
+
+function Test-ShowsWindow($task)
+{
+    $action = $task.Actions[0]
+    $exeName = Split-Path -Leaf ([string]$action.Execute).Trim('"')
+
+    if ($exeName -eq 'pythonw.exe')
+    {
+        return $false
+    }
+
+    return -not ($exeName -eq 'conhost.exe' -and ([string]$action.Arguments).TrimStart() -like '--headless*')
+}
+
+function Get-WindowTasks
+{
+    foreach ($name in $windowCheckNames)
+    {
+        $task = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+
+        if ($task -and (Test-ShowsWindow $task))
+        {
+            $task
+        }
+    }
+}
+
+if ($Windows)
+{
+    foreach ($task in Get-WindowTasks)
+    {
+        "{0}`t{1}" -f $task.TaskName, $task.Actions[0].Execute
+    }
+
+    exit 0
+}
+
 if ($Lines)
 {
     "{0}`t{1}`t{2}" -f 'QuantAutoTradeGuard', ('{0}~ 5분마다, -Until {1}, {2}h' -f $guardOpen, $until, $guardHours), 'powershell -File scripts\market_close_timetable.ps1 -Apply'
@@ -179,6 +224,12 @@ $liveGuardOk = ($liveGuardStart -eq $liveGuardOpen) -and ($liveGuardActualUntil 
 $mark = if ($liveGuardOk) { '  ' } else { '!!'; $drift++ }
 Write-Host ("  {0} {1,-24} 예정 {2}~ -Until {3} {4}h -NoBuild  실제 {5}~ -Until {6} {7}h" -f $mark, $liveGuardName, $liveGuardOpen, $liveGuardUntil, $liveGuardHours, $liveGuardStart, $liveGuardActualUntil, $liveGuardDuration)
 
+foreach ($task in Get-WindowTasks)
+{
+    $drift++
+    Write-Host ("  !! {0,-24} 창을 띄운다 — 실행 {1}" -f $task.TaskName, $task.Actions[0].Execute)
+}
+
 if (-not $Apply)
 {
     if ($drift -gt 0)
@@ -220,6 +271,16 @@ if (-not $liveGuardOk)
 {
     & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'auto_trade_guard.ps1') -Install -Config $liveGuardConfig -Open $liveGuardOpen -Until $liveGuardUntil -Hours $liveGuardHours -NoBuild
     Write-Host ("  실계좌 감시견 재등록 {0}~ -Until {1} {2}h -NoBuild" -f $liveGuardOpen, $liveGuardUntil, $liveGuardHours)
+}
+
+# 감시견 재등록이 끝난 뒤에 본다 — 재등록이 이미 conhost --headless 로 건다.
+foreach ($task in Get-WindowTasks)
+{
+    $action = $task.Actions[0]
+    $exePath = ([string]$action.Execute).Trim('"')
+    $headless = New-ScheduledTaskAction -Execute 'conhost.exe' -Argument ("--headless `"{0}`" {1}" -f $exePath, $action.Arguments) -WorkingDirectory $action.WorkingDirectory
+    Set-ScheduledTask -TaskName $task.TaskName -Action $headless | Out-Null
+    Write-Host ("  창 없이 바꿈 {0} ({1} → conhost --headless)" -f $task.TaskName, (Split-Path -Leaf $exePath))
 }
 
 Write-Host "[market_close_timetable] 적용 끝 — .claude/hooks/cron-gate.ps1 는 이 스크립트의 -Lines 를 읽으므로 따로 고칠 것 없다"

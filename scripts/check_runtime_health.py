@@ -2841,6 +2841,31 @@ def job_attach_row(date: str) -> tuple:
     return (name, ok, "FAIL", detail)
 
 
+def scheduled_task_window_row() -> tuple:
+    """예약작업 가운데 콘솔 창을 띄우는 방식으로 걸린 것을 센다 — 평소 0이다.
+
+    매매 아침 5분마다 도는 감시견 창이 떠서(10-30 사용자 지시) 시간표의 작업과 두 감시견을 conhost --headless
+    로 감쌌다. 손으로 다시 등록하면 원래 방식으로 돌아가므로 매매일지에 뜨게 한다. 판정은
+    scripts/market_close_timetable.ps1 -Windows 한 곳이고, 되돌리기는 같은 스크립트의 -Apply 다.
+    """
+    name = "예약작업 창 없이 실행"
+
+    if sys.platform != "win32":
+        return (name, True, "WARN", "Windows 아님 — 판정 안 함")
+
+    try:
+        completed = subprocess.run(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+             str(REPO / "scripts" / "market_close_timetable.ps1"), "-Windows"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return (name, False, "WARN", f"scripts/market_close_timetable.ps1 -Windows 실행 실패: {error}")
+
+    names = [line.split("	")[0] for line in completed.stdout.splitlines() if line.strip()]
+    return (name, not names, "WARN",
+            f"{len(names)}건(기대 0)" + (f" — {', '.join(names)} → scripts/market_close_timetable.ps1 -Apply" if names else ""))
+
+
 def gross_exposure_config_row() -> tuple:
     """실계좌 설정의 총노출 한도가 자본의 100%를 넘는지 본다.
 
@@ -3728,6 +3753,7 @@ def global_rows(date: str) -> list:
         thread_label_row(date),
         job_attach_row(date),
         gross_exposure_config_row(),
+        scheduled_task_window_row(),
         *orphan_process_rows(),
         tsan_row(date),
     ]

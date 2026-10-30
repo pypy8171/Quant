@@ -657,7 +657,7 @@
       "file": "scripts/check_runtime_health.py",
       "symbol": "collect",
       "lines": 907,
-      "start": 3810
+      "start": 3836
     },
     {
       "file": "PYQuant/backtest/devscale_replay_rescue.py",
@@ -873,7 +873,7 @@
       "file": "scripts/check_runtime_health.py",
       "symbol": "journal_mirror_row",
       "lines": 109,
-      "start": 3145
+      "start": 3170
     },
     {
       "file": "Quant/src/api/KisMarket.cpp",
@@ -1011,7 +1011,7 @@
       "file": "scripts/check_runtime_health.py",
       "symbol": "vwappb_rows",
       "lines": 95,
-      "start": 3586
+      "start": 3611
     },
     {
       "file": "Quant/src/strategy/SurgeHoldPlan.cpp",
